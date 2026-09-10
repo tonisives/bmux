@@ -92,7 +92,8 @@ let request = command => new Promise((resolve, reject) => {
   connection.on('end', () => { try { resolve(JSON.parse(result)) } catch { reject(new Error('Invalid response from Browmux')) } })
 })
 let start = async () => {
-  let packaged = process.env.BROWMUX_APP
+  let installed = path.join(os.homedir(), 'workspace', '_tools', 'Browmux.app')
+  let packaged = process.env.BROWMUX_APP ?? (fs.existsSync(installed) ? installed : undefined)
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', 'Browmux') : packaged

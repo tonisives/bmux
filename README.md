@@ -100,10 +100,10 @@ pnpm test:package
 
 Integration tests open disposable Electron clients, exercise native view transfers, verify isolated storage and restart recovery, and check that bot automation preserves the frontmost macOS application. They produce a client screenshot under `artifacts/`.
 
-Packaging produces `release/mac-arm64/Browmux.app` on Apple Silicon (or `release/mac/Browmux.app` on Intel). This is a local unsigned build, not a notarized public release. To drive a packaged build:
+Every `pnpm package` installs the completed app at `~/workspace/_tools/Browmux.app`, replacing the previous bundle after the new build succeeds. The `release/` directory is temporary packaging output. Packaging does not restart a running app; reopen it to use the new build. This is a local unsigned build, not a notarized public release. The CLI automatically uses the installed app; `BROWMUX_APP` can override it:
 
 ```sh
-export BROWMUX_APP=/absolute/path/to/Browmux.app
+# Optional override: export BROWMUX_APP=/absolute/path/to/Browmux.app
 brmux attach-session -t main
 ```
 

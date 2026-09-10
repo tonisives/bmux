@@ -9,3 +9,4 @@
 - Use `pnpm check`, `pnpm test:electron`, and `pnpm package`. Limit worker concurrency to four.
 - Tests must use disposable `BROWMUX_DATA_DIR` directories and local fixture pages. Never read a real browser profile or print secrets.
 - Frontend development uses hot reload. Avoid restarting the browser just for renderer edits.
+- Always install packaged builds to `~/workspace/_tools/Browmux.app` (`/Users/tonis/workspace/_tools/Browmux.app` on this Mac) using `pnpm package`. Keep the source repository here. Do not restart a running app after packaging.

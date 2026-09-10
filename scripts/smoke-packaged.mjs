@@ -9,8 +9,8 @@ import http from 'node:http'
 let exec = promisify(execFile)
 let root = process.cwd()
 let data = await fs.mkdtemp(path.join(os.tmpdir(), 'browmux-package-'))
-let appPath = process.env.BROWMUX_APP ?? path.join(root, 'release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Browmux.app')
-let env = { ...process.env, BROWMUX_DATA_DIR: data, BROWMUX_APP: appPath }
+let appPath = process.env.BROWMUX_APP ?? path.join(os.homedir(), 'workspace', '_tools', 'Browmux.app')
+let env = { ...process.env, BROWMUX_DATA_DIR: data }
 let command = async (...args) => {
   let result = await exec(process.execPath, [path.join(root, 'bin/brmux.mjs'), ...args], { env, maxBuffer: 8 * 1024 * 1024 })
   let response = JSON.parse(result.stdout)
