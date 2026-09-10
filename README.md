@@ -134,6 +134,7 @@ The default prefix is Control+B, followed within 1.6 seconds by:
 | % | Split pane horizontally (side by side) |
 | " | Split pane vertically (above and below) |
 | o | Next pane |
+| z | Toggle the selected pane between split and full-window views |
 | s | Show sessions |
 | : | Open command prompt |
 | ? | Show help and shortcuts |
@@ -147,7 +148,7 @@ In the session picker (Control+B, then s), Up/Down moves the highlight, Enter at
 
 Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 
-Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. The separate status bar keeps sessions, windows, and commands available while entering a URL; it sits at the top by default and follows the `statusBar` setting. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
+Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. Control+B then z toggles the selected pane between the split layout and a full-window view without changing the saved split. The separate status bar keeps sessions, windows, and commands available while entering a URL; it sits at the top by default and follows the `statusBar` setting. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
 Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
 

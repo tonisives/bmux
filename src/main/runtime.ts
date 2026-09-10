@@ -313,6 +313,7 @@ export let createRuntime = (dataDirectory: string) => {
       let window = session.windows.find(window => window.id === client.windowId) ?? session.windows[0]
       client.windowId = window.id
       if (!window.panes.some(pane => pane.id === client.paneId)) client.paneId = window.panes[0]?.id ?? null
+      if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
     }
   }
   let changed = () => { repairClients(); save(); void scheduleVisuals() }
@@ -469,6 +470,7 @@ export let createRuntime = (dataDirectory: string) => {
         if (!['left', 'right', 'up', 'down'].includes(direction)) throw new Error(`Unknown pane direction: ${direction}`)
         client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down') ?? client.paneId
       }
+      if (client.zoomedPaneId) client.zoomedPaneId = client.paneId
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {
         let pane = paneById(model, client.paneId).pane
         let live = tabs.get(pane.activeTabId), owner = clients.get(client.id)!
@@ -476,6 +478,11 @@ export let createRuntime = (dataDirectory: string) => {
         else owner.chrome.webContents.focus()
       }
       save(); return client
+    }
+    if (method === 'toggle-pane-zoom') {
+      let client = resolve(model.clients, args.client, 'Client')
+      client.zoomedPaneId = client.zoomedPaneId ? null : client.paneId
+      changed(); await visualQueue; return client
     }
     if (method === 'split-window') {
       let parent = args.pane ? paneById(model, args.pane) : undefined

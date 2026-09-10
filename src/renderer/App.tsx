@@ -55,9 +55,10 @@ export let App = () => {
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
+  let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
   let context = { state, control, message, onMessage: setMessage, run, show, dismiss }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{window.layout ? <Branch node={window.layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
+    <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={control === 'address' ? '' : message} />}
     </footer>
@@ -300,7 +301,7 @@ let HelpContent = () => {
   let { state } = useUI()
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
-  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels. Closing an internal window asks for y/n. Closing a native client leaves its session running.</p><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\npane-left / pane-down / pane-up / pane-right\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels. Closing an internal window asks for y/n. Closing a native client leaves its session running.</p><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntoggle-pane-zoom\npane-left / pane-down / pane-up / pane-right\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
 }
 
 let KeyboardSettings = () => {

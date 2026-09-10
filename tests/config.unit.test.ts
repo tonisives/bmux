@@ -10,6 +10,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaults = defaultConfig.keyboard
   expect(defaultConfig.statusBar).toBe('top')
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
+  expect(defaults.prefixBindings.z).toBe('toggle-pane-zoom')
   let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n').keyboard
   expect(custom.prefix).toBe('Ctrl+A')
   expect(custom.shortcuts['Cmd+R']).toBeUndefined()
