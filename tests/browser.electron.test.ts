@@ -439,3 +439,34 @@ test('window management shortcuts and keyboard session selection', async () => {
   await expect.poll(async () => (await cli('list-clients')).length).toBe(0)
   expect((await cli('list-sessions')).some((session: { id: string }) => session.id === gamma.id)).toBe(true)
 })
+
+
+test('accessibility preferences and custom window shortcuts reload and survive restart', async () => {
+  let config = path.join(directory, 'config.yaml')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n')
+  await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
+  expect((await cli('state')).keyboard.prefix).toBe('Ctrl+2')
+  await application.close(); await launch()
+  expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
+  let session = await cli('new-session', { name: 'custom-shortcuts' })
+  let second = await cli('new-window', { session: session.id })
+  let client = await cli('attach-session', { session: session.id })
+  let key = async (keyCode: string) => {
+    await cli('activate-client', { client: client.id })
+    await application.evaluate(({ webContents }, keyCode) => {
+      let contents = webContents.getFocusedWebContents()!
+      contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: ['meta'] })
+      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['meta'] })
+    }, keyCode)
+  }
+  await key(']')
+  await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(second.id)
+  await key('[')
+  await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(session.windows[0].id)
+  await fs.writeFile(config, 'accessibility: broken\nkeyboard: {}\n')
+  await expect.poll(async () => Boolean((await cli('state')).configError)).toBe(true)
+  expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
+  await fs.writeFile(config, 'accessibility: false\nkeyboard: {}\n')
+  await expect.poll(async () => (await cli('state')).accessibility).toBe(false)
+  await cli('detach-client', { client: client.id })
+})

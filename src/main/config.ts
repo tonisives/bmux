@@ -6,12 +6,13 @@ import { DEFAULT_KEYBOARD, KEY_ACTIONS, parseBinding } from '../shared/keyboard'
 import type { KeyboardConfig } from '../shared/keyboard'
 
 export let configPath = (dataDirectory: string) => process.env.BROWMUX_CONFIG ?? (process.env.BROWMUX_DATA_DIR ? path.join(dataDirectory, 'config.yaml') : path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'browmux', 'config.yaml'))
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# Browmux keyboard settings. Changes reload automatically.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ keyboard: { ...DEFAULT_KEYBOARD, prefix } })
-export let parseConfig = (text: string): KeyboardConfig => {
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# Browmux keyboard settings. Changes reload automatically.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let parseConfig = (text: string): { keyboard: KeyboardConfig; accessibility: boolean } => {
   let document = parseDocument(text)
   if (document.errors.length) throw new Error('Invalid YAML in keyboard configuration')
   let value = document.toJS({ maxAliasCount: 30 })
   if (!value || typeof value !== 'object' || Array.isArray(value) || !value.keyboard || typeof value.keyboard !== 'object' || Array.isArray(value.keyboard)) throw new Error('Configuration must contain a keyboard mapping')
+  if (value.accessibility !== undefined && typeof value.accessibility !== 'boolean') throw new Error('accessibility must be true or false')
   let keyboard = value.keyboard
   for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
   let result = structuredClone(DEFAULT_KEYBOARD)
@@ -38,20 +39,20 @@ export let parseConfig = (text: string): KeyboardConfig => {
       else result[field][key] = action
     }
   }
-  return result
+  return { keyboard: result, accessibility: value.accessibility ?? false }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let keyboard = structuredClone(DEFAULT_KEYBOARD), error: string | null = null
+  let settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
-    try { keyboard = parseConfig(fs.readFileSync(file, 'utf8')); error = null } catch (failure) { error = failure instanceof Error ? failure.message : 'Could not read keyboard configuration' }
+    try { settings = parseConfig(fs.readFileSync(file, 'utf8')); error = null } catch (failure) { error = failure instanceof Error ? failure.message : 'Could not read keyboard configuration' }
     onChange()
   }
   reload()
   fs.watchFile(file, { interval: 500, persistent: false }, reload)
   return {
-    get keyboard() { return keyboard }, get error() { return error }, path: file, reload,
+    get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {
       parseBinding(prefix)
       let document = parseDocument(fs.readFileSync(file, 'utf8'))

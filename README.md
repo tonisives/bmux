@@ -124,6 +124,7 @@ Use quotes around names with spaces. Window/tab indices start at 0. Up/down reca
 Edit `~/.config/browmux/config.yaml`, or press Command+, to view settings and open the file. Changes reload automatically; invalid YAML retains the last working configuration and reports the error. Help shows the active bindings.
 
 ```yaml
+accessibility: false
 keyboard:
   prefix: Ctrl+B
   prefixTimeoutMs: 1600
@@ -154,6 +155,14 @@ Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults a
 `BROWMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BROWMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
 
 Window switching, reload, stop, and keyboard commands remain responsive during navigation. URL submission starts loading immediately; a slow request does not hold the command prompt open or block another internal window. CLI `navigate` continues to wait for loading by default; use `--waitUntil none` for immediate return.
+
+## oVim and accessibility
+
+Electron can expose page links, buttons, and inputs through macOS accessibility. Set `accessibility: true` at the top of Browmux's config to enable this explicitly; it reloads live and applies after relaunch. The default is automatic detection (`false`), so isolated bot instances do not force accessibility tree construction.
+
+For oVim click mode, allow sufficient traversal depth in oVim's settings. Grafana's login controls were 18–23 levels deep in Chromium's tree; a `click_mode.max_depth` of 10 missed them. Raising it to 30 and enabling Browmux accessibility exposed the login controls. oVim currently requires a restart to load its YAML changes. No extension is required for native accessibility hints; canvas-only controls still depend on the website providing accessible elements.
+
+Personal window-switching overrides can use `Cmd+[: previous-window` and `Cmd+]: next-window` under `keyboard.shortcuts`; these replace history navigation only in that config. The application's default bindings remain unchanged.
 
 ## Data and permissions
 

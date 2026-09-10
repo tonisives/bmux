@@ -53,6 +53,7 @@ export let createRuntime = (dataDirectory: string) => {
   let prefixUntil = 0
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
+  let accessibilityPreference = false
   let visualScheduled = false
   let snapshotPending = new Set<string>()
   let settingsFile = path.join(dataDirectory, 'settings.json')
@@ -63,7 +64,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -156,6 +157,14 @@ export let createRuntime = (dataDirectory: string) => {
       { label: 'Browser', submenu: [{ label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
       { role: 'windowMenu' },
     ]))
+  }
+  let refreshSettings = () => {
+    refreshMenu()
+    if (configuration && configuration.accessibility !== accessibilityPreference) {
+      accessibilityPreference = configuration.accessibility
+      app.setAccessibilitySupportEnabled(accessibilityPreference)
+    }
+    publish()
   }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
@@ -424,7 +433,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
     if (method === 'detach-client') { let client = resolve(model.clients, args.client, 'Client'); clients.get(client.id)?.window.close(); return { detached: client.id } }
     if (method === 'activate-client') { let client = resolve(model.clients, args.client, 'Client'); await app.dock?.show(); app.focus({ steal: true }); clients.get(client.id)?.window.show(); clients.get(client.id)?.window.focus(); clients.get(client.id)?.chrome.webContents.focus(); return client }
-    if (method === 'diagnostics') return { pid: process.pid, tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
@@ -661,8 +670,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let start = async (background: boolean) => {
     await settingsReady
-    configuration = createConfig(configPath(dataDirectory), () => { refreshMenu(); publish() }, legacyPrefix)
-    refreshMenu()
+    configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
+    refreshSettings()
     await scheduleVisuals()
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]

@@ -6,9 +6,9 @@ import { createConfig, defaultConfigText, parseConfig } from '../src/main/config
 import { matchesBinding } from '../src/shared/keyboard'
 
 it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
-  let defaults = parseConfig(defaultConfigText())
+  let defaults = parseConfig(defaultConfigText()).keyboard
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
-  let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n')
+  let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n').keyboard
   expect(custom.prefix).toBe('Ctrl+A')
   expect(custom.shortcuts['Cmd+R']).toBeUndefined()
   expect(custom.shortcuts['cmd+r']).toBe('hard-reload')
@@ -35,5 +35,22 @@ it('preserves existing files and the last valid configuration when an edit is in
     expect(config.error).toBeTruthy()
     expect(config.keyboard.prefix).toBe('Ctrl+X')
     expect(() => config.setPrefix('Ctrl+B')).toThrow('Fix invalid YAML')
+  } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
+it('validates accessibility preferences and keeps settings atomic on invalid edits', () => {
+  expect(parseConfig('accessibility: true\nkeyboard: {}\n').accessibility).toBe(true)
+  expect(parseConfig('keyboard: {}\n').accessibility).toBe(false)
+  expect(() => parseConfig('accessibility: yes\nkeyboard: {}\n')).toThrow('accessibility must be true or false')
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'browmux-accessibility-'))
+  let file = path.join(directory, 'config.yaml')
+  fs.writeFileSync(file, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n')
+  let config = createConfig(file, () => undefined)
+  try {
+    fs.writeFileSync(file, 'accessibility: invalid\nkeyboard:\n  prefix: Ctrl+X\n')
+    config.reload()
+    expect(config.error).toBeTruthy()
+    expect(config.accessibility).toBe(true)
+    expect(config.keyboard.prefix).toBe('Ctrl+2')
   } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })
