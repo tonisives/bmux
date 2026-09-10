@@ -47,7 +47,7 @@
     "vitest": "^3.2.0"
   },
   "build": {
-    "appId": "dev.browmux.browser",
+    "appId": "browmux.tonis.dev",
     "productName": "Browmux",
     "directories": {
       "output": "release"

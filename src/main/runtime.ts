@@ -3,7 +3,7 @@ import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, Model, Permission, PublicState, Snapshot } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, removePane, resolve, splitLayout, tabById, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -458,12 +458,18 @@ export let createRuntime = (dataDirectory: string) => {
       client.windowId = window.id; client.paneId = window.panes[0]?.id ?? null
       changed(); await visualQueue; return client
     }
-    if (method === 'select-pane' || method === 'cycle-pane') {
+    if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
       let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
-      client.paneId = method === 'select-pane' ? resolve(window.panes, args.pane, 'Pane').id : window.panes[(index + 1) % window.panes.length]?.id ?? null
-      if (method === 'cycle-pane' && client.id === focusedClientId && client.paneId) {
+      if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
+      else if (method === 'cycle-pane') client.paneId = window.panes[(index + 1) % window.panes.length]?.id ?? null
+      else {
+        let direction = required(args, 'direction')
+        if (!['left', 'right', 'up', 'down'].includes(direction)) throw new Error(`Unknown pane direction: ${direction}`)
+        client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down') ?? client.paneId
+      }
+      if (client.id === focusedClientId && client.paneId) {
         let pane = paneById(model, client.paneId).pane
         tabs.get(pane.activeTabId)?.view.webContents.focus()
       }

@@ -2,10 +2,19 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { cloneWindow, initialModel, mapLayout, newPane, removePane, splitLayout, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, paneInDirection, removePane, splitLayout, validateModel } from '../src/main/model'
 import { readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
+  it('selects the nearest pane in each visual direction', () => {
+    let tree = splitLayout(null, '', 'left', 'horizontal')
+    tree = splitLayout(tree, 'left', 'top-right', 'horizontal')
+    tree = splitLayout(tree, 'top-right', 'bottom-right', 'vertical')
+    expect(paneInDirection(tree, 'left', 'right')).toBe('top-right')
+    expect(paneInDirection(tree, 'top-right', 'down')).toBe('bottom-right')
+    expect(paneInDirection(tree, 'bottom-right', 'left')).toBe('left')
+    expect(paneInDirection(tree, 'left', 'up')).toBeUndefined()
+  })
   it('collapses a removed nested pane without losing its siblings or split ratios', () => {
     let tree = splitLayout(null, '', 'a', 'horizontal')
     tree = splitLayout(tree, 'a', 'b', 'horizontal')

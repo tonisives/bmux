@@ -108,6 +108,10 @@ session personal
 new-window -n research
 select-window -t 1
 split-window -h --profile bot
+pane-left
+pane-down
+pane-up
+pane-right
 save-layout development
 restore-layout development --confirm
 bookmarks
@@ -166,6 +170,8 @@ Electron can expose page links, buttons, and inputs through macOS accessibility.
 For oVim click mode, allow sufficient traversal depth in oVim's settings. Grafana's login controls were 18–23 levels deep in Chromium's tree; a `click_mode.max_depth` of 10 missed them. Raising it to 30 and enabling Browmux accessibility exposed the login controls. oVim currently requires a restart to load its YAML changes. No extension is required for native accessibility hints; canvas-only controls still depend on the website providing accessible elements.
 
 Personal window-switching overrides can use `Cmd+[: previous-window` and `Cmd+]: next-window` under `keyboard.shortcuts`; these replace history navigation only in that config. The application's default bindings remain unchanged.
+
+Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. They follow the visible split layout and can be assigned to direct shortcuts such as Command+H/J/K/L or to prefix bindings. `split-right` and `split-down` can likewise be assigned to direct shortcuts while the tmux-style prefix defaults remain available.
 
 ## Data and permissions
 

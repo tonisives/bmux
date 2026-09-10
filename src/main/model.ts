@@ -45,6 +45,48 @@ export let splitLayout = (layout: Layout | null, paneId: string, addedId: string
     ? { kind: 'split', id: id('split'), axis, ratio: 0.5, first: node, second: { kind: 'pane', paneId: addedId } }
     : node)!
 }
+type PaneDirection = 'left' | 'right' | 'up' | 'down'
+type PaneRect = { paneId: string; x: number; y: number; width: number; height: number }
+export let paneInDirection = (layout: Layout | null, paneId: string, direction: PaneDirection): string | undefined => {
+  let panes: PaneRect[] = []
+  let visit = (node: Layout | null, x: number, y: number, width: number, height: number) => {
+    if (!node) return
+    if (node.kind === 'pane') { panes.push({ paneId: node.paneId, x, y, width, height }); return }
+    if (node.axis === 'horizontal') {
+      let firstWidth = width * node.ratio
+      visit(node.first, x, y, firstWidth, height)
+      visit(node.second, x + firstWidth, y, width - firstWidth, height)
+    } else {
+      let firstHeight = height * node.ratio
+      visit(node.first, x, y, width, firstHeight)
+      visit(node.second, x, y + firstHeight, width, height - firstHeight)
+    }
+  }
+  visit(layout, 0, 0, 1, 1)
+  let current = panes.find(pane => pane.paneId === paneId)
+  if (!current) return undefined
+  let horizontal = direction === 'left' || direction === 'right'
+  let crossStart = (pane: PaneRect) => horizontal ? pane.y : pane.x
+  let crossEnd = (pane: PaneRect) => crossStart(pane) + (horizontal ? pane.height : pane.width)
+  let candidates = panes.filter(pane => {
+    if (pane === current) return false
+    if (direction === 'left') return pane.x + pane.width <= current.x + Number.EPSILON
+    if (direction === 'right') return pane.x >= current.x + current.width - Number.EPSILON
+    if (direction === 'up') return pane.y + pane.height <= current.y + Number.EPSILON
+    return pane.y >= current.y + current.height - Number.EPSILON
+  })
+  candidates.sort((a, b) => {
+    let overlap = (pane: PaneRect) => Math.max(0, Math.min(crossEnd(current), crossEnd(pane)) - Math.max(crossStart(current), crossStart(pane)))
+    let overlapRank = Number(overlap(b) > 0) - Number(overlap(a) > 0)
+    if (overlapRank) return overlapRank
+    let primary = (pane: PaneRect) => direction === 'left' ? current.x - pane.x - pane.width
+      : direction === 'right' ? pane.x - current.x - current.width
+        : direction === 'up' ? current.y - pane.y - pane.height : pane.y - current.y - current.height
+    let crossCenter = (pane: PaneRect) => (crossStart(pane) + crossEnd(pane)) / 2
+    return primary(a) - primary(b) || Math.abs(crossCenter(a) - crossCenter(current)) - Math.abs(crossCenter(b) - crossCenter(current))
+  })
+  return candidates[0]?.paneId
+}
 export let removePane = (layout: Layout | null, paneId: string): Layout | null => {
   if (!layout) return null
   if (layout.kind === 'pane') return layout.paneId === paneId ? null : layout
