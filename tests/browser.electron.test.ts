@@ -1,0 +1,190 @@
+import { test, expect, _electron as electron } from '@playwright/test'
+import type { ElectronApplication } from '@playwright/test'
+import http from 'node:http'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+let exec = promisify(execFile)
+let root = process.cwd()
+let application: ElectronApplication
+let directory: string
+let url: string
+let server: http.Server
+let cli = async (method: string, args: Record<string, unknown> = {}) => {
+  console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
+  let result = await exec(process.execPath, [path.join(root, 'bin/brmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BROWMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
+  let response = JSON.parse(result.stdout)
+  if (!response.ok) throw new Error(response.error)
+  return response.result
+}
+let launch = async () => {
+  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '1' } })
+  application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
+  await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await expect.poll(async () => {
+    try { return (await cli('status')).model.version } catch (error) { console.log(String(error)); return 0 }
+  }, { timeout: 20000 }).toBe(1)
+}
+let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
+let fixture = `<!doctype html><html><head><title>Browmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
+
+test.beforeAll(async () => {
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'browmux-electron-'))
+  server = http.createServer((request, response) => {
+    if (request.url === '/download') { response.writeHead(200, { 'Content-Disposition': 'attachment; filename="fixture.txt"', 'Content-Type': 'text/plain' }); response.end('download fixture'); return }
+    response.writeHead(200, { 'Content-Type': 'text/html' })
+    response.end(fixture)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  await launch()
+})
+test.afterAll(async () => {
+  await application?.close().catch(() => undefined)
+  await new Promise<void>(resolve => server?.close(() => resolve()))
+  await fs.rm(directory, { recursive: true, force: true })
+})
+
+test('profiles, clients, handoff, hidden automation, and restart', async () => {
+  let initial = await cli('state')
+  expect(initial.model.clients).toHaveLength(0)
+  let session = initial.model.sessions[0]
+  let mainWindow = session.windows[0]
+  let mainPane = mainWindow.panes[0]
+  let mainTab = mainPane.tabs[0]
+  await cli('navigate', { tab: mainTab.id, url })
+  await cli('eval', { tab: mainTab.id, expression: 'localStorage.setItem("profile", "personal"); document.cookie="profile=personal;path=/"' })
+  let botPane = await cli('split-window', { pane: mainPane.id, profile: 'bot', url })
+  let botTab = botPane.tabs[0]
+  await cli('wait', { tab: botTab.id, selector: '#text' })
+  expect(await cli('eval', { tab: botTab.id, expression: '({storage:localStorage.getItem("profile"),cookie:document.cookie})' })).toEqual({ storage: null, cookie: '' })
+  await cli('eval', { tab: botTab.id, expression: 'localStorage.setItem("profile", "bot"); document.cookie="profile=bot;path=/"' })
+  let another = await cli('split-window', { pane: botPane.id, profile: 'default', url })
+  await cli('wait', { tab: another.tabs[0].id, selector: '#text' })
+  expect(await cli('eval', { tab: another.tabs[0].id, expression: 'localStorage.getItem("profile")' })).toBe('personal')
+
+  let clientA = await cli('attach-session', { session: session.id })
+  let clientB = await cli('attach-session', { session: session.id })
+  let secondWindow = await cli('new-window', { session: session.id, name: 'other' })
+  await cli('select-window', { client: clientB.id, window: secondWindow.id })
+  let state = await cli('state')
+  expect(state.model.clients.find((client: { id: string }) => client.id === clientA.id).windowId).toBe(mainWindow.id)
+  expect(state.model.clients.find((client: { id: string }) => client.id === clientB.id).windowId).toBe(secondWindow.id)
+
+  await cli('select-window', { client: clientB.id, window: mainWindow.id })
+  await cli('activate-client', { client: clientA.id })
+  await cli('type', { tab: mainTab.id, selector: '#text', text: 'Retain this form' })
+  await cli('click', { tab: mainTab.id, selector: '#inc' })
+  let identity = await cli('eval', { tab: mainTab.id, expression: 'window.identity' })
+  let targetBefore = await cli('cdp', { tab: mainTab.id, method: 'Target.getTargetInfo' })
+  for (let client of [clientB, clientA, clientB]) {
+    await cli('activate-client', { client: client.id })
+    await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id).catch(async error => { console.log(JSON.stringify(await cli('diagnostics'))); console.log('FRONTMOST', await frontmost()); throw error })
+  }
+  expect(await cli('eval', { tab: mainTab.id, expression: '({text:document.querySelector("#text").value,count:window.count,identity:window.identity})' })).toEqual({ text: 'Retain this form', count: 1, identity })
+  expect((await cli('cdp', { tab: mainTab.id, method: 'Target.getTargetInfo' })).targetInfo.targetId).toBe(targetBefore.targetInfo.targetId)
+  await expect.poll(async () => Boolean((await cli('state')).snapshots[mainTab.id]?.image)).toBe(true)
+
+  let chromePages = application.context().pages().filter(page => page.url().endsWith('index.html'))
+  expect(chromePages.length).toBe(2)
+  let chrome = chromePages[1]
+  await application.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) if (window.isVisible()) window.setBounds({ x: 90, y: 90, width: 1280, height: 850 }) })
+  await expect(chrome.getByText('Browmux', { exact: true })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Help', exact: true }).click()
+  await expect(chrome.getByRole('heading', { name: 'Working in Browmux' })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Close', exact: true }).last().click()
+  await fs.mkdir(path.join(root, 'artifacts'), { recursive: true })
+  await cli('client.overlay', { client: clientB.id, visible: true })
+  await chrome.waitForTimeout(200)
+  await chrome.screenshot({ path: path.join(root, 'artifacts/client.png') })
+  await cli('client.overlay', { client: clientB.id, visible: false })
+
+  // Hide the app and ensure the next automation operations leave the OS focus unchanged.
+  await application.evaluate(({ app }) => app.hide())
+  await new Promise(resolve => setTimeout(resolve, 350))
+  let before = await frontmost()
+  await cli('navigate', { tab: botTab.id, url: `${url}/background` })
+  await cli('type', { tab: botTab.id, selector: '#text', text: 'Background input' })
+  expect((await cli('dom', { tab: botTab.id })).content).toContain('BOTTOM OF FULL PAGE')
+  let screenshot = path.join(directory, 'full.png')
+  await cli('screenshot', { tab: botTab.id, output: screenshot })
+  let png = await fs.readFile(screenshot)
+  expect(png.readUInt32BE(20)).toBeGreaterThan(2700)
+  expect(await frontmost()).toBe(before)
+  expect(await cli('eval', { tab: botTab.id, expression: 'document.querySelector("#text").value' })).toBe('Background input')
+
+  await cli('eval', { tab: botTab.id, expression: `window.open(${JSON.stringify(`${url}/popup`)}, '_blank'); true` })
+  await expect.poll(async () => (await cli('tab.list', { pane: botPane.id })).length).toBe(2)
+  let popup = (await cli('tab.list', { pane: botPane.id })).find((tab: { id: string }) => tab.id !== botTab.id)
+  await cli('wait', { tab: popup.id, selector: '#text' })
+  expect(await cli('eval', { tab: popup.id, expression: '({profile:localStorage.getItem("profile"),opener:!!window.opener})' })).toEqual({ profile: 'bot', opener: true })
+  expect(await frontmost()).toBe(before)
+
+  await cli('save-layout', { window: mainWindow.id, name: 'development' })
+  await cli('restore-layout', { window: secondWindow.id, name: 'development', confirm: true })
+  let restored = await cli('list-panes', { window: secondWindow.id })
+  expect(restored.map((pane: { profileId: string }) => pane.profileId)).toEqual(['profile_default', 'profile_bot', 'profile_default'])
+  await cli('detach-client', { client: clientA.id })
+  await cli('detach-client', { client: clientB.id })
+  expect(await cli('list-clients')).toHaveLength(0)
+  expect(await cli('eval', { tab: botTab.id, expression: 'localStorage.getItem("profile")' })).toBe('bot')
+
+  await application.close()
+  await launch()
+  expect((await cli('list-sessions'))[0].windows).toHaveLength(2)
+  await cli('wait', { tab: mainTab.id, selector: '#text' })
+  await cli('wait', { tab: botTab.id, selector: '#text' })
+  expect(await cli('eval', { tab: mainTab.id, expression: 'localStorage.getItem("profile")' })).toBe('personal')
+  expect(await cli('eval', { tab: botTab.id, expression: 'localStorage.getItem("profile")' })).toBe('bot')
+})
+
+test('permissions, downloads, pane cleanup, crash recovery, and native-client restore', async () => {
+  let session = (await cli('list-sessions'))[0]
+  let window = session.windows[0]
+  let profile = await cli('profile.create', { name: 'recovery', background: true })
+  let pane = await cli('split-window', { pane: window.panes[0].id, profile: profile.id, url: `${url}/recovery` })
+  let tab = pane.tabs[0]
+  await cli('wait', { tab: tab.id, selector: '#text' })
+  await cli('eval', { tab: tab.id, expression: 'window.permissionResult="pending"; Notification.requestPermission().then(result=>window.permissionResult=result); true' })
+  await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
+  let request = (await cli('permission.list'))[0]
+  expect(request.profileId).toBe(profile.id)
+  await cli('permission.respond', { id: request.id, allow: false })
+  expect(await cli('eval', { tab: tab.id, expression: 'window.permissionResult' })).toBe('denied')
+
+  await cli('click', { tab: tab.id, selector: 'a[href="/download"]' })
+  await expect.poll(async () => (await cli('downloads')).find((download: { profileId: string }) => download.profileId === profile.id)?.state).toBe('completed')
+  let download = (await cli('downloads')).find((download: { profileId: string }) => download.profileId === profile.id)
+  expect(await fs.readFile(download.path, 'utf8')).toBe('download fixture')
+  await fs.unlink(download.path)
+
+  await application.evaluate(({ webContents }, url) => { let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url); if (!contents) throw new Error('Fixture not found'); contents.forcefullyCrashRenderer() }, `${url}/recovery`)
+  await expect.poll(async () => Boolean((await cli('state')).crashes[tab.id])).toBe(true)
+  await cli('reload', { tab: tab.id })
+  await cli('wait', { tab: tab.id, selector: '#text' })
+  expect((await cli('state')).crashes[tab.id]).toBeUndefined()
+
+  let before = (await cli('diagnostics')).tabs
+  await cli('kill-pane', { pane: pane.id })
+  expect((await cli('diagnostics')).tabs).toBe(before - 1)
+  let source = session.windows[1].panes[0]
+  await cli('move-pane', { pane: source.id, window: window.id })
+  expect((await cli('list-panes', { window: window.id })).some((pane: { id: string }) => pane.id === source.id)).toBe(true)
+
+  let client = await cli('attach-session', { session: session.id })
+  await cli('select-window', { client: client.id, window: session.windows[1].id })
+  await application.close()
+  application = await electron.launch({ args: [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '0' } })
+  await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
+  expect((await cli('list-clients'))[0].windowId).toBe(session.windows[1].id)
+  await cli('detach-client', { client: client.id })
+  await cli('diagnostics')
+  await new Promise(resolve => setTimeout(resolve, 2000))
+  let metrics = await cli('diagnostics')
+  let totalWorkingSetKB = metrics.processes.reduce((sum: number, process: { memory: { workingSetSize: number } }) => sum + process.memory.workingSetSize, 0)
+  await fs.writeFile(path.join(root, 'artifacts/resource-sample.json'), JSON.stringify({ liveTabs: metrics.tabs, clients: metrics.visibleClients, workingSetMB: Math.round(totalWorkingSetKB / 1024), processes: metrics.processes }, null, 2))
+})

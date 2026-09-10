@@ -5,4 +5,5 @@ release/
 .worktrees/
 .test-data/
 artifacts/
+test-results/
 .DS_Store

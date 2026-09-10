@@ -1,0 +1,15 @@
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { background: #111318; color: #e4e8f0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+button { background: #242a35; border: 1px solid #343d4c; border-radius: 5px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+button:hover { background: #333d4d; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #81b0f8; outline-offset: 1px; }
+button:disabled { opacity: .45; cursor: default; }
+input, select { background: #151a22; border: 1px solid #343d4c; border-radius: 5px; padding: 7px 9px; min-width: 0; }
+input { width: 100%; }
+select { cursor: pointer; }
+label { color: #b5c0d3; }
+form { margin: 0; }
+::-webkit-scrollbar { width: 7px; height: 5px; }
+::-webkit-scrollbar-thumb { background: #3d485b; border-radius: 5px; }

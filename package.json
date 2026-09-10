@@ -1,0 +1,67 @@
+{
+  "name": "browmux",
+  "version": "0.1.0",
+  "description": "A Chromium browser with tmux-style sessions and isolated profiles",
+  "author": "Browmux contributors",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "bin": {
+    "brmux": "bin/brmux.mjs"
+  },
+  "packageManager": "pnpm@11.18.0",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --maxWorkers=4",
+    "test:electron": "pnpm build && playwright test --workers=1",
+    "package": "pnpm build && electron-builder --mac --dir",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "test:package": "node scripts/smoke-packaged.mjs"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "44.3.0",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "5.0.0",
+    "eslint": "^9.0.0",
+    "ti-reactu": "^1.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0"
+  },
+  "build": {
+    "appId": "dev.browmux.browser",
+    "productName": "Browmux",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "bin/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "extendInfo": {
+        "NSCameraUsageDescription": "Allow websites you approve to use the camera.",
+        "NSMicrophoneUsageDescription": "Allow websites you approve to use the microphone."
+      }
+    },
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  }
+}
