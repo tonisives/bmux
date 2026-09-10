@@ -7,7 +7,7 @@ import { importBrave } from '../src/main/brave'
 import { readModel, writeModel } from '../src/main/store'
 
 let fixture = () => {
-  let root = fs.mkdtempSync(path.join(os.tmpdir(), 'browmux-brave-'))
+  let root = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-brave-'))
   fs.mkdirSync(path.join(root, 'Default'))
   fs.writeFileSync(path.join(root, 'Local State'), JSON.stringify({ profile: { info_cache: { Default: { name: 'bot' }, 'Profile 1': { name: 'personal' } } } }))
   fs.writeFileSync(path.join(root, 'Default', 'Bookmarks'), JSON.stringify({ roots: { bookmark_bar: { type: 'folder', name: 'Bookmarks bar', children: [{ type: 'folder', name: 'Work', children: [{ type: 'url', name: '<Project>', url: 'https://example.test/a?b=1&c=2' }] }] } } }))

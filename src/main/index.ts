@@ -7,12 +7,16 @@ import { createHash } from 'node:crypto'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 
-let dataDirectory = process.env.BROWMUX_DATA_DIR ?? path.join(os.homedir(), 'Library', 'Application Support', 'Browmux')
-let background = process.env.BROWMUX_BACKGROUND === '1' || process.argv.includes('--background')
-app.setName('Browmux')
+let defaultDataDirectory = path.join(os.homedir(), 'Library', 'Application Support', 'bmux')
+let legacyDataDirectory = [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
+let configuredDataDirectory = process.env.BMUX_DATA_DIR ?? process.env.BROWMUX_DATA_DIR
+if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDataDirectory) fs.renameSync(legacyDataDirectory, defaultDataDirectory)
+let dataDirectory = configuredDataDirectory ?? defaultDataDirectory
+let background = process.env.BMUX_BACKGROUND === '1' || process.env.BROWMUX_BACKGROUND === '1' || process.argv.includes('--background')
+app.setName('bmux')
 app.setPath('userData', dataDirectory)
 fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
-let socketDirectory = path.join('/tmp', `browmux-${process.getuid?.() ?? 'user'}`)
+let socketDirectory = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`)
 let socketPath = path.join(socketDirectory, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
 let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
@@ -32,7 +36,7 @@ else {
   void app.whenReady().then(async () => {
     if (background) app.dock?.hide()
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Browmux', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { role: 'editMenu' },
       { role: 'windowMenu' },
     ]))
@@ -77,6 +81,6 @@ else {
       })
     })
     server.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600) })
-    server.on('error', error => { console.error(`Browmux control socket: ${error.message}`); app.quit() })
-  }).catch(error => { console.error(`Browmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })
+    server.on('error', error => { console.error(`bmux control socket: ${error.message}`); app.quit() })
+  }).catch(error => { console.error(`bmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })
 }

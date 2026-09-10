@@ -56,7 +56,7 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let context = { state, control, message, onMessage: setMessage, run, show, dismiss }
-  return <Context.Provider value={context}><div className={css.app}>
+  return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{window.layout ? <Branch node={window.layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={control === 'address' ? '' : message} />}
@@ -65,7 +65,7 @@ export let App = () => {
   </div></Context.Provider>
 }
 
-let bridge = (window as unknown as { browmux: Bridge }).browmux
+let bridge = (window as unknown as { bmux: Bridge }).bmux
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
 let selection = (state: PublicState) => {
@@ -224,7 +224,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
     if (ref.current) observer.observe(ref.current)
     publish()
     return () => observer.disconnect()
-  }, [tab.id, client!.windowId])
+  }, [tab.id, client!.windowId, state.statusBar])
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
@@ -308,5 +308,5 @@ let KeyboardSettings = () => {
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'keyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  return <><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
 }

@@ -1,4 +1,4 @@
-# Browmux
+# bmux
 
 A macOS browser built on Electron's Chromium engine, with tmux-style sessions and persistent, isolated profiles.
 
@@ -37,26 +37,28 @@ pnpm start
 Use the repository CLI without a global installation:
 
 ```sh
-./bin/brmux.mjs --help
-./bin/brmux.mjs status
-./bin/brmux.mjs attach-session -t main
+./bin/bmux.mjs --help
+./bin/bmux.mjs status
+./bin/bmux.mjs attach-session -t main
 ```
 
-Optionally add this checkout's `bin` directory to PATH; the `brmux` wrapper invokes the CLI. Browser commands silently start the server when needed. `attach-session` and `activate-client` intentionally show a client; navigation and screenshot commands do not.
+Optionally add this checkout's `bin` directory to PATH; the `bmux` wrapper invokes the CLI. Browser commands silently start the server when needed. `attach-session` and `activate-client` intentionally show a client; navigation and screenshot commands do not.
+
+The previous `brmux` command remains as an alias for existing scripts.
 
 ## Basic workflow
 
 ```sh
-brmux profile create work
-brmux new-session -s project-a --profile work
-brmux attach-session -t project-a
-brmux list-windows -t project-a
-brmux list-panes -t <window-id>
-brmux split-window -t <pane-id> -h --profile bot
-brmux new-window -t project-a -n monitoring
-brmux select-window -c <client-id> -t <window-id>
-brmux save-layout -t <window-id> -n development
-brmux restore-layout -t <window-id> -n development --confirm
+bmux profile create work
+bmux new-session -s project-a --profile work
+bmux attach-session -t project-a
+bmux list-windows -t project-a
+bmux list-panes -t <window-id>
+bmux split-window -t <pane-id> -h --profile bot
+bmux new-window -t project-a -n monitoring
+bmux select-window -c <client-id> -t <window-id>
+bmux save-layout -t <window-id> -n development
+bmux restore-layout -t <window-id> -n development --confirm
 ```
 
 CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an error message, and a nonzero exit code. Browser actions require an explicit tab ID; IDs are returned by `tab list` and creation commands. A tab ID stays stable across view transfers and session restarts. A page reload or process crash can reset JavaScript state even though the application tab ID remains the same.
@@ -66,10 +68,10 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 ## Import Brave profiles and bookmarks
 
 ```sh
-brmux import-brave
+bmux import-brave
 ```
 
-This copies profile names and bookmark folders from Brave into separate Browmux profiles and sessions. Use the session switcher to choose an imported profile, then run `bookmarks` in the command prompt (Control+B, then `:`). Imports preserve folders and leave Brave unchanged. A name collision creates a separate name such as `bot (Brave)`; it does not reuse another profile's storage. Repeating the import updates the imported bookmarks without duplicating profiles or sessions. An existing state file is backed up before import.
+This copies profile names and bookmark folders from Brave into separate bmux profiles and sessions. Use the session switcher to choose an imported profile, then run `bookmarks` in the command prompt (Control+B, then `:`). Imports preserve folders and leave Brave unchanged. A name collision creates a separate name such as `bot (Brave)`; it does not reuse another profile's storage. Repeating the import updates the imported bookmarks without duplicating profiles or sessions. An existing state file is backed up before import.
 
 Use `import-brave` in the command prompt to repeat the import. `--source` selects another Brave user-data directory. Website logins, saved passwords, site data, extensions, and Brave settings are not copied. Unsupported URLs, such as bookmarklets, are preserved but disabled in the panel.
 
@@ -97,7 +99,7 @@ In the session picker (Control+B, then s), Up/Down moves the highlight, Enter at
 
 Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 
-Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. The separate status bar keeps sessions, windows, and commands available while entering a URL. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
+Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. The separate status bar keeps sessions, windows, and commands available while entering a URL; it sits at the top by default and follows the `statusBar` setting. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
 Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
 
@@ -121,13 +123,14 @@ activity
 help
 ```
 
-Use quotes around names with spaces. Window/tab indices start at 0. Up/down recalls command history. Command+Shift+N creates another client. Set the prefix with `prefix LETTER` or `brmux settings prefix LETTER`.
+Use quotes around names with spaces. Window/tab indices start at 0. Up/down recalls command history. Command+Shift+N creates another client. Set the prefix with `prefix LETTER` or `bmux settings prefix LETTER`.
 
 ## Keyboard configuration
 
-Edit `~/.config/browmux/config.yaml`, or press Command+, to view settings and open the file. Changes reload automatically; invalid YAML retains the last working configuration and reports the error. Help shows the active bindings.
+Edit `~/.config/bmux/config.yaml`, or press Command+, to view settings and open the file. Changes reload automatically; invalid YAML retains the last working configuration and reports the error. Help shows the active bindings.
 
 ```yaml
+statusBar: top
 accessibility: false
 keyboard:
   prefix: Ctrl+B
@@ -154,17 +157,19 @@ keyboard:
     ")": next-session
 ```
 
+Set `statusBar: bottom` to place the bar below page content. The default is `top`, and changes apply live.
+
 Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], tab switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
 
-`BROWMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BROWMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
+`BMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
 
 Window switching, reload, stop, and keyboard commands remain responsive during navigation. URL submission starts loading immediately; a slow request does not hold the command prompt open or block another internal window. CLI `navigate` continues to wait for loading by default; use `--waitUntil none` for immediate return.
 
 ## oVim and accessibility
 
-Electron can expose page links, buttons, and inputs through macOS accessibility. Set `accessibility: true` at the top of Browmux's config to enable this explicitly; it reloads live and applies after relaunch. The default is automatic detection (`false`), so isolated bot instances do not force accessibility tree construction.
+Electron can expose page links, buttons, and inputs through macOS accessibility. Set `accessibility: true` at the top of bmux's config to enable this explicitly; it reloads live and applies after relaunch. The default is automatic detection (`false`), so isolated bot instances do not force accessibility tree construction.
 
-For oVim click mode, allow sufficient traversal depth in oVim's settings. Grafana's login controls were 18–23 levels deep in Chromium's tree; a `click_mode.max_depth` of 10 missed them. Raising it to 30 and enabling Browmux accessibility exposed the login controls. oVim currently requires a restart to load its YAML changes. No extension is required for native accessibility hints; canvas-only controls still depend on the website providing accessible elements.
+For oVim click mode, allow sufficient traversal depth in oVim's settings. Grafana's login controls were 18–23 levels deep in Chromium's tree; a `click_mode.max_depth` of 10 missed them. Raising it to 30 and enabling bmux accessibility exposed the login controls. oVim currently requires a restart to load its YAML changes. No extension is required for native accessibility hints; canvas-only controls still depend on the website providing accessible elements.
 
 Personal window-switching overrides can use `Cmd+[: previous-window` and `Cmd+]: next-window` under `keyboard.shortcuts`; these replace history navigation only in that config. The application's default bindings remain unchanged.
 
@@ -172,7 +177,9 @@ Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`.
 
 ## Data and permissions
 
-Application state and profile partitions live under `~/Library/Application Support/Browmux`. Set `BROWMUX_DATA_DIR` to an absolute path to run an isolated instance. Tests use disposable directories and never use your real profiles.
+Application state and profile partitions live under `~/Library/Application Support/bmux`. Set `BMUX_DATA_DIR` to an absolute path to run an isolated instance. Tests use disposable directories and never use your real profiles.
+
+On first launch, bmux moves existing Browmux application data and `~/.config/browmux/config.yaml` into the new bmux paths. The previous `BROWMUX_DATA_DIR`, `BROWMUX_CONFIG`, and `BROWMUX_APP` environment variable names remain accepted.
 
 Layouts, profiles, open URLs, zoom, and client selections are persisted. Relaunching reopens pages; it does not reconstruct arbitrary JavaScript memory or unsaved forms. Named layout restoration replaces a window's pages and requires confirmation.
 
@@ -190,19 +197,19 @@ pnpm package
 pnpm test:package
 ```
 
-The UI check types a local fixture URL into a pane's URL prompt, submits Enter, verifies the native page is attached and visible, and saves `artifacts/url-opened.png`. It also opens a second pane and saves `artifacts/pane-addresses.png` with both address bars and the separate window status bar. `pnpm debug:ui` runs the same check and leaves the debug window open with temporary profiles. Set `BROWMUX_TEST_URL` to check a different URL.
+The UI check types a local fixture URL into a pane's URL prompt, submits Enter, verifies the native page is attached and visible, and saves `artifacts/url-opened.png`. It also opens a second pane and saves `artifacts/pane-addresses.png` with both address bars and the separate window status bar. `pnpm debug:ui` runs the same check and leaves the debug window open with temporary profiles. Set `BMUX_TEST_URL` to check a different URL.
 
 Integration tests open disposable Electron clients, exercise native view transfers, verify isolated storage and restart recovery, and check that bot automation preserves the frontmost macOS application. They produce a client screenshot under `artifacts/`.
 
-Every `pnpm package` installs the completed app at `~/workspace/_tools/Browmux.app`, replacing the previous bundle after the new build succeeds. The `release/` directory is temporary packaging output. Packaging does not restart a running app; reopen it to use the new build. This is a local unsigned build, not a notarized public release. The CLI automatically uses the installed app; `BROWMUX_APP` can override it:
+Every `pnpm package` installs the completed app at `~/workspace/_tools/bmux.app`, replacing the previous bundle after the new build succeeds. The `release/` directory is temporary packaging output. Packaging does not restart a running app; reopen it to use the new build. This is a local unsigned build, not a notarized public release. The CLI automatically uses the installed app; `BMUX_APP` can override it:
 
 ```sh
-# Optional override: export BROWMUX_APP=/absolute/path/to/Browmux.app
-brmux attach-session -t main
+# Optional override: export BMUX_APP=/absolute/path/to/bmux.app
+bmux attach-session -t main
 ```
 
 ## Current boundaries
 
-No Chrome extensions, external Chrome/Brave embedding, cloud synchronization, website recoloring, or built-in ad blocking. The interface uses a dark theme; websites retain their own appearance. JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use Browmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
+No Chrome extensions, external Chrome/Brave embedding, cloud synchronization, website recoloring, or built-in ad blocking. The interface uses a dark theme; websites retain their own appearance. JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 
 Do not expect Electron to provide every Chrome feature: DRM media, platform authentication integrations, and sites that reject embedded browsers may require additional work.

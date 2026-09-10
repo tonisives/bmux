@@ -1,14 +1,15 @@
 {
-  "name": "browmux",
+  "name": "bmux",
   "version": "0.1.0",
   "description": "A Chromium browser with tmux-style sessions and isolated profiles",
-  "author": "Browmux contributors",
+  "author": "bmux contributors",
   "license": "MIT",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "bin": {
-    "brmux": "bin/brmux.mjs"
+    "bmux": "bin/bmux.mjs",
+    "brmux": "bin/bmux.mjs"
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
@@ -47,8 +48,8 @@
     "vitest": "^3.2.0"
   },
   "build": {
-    "appId": "dev.browmux.browser",
-    "productName": "Browmux",
+    "appId": "bmux.tonis.dev",
+    "productName": "bmux",
     "directories": {
       "output": "release"
     },

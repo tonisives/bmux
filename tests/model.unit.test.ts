@@ -40,7 +40,7 @@ describe('session layouts and persistence', () => {
     expect(leaves).toEqual(clone.panes.map(pane => pane.id))
   })
   it('round-trips state atomically and refuses corrupt state without replacing it', () => {
-    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'browmux-unit-'))
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-unit-'))
     try {
       let model = initialModel()
       model.sessions[0].name = 'persistent'
