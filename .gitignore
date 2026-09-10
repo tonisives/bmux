@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+release/
+.worktrees/
+.test-data/
+artifacts/
+.DS_Store
