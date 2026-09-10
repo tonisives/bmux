@@ -63,6 +63,16 @@ CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an 
 
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.
 
+## Import Brave profiles and bookmarks
+
+```sh
+brmux import-brave
+```
+
+This copies profile names and bookmark folders from Brave into separate Browmux profiles and sessions. Use the session switcher to choose an imported profile, then open **Bookmarks**. Imports preserve folders and leave Brave unchanged. A name collision creates a separate name such as `bot (Brave)`; it does not reuse another profile's storage. Repeating the import updates the imported bookmarks without duplicating profiles or sessions. An existing state file is backed up before import.
+
+The Bookmarks panel also offers **Import Brave profiles**. `--source` selects another Brave user-data directory. Website logins, saved passwords, site data, extensions, and Brave settings are not copied. Unsupported URLs, such as bookmarklets, are preserved but disabled in the panel.
+
 ## Keyboard
 
 The default prefix is Control+B, followed within 1.6 seconds by:
@@ -109,6 +119,6 @@ brmux attach-session -t main
 
 ## Current boundaries
 
-No Chrome extensions, external Chrome/Brave embedding, imported browser profiles, cloud synchronization, website recoloring, or built-in ad blocking. The interface uses a dark theme; websites retain their own appearance. JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use Browmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
+No Chrome extensions, external Chrome/Brave embedding, cloud synchronization, website recoloring, or built-in ad blocking. The interface uses a dark theme; websites retain their own appearance. JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use Browmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 
 Do not expect Electron to provide every Chrome feature: DRM media, platform authentication integrations, and sites that reject embedded browsers may require additional work.

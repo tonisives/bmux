@@ -1,4 +1,5 @@
-export type Profile = { id: string; name: string; background: boolean }
+export type Bookmark = { id: string; title: string; url?: string; children?: Bookmark[] }
+export type Profile = { id: string; name: string; background: boolean; bookmarks?: Bookmark[]; braveSource?: { root: string; directory: string } }
 export type Tab = { id: string; url: string; title: string; zoom: number }
 export type Pane = { id: string; profileId: string; tabs: Tab[]; activeTabId: string }
 export type Layout = { kind: 'pane'; paneId: string } | { kind: 'split'; id: string; axis: 'horizontal' | 'vertical'; ratio: number; first: Layout; second: Layout }

@@ -57,3 +57,8 @@
   .titlebar .small { padding: 3px; font-size: 10px; }
   .paneId { display: none; }
 }
+
+.bookmarkTree { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bookmarkFolder > summary { cursor: pointer; padding: 6px 0; color: #b9cde9; overflow-wrap: anywhere; }
+.bookmarkFolder > .bookmarkTree { padding-left: 14px; }
+.bookmarkLink { width: 100%; text-align: left; overflow-wrap: anywhere; white-space: normal; background: transparent; border-color: transparent; }

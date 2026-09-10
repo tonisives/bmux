@@ -16,6 +16,7 @@ let help = `brmux — Browmux control and browser automation
 All responses are JSON. IDs returned by list commands are stable across view transfers.
 
 Profiles: profile list | profile create NAME [--background] | profile rename PROFILE NAME
+Import:   import-brave [--source BRAVE_USER_DATA_DIRECTORY]
 Sessions: new-session -s NAME [--profile PROFILE] | list-sessions | rename-session -t SESSION -n NAME
 Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | activate-client -c CLIENT
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW

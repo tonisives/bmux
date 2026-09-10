@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, ChangeEvent, PointerEvent, ReactNode } from 'react'
-import type { Bridge, Command, InternalWindow, Layout, Pane, PublicState, Tab, Download, Permission } from '../shared/types'
+import type { Bridge, Command, InternalWindow, Layout, Pane, PublicState, Tab, Download, Permission, Bookmark } from '../shared/types'
 import css from './App.module.css'
 
 declare global { type WindowWithBridge = Window & { browmux: Bridge } }
@@ -15,7 +15,7 @@ export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [error, setError] = useState('')
   let [action, setAction] = useState<Action | null>(null)
-  let [panel, setPanel] = useState<'activity' | 'help' | null>(null)
+  let [panel, setPanel] = useState<'activity' | 'help' | 'bookmarks' | null>(null)
   useEffect(() => {
     let unsubscribe = bridge.subscribe(setState)
     void bridge.state().then(setState).catch(error => setError(String(error)))
@@ -28,6 +28,7 @@ export let App = () => {
   let open = useCallback((action: Action) => setAction(action), [])
   let dismiss = useCallback(() => { setAction(null); setPanel(null) }, [])
   let openActivity = useCallback(() => setPanel('activity'), [])
+  let openBookmarks = useCallback(() => setPanel('bookmarks'), [])
   let openHelp = useCallback(() => setPanel('help'), [])
   let clearError = useCallback(() => setError(''), [])
   useEffect(() => {
@@ -47,6 +48,7 @@ export let App = () => {
           <span className={css.brand}>Browmux</span><span className={css.eyebrow}>session</span>
           <SessionSwitcher />
           <span className={css.grow} />
+          <button className={css.small} onClick={openBookmarks}>Bookmarks</button>
           <button className={css.small} onClick={openActivity}>Activity {state.permissions.length > 0 ? `(${state.permissions.length})` : ''}</button>
           <button className={css.small} onClick={openHelp}>Help</button>
         </div>
@@ -226,12 +228,34 @@ let DownloadRow = ({ download }: { download: Download }) => {
   let reveal = () => { void run('download.reveal', { id: download.id }) }
   return <div className={css.listItem}><strong>{download.name}</strong><p className={css.muted}>{download.state} · {Math.round(download.received / 1024)} KB</p><button className={css.small} onClick={reveal}>Show in Finder</button></div>
 }
-let Panel = ({ type, dismiss }: { type: 'activity' | 'help'; dismiss: () => void }) => {
+let Panel = ({ type, dismiss }: { type: 'activity' | 'help' | 'bookmarks'; dismiss: () => void }) => {
   let { state, open } = useUI()
   let prefix = () => { dismiss(); open({ title: 'Keyboard prefix', method: 'settings.prefix', args: {}, fields: [{ name: 'key', label: 'Letter to use with Control', value: 'b' }] }) }
   let renameProfile = () => { dismiss(); open({ title: 'Rename profile', method: 'profile.rename', args: {}, fields: [{ name: 'profile', label: 'Profile', options: state.model.profiles.map(profile => ({ value: profile.id, label: profile.name })) }, { name: 'name', label: 'New name' }] }) }
   let renameSession = () => { dismiss(); let client = state.model.clients.find(client => client.id === state.clientId)!; open({ title: 'Rename session', method: 'rename-session', args: { session: client.sessionId }, fields: [{ name: 'name', label: 'New name' }] }) }
   let content: ReactNode = <><p className={css.muted}>A session contains windows. Windows hold pane layouts. Each pane has one profile and its own tabs. Native macOS windows are clients; each can select a different internal window.</p><p className={css.muted}>Ctrl+B then: c new window · n/p next/previous window · % split right · &quot; split below · o next pane · s session switcher · d detach.</p><p className={css.muted}>Cmd+L address · Cmd+T new tab · Cmd+R reload · Cmd+F find. Closing a client keeps pages alive. Quit stops the server.</p><p className={css.muted}>Inactive clients show snapshots. Bot pages keep running in the background. Use brmux --help for automation commands.</p><div className={css.listActions}><button onClick={prefix}>Keyboard prefix</button><button onClick={renameProfile}>Rename profile</button><button onClick={renameSession}>Rename session</button></div></>
   if (type === 'activity') content = <><p className={css.eyebrow}>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p className={css.muted}>No pending requests.</p>}<p className={css.eyebrow}>Downloads</p>{state.downloads.length ? state.downloads.map(download => <DownloadRow key={download.id} download={download} />) : <p className={css.muted}>No downloads yet.</p>}</>
-  return <div className={css.overlay}><div className={css.dialog}><h2>{type === 'activity' ? 'Activity' : 'Working in Browmux'}</h2>{content}<div className={css.actions}><button onClick={dismiss}>Close</button></div></div></div>
+  if (type === 'bookmarks') content = <Bookmarks dismiss={dismiss} />
+  return <div className={css.overlay}><div className={css.dialog}><h2>{type === 'activity' ? 'Activity' : type === 'bookmarks' ? 'Bookmarks' : 'Working in Browmux'}</h2>{content}<div className={css.actions}><button onClick={dismiss}>Close</button></div></div></div>
+}
+
+let Bookmarks = ({ dismiss }: { dismiss: () => void }) => {
+  let { state, open } = useUI()
+  let client = state.model.clients.find(client => client.id === state.clientId)!
+  let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === client.paneId)
+  let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
+  let importProfiles = () => { dismiss(); open({ title: 'Import Brave profiles', method: 'import-brave', args: {}, description: 'Copies profile names and bookmark folders into separate Browmux profiles and sessions. Repeating the import refreshes their bookmarks. Website logins, passwords, extensions, and browser settings are not copied.' }) }
+  return <><p className={css.muted}>{profile ? `Profile: ${profile.name}` : 'Select a browser pane to open bookmarks.'}</p>{profile?.bookmarks?.length ? <div className={css.bookmarkTree}>{profile.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} dismiss={dismiss} />)}</div> : <p className={css.muted}>No bookmarks in this profile.</p>}<div className={css.listActions}><button onClick={importProfiles}>Import Brave profiles</button></div></>
+}
+let BookmarkRow = ({ bookmark, dismiss }: { bookmark: Bookmark; dismiss: () => void }) => {
+  let { state, run } = useUI()
+  let client = state.model.clients.find(client => client.id === state.clientId)!
+  let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
+  let activate = async () => {
+    if (!supported || !client.paneId) return
+    let result = await run('tab.create', { pane: client.paneId, url: bookmark.url, client: client.id })
+    if (result) dismiss()
+  }
+  if (bookmark.children) return <details className={css.bookmarkFolder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div className={css.bookmarkTree}>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} dismiss={dismiss} />)}</div></details>
+  return <button className={css.bookmarkLink} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'This bookmark uses a URL type Browmux cannot open'}>{bookmark.title || bookmark.url}</button>
 }

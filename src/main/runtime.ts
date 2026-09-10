@@ -5,6 +5,8 @@ import path from 'node:path'
 import type { Bounds, Client, Command, Download, Model, Permission, PublicState, Snapshot } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, removePane, resolve, splitLayout, tabById, walkPanes } from './model'
 import { readModel, writeModel } from './store'
+import { importBrave, braveDirectory } from './brave'
+import fsSync from 'node:fs'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[] }
@@ -316,6 +318,16 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'list-sessions') return model.sessions
     if (method === 'list-clients') return model.clients
+    if (method === 'import-brave') {
+      let imported = importBrave(model, args.source ? required(args, 'source') : braveDirectory())
+      let stateFile = path.join(dataDirectory, 'state.json')
+      if (fsSync.existsSync(stateFile)) fsSync.copyFileSync(stateFile, path.join(dataDirectory, `state.before-brave-${Date.now()}.json`), fsSync.constants.COPYFILE_EXCL)
+      writeModel(dataDirectory, imported.model)
+      model.profiles = imported.model.profiles
+      model.sessions = imported.model.sessions
+      changed(); await visualQueue
+      return { profiles: imported.profiles, bookmarks: imported.profiles.reduce((sum, profile) => sum + profile.bookmarks, 0) }
+    }
     if (method === 'profile.list') return model.profiles
     if (method === 'profile.create') {
       let name = required(args, 'name')
