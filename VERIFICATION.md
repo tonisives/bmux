@@ -5,7 +5,7 @@ Validated on macOS, Apple Silicon, with Electron 44.3.0 and Node.js 24.18.0.
 - `pnpm check`: TypeScript, React ESLint rules, and twelve model/persistence/import/command/config tests.
 - `pnpm test:electron`: seven integration scenarios using disposable profile directories and local HTTP fixtures.
 - `pnpm test:ui`: types a real URL and submits Enter, checks visible native page bounds, and saves a screenshot. `pnpm debug:ui` leaves the isolated debug instance open.
-- `pnpm package`: local unsigned macOS application bundle installed at `~/workspace/_tools/Browmux.app`.
+- `pnpm package`: local unsigned macOS application bundle installed at `~/workspace/_tools/bmux.app`.
 - `pnpm test:package`: public CLI against the packaged executable, including silent startup, keyboard input, DOM extraction, full-page PNG capture, unchanged macOS focus, and client attachment/detachment.
 
 Integration coverage includes isolated and shared profile storage, retained JavaScript and form state across native view handoffs, independent client selections, captured previews, layout restoration, background automation, popup profile/opener behavior, persistence after restart, permissions, downloads, renderer recovery, pane cleanup, and Brave bookmark import/opening/restart using fixture profiles.
@@ -20,4 +20,4 @@ Stalled-load coverage holds a script response indefinitely and verifies prefix c
 
 Keyboard management coverage includes native prefix shortcuts for window/session renaming, close cancellation and confirmation, last-window replacement, session-picker focus and arrow movement, Enter/Escape selection behavior, direct session cycling, and Command+Shift+W detaching while retaining the session.
 
-Accessibility coverage checks live configuration, invalid-edit recovery, startup persistence, and custom Command+bracket window switching. Native oVim validation uses the running app with its existing macOS accessibility permission: at depth 30, enabling Browmux accessibility increased Grafana detection from six to seventeen elements. The installed build also detected seventeen Grafana elements with accessibility enabled solely through its startup config. Direct helper invocations from an untrusted terminal can return empty results and are not a valid native accessibility check.
+Accessibility coverage checks live configuration, invalid-edit recovery, startup persistence, and custom Command+bracket window switching. Native oVim validation uses the running app with its existing macOS accessibility permission: at depth 30, enabling bmux accessibility increased Grafana detection from six to seventeen elements. The installed build also detected seventeen Grafana elements with accessibility enabled solely through its startup config. Direct helper invocations from an untrusted terminal can return empty results and are not a valid native accessibility check.

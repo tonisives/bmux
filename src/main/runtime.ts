@@ -152,7 +152,7 @@ export let createRuntime = (dataDirectory: string) => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
     let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape').map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Browmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { role: 'editMenu' },
       { label: 'Browser', submenu: [{ label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
       { role: 'windowMenu' },
@@ -186,7 +186,7 @@ export let createRuntime = (dataDirectory: string) => {
       event.preventDefault(); dispatchShortcut(entry[1])
     })
   }
-  let reportError = (error: unknown) => { console.error(`Browmux: ${errorText(error)}`) }
+  let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
     let { tab, pane } = tabById(model, tabId)
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
@@ -320,7 +320,7 @@ export let createRuntime = (dataDirectory: string) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
-    let window = new BaseWindow({ title: process.env.BROWMUX_DEBUG === '1' ? 'Browmux Debug' : 'Browmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
+    let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
     window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)

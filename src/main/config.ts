@@ -5,8 +5,20 @@ import { parseDocument, stringify } from 'yaml'
 import { DEFAULT_KEYBOARD, KEY_ACTIONS, parseBinding } from '../shared/keyboard'
 import type { KeyboardConfig } from '../shared/keyboard'
 
-export let configPath = (dataDirectory: string) => process.env.BROWMUX_CONFIG ?? (process.env.BROWMUX_DATA_DIR ? path.join(dataDirectory, 'config.yaml') : path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), 'browmux', 'config.yaml'))
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# Browmux keyboard settings. Changes reload automatically.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let configPath = (dataDirectory: string) => {
+  let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
+  if (configured) return configured
+  if (process.env.BMUX_DATA_DIR ?? process.env.BROWMUX_DATA_DIR) return path.join(dataDirectory, 'config.yaml')
+  let root = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config')
+  let current = path.join(root, 'bmux', 'config.yaml')
+  let legacy = path.join(root, 'browmux', 'config.yaml')
+  if (!fs.existsSync(current) && fs.existsSync(legacy)) {
+    fs.mkdirSync(path.dirname(current), { recursive: true })
+    fs.renameSync(legacy, current)
+  }
+  return current
+}
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux keyboard settings. Changes reload automatically.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
 export let parseConfig = (text: string): { keyboard: KeyboardConfig; accessibility: boolean } => {
   let document = parseDocument(text)
   if (document.errors.length) throw new Error('Invalid YAML in keyboard configuration')

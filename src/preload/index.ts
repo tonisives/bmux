@@ -16,4 +16,4 @@ let bridge: Bridge = {
     return () => ipcRenderer.removeListener('state', handler)
   },
 }
-contextBridge.exposeInMainWorld('browmux', bridge)
+contextBridge.exposeInMainWorld('bmux', bridge)

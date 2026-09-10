@@ -55,7 +55,7 @@ export let App = () => {
   </div></Context.Provider>
 }
 
-let bridge = (window as unknown as { browmux: Bridge }).browmux
+let bridge = (window as unknown as { bmux: Bridge }).bmux
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
 let selection = (state: PublicState) => {

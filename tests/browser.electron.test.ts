@@ -17,13 +17,13 @@ let heldResponses = new Set<http.ServerResponse>()
 let heldRequests = 0
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
-  let result = await exec(process.execPath, [path.join(root, 'bin/brmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BROWMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
+  let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
   let response = JSON.parse(result.stdout)
   if (!response.ok) throw new Error(response.error)
   return response.result
 }
 let launch = async () => {
-  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '1' } })
+  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => {
@@ -31,10 +31,10 @@ let launch = async () => {
   }, { timeout: 20000 }).toBe(1)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
-let fixture = `<!doctype html><html><head><title>Browmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
+let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
 
 test.beforeAll(async () => {
-  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'browmux-electron-'))
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-electron-'))
   server = http.createServer((request, response) => {
     if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js"></script>'); return }
     if (request.url === '/held.js') { heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
@@ -185,7 +185,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   let client = await cli('attach-session', { session: session.id })
   await cli('select-window', { client: client.id, window: session.windows[1].id })
   await application.close()
-  application = await electron.launch({ args: [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
   expect((await cli('list-clients'))[0].windowId).toBe(session.windows[1].id)
@@ -407,7 +407,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   await shortcut('&', ['shift'])
   await confirm.press('y')
   await expect.poll(async () => (await cli('list-windows', { session: alpha.id })).map((window: { id: string }) => window.id)).toEqual([first.id])
-  expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('Browmux fixture')
+  expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('bmux fixture')
   // Closing the last internal window leaves a usable empty window in the session.
   await shortcut('&', ['shift']); await confirm.press('y')
   await expect.poll(async () => (await cli('list-windows', { session: alpha.id }))[0].id).not.toBe(first.id)
