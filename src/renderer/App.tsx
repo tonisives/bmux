@@ -4,7 +4,8 @@ import type { Bookmark, Bridge, Download, Layout, Permission, PublicState } from
 import css from './App.module.css'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 
-type Control = 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings'
+type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings'
 type UIContext = { state: PublicState; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control) => void; dismiss: () => void }
 
 export let App = () => {
@@ -30,7 +31,8 @@ export let App = () => {
     let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); show(control as Control) }) })
     return () => { unsubscribe(); controls() }
   }, [show])
-  let prompt = control === 'address' || control === 'command' || control === 'find'
+  let management = control === 'rename-window' || control === 'rename-session' || control === 'close-window'
+  let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (state?.clientId) void run('client.overlay', { client: state.clientId, visible: !!panel })
@@ -47,9 +49,9 @@ export let App = () => {
   return <Context.Provider value={context}><div className={css.app}>
     <main className={css.workspace}>{window.layout ? <Branch node={window.layout} /> : <EmptyPane />}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'address' || control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={message} />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'address' || control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={message} />}
     </footer>
-    {panel && <Panel type={panel} />}
+    {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
 }
 
@@ -134,6 +136,35 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
   return <form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">{mode === 'command' ? ':' : mode === 'find' ? '/' : 'open'}</label><input id="prompt" ref={ref} aria-label={mode === 'address' ? 'URL or search' : mode === 'command' ? 'Command' : 'Find in page'} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
+let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: string }) => {
+  let { state, run, dismiss } = useUI()
+  let { client, session, window } = selection(state)
+  let closing = mode === 'close-window'
+  let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : window!.name)
+  let [busy, setBusy] = useState(false)
+  let ref = useRef<HTMLInputElement>(null)
+  let mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
+  let finish = () => { dismiss(); void run('focus-page', { client: client!.id }) }
+  let apply = async () => {
+    if (busy) return
+    setBusy(true)
+    let result = await run(closing ? 'kill-window' : mode, { client: client!.id, window: window!.id, session: session!.id, ...(closing ? { confirm: true } : { name: text.trim() }) })
+    if (!mounted.current) return
+    setBusy(false)
+    if (result !== undefined) finish()
+  }
+  let submit = (event: FormEvent) => { event.preventDefault(); if (closing ? text.toLowerCase() === 'y' : text.trim()) void apply() }
+  let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape' || (closing && event.key.toLowerCase() === 'n')) { event.preventDefault(); finish(); return }
+    if (closing && event.key.toLowerCase() === 'y') { event.preventDefault(); void apply() }
+  }
+  let label = closing ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : 'Rename window'
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><input id="manage" ref={ref} aria-label={closing ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || 'esc'}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+}
+
 let EmptyPane = () => {
   let { show } = useUI()
   let open = () => show('address')
@@ -185,23 +216,39 @@ let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let { pane, profile } = selection(state)
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { ref.current?.focus() }, [])
+  useEffect(() => { if (type !== 'sessions') ref.current?.focus() }, [type])
   let title = type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
     {type === 'help' && <HelpContent />}
     {type === 'settings' && <KeyboardSettings />}
-    {type === 'sessions' && state.model.sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}
+    {type === 'sessions' && <SessionPicker />}
     {type === 'tabs' && <><p>{profile?.name}</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</>}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
     {type === 'bookmarks' && <><p>Profile: {profile?.name ?? 'No selected pane'}</p>{profile?.bookmarks?.length ? profile.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} />) : <p>No bookmarks in this profile.</p>}</>}
     {type === 'activity' && <><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
   </div></div>
 }
+let SessionPicker = () => {
+  let { state } = useUI()
+  let ref = useRef<HTMLDivElement>(null)
+  useEffect(() => { ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]')?.focus() }, [])
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
+    event.preventDefault()
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button')]
+    let index = rows.findIndex(row => row === document.activeElement)
+    let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
+    let row = rows[Math.max(0, Math.min(rows.length - 1, next))]
+    row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+  }
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><p>Up/Down to move, Enter to attach, Escape to cancel.</p>{state.model.sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}</div>
+}
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
-  let select = async () => { if (await run('switch-client', { client: state.clientId, session: id })) dismiss() }
-  return <button className={css.row} onClick={select}>{name}</button>
+  let active = selection(state).client?.sessionId === id
+  let select = async () => { if (await run('switch-client', { client: state.clientId, session: id })) { dismiss(); await run('client.overlay', { client: state.clientId, visible: false }); await run('focus-page', { client: state.clientId }) } }
+  return <button className={css.row} onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button>
 }
 let TabRow = ({ id, label, url, active }: { id: string; label: string; url: string; active: boolean }) => {
   let { run, dismiss } = useUI()
@@ -232,7 +279,7 @@ let HelpContent = () => {
   let { state } = useUI()
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
-  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels. Closing an internal window asks for y/n. Closing a native client leaves its session running.</p><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
 }
 
 let KeyboardSettings = () => {

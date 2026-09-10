@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { initialModel } from '../src/main/model'
+import { initialModel, newSession } from '../src/main/model'
 import { parseCommandLine, tokenize } from '../src/shared/command-line'
 import type { PublicState } from '../src/shared/types'
 
@@ -23,4 +23,16 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('tab select -t 0', current)).toMatchObject({ args: { tab: window.panes[0].activeTabId } })
   expect(() => parseCommandLine('select-window -t', current)).toThrow('Missing value')
   expect(() => parseCommandLine('not-a-command', current)).toThrow('Unknown command')
+})
+
+it('cycles sessions in both directions and wraps at the ends', () => {
+  let current = state(), first = current.model.sessions[0]
+  let second = newSession('second', first.defaultProfileId)
+  let third = newSession('third', first.defaultProfileId)
+  current.model.sessions.push(second, third)
+  expect(parseCommandLine('next-session', current)).toMatchObject({ method: 'switch-client', args: { client: 'client', session: second.id } })
+  expect(parseCommandLine('previous-session', current)).toMatchObject({ args: { session: third.id } })
+  current.model.clients[0].sessionId = third.id
+  current.model.clients[0].windowId = third.windows[0].id
+  expect(parseCommandLine('next-session', current)).toMatchObject({ args: { session: first.id } })
 })

@@ -56,6 +56,11 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
   if (['split-window', 'select-pane', 'kill-pane', 'move-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
   if (name === 'next-window' || name === 'previous-window') return { method: 'cycle-window', args: { ...current, direction: name === 'next-window' ? 1 : -1 } }
+  if (name === 'next-session' || name === 'previous-session') {
+    let index = state.model.sessions.findIndex(item => item.id === session.id)
+    let next = state.model.sessions[(index + (name === 'next-session' ? 1 : -1) + state.model.sessions.length) % state.model.sessions.length]
+    return { method: 'switch-client', args: { ...current, session: next.id } }
+  }
   if (name === 'next-pane') return { method: 'cycle-pane', args: current }
   if (name === 'next-tab' || name === 'previous-tab') {
     if (!pane) throw new Error('No selected pane')

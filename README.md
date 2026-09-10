@@ -87,7 +87,15 @@ The default prefix is Control+B, followed within 1.6 seconds by:
 | s | Show sessions |
 | : | Open command prompt |
 | ? | Show help and shortcuts |
+| , / r | Rename internal window |
+| & | Close internal window (y confirms; n or Escape cancels) |
+| $ | Rename session |
+| ( / ) | Previous / next session |
 | d | Detach client |
+
+In the session picker (Control+B, then s), Up/Down moves the highlight, Enter attaches, and Escape cancels without switching. Home/End jumps to the ends; PageUp/PageDown moves ten rows. The current session is focused when the picker opens.
+
+Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 
 The page fills the native window above one status bar. Command+L opens a temporary URL/search prompt in that bar; type a URL and press Enter. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
@@ -126,6 +134,7 @@ keyboard:
     Cmd+N: new-client
     Cmd+T: new-tab
     Cmd+W: close-tab
+    Cmd+Shift+W: detach
     Cmd+F: find
     Cmd+,: settings
     Escape: stop
@@ -133,6 +142,11 @@ keyboard:
     ":": command
     "?": help
     c: new-window
+    ",": rename-window
+    "&": close-window
+    "$": rename-session
+    "(": previous-session
+    ")": next-session
 ```
 
 Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], tab switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.

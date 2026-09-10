@@ -135,7 +135,7 @@ export let createRuntime = (dataDirectory: string) => {
     let tab = pane?.activeTabId
     let control = (name: string) => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
-    if (['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(action)) { control(action); return }
+    if (['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
     if (action === 'close-tab' && tab) { void execute({ method: 'tab.close', args: { tab } }).catch(reportError); return }

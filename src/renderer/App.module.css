@@ -41,3 +41,5 @@
 .row[data-active="true"] { color: #d6dfcf; }
 .folder > summary { padding: 6px 0; cursor: pointer; }
 .folder > div { padding-left: 14px; }
+
+.row:focus { background: #303944; color: #f0f2f5; outline: 1px solid #83917b; outline-offset: -1px; }
