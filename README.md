@@ -97,7 +97,7 @@ In the session picker (Control+B, then s), Up/Down moves the highlight, Enter at
 
 Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 
-The page fills the native window above one status bar. Command+L opens a temporary URL/search prompt in that bar; type a URL and press Enter. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
+Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. The separate status bar keeps sessions, windows, and commands available while entering a URL. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
 Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
 
@@ -190,7 +190,7 @@ pnpm package
 pnpm test:package
 ```
 
-The UI check types `https://example.com/` into the URL prompt, submits Enter, verifies the native page is attached and visible, and saves `artifacts/url-opened.png`. `pnpm debug:ui` runs the same check and leaves the debug window open with temporary profiles. Set `BROWMUX_TEST_URL` to check a different URL.
+The UI check types a local fixture URL into a pane's URL prompt, submits Enter, verifies the native page is attached and visible, and saves `artifacts/url-opened.png`. It also opens a second pane and saves `artifacts/pane-addresses.png` with both address bars and the separate window status bar. `pnpm debug:ui` runs the same check and leaves the debug window open with temporary profiles. Set `BROWMUX_TEST_URL` to check a different URL.
 
 Integration tests open disposable Electron clients, exercise native view transfers, verify isolated storage and restart recovery, and check that bot automation preserves the frontmost macOS application. They produce a client screenshot under `artifacts/`.
 

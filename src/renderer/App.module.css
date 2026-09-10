@@ -8,8 +8,8 @@
 .windows { display: flex; gap: 10px; max-width: 42%; overflow-x: auto; flex-shrink: 1; }
 .windows button { flex-shrink: 0; }
 .drag { flex: 1; min-width: 24px; align-self: stretch; }
-.status .location { flex: 0 1 auto; max-width: 40%; text-align: right; min-width: 30px; color: #7d8590; }
-.status .error { color: #e6a69c; }
+.status .error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status .error, .prompt .error { color: #e6a69c; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
 .prompt label { color: #c2ceb9; }
 .prompt input { padding: 0; outline: none; border: 0; border-radius: 0; background: transparent; flex: 1; color: #eceef2; }
@@ -22,7 +22,12 @@
 .gutter { width: 3px; flex: 0 0 3px; cursor: col-resize; background: #343b45; touch-action: none; }
 .gutter:hover { background: #a7b69c; }
 .branch[data-axis="vertical"] > .gutter { width: auto; height: 3px; cursor: row-resize; }
-.pane { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.addressBar { display: flex; align-items: center; flex: 0 0 28px; min-width: 0; gap: 10px; padding: 0 8px; background: #191d23; border-bottom: 1px solid #343b45; color: #8e98a4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.pane[data-focused-pane="true"] > .addressBar { border-bottom-color: #83917b; color: #c2ceb9; }
+.location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.location:hover { background: transparent; color: #f0f2f5; }
+.loading { flex-shrink: 0; color: #7d8590; }
 .content { flex: 1; min-width: 0; min-height: 1px; position: relative; background: #111318; overflow: hidden; }
 .preview { width: 100%; height: 100%; object-fit: contain; object-position: top left; background: #111318; }
 .empty { display: flex; flex: 1; width: 100%; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #737b87; background: #111318; }

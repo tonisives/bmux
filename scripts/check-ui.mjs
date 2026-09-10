@@ -2,18 +2,25 @@ import { _electron as electron, expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import http from 'node:http'
 import { execFileSync } from 'node:child_process'
 
 let root = process.cwd()
 let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'browmux-ui-'))
-let target = process.env.BROWMUX_TEST_URL ?? 'https://example.com/'
+let server = http.createServer((request, response) => {
+  response.writeHead(200, { 'Content-Type': 'text/html' })
+  response.end('<!doctype html><title>Browmux URL fixture</title><style>body{margin:0;background:#e8eef8;color:#173353;font:20px sans-serif}h1{margin:0;padding:30px;background:#173353;color:white}p{padding:10px 30px}</style><h1>Browmux URL fixture</h1><p>This page was opened from a pane address bar.</p>')
+})
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+let fixtureUrl = `http://127.0.0.1:${server.address().port}`
+let target = process.env.BROWMUX_TEST_URL ?? `${fixtureUrl}/first-pane`
 let selector = process.env.BROWMUX_TEST_SELECTOR
 let failedRequests = []
 let pageErrors = []
 let keepOpen = process.argv.includes('--keep-open')
 let installed = process.argv.includes('--installed')
 let appPath = path.join(os.homedir(), 'workspace', '_tools', 'Browmux.app', 'Contents', 'MacOS', 'Browmux')
-let application = await electron.launch({ ...(installed ? { executablePath: appPath } : {}), args: installed ? [] : [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '0', BROWMUX_DEBUG: '1' } })
+let application = await electron.launch({ ...(installed ? { executablePath: appPath } : {}), args: installed ? [] : [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_CONFIG: path.join(directory, 'config.yaml'), BROWMUX_BACKGROUND: '0', BROWMUX_DEBUG: '1' } })
 application.context().on('requestfailed', request => { let url = new URL(request.url()); failedRequests.push({ path: url.origin + url.pathname, error: request.failure()?.errorText }) })
 application.context().on('response', response => { if (response.status() >= 400) { let url = new URL(response.url()); failedRequests.push({ path: url.origin + url.pathname, status: response.status() }) } })
 application.context().on('page', page => page.on('pageerror', error => pageErrors.push({ name: error.name, message: error.message.replace(/https?:[^\s)]+/g, '[URL]').slice(0, 200) })))
@@ -26,9 +33,12 @@ try {
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 20000 }).toBe(true)
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))
   await activate()
-  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let status = chrome.getByRole('contentinfo', { name: 'Browser status' })
+  await expect(status.getByRole('button', { name: 'Address', exact: true })).toHaveCount(0)
+  await chrome.getByRole('group', { name: 'Pane address', exact: true }).getByRole('button', { name: 'Address', exact: true }).click()
   let prompt = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await prompt.fill(target)
+  await expect(status.getByRole('button', { name: '0:main*', exact: true })).toBeVisible()
   await prompt.press('Enter')
   await expect(prompt).toHaveCount(0, { timeout: 45000 })
   await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toContainText(new URL(target).hostname, { timeout: 45000 })
@@ -69,6 +79,30 @@ try {
     await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && view.webContents.getURL() === target)), target)).toBe(true)
     console.log(JSON.stringify({ passed: 'Two internal windows kept distinct URLs and switching restored the correct native view', urls }))
   }
+  let secondPane = await chrome.evaluate(async () => {
+    let state = await window.browmux.state(), client = state.model.clients.find(client => client.id === state.clientId)
+    return window.browmux.command({ method: 'split-window', args: { pane: client.paneId } })
+  })
+  let pane = chrome.locator(`[data-pane-id="${secondPane.id}"]`)
+  await pane.getByRole('button', { name: 'Address', exact: true }).click()
+  let panePrompt = pane.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(panePrompt).toBeFocused()
+  await panePrompt.fill(`${fixtureUrl}/second-pane`); await panePrompt.press('Enter')
+  await expect(panePrompt).toHaveCount(0)
+  await expect(pane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${fixtureUrl}/second-pane`)
+  await activate()
+  for (let pageUrl of [target, `${fixtureUrl}/second-pane`]) {
+    await expect.poll(() => application.evaluate(({ BaseWindow }, pageUrl) => {
+      let view = BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && view.webContents.getURL() === pageUrl)
+      let bounds = view?.getBounds()
+      return !!bounds && bounds.y >= 28 && bounds.width > 250 && bounds.height > 300
+    }, pageUrl)).toBe(true)
+  }
+  await chrome.evaluate(client => window.browmux.command({ method: 'client.overlay', args: { client, visible: true } }), clientId)
+  await chrome.waitForTimeout(200)
+  await chrome.screenshot({ path: path.join(root, 'artifacts/pane-addresses.png') })
+  await chrome.evaluate(client => window.browmux.command({ method: 'client.overlay', args: { client, visible: false } }), clientId)
+  console.log(JSON.stringify({ passed: 'Pane address bars opened independent visible pages while the window status bar stayed separate' }))
   console.log(JSON.stringify({ passed: 'Typed a real URL, submitted Enter, and verified visible native page rendering', ...visible, debugPid: application.process().pid }))
   if (keepOpen) { console.log('Debug browser is open with isolated temporary profiles. Quit it to finish.'); await new Promise(resolve => application.on('close', resolve)) }
 } catch (error) {
@@ -80,5 +114,6 @@ try {
   throw error
 } finally {
   await application.close().catch(() => undefined)
+  await new Promise(resolve => server.close(resolve))
   await fs.rm(directory, { recursive: true, force: true })
 }

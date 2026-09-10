@@ -23,7 +23,7 @@ let cli = async (method: string, args: Record<string, unknown> = {}) => {
   return response.result
 }
 let launch = async () => {
-  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '1' } })
+  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_CONFIG: path.join(directory, 'config.yaml'), BROWMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => {
@@ -185,7 +185,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   let client = await cli('attach-session', { session: session.id })
   await cli('select-window', { client: client.id, window: session.windows[1].id })
   await application.close()
-  application = await electron.launch({ args: [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_CONFIG: path.join(directory, 'config.yaml'), BROWMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
   expect((await cli('list-clients'))[0].windowId).toBe(session.windows[1].id)
@@ -290,6 +290,63 @@ test('URL entry after import attaches the live page; native shortcuts and comman
   await chrome.waitForTimeout(200)
   await chrome.screenshot({ path: path.join(root, 'artifacts/minimal-ui.png') })
   await cli('client.overlay', { client: client.id, visible: false })
+  await cli('detach-client', { client: client.id })
+})
+
+test('pane address bars navigate independently and leave window switching available', async () => {
+  let session = await cli('new-session', { name: 'pane-addresses' })
+  let window = session.windows[0], first = window.panes[0]
+  let second = await cli('split-window', { pane: first.id, url: `${url}/second-pane` })
+  let third = await cli('split-window', { pane: second.id, axis: 'vertical', url: `${url}/third-pane` })
+  await cli('navigate', { tab: first.activeTabId, url: `${url}/first-pane` })
+  let other = await cli('new-window', { session: session.id, name: 'other' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let status = chrome.getByRole('contentinfo', { name: 'Browser status' })
+  let secondPane = chrome.locator(`[data-pane-id="${second.id}"]`)
+  let address = secondPane.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(chrome.getByRole('group', { name: 'Pane address', exact: true })).toHaveCount(3)
+  await expect(status.getByRole('button', { name: 'Address', exact: true })).toHaveCount(0)
+  // Clicking an inactive pane must select it without handing typing focus to its page.
+  await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
+  await expect(address).toBeFocused()
+  await expect(address).toHaveValue(`${url}/second-pane`)
+  await expect(status.getByRole('button', { name: '0:main*', exact: true })).toBeVisible()
+  await address.fill(`${url}/edited-second-pane`); await address.press('Enter')
+  await expect(address).toHaveCount(0)
+  await cli('wait', { tab: second.activeTabId, selector: '#text' })
+  expect((await cli('list-panes', { window: window.id })).map((pane: { tabs: { url: string }[] }) => pane.tabs[0].url)).toEqual([`${url}/first-pane`, `${url}/edited-second-pane`, `${url}/third-pane`])
+  // Every native page must fit below its own address row in both split directions.
+  await cli('activate-client', { client: client.id })
+  for (let pane of [first, second, third]) {
+    let container = chrome.locator(`[data-pane-id="${pane.id}"]`)
+    let bar = await container.getByRole('group', { name: 'Pane address' }).boundingBox()
+    let content = await container.locator('[data-browser-content]').boundingBox()
+    expect(content!.y).toBe(bar!.y + bar!.height)
+    let target = pane.id === second.id ? `${url}/edited-second-pane` : pane.id === first.id ? `${url}/first-pane` : `${url}/third-pane`
+    await expect.poll(() => application.evaluate(({ BaseWindow }, target) => {
+      let view = BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)
+      return view?.getBounds()
+    }, target)).toEqual({ x: Math.round(content!.x), y: Math.round(content!.y), width: Math.round(content!.width), height: Math.round(content!.height) })
+  }
+  await cli('focus-page', { client: client.id })
+  await application.evaluate(({ webContents }) => {
+    let page = webContents.getFocusedWebContents()!
+    page.sendInputEvent({ type: 'keyDown', keyCode: 'l', modifiers: ['meta'] })
+    page.sendInputEvent({ type: 'keyUp', keyCode: 'l', modifiers: ['meta'] })
+  })
+  await expect(address).toBeFocused()
+  await address.fill('not-a-protocol://example'); await address.press('Enter')
+  await expect(secondPane.getByRole('status')).toContainText('Only http')
+  await address.press('Escape')
+  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
+  await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
+  await address.fill(`${url}/unsaved`)
+  await status.getByRole('button', { name: '1:other', exact: true }).click()
+  await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(other.id)
+  await expect(chrome.getByRole('textbox', { name: 'URL or search', exact: true })).toHaveCount(0)
+  await status.getByRole('button', { name: '0:main', exact: true }).click()
+  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
   await cli('detach-client', { client: client.id })
 })
 
@@ -445,7 +502,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   let config = path.join(directory, 'config.yaml')
   await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
   await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
-  expect((await cli('state')).keyboard.prefix).toBe('Ctrl+2')
+  await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+2')
   await application.close(); await launch()
   expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
   let session = await cli('new-session', { name: 'custom-shortcuts' })
