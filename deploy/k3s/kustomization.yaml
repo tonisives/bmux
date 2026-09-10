@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bmux
+resources:
+  - website.yaml
+images:
+  - name: registry.tonisives.com/bmux-website
+    newTag: pending-initial-build

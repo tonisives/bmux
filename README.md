@@ -1,5 +1,7 @@
 # bmux
 
+<img src="design/icon-concepts/02-split-planet.png" alt="bmux Split planet icon" width="100" />
+
 ### tmux for your browser.
 
 Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
@@ -20,6 +22,10 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
 
 bmux is an early preview, free under the [MIT license](LICENSE). Current builds are unsigned and built locally. It does not require tmux.
+
+## Made for agents
+
+Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit tab IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.
 
 ## Get started
 

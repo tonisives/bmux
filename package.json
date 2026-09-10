@@ -27,7 +27,8 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "test:package": "node scripts/smoke-packaged.mjs",
     "test:ui": "pnpm build && node scripts/check-ui.mjs",
-    "debug:ui": "pnpm build && node scripts/check-ui.mjs --keep-open"
+    "debug:ui": "pnpm build && node scripts/check-ui.mjs --keep-open",
+    "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "react": "^19.1.0",
@@ -35,7 +36,6 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@openai/sites-vite-plugin": "0.1.0",
     "@playwright/test": "^1.58.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
@@ -68,7 +68,8 @@
       "extendInfo": {
         "NSCameraUsageDescription": "Allow websites you approve to use the camera.",
         "NSMicrophoneUsageDescription": "Allow websites you approve to use the microphone."
-      }
+      },
+      "icon": "build/icon.icns"
     },
     "artifactName": "${productName}-${version}-${arch}.${ext}"
   }

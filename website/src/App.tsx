@@ -14,7 +14,7 @@ type DemoContextValue = { mode: DemoMode; setMode: (mode: DemoMode) => void; ses
 let DemoContext = createContext<DemoContextValue | null>(null)
 let useDemo = () => useContext(DemoContext)!
 
-let Brand = () => <a className={styles.brand} href="#top" aria-label="bmux home"><span className={styles.mark} aria-hidden="true"><i /><i /><i /></span>bmux<span className={styles.brandCursor}>_</span></a>
+let Brand = () => <a className={styles.brand} href="#top" aria-label="bmux home"><img className={styles.mark} src="/cdn/icon-128.png" alt="" width="40" height="40" />bmux<span className={styles.brandCursor}>_</span></a>
 
 let DemoControls = () => {
   let { mode, setMode } = useDemo()
@@ -159,10 +159,9 @@ let CLI = () => <section className={styles.cliSection}>
     <div className={styles.terminalFooter}><span className={styles.statusDot} /> JSON output. Explicit tab IDs. Your focus stays put.</div>
   </div>
   <div className={styles.cliCopy}>
-    <span className={styles.eyebrow}>03 / READY FOR YOUR AGENTS</span>
-    <h2>A browser you<br />can script.</h2>
-    <p>Navigate, inspect the DOM, click, type, and capture screenshots from your terminal. Browser commands work in the background without activating the app.</p>
-    <p>Use a bot profile to keep background pages running. Keep your own browsing in another profile.</p>
+    <span className={styles.eyebrow}>03 / BROWSER AUTOMATION</span>
+    <h2>Made for agents.</h2>
+    <p>Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit tab IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.</p>
     <a className={styles.textLink} href={`${GITHUB_URL}/blob/main/AGENT.md`}>Read the automation guide <span aria-hidden="true">↗</span></a>
   </div>
 </section>

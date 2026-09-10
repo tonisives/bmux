@@ -2,9 +2,7 @@
 .nav, .footer { max-width: 1220px; margin: auto; padding: 26px 36px; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: inline-flex; align-items: center; font-size: 24px; font-weight: 650; letter-spacing: -1px; }
 .brandCursor { color: #c4f580; }
-.mark { width: 24px; height: 24px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; margin-right: 12px; }
-.mark i { background: #c4f580; border-radius: 1px; }
-.mark i:first-child { grid-row: span 2; }
+.mark { width: 40px; height: 40px; object-fit: contain; margin-right: 9px; }
 .nav nav { display: flex; align-items: center; gap: 32px; font-size: 13px; color: #a7ada0; }
 .nav nav a:hover { color: #c4f580; }
 .navGithub { border: 1px solid #3d4236; border-radius: 5px; padding: 10px 15px; color: #edefe8; }
@@ -63,7 +61,7 @@
 .sessionOverlay { position: absolute; inset: 0; background: #111310b8; backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 20px; }.sessionPicker { background: #1d2319; border: 1px solid #586a43; border-radius: 6px; width: 430px; padding: 26px; box-shadow: 0 15px 60px #0008; }.sessionPicker h3 { margin: 12px 0 23px; font-size: 19px; font-weight: 500; }.sessionPicker button { width: 100%; padding: 13px 10px; border: 0; background: transparent; display: flex; align-items: center; gap: 12px; font: 11px 'IBM Plex Mono', monospace; }.sessionPicker button:hover, .sessionPicker button:focus-visible { background: #35412a; }.sessionPicker button > span { color: #c4f580; width: 8px; }.sessionPicker small { margin-left: auto; color: #93a180; font-size: 9px; }.sessionPicker kbd { color: #c4f580; }.sessionPicker p { font-size: 9px; color: #8c9a7d; margin-bottom: 0; }
 .eyebrow { font: 10px 'IBM Plex Mono', monospace; color: #afc396; letter-spacing: 1.5px; }
 .placeholderSection { padding-top: 100px; padding-bottom: 40px; }.placeholderSection h2 { font-size: 46px; font-weight: 500; letter-spacing: -2px; }.placeholderSection p { color: #9fa995; line-height: 1.7; }
-.footer { border-top: 1px solid #2b3225; margin-top: 80px; font-size: 11px; color: #8f9b83; }.footer .brand { font-size: 19px; color: #dbe3d2; }.footer .mark { width: 20px; height: 20px; }.footer a:hover { color: #c4f580; }
+.footer { border-top: 1px solid #2b3225; margin-top: 80px; font-size: 11px; color: #8f9b83; }.footer .brand { font-size: 19px; color: #dbe3d2; }.footer .mark { width: 34px; height: 34px; }.footer a:hover { color: #c4f580; }
 .skipLink { position: fixed; top: -100px; left: 16px; z-index: 100; padding: 12px 20px; background: #c4f580; color: #111310; }.skipLink:focus { top: 12px; }
 .features, .keyboardSection, .cliSection, .faqSection { max-width: 1220px; padding: 105px 36px 0; margin: auto; }
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 35px; margin-bottom: 45px; }
