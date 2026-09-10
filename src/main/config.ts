@@ -4,6 +4,9 @@ import os from 'node:os'
 import { parseDocument, stringify } from 'yaml'
 import { DEFAULT_KEYBOARD, KEY_ACTIONS, parseBinding } from '../shared/keyboard'
 import type { KeyboardConfig } from '../shared/keyboard'
+import type { StatusBarPosition } from '../shared/types'
+
+type Settings = { keyboard: KeyboardConfig; accessibility: boolean; statusBar: StatusBarPosition }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -18,13 +21,14 @@ export let configPath = (dataDirectory: string) => {
   }
   return current
 }
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux keyboard settings. Changes reload automatically.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
-export let parseConfig = (text: string): { keyboard: KeyboardConfig; accessibility: boolean } => {
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let parseConfig = (text: string): Settings => {
   let document = parseDocument(text)
   if (document.errors.length) throw new Error('Invalid YAML in keyboard configuration')
   let value = document.toJS({ maxAliasCount: 30 })
   if (!value || typeof value !== 'object' || Array.isArray(value) || !value.keyboard || typeof value.keyboard !== 'object' || Array.isArray(value.keyboard)) throw new Error('Configuration must contain a keyboard mapping')
   if (value.accessibility !== undefined && typeof value.accessibility !== 'boolean') throw new Error('accessibility must be true or false')
+  if (value.statusBar !== undefined && value.statusBar !== 'top' && value.statusBar !== 'bottom') throw new Error('statusBar must be top or bottom')
   let keyboard = value.keyboard
   for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
   let result = structuredClone(DEFAULT_KEYBOARD)
@@ -51,10 +55,10 @@ export let parseConfig = (text: string): { keyboard: KeyboardConfig; accessibili
       else result[field][key] = action
     }
   }
-  return { keyboard: result, accessibility: value.accessibility ?? false }
+  return { keyboard: result, accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top' }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false }, error: string | null = null
+  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false, statusBar: 'top' }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -64,7 +68,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
   reload()
   fs.watchFile(file, { interval: 500, persistent: false }, reload)
   return {
-    get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get error() { return error }, path: file, reload,
+    get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {
       parseBinding(prefix)
       let document = parseDocument(fs.readFileSync(file, 'utf8'))
