@@ -471,7 +471,9 @@ export let createRuntime = (dataDirectory: string) => {
       }
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {
         let pane = paneById(model, client.paneId).pane
-        tabs.get(pane.activeTabId)?.view.webContents.focus()
+        let live = tabs.get(pane.activeTabId), owner = clients.get(client.id)!
+        if (live?.parent === owner.window) live.view.webContents.focus()
+        else owner.chrome.webContents.focus()
       }
       save(); return client
     }
