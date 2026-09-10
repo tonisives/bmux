@@ -318,6 +318,21 @@ test('pane address bars navigate independently and leave window switching availa
   await expect(address).toHaveCount(0)
   await cli('wait', { tab: second.activeTabId, selector: '#text' })
   expect((await cli('list-panes', { window: window.id })).map((pane: { tabs: { url: string }[] }) => pane.tabs[0].url)).toEqual([`${url}/first-pane`, `${url}/edited-second-pane`, `${url}/third-pane`])
+  await cli('select-pane', { client: client.id, pane: third.id })
+  await expect.poll(async () => chrome.locator(`[data-pane-id="${third.id}"]`).getAttribute('data-focused-pane')).toBe('true')
+  let activeBorder = await chrome.locator(`[data-pane-id="${third.id}"]`).evaluate(element => {
+    let pane = element.getBoundingClientRect(), address = element.querySelector('[aria-label="Pane address"]')!.getBoundingClientRect(), style = getComputedStyle(element)
+    return { color: style.borderTopColor, widths: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth], addressOffset: address.y - pane.y }
+  })
+  expect(activeBorder).toEqual({ color: 'rgb(131, 145, 123)', widths: ['1px', '1px', '1px', '1px'], addressOffset: 1 })
+  await cli('toggle-pane-zoom', { client: client.id })
+  await expect(chrome.locator('[data-pane-id]')).toHaveCount(1)
+  await expect(chrome.locator(`[data-pane-id="${third.id}"]`).getByRole('group', { name: 'Pane address' })).toBeVisible()
+  expect((await cli('list-clients'))[0].zoomedPaneId).toBe(third.id)
+  await cli('toggle-pane-zoom', { client: client.id })
+  await expect(chrome.locator('[data-pane-id]')).toHaveCount(3)
+  expect((await cli('list-clients'))[0].zoomedPaneId).toBeNull()
+  await cli('select-pane', { client: client.id, pane: second.id })
   // Every native page must fit below its own address row in both split directions.
   await cli('activate-client', { client: client.id })
   for (let pane of [first, second, third]) {

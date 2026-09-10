@@ -20,6 +20,7 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('select-window -t 0', current)).toMatchObject({ args: { window: window.id } })
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })
   expect(parseCommandLine('pane-left', current)).toEqual({ method: 'select-pane-direction', args: { client: 'client', direction: 'left' } })
+  expect(parseCommandLine('toggle-pane-zoom', current)).toEqual({ method: 'toggle-pane-zoom', args: { client: 'client' } })
   expect(parseCommandLine('restore-layout "my layout" --confirm', current)).toMatchObject({ args: { name: 'my layout', confirm: true, window: window.id } })
   expect(parseCommandLine('tab select -t 0', current)).toMatchObject({ args: { tab: window.panes[0].activeTabId } })
   expect(() => parseCommandLine('select-window -t', current)).toThrow('Missing value')
