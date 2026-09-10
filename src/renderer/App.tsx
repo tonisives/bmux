@@ -6,31 +6,41 @@ import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings'
-type UIContext = { state: PublicState; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control) => void; dismiss: () => void }
+type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
   let [message, setMessage] = useState('')
+  let previous = useRef('')
+  let accept = useCallback((next: PublicState) => {
+    let { client, tab } = selection(next)
+    let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
+    if (previous.current && previous.current !== target) { setControl(null); setMessage('') }
+    previous.current = target; setState(next)
+  }, [])
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args }) }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return undefined }
   }, [])
-  let show = useCallback((control: Control) => { setMessage(''); setControl(control) }, [])
+  let show = useCallback(async (control: Control, paneId?: string) => {
+    if (paneId) {
+      let current = await bridge.state()
+      if (selection(current).pane?.id !== paneId) {
+        if (await run('select-pane', { client: current.clientId, pane: paneId, focus: false }) === undefined) return
+        current = await bridge.state()
+      }
+      accept(current)
+    }
+    setMessage(''); setControl(control)
+  }, [accept, run])
   let dismiss = useCallback(() => { setControl(null); setMessage('') }, [])
   useEffect(() => {
-    let previous = ''
-    let accept = (next: PublicState) => {
-      let { client, tab } = selection(next)
-      let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
-      if (previous && previous !== target) { setControl(null); setMessage('') }
-      previous = target; setState(next)
-    }
     let unsubscribe = bridge.subscribe(accept)
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
     let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); show(control as Control) }) })
     return () => { unsubscribe(); controls() }
-  }, [show])
+  }, [accept, show])
   let management = control === 'rename-window' || control === 'rename-session' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
@@ -45,11 +55,11 @@ export let App = () => {
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
-  let context = { state, run, show, dismiss }
+  let context = { state, control, message, onMessage: setMessage, run, show, dismiss }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{window.layout ? <Branch node={window.layout} /> : <EmptyPane />}</main>
+    <main className={css.workspace}>{window.layout ? <Branch node={window.layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'address' || control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={message} />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={control === 'address' ? '' : message} />}
     </footer>
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
@@ -69,10 +79,9 @@ let selection = (state: PublicState) => {
 }
 
 let Status = ({ message }: { message: string }) => {
-  let { state, show, run } = useUI()
+  let { state, show } = useUI()
   let { client, session, pane, tab, profile } = selection(state)
   let sessions = () => show('sessions')
-  let address = () => show('address')
   let tabs = () => show('tabs')
   let help = () => show('help')
   let commands = () => show('command')
@@ -80,7 +89,7 @@ let Status = ({ message }: { message: string }) => {
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div className={css.windows}>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <button onClick={tabs} aria-label="Tabs" title="Tabs and active profile">{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</button>
-    <span className={css.drag} /><button onClick={address} aria-label="Address" className={`${css.location} ${message ? css.error : ''}`} title={message || tab?.url}>{message || state.configError || (tab && state.loading[tab.id] ? 'loading…' : '') || (tab?.url !== 'about:blank' ? tab?.url : 'Cmd+L to open a URL')}</button>
+    <span className={css.drag} />{(message || state.configError) && <span className={css.error} title={message || state.configError || undefined}>{message || state.configError}</span>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
@@ -165,10 +174,22 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><input id="manage" ref={ref} aria-label={closing ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || 'esc'}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
-let EmptyPane = () => {
+let EmptyPane = ({ paneId }: { paneId?: string }) => {
   let { show } = useUI()
-  let open = () => show('address')
+  let open = () => show('address', paneId)
   return <div className={css.empty}><button onClick={open}>Cmd+L to open a URL</button></div>
+}
+let PaneAddress = ({ paneId }: { paneId?: string }) => {
+  let { state, control, message, onMessage, show } = useUI()
+  let { client, window } = selection(state)
+  let pane = window?.panes.find(pane => pane.id === paneId)
+  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let editing = control === 'address' && (client?.paneId === paneId || !paneId)
+  let open = () => show('address', paneId)
+  return <div className={css.addressBar} role="group" aria-label="Pane address">
+    {editing ? <Prompt key={tab?.id ?? 'empty'} mode="address" message={message} onMessage={onMessage} /> : <button onClick={open} aria-label="Address" className={css.location} title={tab?.url}>{tab?.url && tab.url !== 'about:blank' ? tab.url : 'Cmd+L to open a URL'}</button>}
+    {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
+  </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
   let { state, run } = useUI()
@@ -207,8 +228,8 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  return <section className={css.pane} data-focused-pane={client!.paneId === pane.id} onMouseDown={focus}><div className={css.content} ref={ref} data-browser-content data-tab-id={tab.id}>
-    {state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane /> : snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>}
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-tab-id={tab.id} onMouseDown={focus}>
+    {state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>}
   </div></section>
 }
 
