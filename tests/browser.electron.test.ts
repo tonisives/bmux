@@ -92,9 +92,9 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(chromePages.length).toBe(2)
   let chrome = chromePages[1]
   await application.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) if (window.isVisible()) window.setBounds({ x: 90, y: 90, width: 1280, height: 850 }) })
-  await expect(chrome.getByText('Browmux', { exact: true })).toBeVisible()
+  await expect(chrome.getByRole('contentinfo', { name: 'Browser status' })).toBeVisible()
   await chrome.getByRole('button', { name: 'Help', exact: true }).click()
-  await expect(chrome.getByRole('heading', { name: 'Working in Browmux' })).toBeVisible()
+  await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
   await chrome.getByRole('button', { name: 'Close', exact: true }).last().click()
   await fs.mkdir(path.join(root, 'artifacts'), { recursive: true })
   await cli('client.overlay', { client: clientB.id, visible: true })
@@ -201,7 +201,9 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   let session = (await cli('list-sessions')).find((session: { defaultProfileId: string }) => session.defaultProfileId === profileId)
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.windows().find(window => window.url().includes('/renderer/index.html'))!
-  await chrome.getByRole('button', { name: 'Bookmarks', exact: true }).click()
+  await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+  await chrome.getByRole('textbox', { name: 'Command', exact: true }).fill('bookmarks')
+  await chrome.getByRole('textbox', { name: 'Command', exact: true }).press('Enter')
   await expect(chrome.getByText('Profile: Imported work', { exact: true })).toBeVisible()
   await expect(chrome.getByText('Projects', { exact: true })).toBeVisible()
   await expect(chrome.getByRole('button', { name: 'Unsupported bookmarklet' })).toBeDisabled()
@@ -219,4 +221,64 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   let profile = (await cli('profile.list')).find((profile: { id: string }) => profile.id === profileId)
   expect(profile.bookmarks[0].children[0].children).toHaveLength(2)
   expect((await fs.readdir(directory)).some(name => name.startsWith('state.before-brave-'))).toBe(true)
+})
+
+test('URL entry after import attaches the live page; native shortcuts and commands work', async () => {
+  let session = await cli('new-session', { name: 'UI regression' })
+  let pane = session.windows[0].panes[0], tab = pane.tabs[0]
+  await cli('import-brave', { source: path.join(directory, 'brave-fixture') })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.fill(`${url}/entered-in-ui`)
+  await address.press('Enter')
+  await expect(address).toHaveCount(0)
+  await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(`${url}/entered-in-ui`)
+  await expect.poll(async () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)), `${url}/entered-in-ui`)).toBe(true)
+  // Deliver keys to the actual page WebContents, not to the React document.
+  await application.evaluate(({ webContents }, url) => {
+    let page = webContents.getAllWebContents().find(page => page.getURL() === url)!
+    page.focus()
+    page.sendInputEvent({ type: 'keyDown', keyCode: 'l', modifiers: ['meta'] })
+    page.sendInputEvent({ type: 'keyUp', keyCode: 'l', modifiers: ['meta'] })
+  }, `${url}/entered-in-ui`)
+  await expect(address).toBeFocused()
+  await address.fill(`${url}/second-ui-navigation`)
+  await address.press('Enter')
+  await expect(address).toHaveCount(0)
+  await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(`${url}/second-ui-navigation`)
+  await application.evaluate(({ webContents }, url) => {
+    let page = webContents.getAllWebContents().find(page => page.getURL() === url)!
+    for (let event of [{ keyCode: 'b', modifiers: ['control'] }, { keyCode: 'Shift', modifiers: ['shift'] }, { keyCode: '?', modifiers: ['shift'] }] satisfies Omit<Electron.KeyboardInputEvent, 'type'>[]) {
+      page.sendInputEvent({ type: 'keyDown', ...event }); page.sendInputEvent({ type: 'keyUp', ...event })
+    }
+  }, `${url}/second-ui-navigation`)
+  await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
+  await chrome.keyboard.press('Escape')
+  await expect(chrome.getByRole('dialog')).toHaveCount(0)
+  await application.evaluate(({ webContents }) => {
+    let chrome = webContents.getAllWebContents().find(page => page.getURL().endsWith('/renderer/index.html'))!
+    chrome.focus()
+    for (let event of [{ keyCode: 'b', modifiers: ['control'] }, { keyCode: 'Shift', modifiers: ['shift'] }, { keyCode: ':', modifiers: ['shift'] }] satisfies Omit<Electron.KeyboardInputEvent, 'type'>[]) {
+      chrome.sendInputEvent({ type: 'keyDown', ...event }); chrome.sendInputEvent({ type: 'keyUp', ...event })
+    }
+  })
+  let command = chrome.getByRole('textbox', { name: 'Command', exact: true })
+  await expect(command).toBeFocused()
+  await command.fill('new-window -n "from prompt"')
+  await command.press('Enter')
+  await expect(command).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: '1:from prompt*', exact: true })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Command prompt' }).click()
+  await command.fill('open not-a-protocol://example')
+  await command.press('Enter')
+  await expect(chrome.getByRole('status')).toContainText('Only http')
+  await command.press('Escape')
+  await chrome.getByRole('button', { name: '0:main', exact: true }).click()
+  await cli('client.overlay', { client: client.id, visible: true })
+  await chrome.waitForTimeout(200)
+  await chrome.screenshot({ path: path.join(root, 'artifacts/minimal-ui.png') })
+  await cli('client.overlay', { client: client.id, visible: false })
+  await cli('detach-client', { client: client.id })
 })

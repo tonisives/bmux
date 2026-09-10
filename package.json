@@ -21,7 +21,9 @@
     "test:electron": "pnpm build && playwright test --workers=1",
     "package": "pnpm build && electron-builder --mac --dir && node scripts/install-app.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "test:package": "node scripts/smoke-packaged.mjs"
+    "test:package": "node scripts/smoke-packaged.mjs",
+    "test:ui": "pnpm build && node scripts/check-ui.mjs",
+    "debug:ui": "pnpm build && node scripts/check-ui.mjs --keep-open"
   },
   "dependencies": {
     "react": "^19.1.0",

@@ -69,9 +69,9 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 brmux import-brave
 ```
 
-This copies profile names and bookmark folders from Brave into separate Browmux profiles and sessions. Use the session switcher to choose an imported profile, then open **Bookmarks**. Imports preserve folders and leave Brave unchanged. A name collision creates a separate name such as `bot (Brave)`; it does not reuse another profile's storage. Repeating the import updates the imported bookmarks without duplicating profiles or sessions. An existing state file is backed up before import.
+This copies profile names and bookmark folders from Brave into separate Browmux profiles and sessions. Use the session switcher to choose an imported profile, then run `bookmarks` in the command prompt (Control+B, then `:`). Imports preserve folders and leave Brave unchanged. A name collision creates a separate name such as `bot (Brave)`; it does not reuse another profile's storage. Repeating the import updates the imported bookmarks without duplicating profiles or sessions. An existing state file is backed up before import.
 
-The Bookmarks panel also offers **Import Brave profiles**. `--source` selects another Brave user-data directory. Website logins, saved passwords, site data, extensions, and Brave settings are not copied. Unsupported URLs, such as bookmarklets, are preserved but disabled in the panel.
+Use `import-brave` in the command prompt to repeat the import. `--source` selects another Brave user-data directory. Website logins, saved passwords, site data, extensions, and Brave settings are not copied. Unsupported URLs, such as bookmarklets, are preserved but disabled in the panel.
 
 ## Keyboard
 
@@ -84,10 +84,32 @@ The default prefix is Control+B, followed within 1.6 seconds by:
 | % | Split pane horizontally (side by side) |
 | " | Split pane vertically (above and below) |
 | o | Next pane |
-| s | Focus session switcher |
+| s | Show sessions |
+| : | Open command prompt |
+| ? | Show help and shortcuts |
 | d | Detach client |
 
-Command+L focuses the address bar, Command+T creates a tab, Command+W closes a tab, Command+R reloads, and Command+F focuses find. Command+Shift+N creates another client. Set the prefix in Help or with `brmux settings prefix LETTER`.
+The page fills the native window above one status bar. Command+L opens a temporary URL/search prompt in that bar; type a URL and press Enter. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
+
+Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
+
+```text
+open https://example.com
+new-session -s work --profile professional
+session personal
+new-window -n research
+select-window -t 1
+split-window -h --profile bot
+save-layout development
+restore-layout development --confirm
+bookmarks
+sessions
+tabs
+activity
+help
+```
+
+Use quotes around names with spaces. Window/tab indices start at 0. Up/down recalls command history. Command+Shift+N creates another client. Set the prefix with `prefix LETTER` or `brmux settings prefix LETTER`.
 
 ## Data and permissions
 
@@ -104,9 +126,12 @@ The control socket is accessible only to the current OS user. No network debugge
 ```sh
 pnpm check
 pnpm test:electron
+pnpm test:ui
 pnpm package
 pnpm test:package
 ```
+
+The UI check types `https://example.com/` into the URL prompt, submits Enter, verifies the native page is attached and visible, and saves `artifacts/url-opened.png`. `pnpm debug:ui` runs the same check and leaves the debug window open with temporary profiles. Set `BROWMUX_TEST_URL` to check a different URL.
 
 Integration tests open disposable Electron clients, exercise native view transfers, verify isolated storage and restart recovery, and check that bot automation preserves the frontmost macOS application. They produce a client screenshot under `artifacts/`.
 

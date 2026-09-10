@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Bridge, PublicState } from '../shared/types'
 
 let bridge: Bridge = {
+  controls: listener => {
+    let handler = (_event: Electron.IpcRendererEvent, control: string) => listener(control)
+    ipcRenderer.on('focus-control', handler)
+    return () => ipcRenderer.removeListener('focus-control', handler)
+  },
   state: () => ipcRenderer.invoke('state'),
   command: command => ipcRenderer.invoke('command', command),
   bounds: bounds => ipcRenderer.send('bounds', bounds),
@@ -12,9 +17,3 @@ let bridge: Bridge = {
   },
 }
 contextBridge.exposeInMainWorld('browmux', bridge)
-ipcRenderer.on('focus-control', (_event, control: string) => {
-  let selector = control === 'session' ? '[data-session-switcher]' : `[data-focused-pane="true"] [data-${control}]`
-  let input = document.querySelector<HTMLInputElement>(selector)
-  input?.focus()
-  if (input instanceof HTMLInputElement) input.select()
-})

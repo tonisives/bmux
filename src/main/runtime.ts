@@ -7,6 +7,7 @@ import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, pan
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
+import { parseCommandLine } from '../shared/command-line'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[] }
@@ -35,6 +36,7 @@ export let createRuntime = (dataDirectory: string) => {
   let configuredProfiles = new Set<string>()
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
+  let loading: Record<string, boolean> = {}
   let permissions = new Map<string, PendingPermission>()
   let permissionGrants = new Map<string, boolean>()
   let downloads: Download[] = []
@@ -56,7 +58,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -122,7 +124,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || !focusedClientId) return
+      if (input.type !== 'keyDown' || !focusedClientId || ['Shift', 'Control', 'Meta', 'Alt', 'CapsLock'].includes(input.key)) return
       if (automatedContents.has(contents.id)) return
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
@@ -138,11 +140,12 @@ export let createRuntime = (dataDirectory: string) => {
         if (key === 'n' || key === 'p') command = { method: 'cycle-window', args: { client: client.id, direction: key === 'n' ? 1 : -1 } }
         if (key === 'o') command = { method: 'cycle-pane', args: { client: client.id } }
         if (key === 'd') command = { method: 'detach-client', args: { client: client.id } }
-        if (key === 's') clients.get(client.id)?.chrome.webContents.send('focus-control', 'session')
+        if (key === 's' || key === ':' || key === '?') { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', key === 's' ? 'sessions' : key === ':' ? 'command' : 'help') }
         if (command) void execute(command).catch(reportError)
         event.preventDefault()
         return
       }
+      if (input.key === 'F1') { event.preventDefault(); focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', 'help'); return }
       if (!input.meta) return
       let key = input.key.toLowerCase()
       if (key === 'l' || key === 'f') {
@@ -151,7 +154,8 @@ export let createRuntime = (dataDirectory: string) => {
         chrome?.focus()
         chrome?.send('focus-control', key === 'l' ? 'address' : 'find')
       }
-      if (key === 't' && client.paneId) { event.preventDefault(); void execute({ method: 'tab.create', args: { pane: client.paneId, client: client.id } }).catch(reportError) }
+      if (key === 't' && client.paneId) { event.preventDefault(); void execute({ method: 'tab.create', args: { pane: client.paneId, client: client.id } }).then(() => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', 'address') }).catch(reportError) }
+      if (input.shift && (input.code === 'BracketRight' || input.code === 'BracketLeft' || key === ']' || key === '[')) { event.preventDefault(); void execute(parseCommandLine(input.code === 'BracketRight' || key === ']' ? 'next-tab' : 'previous-tab', state(client.id))).catch(reportError) }
       if (key === 'w' && client.paneId) { event.preventDefault(); void execute({ method: 'tab.close', args: { tab: paneById(model, client.paneId).pane.activeTabId } }).catch(reportError) }
       if (key === 'r' && client.paneId) { event.preventDefault(); let { pane } = paneById(model, client.paneId); tabs.get(pane.activeTabId)?.view.webContents.reload() }
     })
@@ -176,6 +180,8 @@ export let createRuntime = (dataDirectory: string) => {
       save()
       void scheduleVisuals()
     }
+    contents.on('did-start-loading', () => { loading[tabId] = true; publish() })
+    contents.on('did-stop-loading', () => { delete loading[tabId]; publish() })
     contents.on('page-title-updated', update)
     contents.on('focus', () => {
       let client = model.clients.find(client => client.id === focusedClientId)
@@ -215,6 +221,7 @@ export let createRuntime = (dataDirectory: string) => {
     for (let [requestId, request] of permissions) if (request.tabId === tabId) { request.reply(false); permissions.delete(requestId) }
     delete snapshots[tabId]
     delete crashes[tabId]
+    delete loading[tabId]
   }
   let visiblePaneIds = (client: Client) => model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
   let moveView = (live: LiveTab, parent: BaseWindow) => {
@@ -270,7 +277,8 @@ export let createRuntime = (dataDirectory: string) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
-    let window = new BaseWindow({ title: 'Browmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hiddenInset' })
+    let window = new BaseWindow({ title: process.env.BROWMUX_DEBUG === '1' ? 'Browmux Debug' : 'Browmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
+    window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
     let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save() }
@@ -309,6 +317,13 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command): Promise<unknown> => {
+    if (method === 'command-line') return execute(parseCommandLine(required(args, 'line'), state(required(args, 'client'))))
+    if (method === 'focus-page') {
+      let client = resolve(model.clients, args.client, 'Client')
+      await visualQueue
+      if (client.id === focusedClientId && client.paneId) tabs.get(paneById(model, client.paneId).pane.activeTabId)?.view.webContents.focus()
+      return null
+    }
     if (method === 'state' || method === 'status') return state()
     if (method === 'client.overlay') {
       let client = resolve(model.clients, args.client, 'Client')
@@ -323,8 +338,13 @@ export let createRuntime = (dataDirectory: string) => {
       let stateFile = path.join(dataDirectory, 'state.json')
       if (fsSync.existsSync(stateFile)) fsSync.copyFileSync(stateFile, path.join(dataDirectory, `state.before-brave-${Date.now()}.json`), fsSync.constants.COPYFILE_EXCL)
       writeModel(dataDirectory, imported.model)
-      model.profiles = imported.model.profiles
-      model.sessions = imported.model.sessions
+      // Live WebContents callbacks retain these objects. Preserve their identity.
+      for (let importedProfile of imported.model.profiles) {
+        let existing = model.profiles.find(profile => profile.id === importedProfile.id)
+        if (existing) Object.assign(existing, importedProfile)
+        else model.profiles.push(importedProfile)
+      }
+      for (let importedSession of imported.model.sessions) if (!model.sessions.some(session => session.id === importedSession.id)) model.sessions.push(importedSession)
       changed(); await visualQueue
       return { profiles: imported.profiles, bookmarks: imported.profiles.reduce((sum, profile) => sum + profile.bookmarks, 0) }
     }
@@ -346,7 +366,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
       let profile = resolve(model.profiles, args.profile ?? 'default', 'Profile')
       let session = newSession(name, profile.id)
-      model.sessions.push(session); changed(); await visualQueue; return session
+      model.sessions.push(session)
+      if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
+      changed(); await visualQueue; return session
     }
     if (method === 'rename-session') {
       let session = resolve(model.sessions, args.session, 'Session')
