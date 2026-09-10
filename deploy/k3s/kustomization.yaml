@@ -5,4 +5,4 @@ resources:
   - website.yaml
 images:
   - name: registry.tonisives.com/bmux-website
-    newTag: pending-initial-build
+    digest: sha256:86c6668168217f52d1d862e6b81a5fd68c0de2c1862cf22ada2fd24387c58aab
