@@ -7,3 +7,7 @@ release/
 artifacts/
 test-results/
 .DS_Store
+.env
+.env.*
+!.env.example
+.wrangler/

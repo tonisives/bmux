@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://bmux.tonis.dev/sitemap.xml

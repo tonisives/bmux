@@ -1,6 +1,46 @@
-# Browmux
+# bmux
 
-A macOS browser built on Electron's Chromium engine, with tmux-style sessions and persistent, isolated profiles.
+### tmux for your browser.
+
+Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
+
+[Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](#keyboard) · [Automation guide](AGENT.md)
+
+[![bmux — tmux for your browser, illustrated workspace](https://bmux.tonis.dev/cdn/og.png)](https://bmux.tonis.dev)
+
+## Features
+
+- **Split your workspace** — Keep docs, dashboards, and apps side by side. Save and restore named layouts.
+- **Persistent sessions** — Detach a client while its pages keep running. Reattach to the same live pages and form state.
+- **Isolated profiles** — Separate logins, cookies, storage, and permissions. Use different profiles in the same layout.
+- **Keyboard control** — A tmux-style prefix, transient command prompt, and familiar macOS tab shortcuts.
+- **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
+- **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
+- **Bring your bookmarks** — Import Brave profile names and bookmark folders while preserving their structure.
+- **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
+
+bmux is an early preview, free under the [MIT license](LICENSE). Current builds are unsigned and built locally. It does not require tmux.
+
+## Get started
+
+Requires macOS, Node.js 22.12+ (Node 24 recommended), and pnpm 11.
+
+```sh
+git clone https://github.com/tonisives/bmux.git
+cd bmux
+pnpm install
+pnpm dev
+```
+
+To build and install the app locally:
+
+```sh
+pnpm package
+```
+
+This installs `bmux.app` into `~/workspace/_tools`. Packaging does not restart a running instance. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
+
+Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. Command+L opens the URL prompt.
 
 ## Model
 
@@ -26,6 +66,8 @@ pnpm dev
 ```
 
 The renderer reloads during development. Browser content runs sandboxed, without Node integration or a privileged preload. The application interface has a narrow IPC bridge.
+
+The product website lives in [`website/`](website/README.md). Run `pnpm site:dev` for its local preview and `pnpm site:build` for a pre-rendered production build.
 
 Build and launch locally:
 

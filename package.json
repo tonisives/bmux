@@ -12,6 +12,9 @@
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
+    "site:dev": "vite --config website/vite.config.ts",
+    "site:build": "node website/build.mjs",
+    "site:preview": "vite preview --config website/vite.config.ts",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron .",
@@ -31,6 +34,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@openai/sites-vite-plugin": "0.1.0",
     "@playwright/test": "^1.58.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
