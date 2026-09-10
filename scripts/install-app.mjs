@@ -4,13 +4,14 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-let source = path.resolve('release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Browmux.app')
+let source = path.resolve('release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'bmux.app')
 let directory = path.join(os.homedir(), 'workspace', '_tools')
-let destination = path.join(directory, 'Browmux.app')
-await fs.access(path.join(source, 'Contents', 'MacOS', 'Browmux'), fs.constants.X_OK)
+let destination = path.join(directory, 'bmux.app')
+let legacyDestination = path.join(directory, 'Browmux.app')
+await fs.access(path.join(source, 'Contents', 'MacOS', 'bmux'), fs.constants.X_OK)
 await fs.mkdir(directory, { recursive: true })
-let temporary = await fs.mkdtemp(path.join(directory, '.browmux-install-'))
-let staged = path.join(temporary, 'Browmux.app')
+let temporary = await fs.mkdtemp(path.join(directory, '.bmux-install-'))
+let staged = path.join(temporary, 'bmux.app')
 let previous = path.join(temporary, 'previous.app')
 let backedUp = false
 try {
@@ -20,6 +21,7 @@ try {
     if (backedUp) await fs.rename(previous, destination)
     throw error
   }
+  await fs.rm(legacyDestination, { recursive: true, force: true })
   await fs.rm(source, { recursive: true })
   console.log(`Installed ${destination}`)
 } finally {

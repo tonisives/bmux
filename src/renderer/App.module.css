@@ -1,6 +1,7 @@
 .app { display: flex; flex-direction: column; height: 100%; }
 .workspace { display: flex; flex: 1; min-height: 0; min-width: 0; }
-.status { display: flex; align-items: center; flex-shrink: 0; height: 28px; gap: 10px; padding: 0 8px; background: #1b1f24; color: #9ca3ad; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-app-region: drag; }
+.status { display: flex; order: -1; align-items: center; flex-shrink: 0; height: 28px; gap: 10px; padding: 0 8px; background: #1b1f24; color: #9ca3ad; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-app-region: drag; }
+.app[data-status-bar="bottom"] .status { order: initial; }
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
@@ -27,7 +28,8 @@
 .preview { width: 100%; height: 100%; object-fit: contain; object-position: top left; background: #111318; }
 .empty { display: flex; flex: 1; width: 100%; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #737b87; background: #111318; }
 .empty button { color: #737b87; border: 0; background: transparent; }
-.overlay { position: fixed; inset: 0 0 28px; z-index: 100; background: #090b10a8; display: flex; align-items: center; justify-content: center; }
+.overlay { position: fixed; inset: 28px 0 0; z-index: 100; background: #090b10a8; display: flex; align-items: center; justify-content: center; }
+.app[data-status-bar="bottom"] .overlay { inset: 0 0 28px; }
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; padding: 20px; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .panel header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .panel header strong { font-weight: 500; color: #eceef2; }

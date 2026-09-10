@@ -3,7 +3,7 @@ import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, Model, Permission, PublicState, Snapshot } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, removePane, resolve, splitLayout, tabById, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -53,6 +53,7 @@ export let createRuntime = (dataDirectory: string) => {
   let prefixUntil = 0
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
+  let accessibilityPreference = false
   let visualScheduled = false
   let snapshotPending = new Set<string>()
   let settingsFile = path.join(dataDirectory, 'settings.json')
@@ -63,7 +64,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -151,11 +152,19 @@ export let createRuntime = (dataDirectory: string) => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
     let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape').map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Browmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { role: 'editMenu' },
       { label: 'Browser', submenu: [{ label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
       { role: 'windowMenu' },
     ]))
+  }
+  let refreshSettings = () => {
+    refreshMenu()
+    if (configuration && configuration.accessibility !== accessibilityPreference) {
+      accessibilityPreference = configuration.accessibility
+      app.setAccessibilitySupportEnabled(accessibilityPreference)
+    }
+    publish()
   }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
@@ -177,7 +186,7 @@ export let createRuntime = (dataDirectory: string) => {
       event.preventDefault(); dispatchShortcut(entry[1])
     })
   }
-  let reportError = (error: unknown) => { console.error(`Browmux: ${errorText(error)}`) }
+  let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
     let { tab, pane } = tabById(model, tabId)
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
@@ -311,7 +320,7 @@ export let createRuntime = (dataDirectory: string) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
-    let window = new BaseWindow({ title: process.env.BROWMUX_DEBUG === '1' ? 'Browmux Debug' : 'Browmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
+    let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
     window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
@@ -424,7 +433,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
     if (method === 'detach-client') { let client = resolve(model.clients, args.client, 'Client'); clients.get(client.id)?.window.close(); return { detached: client.id } }
     if (method === 'activate-client') { let client = resolve(model.clients, args.client, 'Client'); await app.dock?.show(); app.focus({ steal: true }); clients.get(client.id)?.window.show(); clients.get(client.id)?.window.focus(); clients.get(client.id)?.chrome.webContents.focus(); return client }
-    if (method === 'diagnostics') return { pid: process.pid, tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
@@ -449,12 +458,18 @@ export let createRuntime = (dataDirectory: string) => {
       client.windowId = window.id; client.paneId = window.panes[0]?.id ?? null
       changed(); await visualQueue; return client
     }
-    if (method === 'select-pane' || method === 'cycle-pane') {
+    if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
       let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
-      client.paneId = method === 'select-pane' ? resolve(window.panes, args.pane, 'Pane').id : window.panes[(index + 1) % window.panes.length]?.id ?? null
-      if (method === 'cycle-pane' && client.id === focusedClientId && client.paneId) {
+      if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
+      else if (method === 'cycle-pane') client.paneId = window.panes[(index + 1) % window.panes.length]?.id ?? null
+      else {
+        let direction = required(args, 'direction')
+        if (!['left', 'right', 'up', 'down'].includes(direction)) throw new Error(`Unknown pane direction: ${direction}`)
+        client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down') ?? client.paneId
+      }
+      if (client.id === focusedClientId && client.paneId) {
         let pane = paneById(model, client.paneId).pane
         tabs.get(pane.activeTabId)?.view.webContents.focus()
       }
@@ -661,8 +676,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let start = async (background: boolean) => {
     await settingsReady
-    configuration = createConfig(configPath(dataDirectory), () => { refreshMenu(); publish() }, legacyPrefix)
-    refreshMenu()
+    configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
+    refreshSettings()
     await scheduleVisuals()
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]

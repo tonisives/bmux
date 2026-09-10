@@ -17,13 +17,13 @@ let heldResponses = new Set<http.ServerResponse>()
 let heldRequests = 0
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
-  let result = await exec(process.execPath, [path.join(root, 'bin/brmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BROWMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
+  let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
   let response = JSON.parse(result.stdout)
   if (!response.ok) throw new Error(response.error)
   return response.result
 }
 let launch = async () => {
-  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '1' } })
+  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => {
@@ -31,10 +31,10 @@ let launch = async () => {
   }, { timeout: 20000 }).toBe(1)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
-let fixture = `<!doctype html><html><head><title>Browmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
+let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
 
 test.beforeAll(async () => {
-  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'browmux-electron-'))
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-electron-'))
   server = http.createServer((request, response) => {
     if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js"></script>'); return }
     if (request.url === '/held.js') { heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
@@ -100,7 +100,9 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(chromePages.length).toBe(2)
   let chrome = chromePages[1]
   await application.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) if (window.isVisible()) window.setBounds({ x: 90, y: 90, width: 1280, height: 850 }) })
-  await expect(chrome.getByRole('contentinfo', { name: 'Browser status' })).toBeVisible()
+  let statusBar = chrome.getByRole('contentinfo', { name: 'Browser status' })
+  await expect(statusBar).toBeVisible()
+  await expect.poll(async () => (await statusBar.boundingBox())!.y).toBeLessThan((await chrome.locator('main').boundingBox())!.y)
   await chrome.getByRole('button', { name: 'Help', exact: true }).click()
   await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
   await chrome.getByRole('button', { name: 'Close', exact: true }).last().click()
@@ -185,7 +187,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   let client = await cli('attach-session', { session: session.id })
   await cli('select-window', { client: client.id, window: session.windows[1].id })
   await application.close()
-  application = await electron.launch({ args: [root], env: { ...process.env, BROWMUX_DATA_DIR: directory, BROWMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
   expect((await cli('list-clients'))[0].windowId).toBe(session.windows[1].id)
@@ -348,8 +350,11 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await cli('select-window', { client: client.id, window: second.id })
   await cli('stop', { tab: tab.id }); await pending
   let config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'keyboard:\n  prefix: Ctrl+X\n  shortcuts:\n    Cmd+R: null\n')
+  let statusBar = chrome.getByRole('contentinfo', { name: 'Browser status' })
+  await fs.writeFile(config, 'statusBar: bottom\nkeyboard:\n  prefix: Ctrl+X\n  shortcuts:\n    Cmd+R: null\n')
   await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+X')
+  await expect.poll(async () => (await statusBar.boundingBox())!.y).toBeGreaterThan((await chrome.locator('main').boundingBox())!.y)
+  expect((await cli('state')).statusBar).toBe('bottom')
   expect((await cli('state')).keyboard.shortcuts['Cmd+R']).toBeUndefined()
   await application.evaluate(({ webContents }) => webContents.getAllWebContents().find(page => page.getURL().endsWith('/renderer/index.html'))!.focus())
   await nativeKeys([{ keyCode: 'x', modifiers: ['control'] }, { keyCode: '?', modifiers: ['shift'] }])
@@ -361,8 +366,9 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await fs.writeFile(config, 'keyboard: [broken')
   await expect.poll(async () => Boolean((await cli('state')).configError)).toBe(true)
   expect((await cli('state')).keyboard.prefix).toBe('Ctrl+X')
-  await fs.writeFile(config, 'keyboard: {}\n')
+  await fs.writeFile(config, 'statusBar: top\nkeyboard: {}\n')
   await expect.poll(async () => (await cli('state')).configError).toBeNull()
+  await expect.poll(async () => (await statusBar.boundingBox())!.y).toBeLessThan((await chrome.locator('main').boundingBox())!.y)
   await cli('detach-client', { client: client.id })
   for (let response of heldResponses) response.end()
 })
@@ -407,7 +413,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   await shortcut('&', ['shift'])
   await confirm.press('y')
   await expect.poll(async () => (await cli('list-windows', { session: alpha.id })).map((window: { id: string }) => window.id)).toEqual([first.id])
-  expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('Browmux fixture')
+  expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('bmux fixture')
   // Closing the last internal window leaves a usable empty window in the session.
   await shortcut('&', ['shift']); await confirm.press('y')
   await expect.poll(async () => (await cli('list-windows', { session: alpha.id }))[0].id).not.toBe(first.id)
@@ -438,4 +444,47 @@ test('window management shortcuts and keyboard session selection', async () => {
   await shortcut('w', ['meta', 'shift'], false)
   await expect.poll(async () => (await cli('list-clients')).length).toBe(0)
   expect((await cli('list-sessions')).some((session: { id: string }) => session.id === gamma.id)).toBe(true)
+})
+
+
+test('accessibility preferences and custom window and pane shortcuts reload and survive restart', async () => {
+  let config = path.join(directory, 'config.yaml')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
+  await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+2')
+  await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
+  await application.close(); await launch()
+  expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
+  let session = await cli('new-session', { name: 'custom-shortcuts' })
+  let second = await cli('new-window', { session: session.id })
+  let client = await cli('attach-session', { session: session.id })
+  let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => {
+    await cli('activate-client', { client: client.id })
+    await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
+      let contents = webContents.getFocusedWebContents()!
+      contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+    }, { keyCode, modifiers })
+  }
+  await key(']')
+  await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(second.id)
+  await key('[')
+  await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(session.windows[0].id)
+  let firstPane = session.windows[0].panes[0].id
+  await key('\\')
+  await expect.poll(async () => (await cli('list-panes', { window: session.windows[0].id })).length).toBe(2)
+  let rightPane = (await cli('list-panes', { window: session.windows[0].id }))[1].id
+  expect((await cli('list-clients'))[0].paneId).toBe(rightPane)
+  await key('\\', ['meta', 'shift'])
+  await expect.poll(async () => (await cli('list-panes', { window: session.windows[0].id })).length).toBe(3)
+  let lowerPane = (await cli('list-panes', { window: session.windows[0].id }))[2].id
+  await key('k'); expect((await cli('list-clients'))[0].paneId).toBe(rightPane)
+  await key('h'); expect((await cli('list-clients'))[0].paneId).toBe(firstPane)
+  await key('l'); expect((await cli('list-clients'))[0].paneId).toBe(rightPane)
+  await key('j'); expect((await cli('list-clients'))[0].paneId).toBe(lowerPane)
+  await fs.writeFile(config, 'accessibility: broken\nkeyboard: {}\n')
+  await expect.poll(async () => Boolean((await cli('state')).configError)).toBe(true)
+  expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
+  await fs.writeFile(config, 'accessibility: false\nkeyboard: {}\n')
+  await expect.poll(async () => (await cli('state')).accessibility).toBe(false)
+  await cli('detach-client', { client: client.id })
 })

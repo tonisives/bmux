@@ -62,6 +62,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     return { method: 'switch-client', args: { ...current, session: next.id } }
   }
   if (name === 'next-pane') return { method: 'cycle-pane', args: current }
+  if (['pane-left', 'pane-right', 'pane-up', 'pane-down'].includes(name)) return { method: 'select-pane-direction', args: { ...current, direction: name.slice(5) } }
   if (name === 'next-tab' || name === 'previous-tab') {
     if (!pane) throw new Error('No selected pane')
     let index = pane.tabs.findIndex(tab => tab.id === pane.activeTabId)

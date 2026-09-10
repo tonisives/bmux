@@ -2,26 +2,31 @@ import { it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { createConfig, defaultConfigText, parseConfig } from '../src/main/config'
+import { configPath, createConfig, defaultConfigText, parseConfig } from '../src/main/config'
 import { matchesBinding } from '../src/shared/keyboard'
 
 it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
-  let defaults = parseConfig(defaultConfigText())
+  let defaultConfig = parseConfig(defaultConfigText())
+  let defaults = defaultConfig.keyboard
+  expect(defaultConfig.statusBar).toBe('top')
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
-  let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n')
+  let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n').keyboard
   expect(custom.prefix).toBe('Ctrl+A')
   expect(custom.shortcuts['Cmd+R']).toBeUndefined()
   expect(custom.shortcuts['cmd+r']).toBe('hard-reload')
   expect(custom.shortcuts['Cmd+T']).toBeUndefined()
   expect(custom.prefixBindings.c).toBe('sessions')
   expect(matchesBinding('Cmd+Shift+[', { key: '{', code: 'BracketLeft', meta: true, shift: true })).toBe(true)
+  expect(matchesBinding('Cmd+Shift+\\', { key: '|', code: 'Backslash', meta: true, shift: true })).toBe(true)
   expect(matchesBinding('Cmd+R', { key: 'r', meta: true, shift: true })).toBe(false)
   expect(() => parseConfig('keyboard:\n  shortcuts: [')).toThrow('Invalid YAML')
   expect(() => parseConfig('keyboard:\n  shortcuts:\n    Cmd+R: typo')).toThrow('Unknown keyboard action')
   expect(() => parseConfig('keyboard:\n  prefixTimeoutMs: 0')).toThrow('prefixTimeoutMs')
+  expect(parseConfig('statusBar: bottom\nkeyboard: {}\n').statusBar).toBe('bottom')
+  expect(() => parseConfig('statusBar: left\nkeyboard: {}\n')).toThrow('statusBar must be top or bottom')
 })
 it('preserves existing files and the last valid configuration when an edit is invalid', () => {
-  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'browmux-config-'))
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-config-'))
   let file = path.join(directory, 'config.yaml')
   fs.writeFileSync(file, '# keep comment\nkeyboard:\n  prefix: Ctrl+A\n')
   let config = createConfig(file, () => undefined)
@@ -36,4 +41,52 @@ it('preserves existing files and the last valid configuration when an edit is in
     expect(config.keyboard.prefix).toBe('Ctrl+X')
     expect(() => config.setPrefix('Ctrl+B')).toThrow('Fix invalid YAML')
   } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
+it('validates accessibility preferences and keeps settings atomic on invalid edits', () => {
+  expect(parseConfig('accessibility: true\nkeyboard: {}\n').accessibility).toBe(true)
+  expect(parseConfig('keyboard: {}\n').accessibility).toBe(false)
+  expect(() => parseConfig('accessibility: yes\nkeyboard: {}\n')).toThrow('accessibility must be true or false')
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-accessibility-'))
+  let file = path.join(directory, 'config.yaml')
+  fs.writeFileSync(file, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n')
+  let config = createConfig(file, () => undefined)
+  try {
+    fs.writeFileSync(file, 'accessibility: invalid\nkeyboard:\n  prefix: Ctrl+X\n')
+    config.reload()
+    expect(config.error).toBeTruthy()
+    expect(config.accessibility).toBe(true)
+    expect(config.keyboard.prefix).toBe('Ctrl+2')
+  } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
+it('moves the previous config into the bmux config directory', () => {
+  let root = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-config-path-'))
+  let previousEnvironment = {
+    BMUX_CONFIG: process.env.BMUX_CONFIG,
+    BROWMUX_CONFIG: process.env.BROWMUX_CONFIG,
+    BMUX_DATA_DIR: process.env.BMUX_DATA_DIR,
+    BROWMUX_DATA_DIR: process.env.BROWMUX_DATA_DIR,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  }
+  delete process.env.BMUX_CONFIG
+  delete process.env.BROWMUX_CONFIG
+  delete process.env.BMUX_DATA_DIR
+  delete process.env.BROWMUX_DATA_DIR
+  process.env.XDG_CONFIG_HOME = root
+  let legacy = path.join(root, 'browmux', 'config.yaml')
+  fs.mkdirSync(path.dirname(legacy), { recursive: true })
+  fs.writeFileSync(legacy, 'keyboard:\n  prefix: Ctrl+A\n')
+  try {
+    let current = configPath(path.join(root, 'data'))
+    expect(current).toBe(path.join(root, 'bmux', 'config.yaml'))
+    expect(fs.readFileSync(current, 'utf8')).toContain('Ctrl+A')
+    expect(fs.existsSync(legacy)).toBe(false)
+  } finally {
+    for (let [key, value] of Object.entries(previousEnvironment)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
