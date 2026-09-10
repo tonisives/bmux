@@ -6,7 +6,9 @@ import { createConfig, defaultConfigText, parseConfig } from '../src/main/config
 import { matchesBinding } from '../src/shared/keyboard'
 
 it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
-  let defaults = parseConfig(defaultConfigText()).keyboard
+  let defaultConfig = parseConfig(defaultConfigText())
+  let defaults = defaultConfig.keyboard
+  expect(defaultConfig.statusBar).toBe('top')
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
   let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n').keyboard
   expect(custom.prefix).toBe('Ctrl+A')
@@ -19,6 +21,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(() => parseConfig('keyboard:\n  shortcuts: [')).toThrow('Invalid YAML')
   expect(() => parseConfig('keyboard:\n  shortcuts:\n    Cmd+R: typo')).toThrow('Unknown keyboard action')
   expect(() => parseConfig('keyboard:\n  prefixTimeoutMs: 0')).toThrow('prefixTimeoutMs')
+  expect(parseConfig('statusBar: bottom\nkeyboard: {}\n').statusBar).toBe('bottom')
+  expect(() => parseConfig('statusBar: left\nkeyboard: {}\n')).toThrow('statusBar must be top or bottom')
 })
 it('preserves existing files and the last valid configuration when an edit is invalid', () => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'browmux-config-'))

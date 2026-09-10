@@ -64,7 +64,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {

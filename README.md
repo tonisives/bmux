@@ -97,7 +97,7 @@ In the session picker (Control+B, then s), Up/Down moves the highlight, Enter at
 
 Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 
-The page fills the native window above one status bar. Command+L opens a temporary URL/search prompt in that bar; type a URL and press Enter. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
+The page fills the native window below one status bar by default. Command+L opens a temporary URL/search prompt in that bar; type a URL and press Enter. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
 Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
 
@@ -124,6 +124,7 @@ Use quotes around names with spaces. Window/tab indices start at 0. Up/down reca
 Edit `~/.config/browmux/config.yaml`, or press Command+, to view settings and open the file. Changes reload automatically; invalid YAML retains the last working configuration and reports the error. Help shows the active bindings.
 
 ```yaml
+statusBar: top
 accessibility: false
 keyboard:
   prefix: Ctrl+B
@@ -149,6 +150,8 @@ keyboard:
     "(": previous-session
     ")": next-session
 ```
+
+Set `statusBar: bottom` to place the bar below page content. The default is `top`, and changes apply live.
 
 Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], tab switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
 
