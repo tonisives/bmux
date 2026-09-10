@@ -62,7 +62,7 @@
 .eyebrow { font: 10px 'IBM Plex Mono', monospace; color: #afc396; letter-spacing: 1.5px; }
 .placeholderSection { padding-top: 100px; padding-bottom: 40px; }.placeholderSection h2 { font-size: 46px; font-weight: 500; letter-spacing: -2px; }.placeholderSection p { color: #9fa995; line-height: 1.7; }
 .footer { border-top: 1px solid #2b3225; margin-top: 80px; font-size: 11px; color: #8f9b83; }.footer .brand { font-size: 19px; color: #dbe3d2; }.footer .mark { width: 34px; height: 34px; }.footer a:hover { color: #c4f580; }
-.skipLink { position: fixed; top: -100px; left: 16px; z-index: 100; padding: 12px 20px; background: #c4f580; color: #111310; }.skipLink:focus { top: 12px; }
+.skipLink { position: fixed; top: -100px; left: 16px; z-index: 100; padding: 12px 20px; background: #c4f580; color: #111310; }.skipLink:not(:focus) { clip-path: inset(50%); }.skipLink:focus { top: 12px; }
 .features, .keyboardSection, .cliSection, .faqSection { max-width: 1220px; padding: 105px 36px 0; margin: auto; }
 .sectionHeading { display: flex; align-items: flex-end; justify-content: space-between; gap: 35px; margin-bottom: 45px; }
 .sectionHeading h2, .keyboardCopy h2, .cliCopy h2, .faqSection h2 { font-size: clamp(32px, 4vw, 46px); line-height: 1.1; font-weight: 500; letter-spacing: -1.8px; margin: 20px 0 0; }
