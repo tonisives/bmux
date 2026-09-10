@@ -15,6 +15,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(custom.shortcuts['Cmd+T']).toBeUndefined()
   expect(custom.prefixBindings.c).toBe('sessions')
   expect(matchesBinding('Cmd+Shift+[', { key: '{', code: 'BracketLeft', meta: true, shift: true })).toBe(true)
+  expect(matchesBinding('Cmd+Shift+\\', { key: '|', code: 'Backslash', meta: true, shift: true })).toBe(true)
   expect(matchesBinding('Cmd+R', { key: 'r', meta: true, shift: true })).toBe(false)
   expect(() => parseConfig('keyboard:\n  shortcuts: [')).toThrow('Invalid YAML')
   expect(() => parseConfig('keyboard:\n  shortcuts:\n    Cmd+R: typo')).toThrow('Unknown keyboard action')

@@ -441,9 +441,9 @@ test('window management shortcuts and keyboard session selection', async () => {
 })
 
 
-test('accessibility preferences and custom window shortcuts reload and survive restart', async () => {
+test('accessibility preferences and custom window and pane shortcuts reload and survive restart', async () => {
   let config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
   await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
   expect((await cli('state')).keyboard.prefix).toBe('Ctrl+2')
   await application.close(); await launch()
@@ -451,18 +451,30 @@ test('accessibility preferences and custom window shortcuts reload and survive r
   let session = await cli('new-session', { name: 'custom-shortcuts' })
   let second = await cli('new-window', { session: session.id })
   let client = await cli('attach-session', { session: session.id })
-  let key = async (keyCode: string) => {
+  let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => {
     await cli('activate-client', { client: client.id })
-    await application.evaluate(({ webContents }, keyCode) => {
+    await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
       let contents = webContents.getFocusedWebContents()!
-      contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: ['meta'] })
-      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['meta'] })
-    }, keyCode)
+      contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+    }, { keyCode, modifiers })
   }
   await key(']')
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(second.id)
   await key('[')
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(session.windows[0].id)
+  let firstPane = session.windows[0].panes[0].id
+  await key('\\')
+  await expect.poll(async () => (await cli('list-panes', { window: session.windows[0].id })).length).toBe(2)
+  let rightPane = (await cli('list-panes', { window: session.windows[0].id }))[1].id
+  expect((await cli('list-clients'))[0].paneId).toBe(rightPane)
+  await key('\\', ['meta', 'shift'])
+  await expect.poll(async () => (await cli('list-panes', { window: session.windows[0].id })).length).toBe(3)
+  let lowerPane = (await cli('list-panes', { window: session.windows[0].id }))[2].id
+  await key('k'); expect((await cli('list-clients'))[0].paneId).toBe(rightPane)
+  await key('h'); expect((await cli('list-clients'))[0].paneId).toBe(firstPane)
+  await key('l'); expect((await cli('list-clients'))[0].paneId).toBe(rightPane)
+  await key('j'); expect((await cli('list-clients'))[0].paneId).toBe(lowerPane)
   await fs.writeFile(config, 'accessibility: broken\nkeyboard: {}\n')
   await expect.poll(async () => Boolean((await cli('state')).configError)).toBe(true)
   expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)

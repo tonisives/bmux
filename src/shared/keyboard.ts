@@ -12,7 +12,7 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
   },
   prefixBindings: { ':': 'command', '?': 'help', c: 'new-window', n: 'next-window', p: 'previous-window', '%': 'split-right', '"': 'split-down', o: 'next-pane', s: 'sessions', d: 'detach', ',': 'rename-window', r: 'rename-window', '&': 'close-window', '$': 'rename-session', '(': 'previous-session', ')': 'next-session' },
 }
-export let KEY_ACTIONS = new Set(['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-tab', 'close-tab', 'new-client', 'new-window', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'next-pane', 'split-right', 'split-down', 'detach', 'back', 'forward', 'next-tab', 'previous-tab', 'zoom-in', 'zoom-out', 'zoom-reset'])
+export let KEY_ACTIONS = new Set(['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-tab', 'close-tab', 'new-client', 'new-window', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'split-right', 'split-down', 'detach', 'back', 'forward', 'next-tab', 'previous-tab', 'zoom-in', 'zoom-out', 'zoom-reset'])
 type KeyInput = { key: string; code?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean }
 let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ' }
 export let parseBinding = (binding: string) => {
@@ -31,7 +31,7 @@ export let parseBinding = (binding: string) => {
 }
 export let matchesBinding = (binding: string, input: KeyInput) => {
   let expected = parseBinding(binding)
-  let physical: Record<string, string> = { BracketLeft: '[', BracketRight: ']', Equal: '=', Minus: '-', Comma: ',' }
+  let physical: Record<string, string> = { BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '-', Comma: ',' }
   let key = physical[input.code ?? ''] ?? input.key.toLowerCase().replace(/^arrow/, '')
   return expected.key === key && expected.meta === !!input.meta && expected.control === !!input.control && expected.alt === !!input.alt && expected.shift === !!input.shift
 }
