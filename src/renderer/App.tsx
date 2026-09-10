@@ -2,8 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent } from 'react'
 import type { Bookmark, Bridge, Download, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
+import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 
-type Control = 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles'
+type Control = 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings'
 type UIContext = { state: PublicState; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control) => void; dismiss: () => void }
 
 export let App = () => {
@@ -17,9 +18,16 @@ export let App = () => {
   let show = useCallback((control: Control) => { setMessage(''); setControl(control) }, [])
   let dismiss = useCallback(() => { setControl(null); setMessage('') }, [])
   useEffect(() => {
-    let unsubscribe = bridge.subscribe(setState)
-    void bridge.state().then(setState).catch(error => setMessage(String(error)))
-    let controls = bridge.controls(control => show(control as Control))
+    let previous = ''
+    let accept = (next: PublicState) => {
+      let { client, tab } = selection(next)
+      let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
+      if (previous && previous !== target) { setControl(null); setMessage('') }
+      previous = target; setState(next)
+    }
+    let unsubscribe = bridge.subscribe(accept)
+    void bridge.state().then(accept).catch(error => setMessage(String(error)))
+    let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); show(control as Control) }) })
     return () => { unsubscribe(); controls() }
   }, [show])
   let prompt = control === 'address' || control === 'command' || control === 'find'
@@ -39,7 +47,7 @@ export let App = () => {
   return <Context.Provider value={context}><div className={css.app}>
     <main className={css.workspace}>{window.layout ? <Branch node={window.layout} /> : <EmptyPane />}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'address' || control === 'command' || control === 'find' ? <Prompt key={control} mode={control} message={message} onMessage={setMessage} /> : <Status message={message} />}
+      {control === 'address' || control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={message} />}
     </footer>
     {panel && <Panel type={panel} />}
   </div></Context.Provider>
@@ -70,7 +78,7 @@ let Status = ({ message }: { message: string }) => {
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div className={css.windows}>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <button onClick={tabs} aria-label="Tabs" title="Tabs and active profile">{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</button>
-    <span className={css.drag} /><button onClick={address} aria-label="Address" className={`${css.location} ${message ? css.error : ''}`} title={message || tab?.url}>{message || (tab && state.loading[tab.id] ? 'loading…' : '') || (tab?.url !== 'about:blank' ? tab?.url : 'Cmd+L to open a URL')}</button>
+    <span className={css.drag} /><button onClick={address} aria-label="Address" className={`${css.location} ${message ? css.error : ''}`} title={message || tab?.url}>{message || state.configError || (tab && state.loading[tab.id] ? 'loading…' : '') || (tab?.url !== 'about:blank' ? tab?.url : 'Cmd+L to open a URL')}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
@@ -89,12 +97,14 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let historyIndex = useRef(commandHistory.length)
+  let mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
   let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!text.trim() || busy) return
-    if (mode === 'command' && ['help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles'].includes(text.trim())) { show(text.trim() as Control); return }
+    if (mode === 'command' && ['help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(text.trim())) { show(text.trim() as Control); return }
     setBusy(true)
     let result: unknown
     if (mode === 'command') {
@@ -106,8 +116,9 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
         let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { activeTabId: string } | undefined
         target = created?.activeTabId
       }
-      result = target ? await run(mode === 'address' ? 'navigate' : 'find', { tab: target, ...(mode === 'address' ? { url: text } : { text, next: true }) }) : undefined
+      result = target ? await run(mode === 'address' ? 'navigate' : 'find', { tab: target, ...(mode === 'address' ? { url: text, waitUntil: 'none' } : { text, next: true }) }) : undefined
     }
+    if (!mounted.current) return
     setBusy(false)
     if (result === undefined) { if (!tab && !pane && mode !== 'command') onMessage('Create a pane first'); return }
     dismiss()
@@ -170,9 +181,6 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   </div></section>
 }
 
-let HELP = [
-  ['Cmd+L', 'Open URL or search'], ['Ctrl+B :', 'Command prompt'], ['Ctrl+B ?', 'Help (also F1)'], ['Ctrl+B s', 'Sessions'], ['Ctrl+B c', 'New window'], ['Ctrl+B n / p', 'Next / previous window'], ['Ctrl+B % / "', 'Split right / below'], ['Ctrl+B o', 'Next pane'], ['Ctrl+B d', 'Detach client'], ['Cmd+T / W', 'New / close tab'], ['Cmd+Shift+] / [', 'Next / previous tab'], ['Cmd+R / F', 'Reload / find'], ['Escape', 'Dismiss prompt or panel'],
-]
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let { pane, profile } = selection(state)
@@ -182,6 +190,7 @@ let Panel = ({ type }: { type: Control }) => {
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
     {type === 'help' && <HelpContent />}
+    {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && state.model.sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}
     {type === 'tabs' && <><p>{profile?.name}</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</>}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
@@ -219,4 +228,17 @@ let DownloadRow = ({ download }: { download: Download }) => {
   return <button className={css.row} onClick={reveal}>{download.name} — {download.state}</button>
 }
 
-let HelpContent = () => <><dl>{HELP.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+let HelpContent = () => {
+  let { state } = useUI()
+  let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
+  let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
+  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+}
+
+let KeyboardSettings = () => {
+  let { state, run } = useUI()
+  let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
+  let edit = () => { void run('settings.open') }
+  let reload = () => { void run('settings.reload') }
+  return <><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Prefix: {keyboard.prefix}</p><pre>{'keyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+}

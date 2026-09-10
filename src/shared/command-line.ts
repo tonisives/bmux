@@ -74,8 +74,10 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     if (action === 'rename') return { method: 'profile.rename', args: { profile: positional[0], name: positional[1] } }
     throw new Error('Use profile create NAME or profile rename OLD NEW')
   }
-  if (['back', 'forward', 'reload', 'devtools'].includes(name)) return { method: name, args: { tab: tabTarget } }
+  if (['back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools'].includes(name)) return { method: name, args: { tab: tabTarget } }
   if (name === 'zoom') return { method: 'zoom', args: { tab: tabTarget, factor: Number(positional[0]) / 100 } }
+  if (name === 'reload-config') return { method: 'settings.reload' }
+  if (name === 'edit-config') return { method: 'settings.open' }
   if (name === 'prefix') return { method: 'settings.prefix', args: { key: positional[0] } }
   if (['detach-client', 'import-brave', 'quit'].includes(name)) return { method: name, args: { ...current, ...options } }
   throw new Error(`Unknown command: ${name}. Use help for commands.`)

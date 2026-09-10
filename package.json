@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",

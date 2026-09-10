@@ -13,6 +13,8 @@ let application: ElectronApplication
 let directory: string
 let url: string
 let server: http.Server
+let heldResponses = new Set<http.ServerResponse>()
+let heldRequests = 0
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
   let result = await exec(process.execPath, [path.join(root, 'bin/brmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BROWMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
@@ -34,6 +36,8 @@ let fixture = `<!doctype html><html><head><title>Browmux fixture</title><style>b
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'browmux-electron-'))
   server = http.createServer((request, response) => {
+    if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js"></script>'); return }
+    if (request.url === '/held.js') { heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
     if (request.url === '/download') { response.writeHead(200, { 'Content-Disposition': 'attachment; filename="fixture.txt"', 'Content-Type': 'text/plain' }); response.end('download fixture'); return }
     response.writeHead(200, { 'Content-Type': 'text/html' })
     response.end(fixture)
@@ -42,7 +46,11 @@ test.beforeAll(async () => {
   url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await launch()
 })
+test.afterEach(async ({}, info) => {
+  if (info.status !== info.expectedStatus) console.log('FOCUS_DIAGNOSTICS', { frontmostPid: await frontmost(), expectedPid: application.process().pid, windows: await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), visible: window.isVisible() }))) })
+})
 test.afterAll(async () => {
+  for (let response of heldResponses) response.end()
   await application?.close().catch(() => undefined)
   await new Promise<void>(resolve => server?.close(() => resolve()))
   await fs.rm(directory, { recursive: true, force: true })
@@ -235,7 +243,7 @@ test('URL entry after import attaches the live page; native shortcuts and comman
   await address.press('Enter')
   await expect(address).toHaveCount(0)
   await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(`${url}/entered-in-ui`)
-  await expect.poll(async () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)), `${url}/entered-in-ui`)).toBe(true)
+  await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)), `${url}/entered-in-ui`) }).toBe(true)
   // Deliver keys to the actual page WebContents, not to the React document.
   await application.evaluate(({ webContents }, url) => {
     let page = webContents.getAllWebContents().find(page => page.getURL() === url)!
@@ -248,8 +256,10 @@ test('URL entry after import attaches the live page; native shortcuts and comman
   await address.press('Enter')
   await expect(address).toHaveCount(0)
   await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(`${url}/second-ui-navigation`)
+  await cli('activate-client', { client: client.id })
+  await cli('focus-page', { client: client.id })
   await application.evaluate(({ webContents }, url) => {
-    let page = webContents.getAllWebContents().find(page => page.getURL() === url)!
+    let page = webContents.getFocusedWebContents()!
     for (let event of [{ keyCode: 'b', modifiers: ['control'] }, { keyCode: 'Shift', modifiers: ['shift'] }, { keyCode: '?', modifiers: ['shift'] }] satisfies Omit<Electron.KeyboardInputEvent, 'type'>[]) {
       page.sendInputEvent({ type: 'keyDown', ...event }); page.sendInputEvent({ type: 'keyUp', ...event })
     }
@@ -281,4 +291,78 @@ test('URL entry after import attaches the live page; native shortcuts and comman
   await chrome.screenshot({ path: path.join(root, 'artifacts/minimal-ui.png') })
   await cli('client.overlay', { client: client.id, visible: false })
   await cli('detach-client', { client: client.id })
+})
+
+test('stalled loads cannot block shortcuts, independent windows, or live keyboard settings', async () => {
+  let session = await cli('new-session', { name: 'slow-loading' })
+  let first = session.windows[0], tab = first.panes[0].tabs[0]
+  let second = await cli('new-window', { session: session.id, name: 'second' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.fill(`${url}/slow`); await address.press('Enter')
+  await expect(address).toHaveCount(0, { timeout: 1500 })
+  await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(true)
+  let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
+    await cli('activate-client', { client: client.id })
+    await cli('focus-page', { client: client.id })
+    await expect.poll(() => application.evaluate(({ webContents }) => Boolean(webContents.getFocusedWebContents()))).toBe(true)
+    for (let event of events) {
+      await application.evaluate(({ webContents }, event) => {
+        let contents = webContents.getFocusedWebContents()!
+        contents.sendInputEvent({ type: 'keyDown', ...event })
+        contents.sendInputEvent({ type: 'keyUp', ...event })
+      }, event)
+      await chrome.waitForTimeout(30)
+    }
+  }
+  await cli('focus-page', { client: client.id })
+  await nativeKeys([{ keyCode: 'b', modifiers: ['control'] }, { keyCode: 'c' }])
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).length, { timeout: 1500 }).toBe(3)
+  expect((await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).focused).toBe(true)
+  let third = (await cli('list-windows', { session: session.id }))[2]
+  await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(third.id)
+  await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow'))), { timeout: 1500 }).toBe(false)
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  await address.fill(`${url}/independent`); await address.press('Enter')
+  await cli('wait', { tab: third.panes[0].activeTabId, selector: '#text' })
+  let windows = await cli('list-windows', { session: session.id })
+  expect(windows.map((window: { panes: { tabs: { url: string }[] }[] }) => window.panes[0].tabs[0].url)).toEqual([`${url}/slow`, 'about:blank', `${url}/independent`])
+  let start = Date.now()
+  await cli('select-window', { client: client.id, window: first.id })
+  expect(Date.now() - start).toBeLessThan(1500)
+  await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow')))).toBe(true)
+  await cli('focus-page', { client: client.id })
+  let requests = heldRequests
+  await nativeKeys([{ keyCode: 'r', modifiers: ['meta'] }])
+  await expect.poll(() => heldRequests).toBeGreaterThan(requests)
+  await nativeKeys([{ keyCode: 'b', modifiers: ['control'] }, { keyCode: '?', modifiers: ['shift'] }])
+  await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
+  await chrome.keyboard.press('Escape')
+  await cli('stop', { tab: tab.id })
+  await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(false)
+  // A load started through the agent API also must not block human controls.
+  let pending = cli('navigate', { tab: tab.id, url: `${url}/slow?agent=1` }).catch(() => undefined)
+  await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(true)
+  await cli('select-window', { client: client.id, window: second.id })
+  await cli('stop', { tab: tab.id }); await pending
+  let config = path.join(directory, 'config.yaml')
+  await fs.writeFile(config, 'keyboard:\n  prefix: Ctrl+X\n  shortcuts:\n    Cmd+R: null\n')
+  await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+X')
+  expect((await cli('state')).keyboard.shortcuts['Cmd+R']).toBeUndefined()
+  await application.evaluate(({ webContents }) => webContents.getAllWebContents().find(page => page.getURL().endsWith('/renderer/index.html'))!.focus())
+  await nativeKeys([{ keyCode: 'x', modifiers: ['control'] }, { keyCode: '?', modifiers: ['shift'] }])
+  await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
+  await expect(chrome.getByText('Ctrl+X then ?', { exact: true })).toBeVisible()
+  await chrome.keyboard.press('Escape')
+  await nativeKeys([{ keyCode: ',', modifiers: ['meta'] }])
+  await expect(chrome.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await fs.writeFile(config, 'keyboard: [broken')
+  await expect.poll(async () => Boolean((await cli('state')).configError)).toBe(true)
+  expect((await cli('state')).keyboard.prefix).toBe('Ctrl+X')
+  await fs.writeFile(config, 'keyboard: {}\n')
+  await expect.poll(async () => (await cli('state')).configError).toBeNull()
+  await cli('detach-client', { client: client.id })
+  for (let response of heldResponses) response.end()
 })

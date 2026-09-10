@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog } from 'electron'
+import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents } from 'electron'
 import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -8,6 +8,8 @@ import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
+import { createConfig, configPath } from './config'
+import { DEFAULT_KEYBOARD, matchesBinding } from '../shared/keyboard'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[] }
@@ -49,16 +51,19 @@ export let createRuntime = (dataDirectory: string) => {
   let publishTimer: ReturnType<typeof setTimeout> | undefined
   let shuttingDown = false
   let prefixUntil = 0
-  let prefixKey = 'b'
+  let legacyPrefix: string | undefined
+  let configuration: ReturnType<typeof createConfig> | undefined
+  let visualScheduled = false
+  let snapshotPending = new Set<string>()
   let settingsFile = path.join(dataDirectory, 'settings.json')
   let grantFile = path.join(dataDirectory, 'permissions.json')
   let readSettings = async () => {
-    try { let settings = JSON.parse(await fs.readFile(settingsFile, 'utf8')); if (typeof settings.prefixKey === 'string') prefixKey = settings.prefixKey.toLowerCase() } catch { /* Defaults on first launch. */ }
+    try { let settings = JSON.parse(await fs.readFile(settingsFile, 'utf8')); if (typeof settings.prefixKey === 'string') legacyPrefix = `Ctrl+${settings.prefixKey.toUpperCase()}` } catch { /* Defaults on first launch. */ }
     try { permissionGrants = new Map(JSON.parse(await fs.readFile(grantFile, 'utf8'))) } catch { /* Default deny until requested. */ }
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -122,42 +127,54 @@ export let createRuntime = (dataDirectory: string) => {
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     return debuggerApi.sendCommand(method, params, sessionId)
   }
+  let dispatchShortcut = (action: string) => {
+    let client = model.clients.find(client => client.id === focusedClientId)
+    if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
+    let focused = clients.get(client.id)!
+    let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
+    let tab = pane?.activeTabId
+    let control = (name: string) => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
+    if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
+    if (['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(action)) { control(action); return }
+    if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
+    if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
+    if (action === 'close-tab' && tab) { void execute({ method: 'tab.close', args: { tab } }).catch(reportError); return }
+    if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
+    if (action.startsWith('zoom-') && tab) {
+      let current = tabById(model, tab).tab.zoom
+      void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
+    }
+    let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : action
+    void execute(parseCommandLine(line, state(client.id))).catch(reportError)
+  }
+  let refreshMenu = () => {
+    let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
+    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape').map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: 'Browmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'editMenu' },
+      { label: 'Browser', submenu: [{ label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
+      { role: 'windowMenu' },
+    ]))
+  }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || !focusedClientId || ['Shift', 'Control', 'Meta', 'Alt', 'CapsLock'].includes(input.key)) return
-      if (automatedContents.has(contents.id)) return
+      if (automatedContents.has(contents.id)) { contents.setIgnoreMenuShortcuts(true); return }
+      contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
-      let client = model.clients.find(client => client.id === focusedClientId)
-      if (!client) return
-      if (input.control && input.key.toLowerCase() === prefixKey) { prefixUntil = Date.now() + 1600; event.preventDefault(); return }
+      let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
+      if (matchesBinding(keyboard.prefix, input)) { event.preventDefault(); dispatchShortcut('prefix'); return }
       if (Date.now() < prefixUntil) {
         prefixUntil = 0
-        let key = input.key.toLowerCase()
-        let command: Command | null = null
-        if (key === 'c') command = { method: 'new-window', args: { session: client.sessionId, client: client.id } }
-        if (key === '%' || key === '"') command = { method: 'split-window', args: { pane: client.paneId, axis: key === '%' ? 'horizontal' : 'vertical', client: client.id } }
-        if (key === 'n' || key === 'p') command = { method: 'cycle-window', args: { client: client.id, direction: key === 'n' ? 1 : -1 } }
-        if (key === 'o') command = { method: 'cycle-pane', args: { client: client.id } }
-        if (key === 'd') command = { method: 'detach-client', args: { client: client.id } }
-        if (key === 's' || key === ':' || key === '?') { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', key === 's' ? 'sessions' : key === ':' ? 'command' : 'help') }
-        if (command) void execute(command).catch(reportError)
-        event.preventDefault()
-        return
+        let action = keyboard.prefixBindings[input.key]
+        if (action) dispatchShortcut(action)
+        event.preventDefault(); return
       }
-      if (input.key === 'F1') { event.preventDefault(); focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', 'help'); return }
-      if (!input.meta) return
-      let key = input.key.toLowerCase()
-      if (key === 'l' || key === 'f') {
-        event.preventDefault()
-        let chrome = clients.get(client.id)?.chrome.webContents
-        chrome?.focus()
-        chrome?.send('focus-control', key === 'l' ? 'address' : 'find')
-      }
-      if (key === 't' && client.paneId) { event.preventDefault(); void execute({ method: 'tab.create', args: { pane: client.paneId, client: client.id } }).then(() => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', 'address') }).catch(reportError) }
-      if (input.shift && (input.code === 'BracketRight' || input.code === 'BracketLeft' || key === ']' || key === '[')) { event.preventDefault(); void execute(parseCommandLine(input.code === 'BracketRight' || key === ']' ? 'next-tab' : 'previous-tab', state(client.id))).catch(reportError) }
-      if (key === 'w' && client.paneId) { event.preventDefault(); void execute({ method: 'tab.close', args: { tab: paneById(model, client.paneId).pane.activeTabId } }).catch(reportError) }
-      if (key === 'r' && client.paneId) { event.preventDefault(); let { pane } = paneById(model, client.paneId); tabs.get(pane.activeTabId)?.view.webContents.reload() }
+      let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
+      if (!entry || (entry[1] === 'stop' && contents === focused.chrome.webContents)) return
+      event.preventDefault(); dispatchShortcut(entry[1])
     })
   }
   let reportError = (error: unknown) => { console.error(`Browmux: ${errorText(error)}`) }
@@ -207,12 +224,19 @@ export let createRuntime = (dataDirectory: string) => {
         return popup.view.webContents
       },
     }))
-    if (load) void contents.loadURL(tab.url).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } })
+    if (load) void contents.loadURL(tab.url).catch(error => { if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
     return live
+  }
+  let keepClientFocus = (live: LiveTab) => {
+    if (!live.parent.isDestroyed() && live.parent.isFocused() && !live.view.webContents.isDestroyed() && live.view.webContents.isFocused()) {
+      let client = [...clients.values()].find(client => client.window === live.parent)
+      client?.chrome.webContents.focus()
+    }
   }
   let disposeTab = (tabId: string) => {
     let live = tabs.get(tabId)
     if (live) {
+      keepClientFocus(live)
       live.disposed = true
       if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
       if (!live.view.webContents.isDestroyed()) live.view.webContents.close({ waitForBeforeUnload: false })
@@ -226,11 +250,28 @@ export let createRuntime = (dataDirectory: string) => {
   let visiblePaneIds = (client: Client) => model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
   let moveView = (live: LiveTab, parent: BaseWindow) => {
     if (live.parent === parent || live.disposed) return
+    // Keep the native client's first responder valid when parking its focused page.
+    // Reparenting a focused view directly into a hidden host can resign the client.
+    keepClientFocus(live)
     if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
     parent.contentView.addChildView(live.view)
     live.parent = parent
   }
-  let reconcile = async () => {
+  let requestPreview = (tabId: string, live: LiveTab) => {
+    // Preview work must never hold up detaching or attaching native views.
+    if (loading[tabId] || tabQueues.has(tabId) || snapshotPending.has(tabId)) return
+    snapshotPending.add(tabId)
+    let url = live.view.webContents.getURL()
+    void Promise.race([
+      cdp(tabId, 'Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false }),
+      sleep(800).then(() => { throw new Error('Preview capture timed out') }),
+    ]).then(result => {
+      if (result.data && tabs.get(tabId) === live && !live.view.webContents.isDestroyed() && live.view.webContents.getURL() === url) {
+        snapshots[tabId] = { image: `data:image/jpeg;base64,${result.data}`, capturedAt: Date.now() }; publish()
+      }
+    }).catch(() => undefined).finally(() => snapshotPending.delete(tabId))
+  }
+  let reconcile = () => {
     if (shuttingDown) return
     let liveIds = new Set(walkPanes(model).flatMap(({ pane }) => pane.tabs.map(tab => tab.id)))
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
@@ -241,17 +282,7 @@ export let createRuntime = (dataDirectory: string) => {
     for (let [tabId, live] of tabs) {
       let bounds = owner?.bounds.find(bounds => bounds.tabId === tabId)
       let target = owner && bounds && activeIds.has(tabId) && !crashes[tabId] && tabById(model, tabId).tab.url !== 'about:blank' ? owner.window : parkHost(tabById(model, tabId).pane.profileId)
-      if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) {
-        await serializeTab(tabId, async () => {
-          try {
-            let result = await Promise.race([
-              cdp(tabId, 'Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false }),
-              sleep(800).then(() => { throw new Error('Preview capture timed out') }),
-            ])
-            if (result.data) snapshots[tabId] = { image: `data:image/jpeg;base64,${result.data}`, capturedAt: Date.now() }
-          } catch { /* Keep the last good preview if the page disappears during capture. */ }
-        })
-      }
+      if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
       if (target === owner?.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
@@ -259,7 +290,10 @@ export let createRuntime = (dataDirectory: string) => {
     publish()
   }
   let scheduleVisuals = () => {
-    visualQueue = visualQueue.catch(reportError).then(reconcile)
+    if (!visualScheduled) {
+      visualScheduled = true
+      visualQueue = Promise.resolve().then(() => { visualScheduled = false; reconcile() }).catch(reportError)
+    }
     return visualQueue
   }
   let repairClients = () => {
@@ -302,7 +336,7 @@ export let createRuntime = (dataDirectory: string) => {
     chrome.webContents.on('will-navigate', event => event.preventDefault())
     if (process.env.ELECTRON_RENDERER_URL) await chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL)
     else await chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'))
-    if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); window.focus() }
+    if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); window.focus(); chrome.webContents.focus() }
     else window.showInactive()
     save()
     return client
@@ -317,11 +351,22 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command): Promise<unknown> => {
-    if (method === 'command-line') return execute(parseCommandLine(required(args, 'line'), state(required(args, 'client'))))
+    if (method === 'command-line') {
+      let command = parseCommandLine(required(args, 'line'), state(required(args, 'client')))
+      if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
+      return execute(command)
+    }
+    if (method === 'settings.reload') { configuration?.reload(); if (configuration?.error) throw new Error(configuration.error); return { path: configuration?.path } }
+    if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-page') {
       let client = resolve(model.clients, args.client, 'Client')
       await visualQueue
-      if (client.id === focusedClientId && client.paneId) tabs.get(paneById(model, client.paneId).pane.activeTabId)?.view.webContents.focus()
+      let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
+      if (client.id === focusedClientId) {
+        let owner = clients.get(client.id)!
+        if (live?.parent === owner.window) live.view.webContents.focus()
+        else owner.chrome.webContents.focus()
+      }
       return null
     }
     if (method === 'state' || method === 'status') return state()
@@ -378,7 +423,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
     if (method === 'detach-client') { let client = resolve(model.clients, args.client, 'Client'); clients.get(client.id)?.window.close(); return { detached: client.id } }
-    if (method === 'activate-client') { let client = resolve(model.clients, args.client, 'Client'); await app.dock?.show(); app.focus({ steal: true }); clients.get(client.id)?.window.show(); clients.get(client.id)?.window.focus(); return client }
+    if (method === 'activate-client') { let client = resolve(model.clients, args.client, 'Client'); await app.dock?.show(); app.focus({ steal: true }); clients.get(client.id)?.window.show(); clients.get(client.id)?.window.focus(); clients.get(client.id)?.chrome.webContents.focus(); return client }
     if (method === 'diagnostics') return { pid: process.pid, tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
@@ -500,7 +545,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'settings.prefix') {
       let key = required(args, 'key').toLowerCase()
       if (!/^[a-z]$/.test(key)) throw new Error('Prefix key must be one letter (used with Control)')
-      prefixKey = key; await fs.writeFile(settingsFile, JSON.stringify({ prefixKey }), { mode: 0o600 }); return { prefix: `Ctrl+${key.toUpperCase()}` }
+      configuration!.setPrefix(`Ctrl+${key.toUpperCase()}`); return { prefix: `Ctrl+${key.toUpperCase()}` }
     }
     if (method === 'dialog.confirm') {
       let client = resolve(model.clients, args.client, 'Client')
@@ -508,6 +553,29 @@ export let createRuntime = (dataDirectory: string) => {
       return response.response === 1
     }
     if (method === 'quit') { setTimeout(() => app.quit(), 100); return { quitting: true } }
+    if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
+      let tabId = required(args, 'tab'); tabById(model, tabId)
+      let contents = tabs.get(tabId)?.view.webContents
+      if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
+      delete crashes[tabId]
+      if (method === 'stop') { contents.stop(); delete loading[tabId] }
+      if (method === 'reload') contents.reload()
+      if (method === 'hard-reload') contents.reloadIgnoringCache()
+      if (method === 'back' && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+      if (method === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+      publish(); return { tab: tabId }
+    }
+    if (method === 'navigate' && args.waitUntil === 'none') {
+      let tabId = required(args, 'tab'), url = normalizeUrl(required(args, 'url'))
+      let { tab } = tabById(model, tabId)
+      let live = tabs.get(tabId) ?? createLiveTab(tabId)
+      delete crashes[tabId]; delete snapshots[tabId]; loading[tabId] = true
+      save(); void scheduleVisuals()
+      // did-navigate owns the committed URL; do not overwrite it with a pending request.
+      // did-fail-load reports failures, including failures before a navigation commits.
+      void live.view.webContents.loadURL(url).catch(() => undefined)
+      return { id: tabId, url, loading: true }
+    }
     if (!['navigate', 'eval', 'dom', 'screenshot', 'click', 'type', 'key', 'wait', 'cdp', 'back', 'forward', 'reload', 'find', 'zoom', 'devtools'].includes(method)) throw new Error(`Unknown command: ${method}`)
     let tabId = required(args, 'tab')
     tabById(model, tabId)
@@ -517,7 +585,8 @@ export let createRuntime = (dataDirectory: string) => {
       let contents = tabs.get(tabId)!.view.webContents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
       contents.setBackgroundThrottling(false)
-      automatedContents.add(contents.id)
+      let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
+      if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
         if (method === 'navigate') { await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
@@ -586,12 +655,14 @@ export let createRuntime = (dataDirectory: string) => {
           for (let type of ['keyDown', 'keyUp']) await cdp(tabId, 'Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(type === 'keyDown' && command ? { commands: [command] } : {}), ...(type === 'keyDown' && key === 'Enter' && !modifiers ? { text: '\r' } : {}) })
           return { tab: tabId }
         }
-      } finally { automatedContents.delete(contents.id); if (!contents.isDestroyed()) contents.setBackgroundThrottling(!background) }
+      } finally { if (syntheticInput) automatedContents.delete(contents.id); if (!contents.isDestroyed()) { if (syntheticInput) contents.setIgnoreMenuShortcuts(false); contents.setBackgroundThrottling(!background) } }
       return null
     })
   }
   let start = async (background: boolean) => {
     await settingsReady
+    configuration = createConfig(configPath(dataDirectory), () => { refreshMenu(); publish() }, legacyPrefix)
+    refreshMenu()
     await scheduleVisuals()
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]
@@ -603,6 +674,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
     writeModel(dataDirectory, model)
     for (let tabId of tabs.keys()) disposeTab(tabId)

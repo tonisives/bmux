@@ -111,6 +111,36 @@ help
 
 Use quotes around names with spaces. Window/tab indices start at 0. Up/down recalls command history. Command+Shift+N creates another client. Set the prefix with `prefix LETTER` or `brmux settings prefix LETTER`.
 
+## Keyboard configuration
+
+Edit `~/.config/browmux/config.yaml`, or press Command+, to view settings and open the file. Changes reload automatically; invalid YAML retains the last working configuration and reports the error. Help shows the active bindings.
+
+```yaml
+keyboard:
+  prefix: Ctrl+B
+  prefixTimeoutMs: 1600
+  shortcuts:
+    Cmd+R: reload
+    Cmd+Shift+R: hard-reload
+    Cmd+L: address
+    Cmd+N: new-client
+    Cmd+T: new-tab
+    Cmd+W: close-tab
+    Cmd+F: find
+    Cmd+,: settings
+    Escape: stop
+  prefixBindings:
+    ":": command
+    "?": help
+    c: new-window
+```
+
+Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], tab switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
+
+`BROWMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BROWMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
+
+Window switching, reload, stop, and keyboard commands remain responsive during navigation. URL submission starts loading immediately; a slow request does not hold the command prompt open or block another internal window. CLI `navigate` continues to wait for loading by default; use `--waitUntil none` for immediate return.
+
 ## Data and permissions
 
 Application state and profile partitions live under `~/Library/Application Support/Browmux`. Set `BROWMUX_DATA_DIR` to an absolute path to run an isolated instance. Tests use disposable directories and never use your real profiles.

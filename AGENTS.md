@@ -12,3 +12,5 @@
 - Always install packaged builds to `~/workspace/_tools/Browmux.app` (`/Users/tonis/workspace/_tools/Browmux.app` on this Mac) using `pnpm package`. Keep the source repository here. Do not restart a running app after packaging.
 - Keep the persistent UI to page content and one tmux-style status bar. Use transient command prompts and shortcut panels for controls.
 - Always verify UI changes by typing a real URL and pressing Enter (`pnpm test:ui`), checking visible native page rendering. Debug instances must use separate temporary profiles (`pnpm debug:ui`).
+- Keyboard preferences live in `~/.config/browmux/config.yaml` and reload live; preserve existing user edits. Test instances must use isolated config files.
+- Never block view attachment/detachment or human shortcuts on navigation, screenshots, or agent command queues.
