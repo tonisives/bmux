@@ -15,12 +15,30 @@ let command = async (line: string) => {
   await activate()
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
   let prompt = chrome.getByRole('combobox', { name: 'Command', exact: true })
-  await prompt.fill(line); await prompt.press('Enter')
+  await prompt.fill(line); await prompt.press('Enter'); await activate()
+}
+let vaultPrompt = async (name: string) => {
+  let input = chrome.getByRole('textbox', { name, exact: true })
+  // Separate instances of the installed app can lose foreground status on macOS.
+  // Explicitly activate this test client while waiting for its guarded prompt.
+  await expect.poll(async () => { await activate(); return input.isVisible() }).toBe(true)
+  return input
+}
+let expectVaultPassword = async () => {
+  await expect.poll(async () => { await activate(); return page.locator('#vault-password').inputValue() }).toBe('fixture-vault-password')
 }
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-browser-tools-'))
   server = http.createServer((request, response) => {
     if (request.url?.startsWith('/bmux-ad.js')) { adRequests++; response.writeHead(200, { 'Content-Type': 'text/javascript' }); response.end('window.adLoaded = true'); return }
+    if (request.url?.startsWith('/vault-')) {
+      response.writeHead(200, { 'Content-Type': 'text/html' })
+      let password = '<label>Password<input id="vault-password" type="password" autocomplete="current-password"></label><button type="submit">Log in</button>'
+      let initial = request.url.startsWith('/vault-password') ? password : '<label>Phone, email, or username<input id="vault-user" autocomplete="username"></label><button type="button" id="next">Next</button>'
+      let action = request.url.startsWith('/vault-user-nav') ? "location.href = '/vault-password'" : 'document.querySelector("form").innerHTML = ' + JSON.stringify(password)
+      response.end('<!doctype html><html><head><title>Two-step login</title></head><body><h1>Login fixture</h1><form>' + initial + '</form><script>window.submitted=false;document.querySelector("form").onsubmit=e=>{e.preventDefault();window.submitted=true};document.querySelector("#next")?.addEventListener("click",()=>{' + action + '})</script></body></html>')
+      return
+    }
     response.writeHead(200, { 'Content-Type': 'text/html', ...(request.url?.startsWith('/strict') ? { 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'nonce-fixture'; style-src 'nonce-fixture'" } : {}) })
     response.end(`<!doctype html><html><head><title>Browser tools fixture</title><script nonce="fixture">window.startObserved = window.earlyFlag || 'missing'</script><style nonce="fixture">body{background:white;color:black;font:20px sans-serif;padding:24px}input{display:block;margin:8px}.bmux-ad{height:50px;background:red}</style></head><body><h1>Browser tools fixture</h1><div class="bmux-ad">Advertisement</div><p class="custom">Custom style</p><form><label>Name<input id="name" autocomplete="name"></label><label>Email<input id="email" type="email"></label><input type="password" id="password"><input id="cc-number" autocomplete="cc-number"><input id="hidden" type="hidden"><button type="button">Continue</button></form><script src="/bmux-ad.js?private-query=fixture"></script></body></html>`)
   })
@@ -32,7 +50,7 @@ test.beforeAll(async () => {
   await fs.writeFile(vault, `#!${process.execPath}
 let args = process.argv.slice(2), origin = args[args.indexOf('--url') + 1];
 if (args.includes('fixture-master') || args.includes('fixture-session') || process.env.BMUX_PLUGIN_TOKEN) process.exit(2);
-if (args[0] === 'status') process.stdout.write(JSON.stringify({ status: 'locked' }));
+if (args[0] === 'status') process.stdout.write(JSON.stringify({ status: process.env.BW_SESSION === 'fixture-session' ? 'unlocked' : 'locked' }));
 else if (args[0] === 'unlock') { if (process.env.BMUX_VAULT_PASSWORD !== 'fixture-master') process.exit(2); process.stdout.write('fixture-session'); }
 else if (args[0] === 'list') { if (process.env.BW_SESSION !== 'fixture-session') process.exit(2); process.stdout.write(JSON.stringify([{id:'fixture-login',type:1,name:'Fixture vault login',login:{username:'vault@example.test',password:'fixture-vault-password',uris:[{uri:origin+'/login'}]}},{id:'other',type:1,name:'Different origin',login:{password:'excluded',uris:[{uri:'https://unrelated.example.test'}]}}])); }
 `, { mode: 0o700 })
@@ -180,12 +198,12 @@ test('bundled form actions save encrypted data and reject profile, document, and
 })
 
 test('Bitwarden action unlocks privately and fills only the selected exact-origin login', async () => {
+  await page.locator('#password').fill('')
   await rpc('plugin.enable', { id: 'bmux.bitwarden', enabled: true })
   await command('passwords')
-  let unlock = chrome.getByRole('textbox', { name: 'Unlock Bitwarden', exact: true })
-  await expect(unlock).toBeVisible(); await unlock.fill('fixture-master'); await activate(); await unlock.press('Enter')
-  let picker = chrome.getByRole('textbox', { name: `Login for ${url}`, exact: true })
-  await expect(picker).toBeVisible()
+  let unlock = await vaultPrompt('Unlock Bitwarden')
+  await unlock.fill('fixture-master'); await activate(); await unlock.press('Enter')
+  let picker = await vaultPrompt(`Login for ${url}`)
   await expect(chrome.getByRole('button', { name: 'Different origin', exact: true })).toHaveCount(0)
   await activate(); await picker.press('Enter')
   await expect(chrome.getByText('Fill this login over unencrypted HTTP?', { exact: true })).toBeVisible()
@@ -196,6 +214,92 @@ test('Bitwarden action unlocks privately and fills only the selected exact-origi
   await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.pluginId === 'bmux.bitwarden')?.status).toBe('completed')
   let published = JSON.stringify(await state())
   for (let value of ['fixture-master', 'fixture-session', 'fixture-vault-password']) expect(published).not.toContain(value)
+})
+
+let chooseVaultLogin = async (unlockExpected = false) => {
+  await command('passwords')
+  let unlock = chrome.getByRole('textbox', { name: 'Unlock Bitwarden', exact: true })
+  if (unlockExpected) {
+    await vaultPrompt('Unlock Bitwarden'); await unlock.fill('fixture-master'); await activate(); await unlock.press('Enter')
+  }
+  let picker = await vaultPrompt(`Login for ${url}`)
+  await expect(unlock).toHaveCount(0)
+  await activate(); await picker.press('Enter')
+  await expect(chrome.getByText('Fill this login over unencrypted HTTP?', { exact: true })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Yes', exact: true }).click()
+}
+
+test('Bitwarden reuses its session on a password-only screen and fills through native input events', async () => {
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-password` })
+  await page.evaluate(() => document.querySelector('input')!.addEventListener('input', () => { (window as any).observed = (document.querySelector('input') as HTMLInputElement).value }))
+  await chooseVaultLogin()
+  await expectVaultPassword()
+  expect(await page.evaluate(() => (window as any).observed)).toBe('fixture-vault-password')
+  expect(await page.evaluate(() => (window as any).submitted)).toBe(false)
+})
+
+for (let mode of ['dom', 'nav']) test(`Bitwarden follows the username and password steps through ${mode} without another prompt`, async () => {
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-user-${mode}` })
+  await chooseVaultLogin()
+  await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
+  await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.pluginId === 'bmux.bitwarden')?.status).toBe('completed')
+  await activate(); await page.locator('#next').click()
+  await expectVaultPassword()
+  await expect(chrome.getByRole('textbox', { name: 'Unlock Bitwarden', exact: true })).toHaveCount(0)
+  await expect(chrome.getByRole('textbox', { name: `Login for ${url}`, exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).submitted)).toBe(false)
+  let published = JSON.stringify(await state())
+  for (let secret of ['fixture-master', 'fixture-session', 'fixture-vault-password']) expect(published).not.toContain(secret)
+})
+
+test('Bitwarden waits without blocking shortcuts and resumes when its original tab is active', async () => {
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` })
+  await chooseVaultLogin(); await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
+  let before = await state()
+  await command('tabs'); await expect(chrome.getByRole('dialog', { name: 'Tabs', exact: true })).toBeVisible()
+  await chrome.keyboard.press('Escape')
+  let other = await rpc('tab.create', { pane: before.model.clients.find((client: any) => client.id === before.clientId).paneId, url: `${url}/vault-password` })
+  await rpc('tab.select', { client: before.clientId, tab: other.id })
+  await page.evaluate(() => (document.querySelector('#next') as HTMLElement).click())
+  await page.waitForTimeout(650)
+  await expect(page.locator('#vault-password')).toHaveValue('')
+  await rpc('tab.select', { client: before.clientId, tab: tabId })
+  await expectVaultPassword()
+  await rpc('tab.close', { tab: other.id })
+})
+
+for (let stop of ['cancel', 'lock', 'cross-origin', 'typed', 'registration', 'multiple']) test(`Bitwarden continuation stops on ${stop}`, async () => {
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` })
+  // Each case starts with one explicit unlock to avoid dependencies on earlier cases.
+  await command('passwords lock'); await chooseVaultLogin(true)
+  await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
+  if (stop === 'cancel' || stop === 'lock') await command(`passwords ${stop}`)
+  if (stop === 'cross-origin') {
+    await rpc('navigate', { tab: tabId, url: `${url.replace('127.0.0.1', 'localhost')}/vault-password` })
+    await rpc('navigate', { tab: tabId, url: `${url}/vault-password` })
+  } else {
+    await page.evaluate(stop => {
+      (document.querySelector('#next') as HTMLElement).click()
+      let password = document.querySelector('#vault-password') as HTMLInputElement
+      if (stop === 'typed') password.value = 'user-entered-fixture'
+      if (stop === 'registration') password.autocomplete = 'new-password'
+      if (stop === 'multiple') document.querySelector('form')!.append(password.cloneNode())
+    }, stop)
+  }
+  await page.waitForTimeout(750)
+  await expect(page.locator('#vault-password').first()).toHaveValue(stop === 'typed' ? 'user-entered-fixture' : '')
+})
+
+test('Mac locking cancels an open unlock prompt and discards the cached session', async () => {
+  await command('passwords lock')
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-password` })
+  await command('passwords')
+  await vaultPrompt('Unlock Bitwarden')
+  await application.evaluate(({ powerMonitor }) => powerMonitor.emit('lock-screen'))
+  await expect(chrome.getByRole('textbox', { name: 'Unlock Bitwarden', exact: true })).toHaveCount(0)
+  await application.evaluate(({ powerMonitor }) => powerMonitor.emit('unlock-screen'))
+  await chooseVaultLogin(true)
+  await expectVaultPassword()
 })
 
 test('filter updates compile off-thread and retain working filters after a failed download', async () => {

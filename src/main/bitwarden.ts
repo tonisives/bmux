@@ -1,0 +1,189 @@
+import { createVault } from './bitwarden-cli'
+import type { VaultLogin } from './bitwarden-cli'
+import { inspectLoginForm } from './bitwarden-fields'
+import type { LoginForm } from './bitwarden-fields'
+import type { PluginContext } from '../shared/plugins'
+
+export type VaultInteraction = {
+  ui: (args: Record<string, unknown>) => Promise<unknown>
+  progress: (message: string) => void
+}
+type Options = {
+  vault?: ReturnType<typeof createVault>
+  context: (context: PluginContext) => PluginContext
+  interactive: (context: PluginContext) => boolean
+  browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
+  changed: () => void
+}
+type Attempt = { context: PluginContext; controller: AbortController; login?: VaultLogin; expires?: number; timer?: ReturnType<typeof setTimeout>; navigating?: boolean }
+
+export let createBitwarden = (options: Options) => {
+  let vault = options.vault ?? createVault(), attempts = new Map<string, Attempt>()
+  let notices = new Map<string, { tabId?: string; message: string; timer: ReturnType<typeof setTimeout> }>()
+  let queue: Promise<unknown> = Promise.resolve(), account = '', locked = false
+  let origin = (context: PluginContext) => { try { return new URL(context.url!).origin } catch { return '' } }
+  let notice = (context: PluginContext, message: string) => {
+    if (!context.clientId) return
+    clearTimeout(notices.get(context.clientId)?.timer)
+    let timer = setTimeout(() => { notices.delete(context.clientId!); options.changed() }, 6000)
+    timer.unref()
+    notices.set(context.clientId, { tabId: context.tabId, message, timer }); options.changed()
+  }
+  let cancel = (tabId: string) => {
+    let attempt = attempts.get(tabId)
+    if (!attempt) return
+    attempts.delete(tabId); clearTimeout(attempt.timer); attempt.controller.abort(); attempt.login = undefined
+  }
+  let cancelAttempt = (attempt: Attempt) => { if (attempts.get(attempt.context.tabId!) === attempt) cancel(attempt.context.tabId!) }
+  let lock = () => {
+    for (let attempt of attempts.values()) notice(attempt.context, 'Bitwarden locked in bmux')
+    for (let tabId of attempts.keys()) cancel(tabId)
+    vault.close(); account = ''
+  }
+  let current = (attempt: Attempt) => {
+    attempt.controller.signal.throwIfAborted()
+    let next = options.context(attempt.context)
+    if (next.tabId !== attempt.context.tabId || next.profileId !== attempt.context.profileId || origin(next) !== origin(attempt.context)) throw new Error('Login page changed')
+    return next
+  }
+  let inspect = async (context: PluginContext, signal: AbortSignal) => await options.browser('eval', { expression: `(${inspectLoginForm.toString()})()` }, context, signal) as LoginForm
+  let write = async (attempt: Attempt, context: PluginContext, form: LoginForm) => {
+    current(attempt)
+    if (attempt.expires && Date.now() >= attempt.expires) throw new Error('Password fill expired')
+    if (!options.interactive(context)) throw new Error('Return to the original login tab')
+    let login = attempt.login!
+    await options.browser('fill', { origin: origin(context), fields: form.fields.map(field => ({ ...field, value: field.role === 'password' ? login.login.password : login.login.username ?? '' })) }, context, attempt.controller.signal)
+    current(attempt)
+  }
+  let schedule = (attempt: Attempt) => {
+    if (attempt.controller.signal.aborted) return
+    attempt.timer = setTimeout(() => { void continueFill(attempt) }, 250)
+    attempt.timer.unref()
+  }
+  let continueFill = async (attempt: Attempt) => {
+    try {
+      let context = current(attempt)
+      if (Date.now() >= attempt.expires!) { notice(context, 'Password fill expired. Run passwords again.'); cancelAttempt(attempt); return }
+      if (attempt.navigating || !options.interactive(context)) { schedule(attempt); return }
+      let form = await inspect(context, attempt.controller.signal)
+      if (form.kind === 'occupied' || form.kind === 'ambiguous') { notice(context, 'Password fill stopped. Check the form and run passwords again.'); cancelAttempt(attempt); return }
+      if (form.kind === 'password' || form.kind === 'combined') {
+        let status = await vault.status(attempt.controller.signal)
+        if (status.status !== 'unlocked' || JSON.stringify([status.userId, status.serverUrl]) !== account) { notice(context, 'Bitwarden is locked or the account changed. Run passwords again.'); lock(); return }
+        await write(attempt, context, form)
+        notice(context, 'Bitwarden password filled'); cancelAttempt(attempt); return
+      }
+      schedule(attempt)
+    } catch {
+      if (attempt.controller.signal.aborted) return
+      // A same-origin navigation may replace the document between inspection and fill.
+      try { current(attempt) } catch { cancelAttempt(attempt); return }
+      if (attempt.navigating || options.context(attempt.context).documentId !== attempt.context.documentId) {
+        attempt.context = options.context(attempt.context); schedule(attempt)
+      } else { notice(attempt.context, 'Password fill stopped. Run passwords again.'); cancelAttempt(attempt) }
+    }
+  }
+  let fill = async (context: PluginContext, signal: AbortSignal, interaction: VaultInteraction) => {
+    if (locked) throw new Error('Unlock your Mac before using Bitwarden')
+    if (!context.tabId || !context.profileId || !/^https?:\/\//.test(context.url ?? '')) throw new Error('Open a login page first')
+    for (let other of attempts.values()) if (!other.expires && !options.interactive(other.context)) cancelAttempt(other)
+    cancel(context.tabId)
+    let attempt: Attempt = { context: { ...context }, controller: new AbortController() }
+    attempts.set(context.tabId, attempt)
+    let abort = () => cancelAttempt(attempt)
+    signal.addEventListener('abort', abort, { once: true })
+    let operation = attempt.controller.signal
+    let check = () => { signal.throwIfAborted(); current(attempt); if (options.context(context).documentId !== context.documentId) throw new Error('Login page changed') }
+    let ask = async (args: Record<string, unknown>) => {
+      check()
+      // CLI work can outlast a focus transition. Wait for the user to return;
+      // never activate a window or redirect the prompt to a different tab.
+      while (!options.interactive(context)) {
+        await new Promise<void>(resolve => setTimeout(resolve, 100))
+        check()
+      }
+      let aborted: () => void = () => undefined
+      try {
+        return await Promise.race([interaction.ui(args), new Promise<never>((_resolve, reject) => {
+          aborted = () => reject(new Error('Bitwarden fill cancelled'))
+          operation.addEventListener('abort', aborted, { once: true })
+          if (operation.aborted) aborted()
+        })])
+      } finally { operation.removeEventListener('abort', aborted) }
+    }
+    let unlock = async () => {
+      let password = await ask({ kind: 'password', title: 'Unlock Bitwarden', required: true })
+      check()
+      try { await vault.unlock(String(password), operation) } finally { password = undefined }
+      check()
+    }
+    let exclusive = async <T>(action: () => Promise<T>): Promise<T> => {
+      let previous = queue
+      let next = previous.catch(() => undefined).then(() => { check(); return action() })
+      // Do not retain a resolved login list in the long-lived serialization tail.
+      queue = next.then(() => undefined, () => undefined)
+      return next
+    }
+    try {
+      check()
+      let fresh = false
+      let logins = await exclusive(async () => {
+        let status = await vault.status(operation)
+        check()
+        if (status.status === 'unauthenticated') { vault.close(); throw new Error('Run bw login in a terminal, then run passwords again') }
+        let identity = JSON.stringify([status.userId, status.serverUrl])
+        if (account && account !== identity) { for (let [tabId, other] of attempts) if (other !== attempt) cancel(tabId); vault.close(); status.status = 'locked' }
+        if (status.status !== 'unlocked') { await unlock(); fresh = true }
+        account = identity
+        try { return await vault.logins(origin(context), operation) }
+        catch { vault.close(); throw new Error('Could not read Bitwarden. Run passwords again to unlock, or check bw login in a terminal.') }
+      })
+      check()
+      if (!logins.length) throw new Error('No Bitwarden logins match this exact origin')
+      let id = await ask({ kind: 'pick', title: `Login for ${origin(context)}`, items: logins.map(item => ({ id: item.id, label: item.name || 'Login', description: item.login.username || '' })) })
+      check()
+      attempt.login = logins.find(item => item.id === id)
+      logins = []
+      if (!attempt.login) throw new Error('Login selection cancelled')
+      if (attempt.login.reprompt === 1 && !fresh) await exclusive(unlock)
+      if (origin(context).startsWith('http:') && !await ask({ kind: 'confirm', title: 'Fill this login over unencrypted HTTP?' })) { cancelAttempt(attempt); return { filled: false } }
+      check()
+      let form = await inspect(context, operation)
+      if (!form.fields.length) throw new Error(form.kind === 'occupied' ? 'Password already entered. Clear it to fill from Bitwarden.' : 'Could not identify one login form. Open the username or password step and try again.')
+      if (form.kind === 'username' && !attempt.login.login.username) throw new Error('This Bitwarden login has no username')
+      await write(attempt, context, form)
+      if (form.kind === 'username') {
+        attempt.expires = Date.now() + 120000
+        interaction.progress('Username filled. Click Next; bmux will fill the password. Use passwords cancel to stop.')
+        notice(context, 'Username filled. Click Next; the password will fill automatically.')
+        schedule(attempt)
+        return { filled: true, waitingForPassword: true }
+      }
+      notice(context, 'Bitwarden login filled'); cancel(context.tabId)
+      return { filled: true }
+    } catch (error) {
+      let message = error instanceof Error && !operation.aborted ? error.message : 'Bitwarden fill cancelled'
+      cancelAttempt(attempt)
+      notice(context, message); interaction.progress(message)
+      throw new Error(message)
+    } finally { signal.removeEventListener('abort', abort) }
+  }
+  return {
+    fill, lock,
+    cancel: (tabId: string) => { let attempt = attempts.get(tabId); if (attempt) notice(attempt.context, 'Password fill cancelled'); cancel(tabId) },
+    systemLock: () => { locked = true; lock() },
+    systemUnlock: () => { locked = false },
+    navigation: (tabId: string, url: string, ready = false) => {
+      let attempt = attempts.get(tabId)
+      if (!attempt) return
+      if (!attempt.expires || origin({ url }) !== origin(attempt.context)) { cancel(tabId); return }
+      attempt.navigating = !ready
+    },
+    message: (clientId: string) => {
+      let entry = notices.get(clientId)
+      if (!entry) return undefined
+      try { return options.context({ clientId }).tabId === entry.tabId ? entry.message : undefined } catch { return undefined }
+    },
+    close: () => { lock(); for (let entry of notices.values()) clearTimeout(entry.timer); notices.clear() },
+  }
+}

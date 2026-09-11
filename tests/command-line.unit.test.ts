@@ -38,3 +38,11 @@ it('cycles sessions in both directions and wraps at the ends', () => {
   current.model.clients[0].windowId = third.windows[0].id
   expect(parseCommandLine('next-session', current)).toMatchObject({ args: { session: first.id } })
 })
+
+it('parses Bitwarden fill, lock, and tab-scoped cancellation', () => {
+  let current = state(), tab = current.model.sessions[0].windows[0].panes[0].activeTabId
+  expect(parseCommandLine('passwords', current)).toEqual({ method: 'plugin.run', args: { action: 'bmux.bitwarden/fill', tab } })
+  expect(parseCommandLine('passwords lock', current)).toEqual({ method: 'bitwarden.lock', args: { tab } })
+  expect(parseCommandLine('passwords cancel -t target-tab', current)).toEqual({ method: 'bitwarden.cancel', args: { tab: 'target-tab' } })
+  expect(() => parseCommandLine('passwords unexpected', current)).toThrow('Use passwords')
+})

@@ -65,7 +65,7 @@ test('executes real scripts with pinned context and only explicit output', async
   expect(JSON.stringify(plugins.runs())).not.toContain('PRIVATE')
 })
 test('rejects missing capabilities, forged invocation tokens and cross-tab requests', async () => {
-  let script = hostScript + `let denied = 0; for (let [method,args] of [['eval',{expression:'1'}],['dom',{tab:'other'}]]) { try { host(method,args) } catch { denied++ } } process.env.BMUX_PLUGIN_TOKEN = 'forged'; try { host('context') } catch { denied++ } process.exit(denied === 3 ? 0 : 1);`
+  let script = hostScript + `let denied = 0; for (let [method,args] of [['eval',{expression:'1'}],['dom',{tab:'other'}],['bitwarden.fill',{}]]) { try { host(method,args) } catch { denied++ } } process.env.BMUX_PLUGIN_TOKEN = 'forged'; try { host('context') } catch { denied++ } process.exit(denied === 4 ? 0 : 1);`
   let { plugins, context, browser } = fixture(script)
   expect((await done(plugins, plugins.run('test/run', context).id)).status).toBe('completed')
   expect(browser).not.toHaveBeenCalled()

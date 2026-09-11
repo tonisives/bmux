@@ -66,7 +66,7 @@ Panes can mix profiles within a layout. Panes with the same profile share logins
 
 ## Development
 
-Requires macOS, Node.js 22.12+ (Node 24 recommended), and pnpm 11.
+Requires macOS, Xcode Command Line Tools, Node.js 22.12+ (Node 24 recommended), and pnpm 11. The build compiles the bundled native pointer integration; installed apps do not need developer tools.
 
 ```sh
 pnpm install
@@ -249,7 +249,7 @@ Personal window-switching overrides can use `Cmd+[: previous-window` and `Cmd+]:
 
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. They follow the visible split layout and can be assigned to direct shortcuts such as Command+H/J/K/L or to prefix bindings. `split-right` and `split-down` can likewise be assigned to direct shortcuts while the tmux-style prefix defaults remain available.
 
-oVim's scroll mode generates mouse-wheel events for `j/k`, so those events can scroll the pane under the pointer after a keyboard pane switch. Arrow keys use keyboard focus and scroll the selected pane. Move the pointer into the selected pane to use oVim scrolling there; enabling accessibility alone does not change the wheel event's target.
+On macOS, pane movement shortcuts also move the pointer to the center of the newly selected pane's page content, below its URL bar. This lets oVim's mouse-wheel-based `j/k` scrolling follow keyboard pane selection. Mouse clicks, background automation, and shortcuts with no neighboring pane leave the pointer in place. CLI pane selection does not move the pointer unless explicitly requested with `movePointer: true` in its RPC arguments.
 
 ## Data and permissions
 

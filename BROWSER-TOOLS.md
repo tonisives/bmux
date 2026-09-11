@@ -150,18 +150,36 @@ The bundled **Bitwarden CLI** plugin uses the documented `bw` CLI and is disable
 by default. Install the CLI, run `bw login` once in a terminal, and enable the
 plugin in bmux's `plugins` panel. Then run `passwords` or its fill action.
 
-It checks lock status, asks for a master password if needed, and offers matching
-logins. Passwords and session keys stay in subprocess memory/environment, never
-command arguments, config, clipboard, or results. No unlocked session is retained
-between invocations. An inherited `BW_SESSION` can be used; reprompt-protected
-items still require the master password. Completion does not lock other CLI clients.
+Unlock once in bmux and choose a matching login. The main process keeps the session
+key in memory until bmux quits, your Mac locks or sleeps, or you disable the plugin.
+You do not need to save the key, export it in your shell, or add it to config.
+An inherited `BW_SESSION` is consumed once at startup and excluded from plugin
+subprocesses. Passwords and keys never enter command arguments, config, clipboard,
+plugin results, or browser state. The CLI receives secrets through its private
+subprocess environment. The master password is not retained.
+
+Run `passwords lock` to forget the session and cancel all pending fills in bmux.
+This does not run `bw lock` or invalidate other CLI clients. A session invalidated
+outside bmux requires unlocking again on the next `passwords` action.
+Items with Bitwarden's master-password reprompt enabled require a fresh check for
+each selection; unlocking during that selection satisfies the check.
 
 Only results of the CLI's origin lookup with an exact matching HTTP(S) origin are
 offered. Different schemes, ports, subdomains, deleted items, and never-match URI
 entries are excluded. This does not reproduce all Bitwarden path/equivalent-domain
-matching. One visible password field and an optional preceding username/email
-field in the same form are supported. It does not submit, fill iframes, save vault
-entries, handle passkeys, or fill TOTP. HTTP fills require confirmation.
+matching. Username-only, password-only, and combined login forms are supported.
+After filling a username, click Next yourself: bmux watches for the password step
+for two minutes, including same-origin page navigation. It fills once in that
+same tab and browser profile, without another picker or unlock prompt. Waiting
+pauses while that tab is inactive and never changes focus or blocks shortcuts.
+Run `passwords cancel` to stop waiting in the current tab.
+
+Continuation ends on completion, expiry, cross-origin navigation (including
+redirects), tab closure, renderer failure, cancellation, or vault locking. A new
+selection replaces the previous continuation. Ambiguous forms and already-filled
+password fields are left alone. It does not submit, fill iframes or registration
+password fields, save vault entries, handle passkeys, or fill TOTP. HTTP fills
+require one confirmation covering both steps of that selected login.
 
 `BMUX_BITWARDEN_CLI` selects a custom executable. Otherwise bmux checks
 `/opt/homebrew/bin/bw`, then PATH. Bitwarden's `BITWARDENCLI_APPDATA_DIR` can select

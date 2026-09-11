@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
+import type { VaultInteraction } from './bitwarden'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
 type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
@@ -18,6 +19,7 @@ type Options = {
   interactive: (context: PluginContext) => boolean
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
+  bitwarden?: (context: PluginContext, signal: AbortSignal, interaction: VaultInteraction) => Promise<unknown>
 }
 let live = (run: Run) => ['queued', 'running'].includes(run.public.status)
 let record = (value: unknown): Record<string, unknown> => {
@@ -109,6 +111,13 @@ export let createPlugins = (options: Options) => {
     }
     if (method === 'result') { if (JSON.stringify(args).length > 65536) throw new Error('Result too large'); run.public.result = args; options.changed(); return null }
     if (method === 'ui') { if (!run.action.capabilities.includes('ui')) throw new Error('Capability ui required'); return requestUI(run, args) }
+    if (method === 'bitwarden.fill') {
+      if (!run.definition.bundled || run.public.pluginId !== 'bmux.bitwarden' || run.public.actionId !== 'fill' || !run.interactive || !run.action.capabilities.includes('ui') || !run.action.capabilities.includes('browser.write') || !options.bitwarden) throw new Error('Bundled Bitwarden action required')
+      return options.bitwarden({ ...run.context }, run.controller.signal, {
+        ui: args => requestUI(run, args),
+        progress: message => { run.public.progress = { percent: 100, message }; options.changed() },
+      })
+    }
     let capability = methods[method]
     if (!capability || !run.action.capabilities.includes(capability)) throw new Error('Browser capability required or unknown method')
     if (method === 'wait' && args.expression !== undefined && !run.action.capabilities.includes('browser.write')) throw new Error('JavaScript waits require browser.write')
@@ -150,6 +159,7 @@ export let createPlugins = (options: Options) => {
       if (!live(run)) return
       let env: NodeJS.ProcessEnv = { ...process.env, BMUX_DATA_DIR: options.dataDirectory, BMUX_PLUGIN_SOCKET: socketPath, BMUX_PLUGIN_RUN_ID: run.public.id, BMUX_PLUGIN_TOKEN: run.token, BMUX_CLI: options.cli }
       delete env.ELECTRON_RUN_AS_NODE
+      delete env.BW_SESSION; delete env.BMUX_VAULT_PASSWORD
       let [command, ...args] = run.action.command
       let executable = command.startsWith('.') ? path.resolve(run.definition.directory, command) : command
       if (run.definition.bundled && command === 'node') { executable = process.execPath; env.ELECTRON_RUN_AS_NODE = '1' }

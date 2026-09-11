@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage } from 'electron'
+import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor } from 'electron'
 import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -12,9 +12,11 @@ import { createConfig, configPath } from './config'
 import { DEFAULT_KEYBOARD, matchesBinding } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
+import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
+import { createBitwarden } from './bitwarden'
 import { createPageTools } from './page-tools'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
@@ -51,6 +53,7 @@ export let createRuntime = (dataDirectory: string) => {
   let permissionGrants = new Map<string, boolean>()
   let downloads: Download[] = []
   let focusedClientId: string | null = null
+  let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
@@ -63,6 +66,9 @@ export let createRuntime = (dataDirectory: string) => {
   let configuration: ReturnType<typeof createConfig> | undefined
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
+  let bitwarden: ReturnType<typeof createBitwarden> | undefined
+  let lockVault = () => bitwarden?.systemLock()
+  let unlockSystem = () => { if (powerMonitor.getSystemIdleState(1) !== 'locked') bitwarden?.systemUnlock() }
   let pageTools: ReturnType<typeof createPageTools> | undefined
   let browserSettings = () => configuration?.browser ?? DEFAULT_BROWSER
   let toolsState = (): BrowserToolsState | undefined => filters ? {
@@ -101,7 +107,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -178,7 +184,7 @@ export let createRuntime = (dataDirectory: string) => {
     let focused = clients.get(client.id)!
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
     let tab = pane?.activeTabId
-    let control = (name: string) => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
+    let control = (name: string) => { pointerTarget = undefined; focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
@@ -192,7 +198,9 @@ export let createRuntime = (dataDirectory: string) => {
       void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
     }
     let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : action
-    void execute(parseCommandLine(line, state(client.id))).catch(reportError)
+    let command = parseCommandLine(line, state(client.id))
+    if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
+    void execute(command).catch(reportError)
   }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
@@ -208,6 +216,7 @@ export let createRuntime = (dataDirectory: string) => {
     filters?.refresh()
     pageTools?.reload()
     plugins?.reload()
+    if (!configuration?.plugins['bmux.bitwarden']?.enabled) bitwarden?.lock()
     refreshMenu()
     if (configuration && configuration.accessibility !== accessibilityPreference) {
       accessibilityPreference = configuration.accessibility
@@ -235,6 +244,7 @@ export let createRuntime = (dataDirectory: string) => {
       event.preventDefault(); dispatchShortcut(entry[1])
     })
     contents.on('before-mouse-event', (event, mouse) => {
+      if (!automatedContents.has(contents.id) && mouse.type === 'mouseDown') pointerTarget = undefined
       // Electron emits back/forward here, although its input types only list three buttons.
       let button = String(mouse.button)
       if (!['back', 'forward'].includes(button) || automatedContents.has(contents.id)) return
@@ -267,10 +277,13 @@ export let createRuntime = (dataDirectory: string) => {
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) filters?.reset(tabId) })
     let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
-    contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
+    contents.on('did-start-navigation', (_event, url, _inPlace, mainFrame) => { if (mainFrame) { bitwarden?.navigation(tabId, url); invalidate() } })
+    contents.on('will-redirect', (_event, url, _inPlace, mainFrame) => { if (mainFrame) bitwarden?.navigation(tabId, url) })
+    contents.on('dom-ready', () => bitwarden?.navigation(tabId, contents.getURL(), true))
+    contents.on('did-navigate-in-page', (_event, url, mainFrame) => { if (mainFrame) bitwarden?.navigation(tabId, url, true) })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
-    contents.on('render-process-gone', invalidate)
+    contents.on('render-process-gone', () => { bitwarden?.cancel(tabId); invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let update = () => {
@@ -320,6 +333,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
   }
   let disposeTab = (tabId: string) => {
+    bitwarden?.cancel(tabId)
     pageTools?.dispose(tabId)
     filters?.reset(tabId)
     documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId)
@@ -376,6 +390,23 @@ export let createRuntime = (dataDirectory: string) => {
       moveView(live, target)
       if (target === owner?.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
     }
+    if (pointerTarget) {
+      let cursor = screen.getCursorScreenPoint()
+      if (!client || client.id !== pointerTarget.clientId || client.paneId !== pointerTarget.paneId || Date.now() > pointerTarget.expires || cursor.x !== pointerTarget.origin.x || cursor.y !== pointerTarget.origin.y) pointerTarget = undefined
+      else if (owner?.window.isFocused()) {
+        let pane = paneById(model, client.paneId).pane
+        let bounds = owner.bounds.find(bounds => bounds.tabId === pane.activeTabId)
+        // A zoomed pane's new content bounds arrive from the renderer after selection.
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          pointerTarget = undefined
+          let live = tabs.get(pane.activeTabId)
+          if (live?.parent === owner.window) live.view.webContents.focus()
+          let content = owner.window.getContentBounds()
+          try { movePointer({ x: Math.round(content.x + bounds.x + bounds.width / 2), y: Math.round(content.y + bounds.y + bounds.height / 2) }) }
+          catch (error) { reportError(error) }
+        }
+      }
+    }
     publish()
   }
   let scheduleVisuals = () => {
@@ -422,7 +453,7 @@ export let createRuntime = (dataDirectory: string) => {
         else chrome.webContents.focus()
       }).catch(reportError)
     })
-    window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; void scheduleVisuals() } })
+    window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
@@ -453,6 +484,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'bitwarden.lock') { bitwarden?.lock(); return { locked: true } }
+    if (method === 'bitwarden.cancel') { bitwarden?.cancel(required(args, 'tab')); return { cancelled: true } }
     if (method.startsWith('forms.')) {
       if (!savedForms) throw new Error('Saved forms are not ready')
       let context = (args._formsContext as PluginContext | undefined) ?? pluginContext({ tabId: required(args, 'tab') })
@@ -596,6 +629,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
+      let previousPaneId = client.paneId
       let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
       if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
@@ -605,14 +639,17 @@ export let createRuntime = (dataDirectory: string) => {
         if (!['left', 'right', 'up', 'down'].includes(direction)) throw new Error(`Unknown pane direction: ${direction}`)
         client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down') ?? client.paneId
       }
+      // A repeated shortcut at a layout edge must not cancel a pending move.
+      if (client.paneId !== previousPaneId && pointerTarget?.clientId === client.id) pointerTarget = undefined
       if (client.zoomedPaneId) client.zoomedPaneId = client.paneId
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {
         let pane = paneById(model, client.paneId).pane
         let live = tabs.get(pane.activeTabId), owner = clients.get(client.id)!
         if (live?.parent === owner.window) live.view.webContents.focus()
         else owner.chrome.webContents.focus()
+        if (args.movePointer === true && client.paneId !== previousPaneId) pointerTarget = { clientId: client.id, paneId: client.paneId, expires: Date.now() + 1000, origin: screen.getCursorScreenPoint() }
       }
-      save(); return client
+      save(); void scheduleVisuals(); return client
     }
     if (method === 'toggle-pane-zoom') {
       let client = resolve(model.clients, args.client, 'Client')
@@ -828,7 +865,12 @@ export let createRuntime = (dataDirectory: string) => {
     } })
     pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => live.view.webContents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    bitwarden = createBitwarden({ context: pluginContext, interactive: pluginInteractive, changed: publish, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    powerMonitor.on('lock-screen', lockVault)
+    powerMonitor.on('suspend', lockVault)
+    powerMonitor.on('unlock-screen', unlockSystem)
+    powerMonitor.on('resume', unlockSystem)
+    plugins = createPlugins({ bitwarden: bitwarden.fill, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -845,6 +887,11 @@ export let createRuntime = (dataDirectory: string) => {
     pageTools?.close()
     filters?.close()
     plugins?.close()
+    bitwarden?.close()
+    powerMonitor.removeListener('lock-screen', lockVault)
+    powerMonitor.removeListener('suspend', lockVault)
+    powerMonitor.removeListener('unlock-screen', unlockSystem)
+    powerMonitor.removeListener('resume', unlockSystem)
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
     writeModel(dataDirectory, model)

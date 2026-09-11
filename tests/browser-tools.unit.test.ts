@@ -2,7 +2,7 @@ import { test, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { pathToFileURL } from 'node:url'
+import * as vaultModule from '../src/main/bitwarden-cli'
 import { createConfig } from '../src/main/config'
 import { parseBrowserSettings } from '../src/main/browser-config'
 import { DEFAULT_BROWSER, matchesUrl, siteSettings } from '../src/shared/browser-tools'
@@ -59,9 +59,8 @@ test('offline filter fallback, custom exceptions, and profile isolation use one 
   } finally { filters.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })
 
-let vaultModule = await import(pathToFileURL(path.resolve('bundled-plugins/bmux.bitwarden/vault.mjs')).href)
 test('Bitwarden origin filtering excludes different schemes, ports, subdomains, and never-match entries', () => {
-  let item = (uri: string, match = 0) => ({ type: 1, login: { uris: [{ uri, match }] } })
+  let item = (uri: string, match = 0) => ({ id: 'fixture', type: 1, login: { password: '', uris: [{ uri, match }] } })
   expect(vaultModule.sameOrigin(item('https://example.test/login'), 'https://example.test')).toBe(true)
   for (let uri of ['http://example.test', 'https://example.test:8443', 'https://sub.example.test', 'https://example.test.evil', 'invalid']) expect(vaultModule.sameOrigin(item(uri), 'https://example.test')).toBe(false)
   expect(vaultModule.sameOrigin(item('https://example.test', 5), 'https://example.test')).toBe(false)
