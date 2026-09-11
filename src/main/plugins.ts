@@ -8,10 +8,10 @@ import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
-type Definition = { directory: string; manifest: PluginManifest; error?: string }
+type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
 type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
-  directory: string; cli: string; dataDirectory: string
+  bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   settings: () => PluginSettings
   changed: () => void
   context: (target: PluginContext) => PluginContext
@@ -26,6 +26,7 @@ let record = (value: unknown): Record<string, unknown> => {
 }
 let shortText = (value: unknown, limit = 4096) => { if (typeof value !== 'string' || value.length > limit) throw new Error('Invalid text'); return value }
 let methods: Record<string, PluginAction['capabilities'][number]> = {
+  'forms.list': 'browser.forms', 'forms.save': 'browser.forms', 'forms.fill': 'browser.forms', 'forms.delete': 'browser.forms',
   dom: 'browser.read', screenshot: 'browser.read', wait: 'browser.read', eval: 'browser.write', fill: 'browser.write', click: 'browser.write', type: 'browser.write', key: 'browser.write', navigate: 'browser.write', back: 'browser.write', forward: 'browser.write', reload: 'browser.write', cdp: 'browser.cdp',
   'tab.list': 'browser.manage', 'tab.create': 'browser.manage', 'tab.close': 'browser.manage', 'tab.select': 'browser.manage', 'profile.list': 'browser.manage', 'list-sessions': 'browser.manage', 'list-windows': 'browser.manage', 'list-panes': 'browser.manage', 'new-window': 'browser.manage', 'split-window': 'browser.manage', 'select-pane': 'browser.manage', 'select-window': 'browser.manage', 'activate-client': 'browser.manage',
 }
@@ -151,6 +152,7 @@ export let createPlugins = (options: Options) => {
       delete env.ELECTRON_RUN_AS_NODE
       let [command, ...args] = run.action.command
       let executable = command.startsWith('.') ? path.resolve(run.definition.directory, command) : command
+      if (run.definition.bundled && command === 'node') { executable = process.execPath; env.ELECTRON_RUN_AS_NODE = '1' }
       let child = spawn(executable, args, { cwd: run.definition.directory, env, detached: true, stdio: 'ignore' })
       run.child = child
       await new Promise<void>(resolve => {
@@ -206,14 +208,13 @@ export let createPlugins = (options: Options) => {
     let previous = definitions, next = new Map<string, Definition>(), previousSettings = settings
     settings = options.settings(); discoveryErrors = []
     try {
-      let entries = fs.existsSync(options.directory) ? fs.readdirSync(options.directory, { withFileTypes: true }) : []
-      for (let entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
-        let directory = path.join(options.directory, entry.name)
+      let entries = [options.bundledDirectory, options.directory].filter((directory): directory is string => !!directory && fs.existsSync(directory)).flatMap(root => fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() || entry.isSymbolicLink()).sort((a, b) => a.name.localeCompare(b.name)).map(entry => ({ name: entry.name, directory: path.join(root, entry.name), bundled: root === options.bundledDirectory })))
+      for (let entry of entries) {
+        let directory = entry.directory
         try {
           let manifest = parsePluginManifest(fs.readFileSync(path.join(directory, 'plugin.yaml'), 'utf8'))
           if (next.has(manifest.id)) throw new Error('Duplicate plugin ID')
-          next.set(manifest.id, { directory, manifest })
+          next.set(manifest.id, { directory, manifest, bundled: entry.bundled })
         } catch {
           let old = [...previous.values()].find(item => item.directory === directory)
           if (old && !next.has(old.manifest.id)) next.set(old.manifest.id, { ...old, error: 'Invalid manifest update; using previous definition' })

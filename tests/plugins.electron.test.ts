@@ -9,7 +9,7 @@ import { stringify } from 'yaml'
 let directory: string, application: ElectronApplication, chrome: Page, url: string, server: http.Server
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
-let activate = async () => { let current = await state(); await rpc('activate-client', { client: current.clientId }); await expect.poll(async () => (await state()).focusedClientId).toBe(current.clientId) }
+let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let run = async (action: string, args: Record<string, unknown> = {}) => (await rpc('plugin.run', { action: `test/${action}`, ...args })).id as string
 let completed = async (id: string, status = 'completed') => { await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === id)?.status).toBe(status) }
 let script = `import { execFileSync } from 'node:child_process';
@@ -128,6 +128,7 @@ test('navigation rejects stale fills and hidden fields; plugin waits do not bloc
   await rpc('select-window', { client: current.clientId, window: next.id })
   await expect(chrome.getByRole('button', { name: '1:other*', exact: true })).toBeVisible()
   await rpc('select-window', { client: current.clientId, window: pane ? current.model.sessions[0].windows[0].id : '' })
+  await activate()
   await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some((view: any) => view.webContents?.getURL().startsWith(url))), url)).toBe(true)
   await rpc('plugin.cancel', { id: waiting }); await rpc('plugin.cancel', { id: slow }); await completed(waiting, 'cancelled')
   await activate()

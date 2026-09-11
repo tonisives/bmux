@@ -1,0 +1,11 @@
+schema_version: 1
+id: bmux.bitwarden
+name: Bitwarden CLI
+version: 1.0.0
+actions:
+  - id: fill
+    title: Fill a Bitwarden login
+    description: Uses the official bw CLI. Run bw login once in a terminal; unlock and choose a login here. Only exact origins match.
+    command: [node, ./run.mjs]
+    capabilities: [browser.write, ui]
+    timeout_seconds: 180

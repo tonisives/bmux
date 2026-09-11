@@ -90,7 +90,7 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   let targetBefore = await cli('cdp', { tab: mainTab.id, method: 'Target.getTargetInfo' })
   for (let client of [clientB, clientA, clientB]) {
     await cli('activate-client', { client: client.id })
-    await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id).catch(async error => { console.log(JSON.stringify(await cli('diagnostics'))); console.log('FRONTMOST', await frontmost()); throw error })
+    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return (await cli('state')).focusedClientId }).toBe(client.id).catch(async error => { console.log(JSON.stringify(await cli('diagnostics'))); console.log('FRONTMOST', await frontmost()); throw error })
   }
   expect(await cli('eval', { tab: mainTab.id, expression: '({text:document.querySelector("#text").value,count:window.count,identity:window.identity})' })).toEqual({ text: 'Retain this form', count: 1, identity })
   expect((await cli('cdp', { tab: mainTab.id, method: 'Target.getTargetInfo' })).targetInfo.targetId).toBe(targetBefore.targetInfo.targetId)
@@ -102,7 +102,7 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   await application.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) if (window.isVisible()) window.setBounds({ x: 90, y: 90, width: 1280, height: 850 }) })
   let statusBar = chrome.getByRole('contentinfo', { name: 'Browser status' })
   await expect(statusBar).toBeVisible()
-  await expect.poll(async () => (await statusBar.boundingBox())!.y).toBeLessThan((await chrome.locator('main').boundingBox())!.y)
+  await expect.poll(async () => (await statusBar.boundingBox())!.y - (await chrome.locator('main').boundingBox())!.y).toBeLessThan(0)
   await chrome.getByRole('button', { name: 'Help', exact: true }).click()
   await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
   await chrome.getByRole('button', { name: 'Close', exact: true }).last().click()
@@ -418,6 +418,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let start = Date.now()
   await cli('select-window', { client: client.id, window: first.id })
   expect(Date.now() - start).toBeLessThan(1500)
+  await cli('activate-client', { client: client.id })
   await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow')))).toBe(true)
   await cli('focus-page', { client: client.id })
   let requests = heldRequests
@@ -452,7 +453,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   expect((await cli('state')).keyboard.prefix).toBe('Ctrl+X')
   await fs.writeFile(config, 'statusBar: top\nkeyboard: {}\n')
   await expect.poll(async () => (await cli('state')).configError).toBeNull()
-  await expect.poll(async () => (await statusBar.boundingBox())!.y).toBeLessThan((await chrome.locator('main').boundingBox())!.y)
+  await expect.poll(async () => (await statusBar.boundingBox())!.y - (await chrome.locator('main').boundingBox())!.y).toBeLessThan(0)
   await cli('detach-client', { client: client.id })
   for (let response of heldResponses) response.end()
 })
@@ -472,14 +473,16 @@ test('window management shortcuts and keyboard session selection', async () => {
     await cli('focus-page', { client: client.id })
     let events: Omit<Electron.KeyboardInputEvent, 'type'>[] = [{ keyCode, modifiers }]
     if (prefix) events.unshift({ keyCode: 'b', modifiers: ['control'] })
-    for (let event of events) {
-      await application.evaluate(({ webContents }, event) => {
+    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ webContents }) => !!webContents.getFocusedWebContents()) }).toBe(true)
+    // Send the chord together so process launches cannot outlast the prefix timeout.
+    await application.evaluate(async ({ webContents }, events) => {
+      for (let event of events) {
         let contents = webContents.getFocusedWebContents()!
         contents.sendInputEvent({ type: 'keyDown', ...event })
         contents.sendInputEvent({ type: 'keyUp', ...event })
-      }, event)
-      await new Promise(resolve => setTimeout(resolve, 30))
-    }
+        await new Promise(resolve => setTimeout(resolve, 30))
+      }
+    }, events)
   }
   await shortcut(',')
   let rename = chrome.getByRole('textbox', { name: 'Rename window', exact: true })
@@ -543,6 +546,8 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   let client = await cli('attach-session', { session: session.id })
   let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => {
     await cli('activate-client', { client: client.id })
+    await cli('focus-page', { client: client.id })
+    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ webContents }) => !!webContents.getFocusedWebContents()) }).toBe(true)
     await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
       let contents = webContents.getFocusedWebContents()!
       contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })

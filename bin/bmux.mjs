@@ -31,6 +31,9 @@ Browser:  navigate -t TAB URL | dom -t TAB [--html] | eval -t TAB EXPRESSION [--
           click -t TAB --selector CSS | type -t TAB --selector CSS --text TEXT
           key -t TAB Enter | wait -t TAB --selector CSS [--timeout 15000]
           cdp -t TAB METHOD [JSON_PARAMS] | back -t TAB | forward -t TAB | reload -t TAB
+Tools:    dark on|off|system|inherit -t TAB [--scope site|profile|global]
+          adblock on|off|inherit -t TAB [--scope site|profile|global]
+          update-filters | reload-scripts
 Other:    permission list | permission respond ID [--allow]
           settings prefix LETTER | downloads | status | quit
 Plugins:  plugin list | plugin run ID/ACTION [-t TAB] [--parameters JSON]
@@ -70,6 +73,14 @@ let parse = () => {
     if (value === undefined) throw new Error(`Missing value for ${item}`)
     args[key] = value
   }
+  if (command === 'dark' || command === 'adblock') {
+    let value = positional[0] ?? 'toggle'
+    if (command === 'dark' && value === 'on') value = 'dark'
+    if (command === 'adblock' && ['on', 'off'].includes(value)) value = value === 'on'
+    return { method: 'browser.set', args: { tab: args.target ?? args.tab, setting: command === 'dark' ? 'darkMode' : 'adblock', value, scope: args.scope ?? 'site' } }
+  }
+  if (command === 'update-filters') return { method: 'browser.update-filters' }
+  if (command === 'reload-scripts') return { method: 'browser.reload-scripts' }
   if (command === 'rpc') return { method: positional[0], args: JSON.parse(positional[1] ?? '{}') }
   let method = subcommand ? `${command}.${subcommand === 'new' ? 'create' : subcommand}` : command
   let targetKeys = {

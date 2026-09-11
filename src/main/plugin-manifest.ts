@@ -8,7 +8,7 @@ let object = (value: unknown): Record<string, unknown> => {
 let text = (value: unknown) => { if (typeof value !== 'string' || !value.trim() || value.length > 4096) throw new Error('Expected a nonempty string'); return value }
 let identifier = (value: unknown) => { let result = text(value); if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(result)) throw new Error('Invalid identifier'); return result }
 let strings = (value: unknown): string[] => { if (!Array.isArray(value) || value.length > 1000) throw new Error('Expected a string list'); return value.map(text) }
-let capabilities = new Set<PluginCapability>(['browser.read', 'browser.write', 'browser.manage', 'browser.cdp', 'ui'])
+let capabilities = new Set<PluginCapability>(['browser.forms', 'browser.read', 'browser.write', 'browser.manage', 'browser.cdp', 'ui'])
 let parameter = (raw: unknown): PluginParameter => {
   let value = object(raw), kind = value.kind as PluginParameter['kind']
   if (!['text', 'password', 'boolean', 'choice'].includes(kind)) throw new Error('Unknown parameter kind')

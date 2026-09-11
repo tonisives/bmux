@@ -41,6 +41,7 @@
 .panel header strong { font-weight: 500; color: #eceef2; }
 .panel button { border: 0; background: transparent; }
 .panel p { color: #8e98a4; }
+.panel input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; }
 .panel pre { white-space: pre-wrap; font: inherit; }
 .panel dl > div { display: flex; gap: 14px; }
 .panel dt { min-width: 150px; color: #d6dcd2; }
@@ -53,3 +54,6 @@
 .row:focus { background: #303944; color: #f0f2f5; outline: 1px solid #83917b; outline-offset: -1px; }
 .pluginInput { display: block; width: 100%; margin: 8px 0 12px; padding: 8px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .pluginDescription { display: block; color: #8e98a4; }
+.toolOptions { display: grid; gap: 12px; margin: 16px 0; }
+.toolOptions label { display: grid; gap: 6px; }
+.toolOptions select { padding: 7px; background: #20242d; color: inherit; border: 1px solid #444b59; font: inherit; }

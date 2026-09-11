@@ -1,4 +1,4 @@
-export type PluginCapability = 'browser.read' | 'browser.write' | 'browser.manage' | 'browser.cdp' | 'ui'
+export type PluginCapability = 'browser.forms' | 'browser.read' | 'browser.write' | 'browser.manage' | 'browser.cdp' | 'ui'
 export type PluginParameter = { name: string; title: string; kind: 'text' | 'password' | 'boolean' | 'choice'; required?: boolean; choices?: string[] }
 export type PluginAction = { id: string; title: string; description?: string; command: string[]; capabilities: PluginCapability[]; timeout_seconds: number; parameters: PluginParameter[] }
 export type PluginHook = PluginAction & { event: 'startup' | 'page-ready' | 'url-change'; matches?: string[]; profiles?: string[] }

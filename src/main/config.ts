@@ -7,8 +7,11 @@ import type { KeyboardConfig } from '../shared/keyboard'
 import type { StatusBarPosition } from '../shared/types'
 import { pluginBinding } from '../shared/plugins'
 import type { PluginSettings } from '../shared/plugins'
+import { parseBrowserSettings } from './browser-config'
+import { DEFAULT_BROWSER } from '../shared/browser-tools'
+import type { BrowserSettings } from '../shared/browser-tools'
 
-type Settings = { keyboard: KeyboardConfig; accessibility: boolean; statusBar: StatusBarPosition; plugins: PluginSettings }
+type Settings = { keyboard: KeyboardConfig; accessibility: boolean; statusBar: StatusBarPosition; browser: BrowserSettings; plugins: PluginSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -57,7 +60,7 @@ export let parseConfig = (text: string): Settings => {
       else result[field][key] = action
     }
   }
-  let plugins: PluginSettings = {}
+  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false }, 'bmux.bitwarden': { enabled: false, hooks: false } }
   if (value.plugins !== undefined) {
     if (!value.plugins || typeof value.plugins !== 'object' || Array.isArray(value.plugins)) throw new Error('plugins must be a mapping')
     for (let [id, raw] of Object.entries(value.plugins)) {
@@ -67,10 +70,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { keyboard: result, accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', plugins }
+  return { keyboard: result, accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', plugins, browser: parseBrowserSettings(value.browser) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false, statusBar: 'top', plugins: {} }, error: string | null = null
+  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false, statusBar: 'top', plugins: {}, browser: structuredClone(DEFAULT_BROWSER) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -79,8 +82,19 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
   }
   reload()
   fs.watchFile(file, { interval: 500, persistent: false }, reload)
+  let update = (keys: string[], value: unknown) => {
+    let document = parseDocument(fs.readFileSync(file, 'utf8'))
+    if (document.errors.length) throw new Error('Fix invalid YAML before changing settings')
+    if (value === undefined) document.deleteIn(keys)
+    else document.setIn(keys, value)
+    let text = document.toString()
+    parseConfig(text)
+    let temporary = `${file}.tmp`
+    fs.writeFileSync(temporary, text, { mode: 0o600 }); fs.renameSync(temporary, file); reload()
+  }
   return {
     get plugins() { return settings.plugins },
+    get browser() { return settings.browser }, update,
     get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {
       parseBinding(prefix)

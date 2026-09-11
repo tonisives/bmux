@@ -8,11 +8,11 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
     'Cmd+Shift+[': 'previous-tab', 'Cmd+Shift+]': 'next-tab',
     'Ctrl+Tab': 'next-tab', 'Ctrl+Shift+Tab': 'previous-tab',
     'Cmd+=': 'zoom-in', 'Cmd+Shift+=': 'zoom-in', 'Cmd+-': 'zoom-out', 'Cmd+0': 'zoom-reset',
-    'Cmd+,': 'settings', F1: 'help', Escape: 'stop',
+    'Cmd+Shift+D': 'toggle-dark', 'Cmd+,': 'settings', F1: 'help', Escape: 'stop',
   },
   prefixBindings: { ':': 'command', '?': 'help', c: 'new-window', n: 'next-window', p: 'previous-window', '%': 'split-right', '"': 'split-down', o: 'next-pane', z: 'toggle-pane-zoom', s: 'sessions', d: 'detach', ',': 'rename-window', r: 'rename-window', '&': 'close-window', '$': 'rename-session', '(': 'previous-session', ')': 'next-session' },
 }
-export let KEY_ACTIONS = new Set(['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-tab', 'close-tab', 'new-client', 'new-window', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'next-tab', 'previous-tab', 'zoom-in', 'zoom-out', 'zoom-reset'])
+export let KEY_ACTIONS = new Set(['browser-tools', 'toggle-dark', 'toggle-adblock', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-tab', 'close-tab', 'new-client', 'new-window', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'next-tab', 'previous-tab', 'zoom-in', 'zoom-out', 'zoom-reset'])
 type KeyInput = { key: string; code?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean }
 let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ' }
 export let parseBinding = (binding: string) => {

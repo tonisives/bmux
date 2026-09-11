@@ -5,7 +5,7 @@ import css from './App.module.css'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
 
 export let App = () => {
@@ -121,7 +121,7 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!text.trim() || busy) return
-    if (mode === 'command' && ['plugins', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(text.trim())) { show(text.trim() as Control); return }
+    if (mode === 'command' && ['browser-tools', 'plugins', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(text.trim())) { show(text.trim() as Control); return }
     setBusy(true)
     let result: unknown
     if (mode === 'command') {
@@ -244,12 +244,13 @@ let Panel = ({ type }: { type: Control }) => {
   let { pane, profile } = selection(state)
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!['sessions', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
-  let title = type === 'plugin-dialog' ? 'Plugin' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
     {type === 'help' && <><HelpContent /><p>Use <code>plugins</code> for plugin actions and <code>activity</code> for running scripts.</p></>}
     {type === 'plugins' && <PluginList />}
     {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
+    {type === 'browser-tools' && <BrowserTools />}
     {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && <SessionPicker />}
     {type === 'tabs' && <><p>{profile?.name}</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</>}
@@ -262,11 +263,12 @@ let PluginList = () => {
   let { state, run, dismiss } = useUI()
   let [query, setQuery] = useState('')
   let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
+  let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   return <><label>Find plugin action<input className={css.pluginInput} value={query} onChange={change} autoFocus /></label>
     {!state.plugins?.length && <p>No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.</p>}
-    {state.plugins?.map(plugin => <div key={plugin.id}><p>{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</p>
+    {state.plugins?.map(plugin => <div key={plugin.id}><label><input type="checkbox" data-id={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.row} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
     <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p><button onClick={reload}>Reload plugins</button></>
 }
@@ -353,13 +355,49 @@ let HelpContent = () => {
   let { state } = useUI()
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
-  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels. Closing an internal window asks for y/n. Closing a native client leaves its session running.</p><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntoggle-pane-zoom\npane-left / pane-down / pane-up / pane-right\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels. Closing an internal window asks for y/n. Closing a native client leaves its session running.</p><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntoggle-pane-zoom\npane-left / pane-down / pane-up / pane-right\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity / browser-tools\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+}
+
+let BrowserTools = () => {
+  let { state, run, show } = useUI()
+  let { tab, profile } = selection(state)
+  let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
+  let [scope, setScope] = useState('site')
+  let settings = scope === 'global' ? tools?.defaults : scope === 'profile' ? current?.profileDefaults : current
+  let changeScope = (event: ChangeEvent<HTMLSelectElement>) => setScope(event.target.value)
+  let adblock = () => { void run('browser.set', { tab: tab?.id, setting: 'adblock', value: !settings?.adblock, scope }) }
+  let dark = (event: ChangeEvent<HTMLSelectElement>) => { void run('browser.set', { tab: tab?.id, setting: 'darkMode', value: event.target.value, scope }) }
+  let inherit = async () => { await run('browser.set', { tab: tab?.id, setting: 'adblock', value: 'inherit', scope }); await run('browser.set', { tab: tab?.id, setting: 'darkMode', value: 'inherit', scope }) }
+  let update = () => { void run('browser.update-filters') }
+  let reload = () => { void run('browser.reload-scripts') }
+  let edit = () => { void run('settings.open') }
+  let plugins = () => show('plugins')
+  let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
+  return <><p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>
+    <div className={css.toolOptions}><label>Apply changes to<select value={scope} onChange={changeScope}><option value="site">This site in this profile</option><option value="profile">This profile</option><option value="global">All profiles</option></select></label>
+      <button onClick={adblock} disabled={!tab || (scope === 'site' && !current?.origin)} aria-pressed={settings?.adblock}>Ad and tracker blocking: {settings?.adblock ? 'on' : 'off'}</button>
+      <label>Website dark mode<select value={settings?.darkMode ?? 'off'} onChange={dark} disabled={!tab || (scope === 'site' && !current?.origin)}><option value="off">Off</option><option value="dark">Dark Reader</option><option value="system">Follow system</option></select></label>
+      <button onClick={inherit} disabled={!tab || (scope === 'site' && !current?.origin)}>Reset to inherited settings</button>
+    </div>
+    {scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
+    {current?.error && <p className={css.error}>{current.error}</p>}
+    <p>{current?.blocked ?? 0} requests blocked on this page. Reload to retry blocked resources.</p>
+    {!!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type}</div>)}</details>}
+    <p>{tools?.filters.network ?? 0} network rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>
+    {tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
+    <button onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>
+    <p>Userscripts and styles</p>
+    {tools?.scripts.length ? tools.scripts.map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : <p>Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.</p>}
+    <button onClick={reload}>Reload scripts</button><button onClick={edit}>Edit config</button>
+    <p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it, and <code>passwords</code> for Bitwarden.</p><button onClick={plugins}>Form fills and plugins</button>
+  </>
 }
 
 let KeyboardSettings = () => {
-  let { state, run } = useUI()
+  let { state, run, show } = useUI()
+  let tools = () => show('browser-tools')
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  return <><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
 }

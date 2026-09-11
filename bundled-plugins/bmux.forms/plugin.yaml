@@ -1,0 +1,19 @@
+schema_version: 1
+id: bmux.forms
+name: Saved forms
+version: 1.0.0
+actions:
+  - id: save
+    title: Save filled form
+    description: Save visible text fields in encrypted storage for this site and profile. Passwords, card fields, and one-time codes are excluded.
+    command: [node, ./run.mjs, save]
+    capabilities: [browser.forms, ui]
+  - id: fill
+    title: Fill saved form
+    description: Choose a saved form for this site and profile. Does not submit.
+    command: [node, ./run.mjs, fill]
+    capabilities: [browser.forms, ui]
+  - id: delete
+    title: Delete saved form
+    command: [node, ./run.mjs, delete]
+    capabilities: [browser.forms, ui]

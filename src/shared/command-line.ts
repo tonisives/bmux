@@ -43,6 +43,16 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let current = { client: client.id }
   let windowTarget = target !== undefined && /^\d+$/.test(String(target)) ? session.windows[Number(target)]?.id ?? target : target ?? client.windowId
   let tabTarget = target !== undefined && /^\d+$/.test(String(target)) ? pane?.tabs[Number(target)]?.id ?? target : target ?? pane?.activeTabId
+  if (name === 'dark' || name === 'adblock') {
+    let value: unknown = positional[0] ?? 'toggle'
+    if (name === 'adblock' && ['on', 'off'].includes(String(value))) value = value === 'on'
+    if (name === 'dark' && value === 'on') value = 'dark'
+    return { method: 'browser.set', args: { tab: tabTarget, setting: name === 'dark' ? 'darkMode' : 'adblock', value, scope: options.scope ?? 'site' } }
+  }
+  if (name === 'update-filters') return { method: 'browser.update-filters' }
+  if (name === 'reload-scripts') return { method: 'browser.reload-scripts' }
+  if (name === 'fill' || name === 'save-fill') return { method: 'plugin.run', args: { action: `bmux.forms/${name === 'fill' ? 'fill' : 'save'}`, tab: tabTarget } }
+  if (name === 'passwords') return { method: 'plugin.run', args: { action: 'bmux.bitwarden/fill', tab: tabTarget } }
   if (name === 'open' || name === 'navigate') return { method: 'navigate', args: { tab: tabTarget, url: positional.join(' ') } }
   if (name === 'plugin') {
     let action = positional.shift()

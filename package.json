@@ -31,6 +31,8 @@
     "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
+    "@ghostery/adblocker": "2.18.2",
+    "darkreader": "^4.9.130",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "yaml": "^2.9.0"
@@ -60,11 +62,22 @@
     "files": [
       "out/**/*",
       "package.json",
-      "bin/**/*"
+      "bin/**/*",
+      "resources/**/*"
     ],
     "extraResources": [
-      { "from": "bin", "to": "bin" },
-      { "from": "examples/plugins", "to": "plugins" }
+      {
+        "from": "bin",
+        "to": "bin"
+      },
+      {
+        "from": "examples/plugins",
+        "to": "plugins"
+      },
+      {
+        "from": "bundled-plugins",
+        "to": "bundled-plugins"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

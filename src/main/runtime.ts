@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents } from 'electron'
+import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage } from 'electron'
 import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -13,6 +13,11 @@ import { DEFAULT_KEYBOARD, matchesBinding } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
 import type { PluginContext } from '../shared/plugins'
+import { createRequestFilters } from './request-filters'
+import { createSavedForms } from './saved-forms'
+import { createPageTools } from './page-tools'
+import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
+import type { BrowserToolsState } from '../shared/browser-tools'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[] }
@@ -56,6 +61,19 @@ export let createRuntime = (dataDirectory: string) => {
   let prefixUntil = 0
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
+  let filters: ReturnType<typeof createRequestFilters> | undefined
+  let savedForms: ReturnType<typeof createSavedForms> | undefined
+  let pageTools: ReturnType<typeof createPageTools> | undefined
+  let browserSettings = () => configuration?.browser ?? DEFAULT_BROWSER
+  let toolsState = (): BrowserToolsState | undefined => filters ? {
+    defaults: { adblock: browserSettings().adblock, darkMode: browserSettings().darkMode },
+    filters: filters.status(), scripts: pageTools?.list() ?? [],
+    tabs: Object.fromEntries([...tabs].map(([tabId, live]) => {
+      let url = live.view.webContents.isDestroyed() ? '' : live.view.webContents.getURL()
+      let { pane } = tabById(model, tabId)
+      return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), ...siteSettings(browserSettings(), pane.profileId, url), ...filters!.counts(tabId) }]
+    })),
+  } : undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
   let documents = new Map<string, number>()
   let pluginContext = (target: PluginContext): PluginContext => {
@@ -83,7 +101,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -116,6 +134,7 @@ export let createRuntime = (dataDirectory: string) => {
     let session = electronSession.fromPartition(`persist:${profile.id}`)
     if (configuredProfiles.has(profileId)) return session
     configuredProfiles.add(profileId)
+    filters?.attach(session, profileId)
     session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${profileId}|${origin}|${permission}`) === true)
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
       let origin = details.requestingUrl ? new URL(details.requestingUrl).origin : new URL(contents.getURL()).origin
@@ -156,8 +175,9 @@ export let createRuntime = (dataDirectory: string) => {
     let tab = pane?.activeTabId
     let control = (name: string) => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
+    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
-    if (['plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-window'].includes(action)) { control(action); return }
+    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
     if (action === 'close-tab' && tab) { void execute({ method: 'tab.close', args: { tab } }).catch(reportError); return }
@@ -180,6 +200,8 @@ export let createRuntime = (dataDirectory: string) => {
     ]))
   }
   let refreshSettings = () => {
+    filters?.refresh()
+    pageTools?.reload()
     plugins?.reload()
     refreshMenu()
     if (configuration && configuration.accessibility !== accessibilityPreference) {
@@ -211,6 +233,7 @@ export let createRuntime = (dataDirectory: string) => {
   let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
     let { tab, pane, window } = tabById(model, tabId)
+    let initialUrl = tab.url
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
     let parent = parkHost(pane.profileId)
@@ -219,6 +242,8 @@ export let createRuntime = (dataDirectory: string) => {
     let live: LiveTab = { view, parent, disposed: false }
     tabs.set(tabId, live)
     let contents = view.webContents
+    let ready = pageTools?.attach(tabId, pane.profileId, contents, !popupOptions) ?? Promise.resolve()
+    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) filters?.reset(tabId) })
     let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
     contents.on('dom-ready', () => { if (!live.disposed) plugins?.hook('page-ready', pluginContext({ tabId })) })
@@ -261,7 +286,7 @@ export let createRuntime = (dataDirectory: string) => {
         return popup.view.webContents
       },
     }))
-    if (load) void contents.loadURL(tab.url).catch(error => { if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
+    if (load && initialUrl !== 'about:blank') void ready.then(() => { if (!live.disposed) return contents.loadURL(initialUrl) }).catch(error => { if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
     return live
   }
   let keepClientFocus = (live: LiveTab) => {
@@ -271,6 +296,8 @@ export let createRuntime = (dataDirectory: string) => {
     }
   }
   let disposeTab = (tabId: string) => {
+    pageTools?.dispose(tabId)
+    filters?.reset(tabId)
     documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId)
     let live = tabs.get(tabId)
     if (live) {
@@ -390,6 +417,39 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method.startsWith('forms.')) {
+      if (!savedForms) throw new Error('Saved forms are not ready')
+      let context = (args._formsContext as PluginContext | undefined) ?? pluginContext({ tabId: required(args, 'tab') })
+      return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
+    }
+    if (method === 'plugin.enable') {
+      let id = required(args, 'id')
+      if (!configuration || !plugins?.list().some(plugin => plugin.id === id) || typeof args.enabled !== 'boolean') throw new Error('Plugin and enabled flag required')
+      configuration.update(['plugins', id, 'enabled'], args.enabled); return plugins.list()
+    }
+    if (method === 'browser.status') return toolsState()
+    if (method === 'browser.update-filters') { void filters?.update(); return { updating: true } }
+    if (method === 'browser.reload-scripts') { pageTools?.reload(); return pageTools?.list() }
+    if (method === 'browser.set') {
+      if (!configuration) throw new Error('Configuration is not ready')
+      let tabId = required(args, 'tab'), { pane } = tabById(model, tabId)
+      let url = tabs.get(tabId)?.view.webContents.getURL() ?? '', origin = pageOrigin(url)
+      let setting = required(args, 'setting'), scope = args.scope ?? 'site'
+      if (!['adblock', 'darkMode'].includes(setting) || !['site', 'profile', 'global'].includes(String(scope))) throw new Error('Use adblock or darkMode with site, profile, or global scope')
+      if (scope === 'site' && !origin) throw new Error('Open an http(s) page first')
+      let current = scope === 'global' ? browserSettings() : siteSettings(browserSettings(), pane.profileId, scope === 'profile' ? '' : url)
+      let value = args.value === 'toggle' ? setting === 'adblock' ? !current.adblock : current.darkMode === 'dark' ? 'off' : 'dark' : args.value
+      let keys = ['browser', ...(scope === 'global' ? [] : ['profiles', pane.profileId]), ...(scope === 'site' ? ['sites', origin] : []), setting]
+      configuration.update(keys, value === 'inherit' ? undefined : value)
+      return toolsState()
+    }
+    if (method === 'browser.script') {
+      if (!configuration || typeof args.enabled !== 'boolean') throw new Error('Script enabled flag required')
+      let index = configuration.browser.userscripts.findIndex(script => script.id === args.id)
+      if (index < 0) throw new Error('Userscript not found')
+      configuration.update(['browser', 'userscripts', String(index), 'enabled'], args.enabled)
+      return pageTools?.list()
+    }
     if (method === 'plugin.list') return plugins?.list() ?? []
     if (method === 'plugin.runs') return plugins?.runs() ?? []
     if (method === 'plugin.reload') { plugins?.reload(); return plugins?.list() ?? [] }
@@ -632,12 +692,12 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'navigate' && args.waitUntil === 'none') {
       let tabId = required(args, 'tab'), url = normalizeUrl(required(args, 'url'))
       let { tab } = tabById(model, tabId)
-      let live = tabs.get(tabId) ?? createLiveTab(tabId)
+      let live = tabs.get(tabId) ?? createLiveTab(tabId, false)
       delete crashes[tabId]; delete snapshots[tabId]; loading[tabId] = true
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.view.webContents.loadURL(url).catch(() => undefined)
+      void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.view.webContents.loadURL(url) }).catch(() => undefined)
       return { id: tabId, url, loading: true }
     }
     if (!['navigate', 'eval', 'dom', 'screenshot', 'click', 'type', 'key', 'wait', 'cdp', 'back', 'forward', 'reload', 'find', 'zoom', 'devtools'].includes(method)) throw new Error(`Unknown command: ${method}`)
@@ -653,7 +713,7 @@ export let createRuntime = (dataDirectory: string) => {
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
-        if (method === 'navigate') { await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
+        if (method === 'navigate') { await pageTools?.ready(tabId); await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
         if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { tab: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
@@ -727,7 +787,13 @@ export let createRuntime = (dataDirectory: string) => {
   let start = async (background: boolean) => {
     await settingsReady
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
-    plugins = createPlugins({ directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
+      let entry = [...tabs].find(([, live]) => live.view.webContents.id === contentsId)
+      return entry ? { tabId: entry[0], url: entry[1].view.webContents.getURL() } : undefined
+    } })
+    pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => live.view.webContents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
+    savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -741,6 +807,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    pageTools?.close()
+    filters?.close()
     plugins?.close()
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)

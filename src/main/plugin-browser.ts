@@ -26,6 +26,10 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
   }
   if (method === 'dom') return { tab: context.tabId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }
   if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return evaluate(args.expression) }
+  if (method.startsWith('forms.')) {
+    validate()
+    return options.execute({ method, args: { ...args, tab: context.tabId, _formsContext: context, _formsSignal: signal } })
+  }
   if (method === 'wait') {
     let timeout = Math.min(60000, Math.max(1, Number(args.timeout) || 15000)), end = Date.now() + timeout
     if (typeof args.selector !== 'string' && typeof args.expression !== 'string') throw new Error('Wait requires selector or expression')
@@ -41,6 +45,7 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
     await evaluate(`(() => {
       let fields = ${JSON.stringify(fields)}, mode = ${JSON.stringify(method)};
       let nodes = fields.map(field => document.querySelector(field.selector));
+      if (nodes.some((node, index) => fields[index].expectedType && node?.type !== fields[index].expectedType)) throw new Error('Form field type changed');
       if (nodes.some(node => !node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled || node.readOnly || (mode !== 'click' && (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || node.type === 'hidden')))) throw new Error('Visible editable fields required');
       nodes.forEach((node, index) => {
         if (mode === 'click') { node.click(); return; }
