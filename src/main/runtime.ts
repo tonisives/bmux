@@ -20,7 +20,7 @@ import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-too
 import type { BrowserToolsState } from '../shared/browser-tools'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[] }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -110,6 +110,11 @@ export let createRuntime = (dataDirectory: string) => {
     }, 30)
   }
   let save = () => {
+    for (let session of model.sessions) for (let window of session.windows) {
+      let viewers = model.clients.filter(client => client.windowId === window.id)
+      let viewer = viewers.find(client => client.id === focusedClientId) ?? viewers[0]
+      updateAutomaticWindowName(window, viewer?.paneId ?? undefined)
+    }
     plugins?.reconcile()
     clearTimeout(persistTimer)
     persistTimer = setTimeout(() => { if (!shuttingDown) writeModel(dataDirectory, model) }, 150)
@@ -229,10 +234,25 @@ export let createRuntime = (dataDirectory: string) => {
       if (!entry || (entry[1] === 'stop' && contents === focused.chrome.webContents)) return
       event.preventDefault(); dispatchShortcut(entry[1])
     })
+    contents.on('before-mouse-event', (event, mouse) => {
+      // Electron emits back/forward here, although its input types only list three buttons.
+      let button = String(mouse.button)
+      if (!['back', 'forward'].includes(button) || automatedContents.has(contents.id)) return
+      let owner = [...clients.values()].find(client => client.window.isFocused() && (client.chrome.webContents === contents || [...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === client.window)))
+      if (!owner) return
+      let tabId = [...tabs].find(([, tab]) => tab.view.webContents === contents)?.[0]
+      if (!tabId) {
+        let client = model.clients.find(client => clients.get(client.id) === owner)
+        tabId = client?.paneId ? paneById(model, client.paneId).pane.activeTabId : undefined
+      }
+      if (!tabId) return
+      event.preventDefault()
+      if (mouse.type === 'mouseUp') void execute({ method: button, args: { tab: tabId } }).catch(reportError)
+    })
   }
   let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
-    let { tab, pane, window } = tabById(model, tabId)
+    let { tab, pane } = tabById(model, tabId)
     let initialUrl = tab.url
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
@@ -255,7 +275,6 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed || contents.isDestroyed()) return
       tab.url = contents.getURL() || tab.url
       tab.title = contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
-      updateAutomaticWindowName(window, tab.url)
       save()
       void scheduleVisuals()
     }
@@ -264,7 +283,10 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('page-title-updated', update)
     contents.on('focus', () => {
       let client = model.clients.find(client => client.id === focusedClientId)
-      if (client && visiblePaneIds(client).includes(pane.id) && client.paneId !== pane.id) { client.paneId = pane.id; save() }
+      if (client && live.parent === clients.get(client.id)?.window && visiblePaneIds(client).includes(pane.id)) {
+        clients.get(client.id)!.pageFocused = true
+        if (client.paneId !== pane.id) { client.paneId = pane.id; save() }
+      }
     })
     contents.on('did-navigate', update)
     contents.on('did-navigate-in-page', update)
@@ -382,10 +404,22 @@ export let createRuntime = (dataDirectory: string) => {
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
     let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save() }
-    clients.set(client.id, { window, chrome, bounds: [] })
+    let owner: LiveClient = { window, chrome, bounds: [], pageFocused: false }
+    clients.set(client.id, owner)
+    chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
     window.on('resize', resizeChrome)
-    window.on('focus', () => { focusedClientId = client.id; void scheduleVisuals() })
+    window.on('focus', () => {
+      focusedClientId = client.id
+      save()
+      void scheduleVisuals().then(() => {
+        // Reattaching views after a blur can leave AppKit with no web first responder.
+        if (window.isDestroyed() || !window.isFocused() || webContents.getFocusedWebContents()) return
+        let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
+        if (owner.pageFocused && live?.parent === window) live.view.webContents.focus()
+        else chrome.webContents.focus()
+      }).catch(reportError)
+    })
     window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
@@ -648,11 +682,10 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; return tab }
     if (method === 'tab.close') {
-      let { tab, pane, window } = tabById(model, args.tab)
+      let { tab, pane } = tabById(model, args.tab)
       pane.tabs = pane.tabs.filter(item => item.id !== tab.id)
       if (!pane.tabs.length) pane.tabs.push(newTab())
       if (pane.activeTabId === tab.id) pane.activeTabId = pane.tabs[0].id
-      updateAutomaticWindowName(window)
       changed(); await visualQueue; return { closed: tab.id }
     }
     if (method === 'permission.list') return state().permissions
