@@ -77,6 +77,11 @@ The renderer reloads during development. Browser content runs sandboxed, without
 
 See [TODO.md](TODO.md) for the development backlog and recently completed work.
 
+Local GUI tests run inside a Tart macOS VM whose viewer stays on AeroSpace workspace
+`bot`. Run `pnpm vm:setup` once, then use `pnpm test:electron` and `pnpm test:ui` as
+usual. See [the Tart test setup](docs/tart-tests.md) for installation under
+`/Volumes/sam`, test artifacts, and VM controls.
+
 The product website lives in [`website/`](website/README.md). Run `pnpm site:dev` for its local preview and `pnpm site:build` for a pre-rendered production build.
 
 Build and launch locally:
