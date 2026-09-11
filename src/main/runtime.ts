@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage } from 'electron'
+import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen } from 'electron'
 import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -12,6 +12,7 @@ import { createConfig, configPath } from './config'
 import { DEFAULT_KEYBOARD, matchesBinding } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
+import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
@@ -51,6 +52,7 @@ export let createRuntime = (dataDirectory: string) => {
   let permissionGrants = new Map<string, boolean>()
   let downloads: Download[] = []
   let focusedClientId: string | null = null
+  let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
@@ -178,7 +180,7 @@ export let createRuntime = (dataDirectory: string) => {
     let focused = clients.get(client.id)!
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
     let tab = pane?.activeTabId
-    let control = (name: string) => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
+    let control = (name: string) => { pointerTarget = undefined; focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
@@ -192,7 +194,9 @@ export let createRuntime = (dataDirectory: string) => {
       void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
     }
     let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : action
-    void execute(parseCommandLine(line, state(client.id))).catch(reportError)
+    let command = parseCommandLine(line, state(client.id))
+    if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
+    void execute(command).catch(reportError)
   }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
@@ -235,6 +239,7 @@ export let createRuntime = (dataDirectory: string) => {
       event.preventDefault(); dispatchShortcut(entry[1])
     })
     contents.on('before-mouse-event', (event, mouse) => {
+      if (!automatedContents.has(contents.id) && mouse.type === 'mouseDown') pointerTarget = undefined
       // Electron emits back/forward here, although its input types only list three buttons.
       let button = String(mouse.button)
       if (!['back', 'forward'].includes(button) || automatedContents.has(contents.id)) return
@@ -376,6 +381,23 @@ export let createRuntime = (dataDirectory: string) => {
       moveView(live, target)
       if (target === owner?.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
     }
+    if (pointerTarget) {
+      let cursor = screen.getCursorScreenPoint()
+      if (!client || client.id !== pointerTarget.clientId || client.paneId !== pointerTarget.paneId || Date.now() > pointerTarget.expires || cursor.x !== pointerTarget.origin.x || cursor.y !== pointerTarget.origin.y) pointerTarget = undefined
+      else if (owner?.window.isFocused()) {
+        let pane = paneById(model, client.paneId).pane
+        let bounds = owner.bounds.find(bounds => bounds.tabId === pane.activeTabId)
+        // A zoomed pane's new content bounds arrive from the renderer after selection.
+        if (bounds && bounds.width > 0 && bounds.height > 0) {
+          pointerTarget = undefined
+          let live = tabs.get(pane.activeTabId)
+          if (live?.parent === owner.window) live.view.webContents.focus()
+          let content = owner.window.getContentBounds()
+          try { movePointer({ x: Math.round(content.x + bounds.x + bounds.width / 2), y: Math.round(content.y + bounds.y + bounds.height / 2) }) }
+          catch (error) { reportError(error) }
+        }
+      }
+    }
     publish()
   }
   let scheduleVisuals = () => {
@@ -422,7 +444,7 @@ export let createRuntime = (dataDirectory: string) => {
         else chrome.webContents.focus()
       }).catch(reportError)
     })
-    window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; void scheduleVisuals() } })
+    window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
@@ -596,6 +618,8 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
+      let previousPaneId = client.paneId
+      pointerTarget = undefined
       let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
       if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
@@ -611,8 +635,9 @@ export let createRuntime = (dataDirectory: string) => {
         let live = tabs.get(pane.activeTabId), owner = clients.get(client.id)!
         if (live?.parent === owner.window) live.view.webContents.focus()
         else owner.chrome.webContents.focus()
+        if (args.movePointer === true && client.paneId !== previousPaneId) pointerTarget = { clientId: client.id, paneId: client.paneId, expires: Date.now() + 1000, origin: screen.getCursorScreenPoint() }
       }
-      save(); return client
+      save(); void scheduleVisuals(); return client
     }
     if (method === 'toggle-pane-zoom') {
       let client = resolve(model.clients, args.client, 'Client')
