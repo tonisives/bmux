@@ -7,6 +7,7 @@
 - Profile IDs, session IDs, window IDs, pane IDs, and tab IDs are separate identities. A profile is fixed per pane.
 - Browser operations must not activate the app or change a client's selection unless the command explicitly requests that behavior.
 - Use `pnpm check`, `pnpm test:electron`, and `pnpm package`. Limit worker concurrency to four.
+- Local GUI tests (`test:electron`, `test:ui`, `debug:ui`, and `test:package`) must run through the Tart runner. Its macOS VM viewer belongs on AeroSpace workspace `bot`; Tart and VM storage live under `/Volumes/sam`. See `docs/tart-tests.md`. Never bypass this with direct Playwright/Electron launches or `BMUX_TEST_NATIVE=1` on the working desktop. GitHub Actions uses its own disposable macOS desktop.
 - Tests must use disposable `BMUX_DATA_DIR` directories and local fixture pages. Never read a real browser profile or print secrets.
 - Frontend development uses hot reload. Avoid restarting the browser just for renderer edits.
 - Always install packaged builds to `~/workspace/_tools/bmux.app` (`/Users/tonis/workspace/_tools/bmux.app` on this Mac) using `pnpm package`. Keep the source repository here. Do not restart a running app after packaging.
