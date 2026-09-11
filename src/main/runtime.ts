@@ -619,7 +619,6 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
       let previousPaneId = client.paneId
-      pointerTarget = undefined
       let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
       if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
@@ -629,6 +628,8 @@ export let createRuntime = (dataDirectory: string) => {
         if (!['left', 'right', 'up', 'down'].includes(direction)) throw new Error(`Unknown pane direction: ${direction}`)
         client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down') ?? client.paneId
       }
+      // A repeated shortcut at a layout edge must not cancel a pending move.
+      if (client.paneId !== previousPaneId && pointerTarget?.clientId === client.id) pointerTarget = undefined
       if (client.zoomedPaneId) client.zoomedPaneId = client.paneId
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {
         let pane = paneById(model, client.paneId).pane

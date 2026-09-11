@@ -41,6 +41,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     let key = (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => application.evaluate(({ webContents }, { keyCode, modifiers }) => {
       let contents = webContents.getFocusedWebContents()!
       contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+      if (['h', 'j', 'k', 'l'].includes(keyCode) && modifiers?.includes('meta')) contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: [...modifiers, 'isautorepeat'] })
       contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
     }, { keyCode, modifiers })
     let expectPointer = async (paneId: string) => {
