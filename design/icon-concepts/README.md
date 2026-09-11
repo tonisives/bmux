@@ -1,5 +1,7 @@
 # bmux icon concepts
 
+The [warm follow-up round](warm-round/README.md) explores five more humane, pleasant directions: paper, plants, nature and everyday objects.
+
 The [slim follow-up round](slim-round/README.md) contains five lighter alternatives for review, with numbered previews and generation prompts.
 
 **Selected: Split planet.** Used for the macOS app, website, and favicon. Run `pnpm icons` on macOS to regenerate the packaged sizes from the original artwork.
