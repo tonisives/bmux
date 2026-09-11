@@ -262,17 +262,19 @@ export let createRuntime = (dataDirectory: string) => {
     let live: LiveTab = { view, parent, disposed: false }
     tabs.set(tabId, live)
     let contents = view.webContents
-    let ready = pageTools?.attach(tabId, pane.profileId, contents, !popupOptions) ?? Promise.resolve()
+    let bootstrapping = !popupOptions
+    let ready = (pageTools?.attach(tabId, pane.profileId, contents, !popupOptions) ?? Promise.resolve()).finally(() => { bootstrapping = false })
+    let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) filters?.reset(tabId) })
     let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
-    contents.on('dom-ready', () => { if (!live.disposed) plugins?.hook('page-ready', pluginContext({ tabId })) })
+    contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
     contents.on('render-process-gone', invalidate)
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let update = () => {
-      if (live.disposed || contents.isDestroyed()) return
+      if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       tab.url = contents.getURL() || tab.url
       tab.title = contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
       save()
