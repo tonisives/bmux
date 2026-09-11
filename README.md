@@ -151,6 +151,8 @@ Command+Shift+W closes the native client and keeps its session running. Control+
 
 Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. Control+B then z toggles the selected pane between the split layout and a full-window view without changing the saved split. The separate status bar keeps sessions, windows, and commands available while entering a URL; it sits at the top by default and follows the `statusBar` setting. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
+Generated window names (`main` and `window-N`) change to the first opened page's domain. While a window contains only one open page, its automatic name follows that page's latest domain. A name set explicitly with the rename prompt or `rename-window` is preserved. The `profile:default` item after the window list identifies the selected pane's browser profile: its isolated cookies, logins, and site storage. Click it to open that pane's tabs.
+
 Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
 
 ```text
@@ -210,6 +212,8 @@ keyboard:
 Set `statusBar: bottom` to place the bar below page content. The default is `top`, and changes apply live.
 
 Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], tab switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
+
+Multiple shortcuts can point to the same action. For example, adding `Cmd+Z: toggle-pane-zoom` under `keyboard.shortcuts` keeps the prefix binding while also providing a direct shortcut. This explicitly replaces native Undo for Command+Z inside bmux.
 
 `BMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
 

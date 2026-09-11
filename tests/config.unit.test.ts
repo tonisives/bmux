@@ -17,6 +17,9 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(custom.shortcuts['cmd+r']).toBe('hard-reload')
   expect(custom.shortcuts['Cmd+T']).toBeUndefined()
   expect(custom.prefixBindings.c).toBe('sessions')
+  let aliases = parseConfig('keyboard:\n  shortcuts:\n    Cmd+Z: toggle-pane-zoom\n  prefixBindings:\n    z: toggle-pane-zoom\n').keyboard
+  expect(aliases.shortcuts['Cmd+Z']).toBe('toggle-pane-zoom')
+  expect(aliases.prefixBindings.z).toBe('toggle-pane-zoom')
   expect(matchesBinding('Cmd+Shift+[', { key: '{', code: 'BracketLeft', meta: true, shift: true })).toBe(true)
   expect(matchesBinding('Cmd+Shift+\\', { key: '|', code: 'Backslash', meta: true, shift: true })).toBe(true)
   expect(matchesBinding('Cmd+R', { key: 'r', meta: true, shift: true })).toBe(false)

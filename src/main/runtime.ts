@@ -3,7 +3,7 @@ import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, Model, Permission, PublicState, Snapshot } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -210,7 +210,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
-    let { tab, pane } = tabById(model, tabId)
+    let { tab, pane, window } = tabById(model, tabId)
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
     let parent = parkHost(pane.profileId)
@@ -230,6 +230,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed || contents.isDestroyed()) return
       tab.url = contents.getURL() || tab.url
       tab.title = contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
+      updateAutomaticWindowName(window, tab.url)
       save()
       void scheduleVisuals()
     }
@@ -482,12 +483,13 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'list-panes') return resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window').panes
     if (method === 'new-window') {
       let session = resolve(model.sessions, args.session, 'Session')
-      let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id)
+      let automaticName = args.name === undefined
+      let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
       session.windows.push(window)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = window.panes[0].id }
       changed(); await visualQueue; return window
     }
-    if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); save(); return window }
+    if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'select-window' || method === 'cycle-window') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
@@ -557,7 +559,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (window.panes.reduce((count, pane) => count + pane.tabs.length, 0) > 1 && args.confirm !== true) throw new Error('Window contains multiple tabs; pass --confirm')
       let session = model.sessions.find(session => session.windows.includes(window))!
       session.windows = session.windows.filter(item => item !== window)
-      if (!session.windows.length) session.windows.push(newWindow('main', session.defaultProfileId))
+      if (!session.windows.length) session.windows.push(newWindow('main', session.defaultProfileId, true))
       changed(); await visualQueue; return { closed: window.id }
     }
     if (method === 'save-layout') {
@@ -586,10 +588,11 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; return tab }
     if (method === 'tab.close') {
-      let { tab, pane } = tabById(model, args.tab)
+      let { tab, pane, window } = tabById(model, args.tab)
       pane.tabs = pane.tabs.filter(item => item.id !== tab.id)
       if (!pane.tabs.length) pane.tabs.push(newTab())
       if (pane.activeTabId === tab.id) pane.activeTabId = pane.tabs[0].id
+      updateAutomaticWindowName(window)
       changed(); await visualQueue; return { closed: tab.id }
     }
     if (method === 'permission.list') return state().permissions
