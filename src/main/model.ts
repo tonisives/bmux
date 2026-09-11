@@ -7,16 +7,30 @@ export let newPane = (profileId: string, url?: string): Pane => {
   let tab = newTab(url)
   return { id: id('pane'), profileId, tabs: [tab], activeTabId: tab.id }
 }
-export let newWindow = (name: string, profileId: string): InternalWindow => {
+export let newWindow = (name: string, profileId: string, automaticName = false): InternalWindow => {
   let pane = newPane(profileId)
-  return { id: id('win'), name, panes: [pane], layout: { kind: 'pane', paneId: pane.id } }
+  return { id: id('win'), name, automaticName, panes: [pane], layout: { kind: 'pane', paneId: pane.id } }
 }
-export let newSession = (name: string, profileId: string): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, windows: [newWindow('main', profileId)] })
+export let newSession = (name: string, profileId: string): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, windows: [newWindow('main', profileId, true)] })
 export let initialModel = (): Model => {
   let profiles: Profile[] = [{ id: 'profile_default', name: 'default', background: false }, { id: 'profile_bot', name: 'bot', background: true }]
   return { version: 1, profiles, sessions: [newSession('main', profiles[0].id)], clients: [], layouts: [] }
 }
 export let walkPanes = (model: Model) => model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => ({ session, window, pane }))))
+let domainName = (url: string) => {
+  try { return new URL(url).hostname.replace(/^www\./, '') }
+  catch { return '' }
+}
+export let updateAutomaticWindowName = (window: InternalWindow, preferredUrl?: string) => {
+  let automatic = window.automaticName === true || (window.automaticName === undefined && /^(main|window-\d+)$/.test(window.name))
+  if (!automatic) return false
+  let urls = window.panes.flatMap(pane => pane.tabs.map(tab => tab.url)).filter(url => url !== 'about:blank' && domainName(url))
+  let candidate = urls.length <= 1 ? preferredUrl ?? urls[0] : /^(main|window-\d+)$/.test(window.name) ? urls[0] : undefined
+  let name = candidate ? domainName(candidate) : ''
+  if (!name) return false
+  window.name = name; window.automaticName = true
+  return true
+}
 export let resolve = <T extends { id: string; name?: string }>(items: T[], value: unknown, noun: string): T => {
   let matches = items.filter(item => item.id === value || item.name === value)
   if (matches.length !== 1) throw new Error(`${noun} '${String(value)}' ${matches.length ? 'is ambiguous; use an ID' : 'not found'}`)
@@ -130,6 +144,7 @@ export let validateModel = (value: unknown): Model => {
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
     for (let window of session.windows) {
       checkId(window.id)
+      if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
       let leaves: string[] = []
       mapLayout(window.layout, node => {
         if (node.kind === 'pane') leaves.push(node.paneId)

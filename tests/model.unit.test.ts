@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { cloneWindow, initialModel, mapLayout, newPane, paneInDirection, removePane, splitLayout, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, paneInDirection, removePane, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
@@ -38,6 +38,22 @@ describe('session layouts and persistence', () => {
     let leaves: string[] = []
     mapLayout(clone.layout, node => { if (node.kind === 'pane') leaves.push(node.paneId); return node })
     expect(leaves).toEqual(clone.panes.map(pane => pane.id))
+  })
+  it('names automatic windows from their first domain and follows a sole page', () => {
+    let window = initialModel().sessions[0].windows[0]
+    window.panes[0].tabs[0].url = 'https://www.example.com/first'
+    expect(updateAutomaticWindowName(window, window.panes[0].tabs[0].url)).toBe(true)
+    expect(window.name).toBe('example.com')
+    window.panes[0].tabs[0].url = 'https://docs.example.test/latest'
+    updateAutomaticWindowName(window, window.panes[0].tabs[0].url)
+    expect(window.name).toBe('docs.example.test')
+    window.panes[0].tabs.push({ id: 'tab_second', url: 'https://second.test', title: 'Second', zoom: 1 })
+    updateAutomaticWindowName(window, 'https://second.test')
+    expect(window.name).toBe('docs.example.test')
+    window.name = 'research'; window.automaticName = false
+    window.panes[0].tabs = [window.panes[0].tabs[0]]
+    updateAutomaticWindowName(window, 'https://changed.test')
+    expect(window.name).toBe('research')
   })
   it('round-trips state atomically and refuses corrupt state without replacing it', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-unit-'))

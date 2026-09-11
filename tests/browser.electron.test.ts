@@ -151,6 +151,18 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(await cli('eval', { tab: botTab.id, expression: 'localStorage.getItem("profile")' })).toBe('bot')
 })
 
+test('automatic window names follow a sole domain and stop after an explicit rename', async () => {
+  let session = await cli('new-session', { name: 'automatic-window-names' })
+  let window = session.windows[0], tab = window.panes[0].tabs[0]
+  await cli('navigate', { tab: tab.id, url: `${url}/first` })
+  await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
+  await cli('navigate', { tab: tab.id, url: `${url.replace('127.0.0.1', 'localhost')}/latest` })
+  await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
+  await cli('rename-window', { window: window.id, name: 'research' })
+  await cli('navigate', { tab: tab.id, url: `${url}/manual-name` })
+  expect((await cli('list-windows', { session: session.id }))[0]).toMatchObject({ name: 'research', automaticName: false })
+})
+
 test('permissions, downloads, pane cleanup, crash recovery, and native-client restore', async () => {
   let session = (await cli('list-sessions'))[0]
   let window = session.windows[0]
@@ -287,7 +299,7 @@ test('URL entry after import attaches the live page; native shortcuts and comman
   await command.press('Enter')
   await expect(chrome.getByRole('status')).toContainText('Only http')
   await command.press('Escape')
-  await chrome.getByRole('button', { name: '0:main', exact: true }).click()
+  await chrome.getByRole('button', { name: '0:127.0.0.1', exact: true }).click()
   await cli('client.overlay', { client: client.id, visible: true })
   await chrome.waitForTimeout(200)
   await chrome.screenshot({ path: path.join(root, 'artifacts/minimal-ui.png') })
@@ -313,7 +325,7 @@ test('pane address bars navigate independently and leave window switching availa
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await expect(address).toBeFocused()
   await expect(address).toHaveValue(`${url}/second-pane`)
-  await expect(status.getByRole('button', { name: '0:main*', exact: true })).toBeVisible()
+  await expect(status.getByRole('button', { name: '0:127.0.0.1*', exact: true })).toBeVisible()
   await address.fill(`${url}/edited-second-pane`); await address.press('Enter')
   await expect(address).toHaveCount(0)
   await cli('wait', { tab: second.activeTabId, selector: '#text' })
@@ -362,7 +374,7 @@ test('pane address bars navigate independently and leave window switching availa
   await status.getByRole('button', { name: '1:other', exact: true }).click()
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(other.id)
   await expect(chrome.getByRole('textbox', { name: 'URL or search', exact: true })).toHaveCount(0)
-  await status.getByRole('button', { name: '0:main', exact: true }).click()
+  await status.getByRole('button', { name: '0:127.0.0.1', exact: true }).click()
   await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
   await cli('detach-client', { client: client.id })
 })
