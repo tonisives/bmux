@@ -10,6 +10,9 @@ import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
 import { createConfig, configPath } from './config'
 import { DEFAULT_KEYBOARD, matchesBinding } from '../shared/keyboard'
+import { createPlugins } from './plugins'
+import { createPluginBrowser } from './plugin-browser'
+import type { PluginContext } from '../shared/plugins'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[] }
@@ -53,6 +56,22 @@ export let createRuntime = (dataDirectory: string) => {
   let prefixUntil = 0
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
+  let plugins: ReturnType<typeof createPlugins> | undefined
+  let documents = new Map<string, number>()
+  let pluginContext = (target: PluginContext): PluginContext => {
+    let client = target.clientId ? model.clients.find(client => client.id === target.clientId) : undefined
+    let tabId = target.tabId ?? (client?.paneId ? paneById(model, client.paneId).pane.activeTabId : undefined)
+    if (!tabId) return { clientId: client?.id }
+    let { tab, pane, window, session } = tabById(model, tabId)
+    let contents = tabs.get(tabId)?.view.webContents
+    return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, tabId: tab.id, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
+  }
+  let pluginInteractive = (context: PluginContext) => {
+    let client = model.clients.find(client => client.id === context.clientId)
+    let owner = client && clients.get(client.id)
+    if (!client || client.id !== focusedClientId || !owner?.window.isFocused() || client.windowId !== context.windowId || client.paneId !== context.paneId) return false
+    return !!client.paneId && paneById(model, client.paneId).pane.activeTabId === context.tabId
+  }
   let accessibilityPreference = false
   let visualScheduled = false
   let snapshotPending = new Set<string>()
@@ -64,7 +83,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -73,6 +92,7 @@ export let createRuntime = (dataDirectory: string) => {
     }, 30)
   }
   let save = () => {
+    plugins?.reconcile()
     clearTimeout(persistTimer)
     persistTimer = setTimeout(() => { if (!shuttingDown) writeModel(dataDirectory, model) }, 150)
     publish()
@@ -136,7 +156,8 @@ export let createRuntime = (dataDirectory: string) => {
     let tab = pane?.activeTabId
     let control = (name: string) => { focused.chrome.webContents.focus(); focused.chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
-    if (['address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-window'].includes(action)) { control(action); return }
+    if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
+    if (['plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
     if (action === 'close-tab' && tab) { void execute({ method: 'tab.close', args: { tab } }).catch(reportError); return }
@@ -159,6 +180,7 @@ export let createRuntime = (dataDirectory: string) => {
     ]))
   }
   let refreshSettings = () => {
+    plugins?.reload()
     refreshMenu()
     if (configuration && configuration.accessibility !== accessibilityPreference) {
       accessibilityPreference = configuration.accessibility
@@ -197,6 +219,11 @@ export let createRuntime = (dataDirectory: string) => {
     let live: LiveTab = { view, parent, disposed: false }
     tabs.set(tabId, live)
     let contents = view.webContents
+    let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
+    contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
+    contents.on('dom-ready', () => { if (!live.disposed) plugins?.hook('page-ready', pluginContext({ tabId })) })
+    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
+    contents.on('render-process-gone', invalidate)
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let update = () => {
@@ -243,6 +270,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
   }
   let disposeTab = (tabId: string) => {
+    documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId)
     let live = tabs.get(tabId)
     if (live) {
       keepClientFocus(live)
@@ -360,11 +388,20 @@ export let createRuntime = (dataDirectory: string) => {
     if (focusedClientId === clientId) void scheduleVisuals()
   }
 
-  let execute = async ({ method, args = {} }: Command): Promise<unknown> => {
+  let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'plugin.list') return plugins?.list() ?? []
+    if (method === 'plugin.runs') return plugins?.runs() ?? []
+    if (method === 'plugin.reload') { plugins?.reload(); return plugins?.list() ?? [] }
+    if (method === 'plugin.cancel') return plugins?.cancel(required(args, 'id'))
+    if (method === 'plugin.respond') { if (!sourceClientId) throw new Error('Trusted UI required'); return plugins?.respond(sourceClientId, args) }
+    if (method === 'plugin.run') {
+      if (!plugins) throw new Error('Plugin host unavailable')
+      return plugins.run(required(args, 'action'), { clientId: sourceClientId, tabId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
+    }
     if (method === 'command-line') {
       let command = parseCommandLine(required(args, 'line'), state(required(args, 'client')))
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
-      return execute(command)
+      return execute(command, sourceClientId)
     }
     if (method === 'settings.reload') { configuration?.reload(); if (configuration?.error) throw new Error(configuration.error); return { path: configuration?.path } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
@@ -605,6 +642,7 @@ export let createRuntime = (dataDirectory: string) => {
     tabById(model, tabId)
     await visualQueue
     return serializeTab(tabId, async () => {
+      if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane } = tabById(model, tabId)
       let contents = tabs.get(tabId)!.view.webContents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
@@ -686,6 +724,8 @@ export let createRuntime = (dataDirectory: string) => {
   let start = async (background: boolean) => {
     await settingsReady
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
+    plugins = createPlugins({ directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    await plugins.ready
     refreshSettings()
     await scheduleVisuals()
     if (background) { model.clients = []; save(); return }
@@ -698,6 +738,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    plugins?.close()
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
     writeModel(dataDirectory, model)

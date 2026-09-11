@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } from 'react'
 import type { Bookmark, Bridge, Download, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog'
 type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
 
 export let App = () => {
@@ -17,6 +17,8 @@ export let App = () => {
     let { client, tab } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
     if (previous.current && previous.current !== target) { setControl(null); setMessage('') }
+    if (next.pluginPrompt) setControl('plugin-dialog')
+    else setControl(current => current === 'plugin-dialog' ? null : current)
     previous.current = target; setState(next)
   }, [])
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
@@ -34,11 +36,14 @@ export let App = () => {
     }
     setMessage(''); setControl(control)
   }, [accept, run])
-  let dismiss = useCallback(() => { setControl(null); setMessage('') }, [])
+  let dismiss = useCallback(() => {
+    if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
+    setControl(null); setMessage('')
+  }, [state?.pluginPrompt])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
-    let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); show(control as Control) }) })
+    let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); if (control !== 'plugin-dialog') show(control as Control) }) })
     return () => { unsubscribe(); controls() }
   }, [accept, show])
   let management = control === 'rename-window' || control === 'rename-session' || control === 'close-window'
@@ -116,7 +121,7 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!text.trim() || busy) return
-    if (mode === 'command' && ['help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(text.trim())) { show(text.trim() as Control); return }
+    if (mode === 'command' && ['plugins', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(text.trim())) { show(text.trim() as Control); return }
     setBusy(true)
     let result: unknown
     if (mode === 'command') {
@@ -238,18 +243,65 @@ let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let { pane, profile } = selection(state)
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (type !== 'sessions') ref.current?.focus() }, [type])
-  let title = type.charAt(0).toUpperCase() + type.slice(1)
+  useEffect(() => { if (!['sessions', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  let title = type === 'plugin-dialog' ? 'Plugin' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
-    {type === 'help' && <HelpContent />}
+    {type === 'help' && <><HelpContent /><p>Use <code>plugins</code> for plugin actions and <code>activity</code> for running scripts.</p></>}
+    {type === 'plugins' && <PluginList />}
+    {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
     {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && <SessionPicker />}
     {type === 'tabs' && <><p>{profile?.name}</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</>}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
     {type === 'bookmarks' && <><p>Profile: {profile?.name ?? 'No selected pane'}</p>{profile?.bookmarks?.length ? profile.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} />) : <p>No bookmarks in this profile.</p>}</>}
-    {type === 'activity' && <><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
+    {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
   </div></div>
+}
+let PluginList = () => {
+  let { state, run, dismiss } = useUI()
+  let [query, setQuery] = useState('')
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
+  let reload = () => { void run('plugin.reload') }
+  let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  return <><label>Find plugin action<input className={css.pluginInput} value={query} onChange={change} autoFocus /></label>
+    {!state.plugins?.length && <p>No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.</p>}
+    {state.plugins?.map(plugin => <div key={plugin.id}><p>{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</p>
+      {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.row} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
+    <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p><button onClick={reload}>Reload plugins</button></>
+}
+let PluginActivity = () => {
+  let { state, run } = useUI()
+  let cancel = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.cancel', { id: event.currentTarget.dataset.id }) }
+  return <><p>Plugin runs</p>{state.pluginRuns?.length ? state.pluginRuns.map(item => <div key={item.id} className={css.row}>{item.title} · {item.status}
+    {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{item.error && <span className={css.pluginDescription}>{item.error}</span>}
+    {['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
+}
+let PluginDialog = () => {
+  let { state, run } = useUI()
+  let request = state.pluginPrompt!
+  let [value, setValue] = useState(''), [index, setIndex] = useState(0), [busy, setBusy] = useState(false)
+  let ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { ref.current?.focus() }, [])
+  let items = request.items?.filter(item => `${item.label} ${item.description ?? ''}`.toLowerCase().includes(value.toLowerCase())) ?? []
+  let respond = async (value: string | boolean) => {
+    if (busy) return
+    setBusy(true); await run('plugin.respond', { id: request.id, value }); setValue(''); setBusy(false)
+  }
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setValue(event.target.value); setIndex(0) }
+  let yes = () => { void respond(true) }
+  let no = () => { void respond(false) }
+  let pick = (event: MouseEvent<HTMLButtonElement>) => { void respond(event.currentTarget.dataset.id!) }
+  let submit = (event: FormEvent) => { event.preventDefault(); if (request.kind === 'pick') { if (items[index]) void respond(items[index].id) } else void respond(value) }
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (request.kind !== 'pick' || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
+    event.preventDefault(); setIndex(index => Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1))))
+  }
+  return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
+    <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.kind !== 'pick' && request.required} /></label>
+    {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.row} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
+    {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
+  </form>}</>
 }
 let SessionPicker = () => {
   let { state } = useUI()

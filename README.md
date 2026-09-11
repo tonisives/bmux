@@ -20,6 +20,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
 - **Bring your bookmarks** — Import Brave profile names and bookmark folders while preserving their structure.
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
+- **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](PLUGINS.md).
 
 bmux is an early preview, free under the [MIT license](LICENSE). Current builds are unsigned and built locally. It does not require tmux.
 
@@ -258,6 +259,8 @@ bmux attach-session -t main
 ```
 
 ## Current boundaries
+
+Local script plugins are available through the `plugins` command and `bmux plugin` CLI. They are explicitly enabled in YAML and run with your OS privileges. The bundled Bitwarden desktop plugin is experimental; see its [verification status](examples/plugins/experimental.bitwarden/README.md).
 
 No Chrome extensions, external Chrome/Brave embedding, cloud synchronization, website recoloring, or built-in ad blocking. The interface uses a dark theme; websites retain their own appearance. JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 

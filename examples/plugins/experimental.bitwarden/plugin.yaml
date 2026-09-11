@@ -1,0 +1,17 @@
+schema_version: 1
+id: experimental.bitwarden
+name: Bitwarden desktop (experimental)
+version: 0.1.0
+actions:
+  - id: status
+    title: Connect to Bitwarden desktop
+    description: Request desktop approval and check vault lock status. Experimental pairing can replace DuckDuckGo's shared key.
+    command: [node, ./run.mjs, status]
+    capabilities: [ui]
+    timeout_seconds: 180
+  - id: fill
+    title: Fill from Bitwarden desktop
+    description: Request desktop approval, choose a matching login, and fill visible main-frame fields.
+    command: [node, ./run.mjs, fill]
+    capabilities: [browser.write, ui]
+    timeout_seconds: 180

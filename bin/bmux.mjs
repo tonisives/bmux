@@ -33,6 +33,9 @@ Browser:  navigate -t TAB URL | dom -t TAB [--html] | eval -t TAB EXPRESSION [--
           cdp -t TAB METHOD [JSON_PARAMS] | back -t TAB | forward -t TAB | reload -t TAB
 Other:    permission list | permission respond ID [--allow]
           settings prefix LETTER | downloads | status | quit
+Plugins:  plugin list | plugin run ID/ACTION [-t TAB] [--parameters JSON]
+          plugin runs | plugin cancel RUN_ID | plugin reload
+          plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Advanced: rpc METHOD JSON_ARGS
 
 CLI browser actions never activate macOS windows. attach-session and activate-client do.
@@ -49,7 +52,7 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 
 let parse = () => {
   let command = argv.shift()
-  let subcommand = ['profile', 'tab', 'permission', 'settings'].includes(command) ? argv.shift() : null
+  let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next'])
@@ -84,14 +87,16 @@ let parse = () => {
   if (method === 'screenshot') { args.output = args.output ? path.resolve(args.output) : undefined; args.fullPage = args.viewport !== true }
   if (method === 'permission.respond') args.id = positional[0] ?? args.id
   if (method === 'settings.prefix') args.key = positional[0] ?? args.key
+  if (method === 'plugin.run') { args.action = positional[0]; args.parameters = JSON.parse(args.parameters ?? '{}') }
+  if (method === 'plugin.cancel') args.id = positional[0]
   return { method, args }
 }
 
-let request = command => new Promise((resolve, reject) => {
-  let connection = net.createConnection(socketPath)
+let request = (command, socket = socketPath, timeout = 90_000) => new Promise((resolve, reject) => {
+  let connection = net.createConnection(socket)
   let result = ''
   connection.setEncoding('utf8')
-  connection.setTimeout(90_000, () => connection.destroy(new Error('bmux command timed out after 90 seconds')))
+  connection.setTimeout(timeout, () => connection.destroy(new Error('bmux command timed out')))
   connection.on('connect', () => connection.write(`${JSON.stringify(command)}\n`))
   connection.on('data', chunk => { result += chunk })
   connection.on('error', reject)
@@ -123,6 +128,14 @@ let start = async () => {
   throw new Error(`bmux did not start. Inspect ${path.join(dataDirectory, 'server.log')}`)
 }
 try {
+  if (argv[0] === 'plugin' && argv[1] === 'host') {
+    let socket = process.env.BMUX_PLUGIN_SOCKET, token = process.env.BMUX_PLUGIN_TOKEN, runId = process.env.BMUX_PLUGIN_RUN_ID
+    if (!socket || !token || !runId) throw new Error('Plugin host is available only inside an invocation')
+    let args = JSON.parse(argv[3] === '--stdin' ? fs.readFileSync(0, 'utf8') : argv[3] ?? '{}')
+    let response = await request({ runId, token, method: argv[2], args }, socket, 3_610_000)
+    process.stdout.write(JSON.stringify(response) + '\n')
+    process.exit(response.ok ? 0 : 1)
+  }
   let command = parse()
   let response
   try { response = await request(command) } catch (error) {

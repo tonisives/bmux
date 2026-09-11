@@ -1,0 +1,29 @@
+schema_version: 1
+id: local.page-tools
+name: Page tools
+version: 1.0.0
+actions:
+  - id: title
+    title: Read page title
+    command: [sh, ./title.sh]
+    capabilities: [browser.write]
+  - id: heading
+    title: Jump to heading
+    command: [python3, ./heading.py]
+    capabilities: [browser.write, ui]
+  - id: annotate
+    title: Add page note
+    command: [python3, ./note.py]
+    capabilities: [browser.write]
+    parameters:
+      - name: note
+        title: Note
+        kind: text
+        required: true
+hooks:
+  - id: fixture-ready
+    title: Mark local fixture ready
+    event: page-ready
+    matches: ["http://127.0.0.1:*/plugin-fixture*"]
+    command: [sh, ./ready.sh]
+    capabilities: [browser.write]

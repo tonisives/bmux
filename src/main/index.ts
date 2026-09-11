@@ -49,7 +49,7 @@ else {
     ipcMain.handle('command', (event, command: Command) => {
       let clientId = runtime!.sourceClient(event.sender.id)
       if (!clientId) throw new Error('Untrusted renderer')
-      return runtime!.execute(command)
+      return runtime!.execute(command, clientId)
     })
     ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
     await runtime.start(background)

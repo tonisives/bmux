@@ -44,6 +44,13 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let windowTarget = target !== undefined && /^\d+$/.test(String(target)) ? session.windows[Number(target)]?.id ?? target : target ?? client.windowId
   let tabTarget = target !== undefined && /^\d+$/.test(String(target)) ? pane?.tabs[Number(target)]?.id ?? target : target ?? pane?.activeTabId
   if (name === 'open' || name === 'navigate') return { method: 'navigate', args: { tab: tabTarget, url: positional.join(' ') } }
+  if (name === 'plugin') {
+    let action = positional.shift()
+    if (action === 'run') return { method: 'plugin.run', args: { action: positional[0], tab: tabTarget } }
+    if (action === 'cancel') return { method: 'plugin.cancel', args: { id: positional[0] } }
+    if (['list', 'runs', 'reload'].includes(action ?? '')) return { method: `plugin.${action}` }
+    throw new Error('Use plugin list, run ID/ACTION, runs, cancel ID, or reload')
+  }
   if (/^(https?:\/\/|localhost[:/])/.test(name) || name.includes('.')) return { method: 'navigate', args: { tab: pane?.activeTabId, url: [name, ...positional].join(' ') } }
   if (name === 'session') name = 'switch-client'
   if (name === 'new-client') name = 'attach-session'

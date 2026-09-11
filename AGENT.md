@@ -1,5 +1,10 @@
 # Browser automation
 
+Local plugins can contribute actions and hooks. See [PLUGINS.md](PLUGINS.md) for
+the manifest, private host API, and isolated testing workflow. `bmux plugin run`
+returns a run ID; `bmux plugin runs` reports completion. Do not print invocation
+credentials or send secrets through command arguments or explicit plugin results.
+
 Use `bmux` for bmux pages. The existing c-cdp Chrome instance is separate.
 
 ## Start a bot session

@@ -51,3 +51,5 @@
 .folder > div { padding-left: 14px; }
 
 .row:focus { background: #303944; color: #f0f2f5; outline: 1px solid #83917b; outline-offset: -1px; }
+.pluginInput { display: block; width: 100%; margin: 8px 0 12px; padding: 8px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.pluginDescription { display: block; color: #8e98a4; }

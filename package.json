@@ -62,6 +62,10 @@
       "package.json",
       "bin/**/*"
     ],
+    "extraResources": [
+      { "from": "bin", "to": "bin" },
+      { "from": "examples/plugins", "to": "plugins" }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "identity": null,
