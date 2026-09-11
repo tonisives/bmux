@@ -1,5 +1,7 @@
 # bmux icon concepts
 
+The [slim follow-up round](slim-round/README.md) contains five lighter alternatives for review, with numbered previews and generation prompts.
+
 **Selected: Split planet.** Used for the macOS app, website, and favicon. Run `pnpm icons` on macOS to regenerate the packaged sizes from the original artwork.
 
 Five original raster app-icon directions generated with the built-in image generation tool. Split planet is the selected app icon; the other four directions remain here for reference. All retain an orbital or scientific motif inspired by the user's preference for Electron's existing icon.
