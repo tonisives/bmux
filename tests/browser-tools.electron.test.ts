@@ -148,7 +148,7 @@ test('bundled form actions save encrypted data and reject profile, document, and
   await page.locator('#password').fill('disposable-password'); await page.locator('#cc-number').fill('4111111111111111')
   await command('save-fill')
   let name = chrome.getByRole('textbox', { name: 'Name this saved form', exact: true })
-  await expect(name).toBeVisible(); await name.fill('Fixture form'); await name.press('Enter')
+  await expect(name).toBeVisible(); await name.fill('Fixture form'); await activate(); await name.press('Enter')
   await expect.poll(async () => (await rpc('forms.list', { tab: tabId })).length).toBe(1)
   let form = (await rpc('forms.list', { tab: tabId }))[0]
   expect(form.fields).toBe(2)
@@ -158,10 +158,16 @@ test('bundled form actions save encrypted data and reject profile, document, and
   await page.locator('#name').fill(''); await page.locator('#email').fill('')
   await command('fill')
   let picker = chrome.getByRole('textbox', { name: 'Choose a saved form', exact: true })
-  await expect(picker).toBeVisible(); await picker.press('Enter')
+  await expect(picker).toBeVisible(); await activate(); await picker.press('Enter')
   await expect(page.locator('#name')).toHaveValue('Disposable Name')
   await expect(page.locator('#email')).toHaveValue('fixture@example.test')
   let current = await state(), bot = current.model.sessions[0].windows[0].panes.find((pane: any) => pane.profileId === 'profile_bot')
+  if (!bot) {
+    let pane = current.model.sessions[0].windows[0].panes[0]
+    bot = await rpc('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot` })
+    await rpc('wait', { tab: bot.activeTabId, selector: 'h1' })
+    await rpc('select-pane', { client: current.clientId, pane: pane.id })
+  }
   expect(await rpc('forms.list', { tab: bot.activeTabId })).toEqual([])
   await expect(rpc('forms.fill', { tab: bot.activeTabId, id: form.id })).rejects.toThrow('not found')
   await page.locator('#name').evaluate(node => node.setAttribute('type', 'password'))
