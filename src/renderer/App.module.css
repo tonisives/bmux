@@ -9,7 +9,7 @@
 .windows { display: flex; gap: 10px; max-width: 42%; overflow-x: auto; flex-shrink: 1; }
 .windows button { flex-shrink: 0; }
 .drag { flex: 1; min-width: 24px; align-self: stretch; }
-.status .error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status .error, .notice { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status .error, .prompt .error { color: #e6a69c; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
 .prompt label { color: #c2ceb9; }

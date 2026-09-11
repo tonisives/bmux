@@ -29,6 +29,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'save-fill', description: 'Save visible form fields in encrypted storage' },
   { command: 'fill', description: 'Choose and fill a saved form for this site' },
   { command: 'passwords', description: 'Choose a Bitwarden login using the bw CLI' },
+  { command: 'passwords lock', description: 'Lock Bitwarden in bmux and cancel pending fills' },
+  { command: 'passwords cancel', description: 'Cancel the pending password fill in this tab' },
   { command: 'new-window', usage: 'new-window [-n NAME]', description: 'Create a window in the current session', action: 'new-window' },
   { command: 'rename-window', usage: 'rename-window -n NAME', description: 'Rename the current window', action: 'rename-window', control: 'rename-window' },
   { command: 'close-window', description: 'Confirm closing the current window', action: 'close-window', control: 'close-window' },

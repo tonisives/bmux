@@ -46,6 +46,8 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
       let fields = ${JSON.stringify(fields)}, mode = ${JSON.stringify(method)};
       let nodes = fields.map(field => document.querySelector(field.selector));
       if (nodes.some((node, index) => fields[index].expectedType && node?.type !== fields[index].expectedType)) throw new Error('Form field type changed');
+      if (nodes.some((node, index) => fields[index].requireEmpty && node?.value)) throw new Error('Field already contains a value');
+      if (nodes.some((node, index) => fields[index].loginPassword && (node?.type !== 'password' || node.autocomplete.split(/\\s+/).includes('new-password')))) throw new Error('Login password field changed');
       if (nodes.some(node => !node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled || node.readOnly || (mode !== 'click' && (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || node.type === 'hidden')))) throw new Error('Visible editable fields required');
       nodes.forEach((node, index) => {
         if (mode === 'click') { node.click(); return; }

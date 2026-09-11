@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen } from 'electron'
+import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor } from 'electron'
 import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -16,6 +16,7 @@ import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
+import { createBitwarden } from './bitwarden'
 import { createPageTools } from './page-tools'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
@@ -65,6 +66,9 @@ export let createRuntime = (dataDirectory: string) => {
   let configuration: ReturnType<typeof createConfig> | undefined
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
+  let bitwarden: ReturnType<typeof createBitwarden> | undefined
+  let lockVault = () => bitwarden?.systemLock()
+  let unlockSystem = () => { if (powerMonitor.getSystemIdleState(1) !== 'locked') bitwarden?.systemUnlock() }
   let pageTools: ReturnType<typeof createPageTools> | undefined
   let browserSettings = () => configuration?.browser ?? DEFAULT_BROWSER
   let toolsState = (): BrowserToolsState | undefined => filters ? {
@@ -103,7 +107,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -212,6 +216,7 @@ export let createRuntime = (dataDirectory: string) => {
     filters?.refresh()
     pageTools?.reload()
     plugins?.reload()
+    if (!configuration?.plugins['bmux.bitwarden']?.enabled) bitwarden?.lock()
     refreshMenu()
     if (configuration && configuration.accessibility !== accessibilityPreference) {
       accessibilityPreference = configuration.accessibility
@@ -272,10 +277,13 @@ export let createRuntime = (dataDirectory: string) => {
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) filters?.reset(tabId) })
     let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
-    contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
+    contents.on('did-start-navigation', (_event, url, _inPlace, mainFrame) => { if (mainFrame) { bitwarden?.navigation(tabId, url); invalidate() } })
+    contents.on('will-redirect', (_event, url, _inPlace, mainFrame) => { if (mainFrame) bitwarden?.navigation(tabId, url) })
+    contents.on('dom-ready', () => bitwarden?.navigation(tabId, contents.getURL(), true))
+    contents.on('did-navigate-in-page', (_event, url, mainFrame) => { if (mainFrame) bitwarden?.navigation(tabId, url, true) })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
-    contents.on('render-process-gone', invalidate)
+    contents.on('render-process-gone', () => { bitwarden?.cancel(tabId); invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let update = () => {
@@ -325,6 +333,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
   }
   let disposeTab = (tabId: string) => {
+    bitwarden?.cancel(tabId)
     pageTools?.dispose(tabId)
     filters?.reset(tabId)
     documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId)
@@ -475,6 +484,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'bitwarden.lock') { bitwarden?.lock(); return { locked: true } }
+    if (method === 'bitwarden.cancel') { bitwarden?.cancel(required(args, 'tab')); return { cancelled: true } }
     if (method.startsWith('forms.')) {
       if (!savedForms) throw new Error('Saved forms are not ready')
       let context = (args._formsContext as PluginContext | undefined) ?? pluginContext({ tabId: required(args, 'tab') })
@@ -854,7 +865,12 @@ export let createRuntime = (dataDirectory: string) => {
     } })
     pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => live.view.webContents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    bitwarden = createBitwarden({ context: pluginContext, interactive: pluginInteractive, changed: publish, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    powerMonitor.on('lock-screen', lockVault)
+    powerMonitor.on('suspend', lockVault)
+    powerMonitor.on('unlock-screen', unlockSystem)
+    powerMonitor.on('resume', unlockSystem)
+    plugins = createPlugins({ bitwarden: bitwarden.fill, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -871,6 +887,11 @@ export let createRuntime = (dataDirectory: string) => {
     pageTools?.close()
     filters?.close()
     plugins?.close()
+    bitwarden?.close()
+    powerMonitor.removeListener('lock-screen', lockVault)
+    powerMonitor.removeListener('suspend', lockVault)
+    powerMonitor.removeListener('unlock-screen', unlockSystem)
+    powerMonitor.removeListener('resume', unlockSystem)
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
     writeModel(dataDirectory, model)
