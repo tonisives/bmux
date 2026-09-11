@@ -19,7 +19,7 @@ The development server uses `http://127.0.0.1:4317`. Production static files are
 
 GitHub Actions builds the website when its source or dependencies change on `main`. It runs `pnpm check`, pre-renders the page, and pushes a Linux amd64 image to `registry.tonisives.com/bmux-website`. The workflow then commits the image digest to [`deploy/k3s/kustomization.yaml`](../deploy/k3s/kustomization.yaml). A manual run of **Deploy website** builds the current main branch again.
 
-Argo CD's `bmux-prod` application watches `deploy/k3s` in this public repository and rolls out that exact digest to the `bmux` namespace in the `tgs` k3s cluster. Its application definition lives in `tonisives/config-repo` at `argocd/apps/bmux-prod.yaml`, alongside ClawTab. Traefik serves `bmux.tonis.dev`, and cert-manager issues its certificate with `letsencrypt-prod`.
+Argo CD's `bmux-prod` application watches `deploy/k3s` in this public repository and rolls out that exact digest to the `bmux` namespace in the `tgs` k3s cluster. Its application definition lives in `tonisives/config-repo` at `argocd/apps/bmux-prod.yaml`, alongside ClawTab. Cloudflare proxies `bmux.tonis.dev` to the cluster ingress. Traefik routes requests to nginx, and cert-manager manages the origin certificate with `letsencrypt-prod`.
 
 Repository secrets `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` authorize image uploads. The namespace's `tonisives-registry-secret` authorizes image pulls. Credentials are stored in GitHub and Kubernetes, never in this repository. GitHub's built-in token updates the image pin; the workflow has no cluster credentials.
 
