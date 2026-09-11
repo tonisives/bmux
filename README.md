@@ -151,7 +151,7 @@ Command+Shift+W closes the native client and keeps its session running. Control+
 
 Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. Control+B then z toggles the selected pane between the split layout and a full-window view without changing the saved split. The separate status bar keeps sessions, windows, and commands available while entering a URL; it sits at the top by default and follows the `statusBar` setting. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
 
-Generated window names (`main` and `window-N`) change to the first opened page's domain. While a window contains only one open page, its automatic name follows that page's latest domain. A name set explicitly with the rename prompt or `rename-window` is preserved. The `profile:default` item after the window list identifies the selected pane's browser profile: its isolated cookies, logins, and site storage. Click it to open that pane's tabs.
+Generated window names (`main` and `window-N`) follow the selected pane's active page domain, including when switching panes or tabs. Background tabs do not change the name. If several clients show the same window, the focused client determines its name; without a client, the first pane does. A name set explicitly with the rename prompt or `rename-window` is preserved. The `profile:default` item after the window list identifies the selected pane's browser profile: its isolated cookies, logins, and site storage. Click it to open that pane's tabs.
 
 Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
 
@@ -215,6 +215,8 @@ Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults a
 
 Multiple shortcuts can point to the same action. For example, adding `Cmd+Z: toggle-pane-zoom` under `keyboard.shortcuts` keeps the prefix binding while also providing a direct shortcut. This explicitly replaces native Undo for Command+Z inside bmux.
 
+Mouse back/forward buttons navigate the page under the pointer, alongside the default Command+[/] history bindings. The mouse buttons still navigate history when Command+[/] is customized for window switching.
+
 `BMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
 
 Window switching, reload, stop, and keyboard commands remain responsive during navigation. URL submission starts loading immediately; a slow request does not hold the command prompt open or block another internal window. CLI `navigate` continues to wait for loading by default; use `--waitUntil none` for immediate return.
@@ -228,6 +230,8 @@ For oVim click mode, allow sufficient traversal depth in oVim's settings. Grafan
 Personal window-switching overrides can use `Cmd+[: previous-window` and `Cmd+]: next-window` under `keyboard.shortcuts`; these replace history navigation only in that config. The application's default bindings remain unchanged.
 
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. They follow the visible split layout and can be assigned to direct shortcuts such as Command+H/J/K/L or to prefix bindings. `split-right` and `split-down` can likewise be assigned to direct shortcuts while the tmux-style prefix defaults remain available.
+
+oVim's scroll mode generates mouse-wheel events for `j/k`, so those events can scroll the pane under the pointer after a keyboard pane switch. Arrow keys use keyboard focus and scroll the selected pane. Move the pointer into the selected pane to use oVim scrolling there; enabling accessibility alone does not change the wheel event's target.
 
 ## Data and permissions
 

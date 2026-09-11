@@ -39,20 +39,26 @@ describe('session layouts and persistence', () => {
     mapLayout(clone.layout, node => { if (node.kind === 'pane') leaves.push(node.paneId); return node })
     expect(leaves).toEqual(clone.panes.map(pane => pane.id))
   })
-  it('names automatic windows from their first domain and follows a sole page', () => {
+  it('names automatic windows from the selected pane and tab, preserving explicit names', () => {
     let window = initialModel().sessions[0].windows[0]
     window.panes[0].tabs[0].url = 'https://www.example.com/first'
-    expect(updateAutomaticWindowName(window, window.panes[0].tabs[0].url)).toBe(true)
+    expect(updateAutomaticWindowName(window)).toBe(true)
     expect(window.name).toBe('example.com')
     window.panes[0].tabs[0].url = 'https://docs.example.test/latest'
-    updateAutomaticWindowName(window, window.panes[0].tabs[0].url)
+    updateAutomaticWindowName(window)
     expect(window.name).toBe('docs.example.test')
     window.panes[0].tabs.push({ id: 'tab_second', url: 'https://second.test', title: 'Second', zoom: 1 })
-    updateAutomaticWindowName(window, 'https://second.test')
+    updateAutomaticWindowName(window)
     expect(window.name).toBe('docs.example.test')
+    window.panes[0].activeTabId = 'tab_second'
+    updateAutomaticWindowName(window)
+    expect(window.name).toBe('second.test')
+    let pane = newPane('profile_default', 'https://third.test')
+    window.panes.push(pane)
+    updateAutomaticWindowName(window, pane.id)
+    expect(window.name).toBe('third.test')
     window.name = 'research'; window.automaticName = false
-    window.panes[0].tabs = [window.panes[0].tabs[0]]
-    updateAutomaticWindowName(window, 'https://changed.test')
+    updateAutomaticWindowName(window, window.panes[0].id)
     expect(window.name).toBe('research')
   })
   it('round-trips state atomically and refuses corrupt state without replacing it', () => {

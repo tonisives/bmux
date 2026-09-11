@@ -151,16 +151,105 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(await cli('eval', { tab: botTab.id, expression: 'localStorage.getItem("profile")' })).toBe('bot')
 })
 
-test('automatic window names follow a sole domain and stop after an explicit rename', async () => {
+test('automatic window names follow the active pane and tab and stop after an explicit rename', async () => {
   let session = await cli('new-session', { name: 'automatic-window-names' })
   let window = session.windows[0], tab = window.panes[0].tabs[0]
   await cli('navigate', { tab: tab.id, url: `${url}/first` })
   await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
   await cli('navigate', { tab: tab.id, url: `${url.replace('127.0.0.1', 'localhost')}/latest` })
   await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
+  let background = await cli('tab.create', { pane: window.panes[0].id, url: `${url}/background-name` })
+  await cli('wait', { tab: background.id, selector: '#text' })
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
+  await cli('tab.select', { tab: background.id })
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
+  let lower = await cli('split-window', { pane: window.panes[0].id, axis: 'vertical', url: `${url.replace('127.0.0.1', 'localhost')}/lower-name` })
+  await cli('wait', { tab: lower.activeTabId, selector: '#text' })
+  let client = await cli('attach-session', { session: session.id })
+  await cli('select-pane', { client: client.id, pane: lower.id })
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
+  await cli('select-pane', { client: client.id, pane: window.panes[0].id })
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
+  await cli('tab.close', { tab: background.id })
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
+  let destination = await cli('new-window', { session: session.id })
+  await cli('move-pane', { pane: lower.id, window: destination.id })
+  await cli('select-window', { client: client.id, window: destination.id })
+  await cli('select-pane', { client: client.id, pane: lower.id })
+  await cli('navigate', { tab: lower.activeTabId, url: `${url}/moved-name` })
+  expect((await cli('list-windows', { session: session.id }))[1].name).toBe('127.0.0.1')
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
   await cli('rename-window', { window: window.id, name: 'research' })
   await cli('navigate', { tab: tab.id, url: `${url}/manual-name` })
   expect((await cli('list-windows', { session: session.id }))[0]).toMatchObject({ name: 'research', automaticName: false })
+  await cli('detach-client', { client: client.id })
+})
+
+test('mouse history buttons target their pane and pane shortcuts keep native keyboard focus', async () => {
+  let config = path.join(directory, 'config.yaml')
+  let original = await fs.readFile(config, 'utf8')
+  await fs.writeFile(config, 'keyboard:\n  shortcuts:\n    Cmd+J: pane-down\n    Cmd+K: pane-up\n')
+  await expect.poll(async () => (await cli('state')).keyboard.shortcuts['Cmd+J']).toBe('pane-down')
+  let session = await cli('new-session', { name: 'native-navigation' })
+  let upper = session.windows[0].panes[0]
+  await cli('navigate', { tab: upper.activeTabId, url: `${url}/history-one` })
+  await cli('navigate', { tab: upper.activeTabId, url: `${url}/history-two` })
+  await cli('navigate', { tab: upper.activeTabId, url: `${url}/history-three` })
+  let lower = await cli('split-window', { pane: upper.id, axis: 'vertical', url: `${url}/lower-scroll` })
+  await cli('wait', { tab: lower.activeTabId, selector: '#text' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let otherClient: string | undefined
+  try {
+    await expect(chrome.locator('[data-browser-content]')).toHaveCount(2)
+    await cli('focus-page', { client: client.id })
+    let mouse = async (button: 'back' | 'forward', currentPath: string) => application.evaluate(async ({ webContents }, { button, target }) => {
+      let contents = webContents.getAllWebContents().find(contents => contents.getURL() === target)!
+      if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+      for (let type of ['mousePressed', 'mouseReleased']) await contents.debugger.sendCommand('Input.dispatchMouseEvent', { type, x: 100, y: 70, button, buttons: type === 'mousePressed' ? button === 'back' ? 8 : 16 : 0, clickCount: 1 })
+    }, { button, target: `${url}/${currentPath}` })
+    await cli('select-pane', { client: client.id, pane: lower.id })
+    await mouse('back', 'history-three')
+    await expect.poll(() => cli('eval', { tab: upper.activeTabId, expression: 'location.pathname' })).toBe('/history-two')
+    expect(await cli('eval', { tab: lower.activeTabId, expression: 'location.pathname' })).toBe('/lower-scroll')
+    await mouse('forward', 'history-two')
+    await expect.poll(() => cli('eval', { tab: upper.activeTabId, expression: 'location.pathname' })).toBe('/history-three')
+    await cli('select-pane', { client: client.id, pane: upper.id })
+    let focusedUrl = () => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())
+    let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
+      await expect.poll(focusedUrl).toBeTruthy()
+      await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
+        let contents = webContents.getFocusedWebContents()
+        if (!contents) throw new Error('No native keyboard focus')
+        contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+        contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+      }, { keyCode, modifiers })
+    }
+    await expect.poll(focusedUrl).toBe(`${url}/history-three`)
+    // Hand off the views to another native client, then refocus without a page click.
+    let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
+    otherClient = (await cli('attach-session', { session: session.id })).id
+    await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.isFocused(), nativeId)).toBe(false)
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.focus(), nativeId)
+    await expect.poll(focusedUrl).toBe(`${url}/history-three`)
+    // No activate-client or focus-page calls between successive pane shortcuts.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await key('j', ['meta'])
+      await expect.poll(focusedUrl, { intervals: [10, 20, 50] }).toBe(`${url}/lower-scroll`)
+      await key('k', ['meta'])
+      await expect.poll(focusedUrl, { intervals: [10, 20, 50] }).toBe(`${url}/history-three`)
+    }
+    await key('j', ['meta'])
+    expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(lower.id)
+    await key('Down')
+    await expect.poll(() => cli('eval', { tab: lower.activeTabId, expression: 'scrollY' })).toBeGreaterThan(0)
+    expect(await cli('eval', { tab: upper.activeTabId, expression: 'scrollY' })).toBe(0)
+  } finally {
+    if (otherClient) await cli('detach-client', { client: otherClient })
+    await cli('detach-client', { client: client.id })
+    await fs.writeFile(config, original)
+    await cli('settings.reload')
+  }
 })
 
 test('permissions, downloads, pane cleanup, crash recovery, and native-client restore', async () => {

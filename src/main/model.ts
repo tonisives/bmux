@@ -21,13 +21,14 @@ let domainName = (url: string) => {
   try { return new URL(url).hostname.replace(/^www\./, '') }
   catch { return '' }
 }
-export let updateAutomaticWindowName = (window: InternalWindow, preferredUrl?: string) => {
+export let updateAutomaticWindowName = (window: InternalWindow, paneId = window.panes[0]?.id) => {
   let automatic = window.automaticName === true || (window.automaticName === undefined && /^(main|window-\d+)$/.test(window.name))
   if (!automatic) return false
-  let urls = window.panes.flatMap(pane => pane.tabs.map(tab => tab.url)).filter(url => url !== 'about:blank' && domainName(url))
-  let candidate = urls.length <= 1 ? preferredUrl ?? urls[0] : /^(main|window-\d+)$/.test(window.name) ? urls[0] : undefined
-  let name = candidate ? domainName(candidate) : ''
-  if (!name) return false
+  let pane = window.panes.find(pane => pane.id === paneId) ?? window.panes[0]
+  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let name = tab ? domainName(tab.url) : 'empty'
+  if (!name) name = /^(main|window-\d+)$/.test(window.name) ? window.name : tab?.url.startsWith('file:') ? 'file' : 'new-tab'
+  if (window.name === name && window.automaticName === true) return false
   window.name = name; window.automaticName = true
   return true
 }
