@@ -122,6 +122,7 @@ export let HELP_NOTES = [
   'Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.',
   'In the command finder: type to fuzzy search, Up/Down or Ctrl+P/N selects, Tab completes, and Enter opens or runs. Ctrl+R/S recalls command history. Shift+Enter runs the typed command exactly.',
   'In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels.',
+  'In the tab picker: the active tab starts focused. Up/Down moves, Home/End jumps, PageUp/PageDown moves ten rows, Enter selects, and Escape cancels without switching tabs.',
   'Closing an internal window asks for y/n. Closing a native client leaves its session running.',
   'Drag the blank area of the status bar to move this macOS window.',
 ]

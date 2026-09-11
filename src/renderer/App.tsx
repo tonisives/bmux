@@ -15,6 +15,7 @@ export let App = () => {
   let [control, setControl] = useState<Control | null>(null)
   let [message, setMessage] = useState('')
   let previous = useRef('')
+  let previousControl = useRef<Control | null>(null)
   let accept = useCallback((next: PublicState) => {
     let { client, tab } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
@@ -52,7 +53,15 @@ export let App = () => {
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
   useEffect(() => {
-    if (state?.clientId) void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' })
+    if (!state?.clientId) return
+    let restoreFocus = previousControl.current === 'tabs' || previousControl.current === 'sessions'
+    previousControl.current = control
+    let cancelled = false
+    // Child layout effects publish the selected tab's bounds before it receives focus.
+    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' }).then(() => {
+      if (!cancelled && !control && restoreFocus) void run('focus-page', { client: state.clientId })
+    })
+    return () => { cancelled = true }
   }, [panel, control, state?.clientId, run])
   useEffect(() => {
     let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
@@ -310,9 +319,9 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
-  let { pane, profile } = selection(state)
+  let { profile } = selection(state)
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  useEffect(() => { if (!['help', 'sessions', 'tabs', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
@@ -322,7 +331,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'browser-tools' && <BrowserTools />}
     {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && <SessionPicker />}
-    {type === 'tabs' && <><p>{profile?.name}</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</>}
+    {type === 'tabs' && <TabPicker />}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
     {type === 'bookmarks' && <><p>Profile: {profile?.name ?? 'No selected pane'}</p>{profile?.bookmarks?.length ? profile.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} />) : <p>No bookmarks in this profile.</p>}</>}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
@@ -374,8 +383,7 @@ let PluginDialog = () => {
     {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
   </form>}</>
 }
-let SessionPicker = () => {
-  let { state } = useUI()
+let usePickerNavigation = () => {
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]')?.focus() }, [])
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -387,18 +395,30 @@ let SessionPicker = () => {
     let row = rows[Math.max(0, Math.min(rows.length - 1, next))]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
   }
+  return { ref, keys }
+}
+let SessionPicker = () => {
+  let { state } = useUI()
+  let { ref, keys } = usePickerNavigation()
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><p>Up/Down to move, Enter to attach, Escape to cancel.</p>{state.model.sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
   let active = selection(state).client?.sessionId === id
-  let select = async () => { if (await run('switch-client', { client: state.clientId, session: id })) { dismiss(); await run('client.overlay', { client: state.clientId, visible: false }); await run('focus-page', { client: state.clientId }) } }
+  let select = async () => { if (await run('switch-client', { client: state.clientId, session: id }) && active) dismiss() }
   return <button className={css.row} onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button>
+}
+let TabPicker = () => {
+  let { state } = useUI()
+  let { pane, profile } = selection(state)
+  let { ref, keys } = usePickerNavigation()
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose tab"><p>Profile: {profile?.name}</p><p>Up/Down to move, Enter to select, Escape to cancel.</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</div>
 }
 let TabRow = ({ id, label, url, active }: { id: string; label: string; url: string; active: boolean }) => {
   let { run, dismiss } = useUI()
-  let select = async () => { if (await run('tab.select', { tab: id })) dismiss() }
-  return <button className={css.row} onClick={select} title={url} data-active={active}>{label}{active ? ' *' : ''}</button>
+  // A changed selection closes the picker when App receives the new state and bounds.
+  let select = async () => { if (await run('tab.select', { tab: id }) && active) dismiss() }
+  return <button className={css.row} onClick={select} title={url} data-active={active} aria-current={active ? 'true' : undefined}>{label}{active ? ' *' : ''}</button>
 }
 let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
   let { state, run, dismiss } = useUI()

@@ -75,6 +75,8 @@ pnpm dev
 
 The renderer reloads during development. Browser content runs sandboxed, without Node integration or a privileged preload. The application interface has a narrow IPC bridge.
 
+See [TODO.md](TODO.md) for the development backlog and recently completed work.
+
 The product website lives in [`website/`](website/README.md). Run `pnpm site:dev` for its local preview and `pnpm site:build` for a pre-rendered production build.
 
 Build and launch locally:
@@ -147,6 +149,8 @@ The default prefix is Control+B, followed within 1.6 seconds by:
 | d | Detach client |
 
 In the session picker (Control+B, then s), Up/Down moves the highlight, Enter attaches, and Escape cancels without switching. Home/End jumps to the ends; PageUp/PageDown moves ten rows. The current session is focused when the picker opens.
+
+The tab picker (`tabs` in the command prompt, or click `profile:` in the status bar) starts with the active tab focused. Up/Down moves the highlight, Home/End jumps to the ends, and PageUp/PageDown moves ten rows. Enter selects the highlighted tab; Escape closes the picker without switching. To open it with a direct shortcut, assign a binding to `tabs` in your keyboard config.
 
 Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 
