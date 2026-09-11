@@ -103,7 +103,7 @@ test('bundled shell/Python examples run from the plugin panel with prompts and r
   let title = await rpc('plugin.run', { action: 'local.page-tools/title' }); await completed(title.id)
   expect((await rpc('plugin.runs')).find((item: any) => item.id === title.id).result.result).toBe('Plugin fixture')
   await chrome.getByRole('button', { name: 'Command prompt' }).click()
-  let command = chrome.getByRole('textbox', { name: 'Command', exact: true }); await command.fill('plugins'); await command.press('Enter')
+  let command = chrome.getByRole('combobox', { name: 'Command', exact: true }); await command.fill('plugins'); await command.press('Enter')
   await chrome.getByRole('button', { name: 'Jump to heading', exact: true }).click()
   let picker = chrome.getByRole('textbox', { name: 'Jump to heading', exact: true })
   await expect(picker).toBeFocused(); await picker.press('Enter')

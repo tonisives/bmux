@@ -3,6 +3,8 @@ import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } 
 import type { Bookmark, Bridge, Download, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
+import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
+import type { CommandEntry } from '../shared/command-search'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -50,8 +52,8 @@ export let App = () => {
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
   useEffect(() => {
-    if (state?.clientId) void run('client.overlay', { client: state.clientId, visible: !!panel })
-  }, [panel, state?.clientId, run])
+    if (state?.clientId) void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' })
+  }, [panel, control, state?.clientId, run])
   useEffect(() => {
     let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
     document.addEventListener('keydown', escape)
@@ -65,7 +67,7 @@ export let App = () => {
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' || control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={control === 'address' ? '' : message} />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={control === 'address' ? '' : message} />}
     </footer>
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
@@ -107,13 +109,91 @@ let StatusWindow = ({ id, label, active }: { id: string; label: string; active: 
 }
 
 let commandHistory: string[] = []
-let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' | 'command' | 'find'; onMessage: (message: string) => void }) => {
-  let { state, run, show, dismiss } = useUI()
+let MatchText = ({ value, query }: { value: string; query: string }) => {
+  let positions = new Set(query.trim().split(/\s+/).flatMap(term => fuzzyMatch(term, value)?.positions ?? []))
+  let parts: { start: number; value: string; matched: boolean }[] = []
+  for (let index = 0; index < value.length; index++) {
+    let matched = positions.has(index), previous = parts.at(-1)
+    if (previous?.matched === matched) previous.value += value[index]
+    else parts.push({ start: index, value: value[index], matched })
+  }
+  return <>{parts.map(part => part.matched ? <mark key={part.start}>{part.value}</mark> : <span key={part.start}>{part.value}</span>)}</>
+}
+let CommandOption = ({ entry, position, active, query, busy, choose }: { entry: CommandEntry; position: number; active: boolean; query: string; busy: boolean; choose: (event: MouseEvent<HTMLButtonElement>) => void }) => (
+  <button id={`command-result-${position}`} type="button" role="option" aria-selected={active} tabIndex={-1} className={css.commandOption} data-command={entry.command} onClick={choose} disabled={busy}><span className={css.commandName}><MatchText value={entry.usage ?? entry.command} query={query} /></span><span className={css.commandDescription}><MatchText value={entry.description} query={query} /></span><span className={css.commandKeys}>{entry.shortcuts?.join(' · ')}</span></button>
+)
+
+let CommandPrompt = () => {
+  let { state, run, show, dismiss, message } = useUI()
+  let [text, setText] = useState(''), [index, setIndex] = useState(0), [selected, setSelected] = useState(false), [busy, setBusy] = useState(false)
+  let input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null), mounted = useRef(true)
+  let historyIndex = useRef(commandHistory.length), draft = useRef('')
+  let entries = commandEntries(state.keyboard ?? DEFAULT_KEYBOARD, state.plugins)
+  let literal = literalCommand(text), argumentsStarted = literal && /\S\s/.test(text.trimStart())
+  let query = argumentsStarted ? text.trim().split(/\s+/)[0] : text
+  let results = searchCommands(entries, query, commandHistory).slice(0, 80)
+  let active = results[Math.min(index, Math.max(0, results.length - 1))]
+  useEffect(() => { input.current?.focus(); mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [index, text])
+  let finish = () => { dismiss(); void run('client.overlay', { client: state.clientId, visible: false }).then(() => run('focus-page', { client: state.clientId })) }
+  let edit = (line: string) => { setText(line); setIndex(0); setSelected(false); input.current?.focus() }
+  let complete = (line: string) => { historyIndex.current = commandHistory.length; edit(line) }
+  let change = (event: ChangeEvent<HTMLInputElement>) => { draft.current = event.target.value; historyIndex.current = commandHistory.length; edit(event.target.value) }
+  let remember = (line: string) => { if (commandHistory.at(-1) !== line) commandHistory.push(line); commandHistory = commandHistory.slice(-100) }
+  let execute = async (line: string, entry?: CommandEntry) => {
+    if (busy) return
+    if (entry?.complete) { complete(entry.command); return }
+    if (!line.trim()) return
+    let exact = entries.find(item => item.command === line.trim())
+    if (exact?.control) { remember(line); show(exact.control); return }
+    if (PANEL_COMMANDS.some(panel => panel === line.trim())) { remember(line); show(line.trim() as Control); return }
+    setBusy(true); remember(line)
+    let result = await run('command-line', { client: state.clientId, line })
+    if (!mounted.current) return
+    setBusy(false)
+    if (result !== undefined) finish()
+  }
+  let submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (active && (selected || !literal || (!argumentsStarted && active.complete))) void execute(active.command, active)
+    else void execute(text)
+  }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => {
+    let entry = results.find(item => item.command === event.currentTarget.dataset.command)
+    if (entry) void execute(entry.command, entry)
+  }
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(); return }
+    if (busy) return
+    if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); void execute(text); return }
+    let key = event.key.toLowerCase()
+    if (event.ctrlKey && ['r', 's'].includes(key)) {
+      event.preventDefault()
+      if (historyIndex.current === commandHistory.length) { if (key === 's') return; draft.current = text }
+      historyIndex.current = Math.max(0, Math.min(commandHistory.length, historyIndex.current + (key === 'r' ? -1 : 1)))
+      edit(commandHistory[historyIndex.current] ?? draft.current); return
+    }
+    if (event.key === 'Tab' && active) { event.preventDefault(); complete(active.command); return }
+    if (['ArrowUp', 'ArrowDown'].includes(event.key) || (event.ctrlKey && ['p', 'n'].includes(key))) {
+      event.preventDefault(); setSelected(true)
+      let direction = event.key === 'ArrowUp' || key === 'p' ? -1 : 1
+      setIndex(Math.max(0, Math.min(results.length - 1, index + direction)))
+    }
+  }
+  return <><form className={css.prompt} onSubmit={submit}><label htmlFor="command">:</label><input id="command" ref={input} aria-label="Command" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={active ? `command-result-${results.indexOf(active)}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'running…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    <section className={css.commandFinder} aria-label="Command finder"><div className={css.finderHint}>Type to find · ↑/↓ or Ctrl+P/N select · Tab complete · Enter {argumentsStarted && !selected ? 'run typed command' : 'open / run'} · Ctrl+R history</div>
+      <div ref={list} id="command-results" role="listbox" aria-label="Commands" className={css.commandResults}>{results.map((entry, position) => <CommandOption key={entry.command} entry={entry} position={position} active={entry === active} query={query} busy={busy} choose={choose} />)}</div>
+      {!results.length && <p className={css.finderHint}>No matching commands. Enter runs the text you typed.</p>}
+    </section></>
+}
+
+let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' | 'find'; onMessage: (message: string) => void }) => {
+  let { state, run, dismiss } = useUI()
   let { client, pane, tab } = selection(state)
   let [text, setText] = useState(mode === 'address' && tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
-  let historyIndex = useRef(commandHistory.length)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
@@ -121,34 +201,23 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!text.trim() || busy) return
-    if (mode === 'command' && ['browser-tools', 'plugins', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings'].includes(text.trim())) { show(text.trim() as Control); return }
     setBusy(true)
-    let result: unknown
-    if (mode === 'command') {
-      commandHistory.push(text); commandHistory = commandHistory.slice(-100)
-      result = await run('command-line', { client: client!.id, line: text })
-    } else {
-      let target = tab?.id
-      if (!target && mode === 'address') {
-        let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { activeTabId: string } | undefined
-        target = created?.activeTabId
-      }
-      result = target ? await run(mode === 'address' ? 'navigate' : 'find', { tab: target, ...(mode === 'address' ? { url: text, waitUntil: 'none' } : { text, next: true }) }) : undefined
+    let target = tab?.id
+    if (!target && mode === 'address') {
+      let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { activeTabId: string } | undefined
+      target = created?.activeTabId
     }
+    let result = target ? await run(mode === 'address' ? 'navigate' : 'find', { tab: target, ...(mode === 'address' ? { url: text, waitUntil: 'none' } : { text, next: true }) }) : undefined
     if (!mounted.current) return
     setBusy(false)
-    if (result === undefined) { if (!tab && !pane && mode !== 'command') onMessage('Create a pane first'); return }
+    if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
     dismiss()
     void run('focus-page', { client: client!.id })
   }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') { dismiss(); void run('focus-page', { client: client!.id }); return }
-    if (mode !== 'command' || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
-    event.preventDefault()
-    historyIndex.current = Math.max(0, Math.min(commandHistory.length, historyIndex.current + (event.key === 'ArrowUp' ? -1 : 1)))
-    setText(commandHistory[historyIndex.current] ?? '')
   }
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">{mode === 'command' ? ':' : mode === 'find' ? '/' : 'open'}</label><input id="prompt" ref={ref} aria-label={mode === 'address' ? 'URL or search' : mode === 'command' ? 'Command' : 'Find in page'} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">{mode === 'find' ? '/' : 'open'}</label><input id="prompt" ref={ref} aria-label={mode === 'address' ? 'URL or search' : 'Find in page'} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
 let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: string }) => {
@@ -243,11 +312,11 @@ let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let { pane, profile } = selection(state)
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['sessions', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  useEffect(() => { if (!['help', 'sessions', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
-    {type === 'help' && <><HelpContent /><p>Use <code>plugins</code> for plugin actions and <code>activity</code> for running scripts.</p></>}
+    {type === 'help' && <HelpContent />}
     {type === 'plugins' && <PluginList />}
     {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
     {type === 'browser-tools' && <BrowserTools />}
@@ -351,11 +420,35 @@ let DownloadRow = ({ download }: { download: Download }) => {
   return <button className={css.row} onClick={reveal}>{download.name} — {download.state}</button>
 }
 
+let HelpRow = ({ label, description, query }: { label: string; description: string; query: string }) => <div><dt><MatchText value={label} query={query} /></dt><dd><MatchText value={description} query={query} /></dd></div>
 let HelpContent = () => {
   let { state } = useUI()
+  let [query, setQuery] = useState(''), [searching, setSearching] = useState(false)
+  let root = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null)
+  useEffect(() => { root.current?.focus() }, [])
+  useEffect(() => { if (searching) input.current?.focus() }, [searching])
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
-  let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
-  return <><dl>{bindings.map(([key, action]) => <div key={key}><dt>{key}</dt><dd>{action}</dd></div>)}</dl><p>In the session picker: Up/Down moves, Home/End jumps, PageUp/PageDown scrolls, Enter attaches, and Escape cancels. Closing an internal window asks for y/n. Closing a native client leaves its session running.</p><p>Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window and tab indices start at 0.</p><pre>{'open example.com\nnew-session -s work --profile professional\nsession personal\nnew-window -n research\nselect-window -t 1\nsplit-window -h --profile bot\nnext-pane\ntoggle-pane-zoom\npane-left / pane-down / pane-up / pane-right\ntab new https://example.com\ntab select -t 0\nsave-layout work\nrestore-layout work --confirm\nrename-window -n reading\nkill-pane --confirm\nprofile create project --background\nprofiles / sessions / tabs / bookmarks / activity / browser-tools\nback / forward / reload / zoom 110\nnew-client / detach\nimport-brave\nprefix b'}</pre><p>Drag the blank area of the status bar to move this macOS window.</p></>
+  let entries = commandEntries(keyboard, state.plugins)
+  let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])].map(([key, action]) => ({ key, action, description: entries.find(entry => entry.action === action)?.description ?? '' })).filter(binding => fuzzyMatch(query, `${binding.key} ${binding.action} ${binding.description}`))
+  let commands = searchCommands(entries, query), notes = HELP_NOTES.filter(note => fuzzyMatch(query, note))
+  let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  useEffect(() => {
+    let keys = (event: globalThis.KeyboardEvent) => {
+      if (event.isComposing) return
+      if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey && event.target !== input.current) { event.preventDefault(); setSearching(true); input.current?.focus(); input.current?.select() }
+      if (event.key === 'Escape' && searching) { event.preventDefault(); event.stopPropagation(); setSearching(false); setQuery(''); root.current?.focus() }
+      if (event.key === 'Enter' && event.target === input.current) { event.preventDefault(); root.current?.focus() }
+    }
+    document.addEventListener('keydown', keys, true)
+    return () => document.removeEventListener('keydown', keys, true)
+  }, [searching])
+  return <div ref={root} tabIndex={-1} className={css.helpContent}>
+    <div className={css.helpSearch}>{searching ? <label>Search help<input ref={input} className={css.pluginInput} aria-label="Search help" value={query} onChange={change} autoComplete="off" spellCheck={false} placeholder="Commands, keys, or descriptions" /></label> : <p>Press / to search commands and shortcuts.</p>}<span role="status">{query ? `${bindings.length + commands.length + notes.length} matches · Esc clears search` : 'Esc closes help'}</span></div>
+    {!!bindings.length && <><h2>Shortcuts</h2><dl>{bindings.map(binding => <HelpRow key={binding.key} label={binding.key} description={binding.action} query={query} />)}</dl></>}
+    {!!commands.length && <><h2>Commands</h2><dl className={css.helpCommands}>{commands.map(entry => <HelpRow key={entry.command} label={entry.usage ?? entry.command} description={entry.description} query={query} />)}</dl></>}
+    {notes.map(note => <p key={note}>{note}</p>)}
+    {!bindings.length && !commands.length && !notes.length && <p>No matching help entries.</p>}
+  </div>
 }
 
 let BrowserTools = () => {

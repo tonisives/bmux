@@ -67,7 +67,7 @@ try {
   if (process.env.BMUX_TEST_SECOND_URL ?? process.env.BROWMUX_TEST_SECOND_URL) {
     let secondUrl = process.env.BMUX_TEST_SECOND_URL ?? process.env.BROWMUX_TEST_SECOND_URL
     await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
-    let command = chrome.getByRole('textbox', { name: 'Command', exact: true })
+    let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
     await command.fill('new-window -n comparison'); await command.press('Enter')
     await expect(chrome.getByRole('button', { name: '1:comparison*', exact: true })).toBeVisible()
     await activate()

@@ -14,7 +14,7 @@ let activate = async () => { let current = await state(); await expect.poll(asyn
 let command = async (line: string) => {
   await activate()
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
-  let prompt = chrome.getByRole('textbox', { name: 'Command', exact: true })
+  let prompt = chrome.getByRole('combobox', { name: 'Command', exact: true })
   await prompt.fill(line); await prompt.press('Enter')
 }
 test.beforeAll(async () => {

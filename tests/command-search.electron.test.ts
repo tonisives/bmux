@@ -1,0 +1,110 @@
+import { test, expect, _electron as electron } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
+import http from 'node:http'
+import { stringify } from 'yaml'
+
+let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server
+let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+let state = () => chrome.evaluate(() => (window as any).bmux.state())
+let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
+let prompt = () => chrome.getByRole('combobox', { name: 'Command', exact: true })
+let open = async () => { await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click(); await expect(prompt()).toBeFocused() }
+let nativeVisible = () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as any).webContents.getURL() === url && view.getBounds().height > 300)), url)
+
+test.beforeAll(async () => {
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-command-search-'))
+  await fs.mkdir(path.join(directory, 'plugins/fixture'), { recursive: true })
+  await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
+  server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>') })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
+  let installed = process.env.BMUX_TEST_INSTALLED === '1'
+  application = await electron.launch({ ...(installed ? { executablePath: path.join(os.homedir(), 'workspace/_tools/bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+  chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await activate(); await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true }); await address.fill(url); await address.press('Enter')
+  await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
+  page = application.context().pages().find(page => page.url() === url)!
+  await expect(page.locator('h1')).toBeVisible()
+  await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+})
+test.beforeEach(async () => {
+  await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
+  let current = await state(); await rpc('select-window', { client: current.clientId, window: current.model.sessions[0].windows[0].id }); await activate()
+})
+test.afterAll(async () => { await application?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (directory) await fs.rm(directory, { recursive: true, force: true }) })
+
+test('command finder accepts fuzzy selection and restores the native page', async () => {
+  await expect.poll(nativeVisible).toBe(true)
+  await open()
+  await expect(chrome.getByRole('listbox', { name: 'Commands', exact: true })).toBeVisible()
+  await prompt().fill('brtls')
+  let selected = chrome.getByRole('option', { selected: true })
+  await expect(selected).toContainText('browser-tools'); await expect(selected).toContainText('Cmd+Alt+D')
+  await chrome.screenshot({ path: path.resolve('artifacts/command-finder.png') })
+  await prompt().press('Enter')
+  await expect(chrome.getByRole('dialog', { name: 'Browser tools', exact: true })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Close', exact: true }).click(); await activate()
+  await expect.poll(nativeVisible).toBe(true)
+  await expect(page.locator('h1')).toHaveText('Command search fixture')
+  let config = path.join(directory, 'config.yaml')
+  await fs.writeFile(config, 'statusBar: bottom\n' + await fs.readFile(config, 'utf8'))
+  await expect.poll(async () => (await state()).statusBar).toBe('bottom')
+  await open(); await prompt().fill('brtls')
+  let finder = chrome.getByRole('region', { name: 'Command finder', exact: true }), status = chrome.getByRole('contentinfo', { name: 'Browser status' })
+  await expect.poll(async () => { let bounds = (await finder.boundingBox())!; return bounds.y + bounds.height - (await status.boundingBox())!.y }).toBeLessThanOrEqual(1)
+  await chrome.screenshot({ path: path.resolve('artifacts/command-finder-bottom.png') })
+  await prompt().press('Escape'); await expect.poll(nativeVisible).toBe(true)
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+})
+
+test('command arguments, completion, history, and keyboard result selection work together', async () => {
+  await open(); await prompt().fill('new-window -n "two words"'); await prompt().press('Enter')
+  await expect(chrome.getByRole('button', { name: '1:two words*', exact: true })).toBeVisible()
+  await open(); await prompt().press('Control+r'); await expect(prompt()).toHaveValue('new-window -n "two words"')
+  await prompt().press('Control+s'); await expect(prompt()).toHaveValue('')
+  await prompt().fill('new-session'); await prompt().press('Tab'); await expect(prompt()).toHaveValue('new-session -s ')
+  await prompt().press('Control+s'); await expect(prompt()).toHaveValue('new-session -s ')
+  await prompt().press('Control+r'); await prompt().press('Control+s'); await expect(prompt()).toHaveValue('new-session -s ')
+  expect((await state()).model.sessions).toHaveLength(1)
+  await prompt().fill('dark')
+  let first = await prompt().getAttribute('aria-activedescendant')
+  await prompt().press('Control+n'); expect(await prompt().getAttribute('aria-activedescendant')).not.toBe(first)
+  await prompt().press('Control+p'); await expect(prompt()).toHaveAttribute('aria-activedescendant', first!)
+  await prompt().press('ArrowDown'); await prompt().press('Tab'); await expect(prompt()).toHaveValue('dark on')
+  await prompt().fill('dark mode'); await expect(chrome.getByRole('option', { selected: true })).toContainText('Toggle dark mode')
+  await prompt().fill('brtls'); await prompt().press('Shift+Enter'); await expect(chrome.getByRole('status')).toContainText('Unknown command')
+  await prompt().fill('zzzzunmatched'); await expect(chrome.getByText('No matching commands. Enter runs the text you typed.', { exact: true })).toBeVisible()
+  await prompt().press('Enter'); await expect(chrome.getByRole('status')).toContainText('Unknown command')
+  await prompt().press('Escape'); await expect(prompt()).toHaveCount(0)
+})
+
+test('enabled plugin actions appear in fuzzy command results and execute', async () => {
+  await open(); await prompt().fill('fixture greeting')
+  await expect(chrome.getByRole('option', { selected: true })).toContainText('plugin run fixture/greet')
+  await expect(chrome.getByRole('option', { selected: true })).toContainText('Cmd+Alt+P')
+  await prompt().press('Enter')
+  await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.pluginId === 'fixture')?.status).toBe('completed')
+})
+
+test('slash searches help commands and active shortcuts; Escape clears before closing', async () => {
+  await chrome.getByRole('button', { name: 'Help', exact: true }).click()
+  let help = chrome.getByRole('dialog', { name: 'Help', exact: true })
+  await expect(help).toBeVisible(); await help.getByRole('button', { name: 'Close', exact: true }).focus(); await chrome.keyboard.press('/')
+  let search = help.getByRole('textbox', { name: 'Search help', exact: true }); await expect(search).toBeFocused()
+  await search.fill('browser tools')
+  await expect(help.getByText('Cmd+Alt+D', { exact: true })).toBeVisible()
+  await expect(help.getByText('browser-tools', { exact: true }).first()).toBeVisible()
+  await expect(help.getByText('reload', { exact: true })).toHaveCount(0)
+  await chrome.screenshot({ path: path.resolve('artifacts/help-search.png') })
+  await search.fill('Ctrl X'); await expect(help.getByText('Ctrl+X then ?', { exact: true })).toBeVisible()
+  await search.fill('zzzzunmatched'); await expect(help.getByText('No matching help entries.', { exact: true })).toBeVisible()
+  await search.press('Escape'); await expect(help).toBeVisible(); await expect(search).toHaveCount(0)
+  await chrome.keyboard.press('/'); await expect(search).toBeFocused(); await expect(search).toHaveValue('')
+  await search.press('Escape'); await chrome.keyboard.press('Escape'); await expect(help).toHaveCount(0)
+  await activate(); await expect.poll(nativeVisible).toBe(true)
+})

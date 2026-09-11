@@ -154,7 +154,14 @@ Each pane has its own compact address bar above the page. Click a pane's address
 
 Generated window names (`main` and `window-N`) follow the selected pane's active page domain, including when switching panes or tabs. Background tabs do not change the name. If several clients show the same window, the focused client determines its name; without a client, the first pane does. A name set explicitly with the rename prompt or `rename-window` is preserved. The `profile:default` item after the window list identifies the selected pane's browser profile: its isolated cookies, logins, and site storage. Click it to open that pane's tabs.
 
-Control+B then `:` opens the command prompt. Commands use the selected session/window/pane/tab by default. Examples:
+Control+B then `:` opens a fuzzy command finder. You can also click `:` in the
+status bar. Type part of a command or description, such as `brtls` for
+`browser-tools`. Up/Down or Control+P/N selects a result, Tab completes it, and
+Enter opens or runs it. Commands requiring arguments complete into the prompt.
+Enabled plugin actions and your active shortcuts appear in the results.
+
+Complete commands and URLs run as typed. Shift+Enter always runs the typed text
+exactly. Commands use the selected session/window/pane/tab by default. Examples:
 
 ```text
 open https://example.com
@@ -176,7 +183,13 @@ activity
 help
 ```
 
-Use quotes around names with spaces. Window/tab indices start at 0. Up/down recalls command history. Command+Shift+N creates another client. Set the prefix with `prefix LETTER` or `bmux settings prefix LETTER`.
+Use quotes around names with spaces. Window/tab indices start at 0. Control+R/S
+recalls earlier/later command history. Command+Shift+N creates another client. Set
+the prefix with `prefix LETTER` or `bmux settings prefix LETTER`.
+
+Open `?` (or F1), then press `/` to search help. Search filters commands, active
+keybindings, and usage notes. Escape clears the search first; another Escape
+closes help.
 
 ## Keyboard configuration
 

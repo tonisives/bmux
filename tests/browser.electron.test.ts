@@ -313,8 +313,8 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.windows().find(window => window.url().includes('/renderer/index.html'))!
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
-  await chrome.getByRole('textbox', { name: 'Command', exact: true }).fill('bookmarks')
-  await chrome.getByRole('textbox', { name: 'Command', exact: true }).press('Enter')
+  await chrome.getByRole('combobox', { name: 'Command', exact: true }).fill('bookmarks')
+  await chrome.getByRole('combobox', { name: 'Command', exact: true }).press('Enter')
   await expect(chrome.getByText('Profile: Imported work', { exact: true })).toBeVisible()
   await expect(chrome.getByText('Projects', { exact: true })).toBeVisible()
   await expect(chrome.getByRole('button', { name: 'Unsupported bookmarklet' })).toBeDisabled()
@@ -377,7 +377,7 @@ test('URL entry after import attaches the live page; native shortcuts and comman
       chrome.sendInputEvent({ type: 'keyDown', ...event }); chrome.sendInputEvent({ type: 'keyUp', ...event })
     }
   })
-  let command = chrome.getByRole('textbox', { name: 'Command', exact: true })
+  let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
   await expect(command).toBeFocused()
   await command.fill('new-window -n "from prompt"')
   await command.press('Enter')

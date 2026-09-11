@@ -15,6 +15,7 @@
 .prompt label { color: #c2ceb9; }
 .prompt input { padding: 0; outline: none; border: 0; border-radius: 0; background: transparent; flex: 1; color: #eceef2; }
 .prompt span { color: #7d8590; }
+.prompt .error { max-width: min(45%, 480px); }
 .submit { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .branch { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .branch[data-axis="vertical"] { flex-direction: column; }
@@ -57,3 +58,20 @@
 .toolOptions { display: grid; gap: 12px; margin: 16px 0; }
 .toolOptions label { display: grid; gap: 6px; }
 .toolOptions select { padding: 7px; background: #20242d; color: inherit; border: 1px solid #444b59; font: inherit; }
+.commandFinder { position: fixed; top: 28px; left: 0; right: 0; z-index: 100; padding: 8px; background: #191d23; border-bottom: 1px solid #505a66; box-shadow: 0 8px 18px #0006; -webkit-app-region: no-drag; }
+.app[data-status-bar="bottom"] .commandFinder { top: auto; bottom: 28px; border-top: 1px solid #505a66; border-bottom: 0; box-shadow: 0 -8px 18px #0006; }
+.finderHint { padding: 4px 8px 8px; color: #8e98a4; white-space: normal; }
+.commandResults { max-height: min(50vh, 430px); overflow-y: auto; }
+.status .commandOption { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(200px, 2fr) minmax(0, auto); align-items: baseline; gap: 16px; width: 100%; max-width: none; padding: 7px 8px; border: 0; border-radius: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; background: transparent; color: #c0c6ce; }
+.status .commandOption[aria-selected="true"], .status .commandOption:hover { background: #303944; color: #f0f2f5; }
+.commandDescription, .commandKeys { color: #8e98a4; }
+.commandKeys { text-align: right; }
+.commandFinder mark, .helpContent mark { background: transparent; color: #c2d8a7; font-weight: 600; }
+.helpContent { outline: none; }
+.helpContent h2 { font: inherit; font-weight: 600; color: #eceef2; margin-top: 20px; }
+.helpSearch { position: sticky; top: -20px; padding: 8px 0; background: #191d23; border-bottom: 1px solid #363c45; }
+.helpSearch p { margin: 4px 0; }
+.helpSearch span { color: #8e98a4; }
+.panel .helpCommands > div { display: block; margin-bottom: 10px; }
+.helpCommands dt { overflow-wrap: anywhere; }
+@media (max-width: 650px) { .status .commandOption { grid-template-columns: 1fr; gap: 3px; } .commandKeys { text-align: left; } }
