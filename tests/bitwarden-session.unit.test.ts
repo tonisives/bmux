@@ -122,13 +122,18 @@ test('waits through a focus transition before presenting a vault prompt', async 
 })
 
 
-test('focusing a login field suggests account labels without prompting or exposing passwords', async () => {
+test('focusing a login field offers unlocking, then account labels without exposing passwords', async () => {
   let f = setup(); f.focus('#user')
   await f.service.suggest(f.context)
   expect(f.vault.status).not.toHaveBeenCalled()
-  expect(f.service.suggestions('client')).toBeUndefined()
+  expect(f.vault.logins).not.toHaveBeenCalled()
+  expect(f.ui).not.toHaveBeenCalled()
+  expect(f.service.suggestions('client')).toEqual({ tabId: 'tab', origin: 'https://example.test', locked: true, items: [] })
+  await expect(f.service.select(f.context, 'fixture')).rejects.toThrow('expired')
+  expect(await f.service.select(f.context)).toBeUndefined()
   await f.fill(); f.ui.mockClear(); f.focus('#user')
   await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.locked).toBe(false)
   expect(f.service.suggestions('client')?.items).toEqual([{ id: 'fixture', name: 'Fixture', username: 'fixture-user' }])
   expect(JSON.stringify(f.service.suggestions('client'))).not.toContain('fixture-password')
   expect(f.ui).not.toHaveBeenCalled()
@@ -141,16 +146,19 @@ test('focusing a login field suggests account labels without prompting or exposi
   expect(f.vault.unlock).toHaveBeenCalledTimes(1)
 })
 
-test.each(['field', 'document', 'profile', 'background', 'lock'])('rejects a suggestion after changing %s', async reason => {
-  let f = setup(); await f.fill(); f.focus('#user'); await f.service.suggest(f.context)
-  if (reason === 'field') f.focus('#other')
-  if (reason === 'document') f.context.documentId = '2'
-  if (reason === 'profile') f.context.profileId = 'other-profile'
-  if (reason === 'background') f.show(false)
-  if (reason === 'lock') f.service.lock()
-  await expect(f.service.select(f.context, 'fixture')).rejects.toThrow()
-  expect(f.fills()).toBe(1)
-})
+for (let unlocked of [false, true]) {
+  test.each(['field', 'document', 'profile', 'background', 'lock'])(`rejects an ${unlocked ? 'account' : 'unlock'} suggestion after changing %s`, async reason => {
+    let f = setup(); if (unlocked) await f.fill()
+    f.focus('#user'); await f.service.suggest(f.context)
+    if (reason === 'field') f.focus('#other')
+    if (reason === 'document') f.context.documentId = '2'
+    if (reason === 'profile') f.context.profileId = 'other-profile'
+    if (reason === 'background') f.show(false)
+    if (reason === 'lock') f.service.lock()
+    await expect(f.service.select(f.context, unlocked ? 'fixture' : undefined)).rejects.toThrow()
+    expect(f.fills()).toBe(unlocked ? 1 : 0)
+  })
+}
 
 test('leaving a login field hides suggestions and locking never opens an automatic prompt', async () => {
   let f = setup(); await f.fill(); f.ui.mockClear(); f.focus('#user'); await f.service.suggest(f.context)
@@ -158,6 +166,10 @@ test('leaving a login field hides suggestions and locking never opens an automat
   expect(f.service.suggestions('client')).toBeUndefined()
   f.focus('#user'); await f.service.suggest(f.context)
   f.service.lock(); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.locked).toBe(true)
+  f.focus(); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')).toBeUndefined()
+  f.focus('#user'); f.service.systemLock(); await f.service.suggest(f.context)
   expect(f.service.suggestions('client')).toBeUndefined()
   expect(f.ui).not.toHaveBeenCalled()
 })

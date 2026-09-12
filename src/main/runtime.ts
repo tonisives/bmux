@@ -495,10 +495,10 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
-    if (method === 'bitwarden.select') {
+    if (method === 'bitwarden.select' || method === 'bitwarden.unlock') {
       if (!sourceClientId || !bitwarden || !plugins) throw new Error('Trusted UI required')
       let context = pluginContext({ clientId: sourceClientId })
-      let id = await bitwarden.select(context, required(args, 'id'))
+      let id = await bitwarden.select(context, method === 'bitwarden.select' ? required(args, 'id') : undefined)
       return plugins.run('bmux.bitwarden/fill', context, {}, true, id)
     }
     if (method === 'bitwarden.lock') { bitwarden?.lock(); return { locked: true } }
