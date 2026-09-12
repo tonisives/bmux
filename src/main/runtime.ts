@@ -210,6 +210,12 @@ export let createRuntime = (dataDirectory: string) => {
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
+    if (action === 'close-pane') {
+      void execute({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }).catch(reportError); return
+    }
+    if (action === 'close-window' && model.sessions.find(session => session.id === client.sessionId)!.windows.length <= 2) {
+      void execute({ method: 'kill-window', args: { window: client.windowId, confirm: true } }).catch(reportError); return
+    }
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
@@ -773,6 +779,10 @@ export let createRuntime = (dataDirectory: string) => {
       let { window, pane } = paneById(model, args.pane)
       if (pane.tabs.length > 1 && args.confirm !== true) throw new Error('Pane contains multiple tabs; pass --confirm')
       window.layout = removePane(window.layout, pane.id); window.panes = window.panes.filter(item => item.id !== pane.id)
+      if (!window.panes.length) {
+        await execute({ method: 'kill-window', args: { window: window.id, confirm: true } })
+        return { closed: pane.id }
+      }
       changed(); await visualQueue; return { closed: pane.id }
     }
     if (method === 'kill-window') {

@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - website/**
+      - "*.md"
+      - LICENSE
+      - docs/**
+      - examples/plugins/**
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
