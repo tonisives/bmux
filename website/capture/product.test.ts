@@ -39,7 +39,7 @@ test('capture the real app with disposable local demo pages', async () => {
     await cli('new-session', { name: 'research' })
     await cli('new-session', { name: 'personal' })
     await cli('activate-client', { client: client.id })
-    await application.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) if (window.isVisible()) window.setBounds({ x: 40, y: 60, width: 1360, height: 880 }) })
+    await application.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) if (window.isVisible()) window.setBounds({ x: 40, y: 60, width: 1120, height: 680 }) })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.fill(`${url}/handbook`)

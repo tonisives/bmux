@@ -1,8 +1,9 @@
 # bmux website
 
-Sunday at `/styles/sunday/` is the current design under review, with a system
-sans-serif font, factual feature descriptions, real app screenshots and local
-installation instructions. The gallery at `/styles/` also retains the earlier
+The front page uses the Sunday design, also available at `/styles/sunday/`,
+with a system font and three scrolling feature sections: Split panes, Switch
+sessions and Run an agent. Each has a short description and a full-width real
+app screenshot. Packaging outputs to `build/bmux.app` by default. The gallery at `/styles/` also retains the earlier
 Desktop and Peach directions. Preview pages are prerendered and marked `noindex`.
 
 The [product capture workflow](capture/README.md) runs inside the isolated Tart
@@ -10,7 +11,7 @@ guest using only local sample pages. Media lives under `public/cdn/product/`.
 
 Public product showcase at [bmux.tonis.dev](https://bmux.tonis.dev).
 
-The website uses React, TypeScript, CSS modules, and Vite. Its production HTML is pre-rendered, so the product information and links work before JavaScript loads. JavaScript adds the workspace illustration, session picker, and copy button. The illustration uses fictional fixture content rather than real browser profiles.
+The website uses React, TypeScript, CSS modules, and Vite. Its production HTML is pre-rendered, so the product information and links work before JavaScript loads. All feature sections and screenshots are visible without JavaScript. JavaScript adds the copy button. Screenshots show the real app with disposable local fixture pages.
 
 From the repository root:
 

@@ -46,7 +46,7 @@ To build and install the app locally:
 pnpm package
 ```
 
-This installs `bmux.app` into `~/workspace/_tools`. Packaging does not restart a running instance. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
+This writes the app to `build/bmux.app`. Set `BMUX_OUTPUT_DIR` to choose another output folder. Packaging does not restart a running instance. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
 
 Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. Command+L opens the URL prompt.
 
@@ -286,10 +286,25 @@ The UI check types a local fixture URL into a pane's URL prompt, submits Enter, 
 
 Integration tests open disposable Electron clients, exercise native view transfers, verify isolated storage and restart recovery, and check that bot automation preserves the frontmost macOS application. They produce a client screenshot under `artifacts/`.
 
-Every `pnpm package` installs the completed app at `~/workspace/_tools/bmux.app`, replacing the previous bundle after the new build succeeds. The `release/` directory is temporary packaging output. Packaging does not restart a running app; reopen it to use the new build. This is a local unsigned build, not a notarized public release. The CLI automatically uses the installed app; `BMUX_APP` can override it:
+Every `pnpm package` writes the completed app to `build/bmux.app`, replacing the previous bundle only after the new build succeeds. The `release/` directory is temporary packaging output. Packaging does not restart a running app; reopen it to use the new build. This is a local unsigned build, not a notarized public release. The CLI uses the app in the build folder, then falls back to an existing `~/workspace/_tools/bmux.app`. `BMUX_APP` can override the app path:
 
 ```sh
 # Optional override: export BMUX_APP=/absolute/path/to/bmux.app
+bmux attach-session -t main
+```
+
+## Custom output folder
+
+`BMUX_OUTPUT_DIR` chooses the folder containing `bmux.app`. Relative paths are resolved from the checkout; use an absolute path for a shared tools directory:
+
+```sh
+BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package
+```
+
+Other files in that folder are preserved. Keep `BMUX_OUTPUT_DIR` set when using the CLI, or set `BMUX_APP` to the resulting app:
+
+```sh
+export BMUX_APP="$HOME/workspace/_tools/bmux.app"
 bmux attach-session -t main
 ```
 

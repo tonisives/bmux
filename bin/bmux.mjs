@@ -115,8 +115,9 @@ let request = (command, socket = socketPath, timeout = 90_000) => new Promise((r
   connection.on('end', () => { try { resolve(JSON.parse(result)) } catch { reject(new Error('Invalid response from bmux')) } })
 })
 let start = async () => {
+  let output = path.resolve(root, process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
   let installed = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
-  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (fs.existsSync(installed) ? installed : undefined)
+  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? [output, installed].find(candidate => fs.existsSync(candidate))
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', path.basename(packaged, '.app')) : packaged

@@ -1,5 +1,21 @@
 import type { ElectronApplication, TestInfo } from '@playwright/test'
+import { expect } from '@playwright/test'
 import fs from 'node:fs/promises'
+
+export let sendNativeKeys = async (application: ElectronApplication, events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
+  // Inspector evaluation can run inside an AppKit focus transition. Check and send
+  // together so no separate RPC can land between readiness and input delivery.
+  await expect.poll(() => application.evaluate(async ({ BaseWindow, webContents }, events) => {
+    let contents = webContents.getFocusedWebContents(), window = BaseWindow.getFocusedWindow()
+    if (!contents || !window?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents === contents)) return false
+    for (let [index, event] of events.entries()) {
+      contents.sendInputEvent({ type: 'keyDown', ...event })
+      contents.sendInputEvent({ type: 'keyUp', ...event })
+      if (index < events.length - 1) await new Promise(resolve => setTimeout(resolve, 30))
+    }
+    return true
+  }, events), { intervals: [10, 20, 50] }).toBe(true)
+}
 
 export let observeNativeFocus = async (application: ElectronApplication) => {
   await application.evaluate(({ app, BaseWindow, webContents }) => {
