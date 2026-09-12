@@ -38,7 +38,7 @@ export let App = () => {
       }
       accept(current)
     }
-    void run('focus-ui')
+    if (control === 'address') void run('focus-ui')
     setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
