@@ -362,7 +362,7 @@ test('password popup unlocks beside the field and immediately offers accounts th
   await expect(popup.getByLabel('Master password')).toHaveCount(0)
   await expect(chrome.getByRole('textbox', { name: `Login for ${url}`, exact: true })).toHaveCount(0)
   await popup.screenshot({ path: path.resolve('artifacts/password-field-popup.png') })
-  await page.locator('h1').click()
+  await rpc('focus-page', { client: (await state()).clientId }); await page.locator('h1').click()
   await expect(account).toHaveCount(0)
   await focusVaultField()
   await expect(account).toBeVisible(); await expect(offer).toHaveCount(0)
@@ -383,7 +383,7 @@ for (let mode of ['empty', 'failure']) test(`password popup shows a visible ${mo
     await expect(popup.getByRole('button', { name: 'Unlock Bitwarden', exact: true })).toHaveCount(0)
     await fs.writeFile(path.join(directory, 'vault-mode'), '')
     if (mode === 'failure') await popup.getByRole('button', { name: 'Try again', exact: true }).click()
-    else { await page.locator('h1').click(); await expect(popup.getByRole('group', { name: 'Bitwarden logins' })).toHaveCount(0); await focusVaultField() }
+    else { await rpc('focus-page', { client: (await state()).clientId }); await page.locator('h1').click(); await expect(popup.getByRole('group', { name: 'Bitwarden logins' })).toHaveCount(0); await focusVaultField() }
     await expect(popup.getByRole('button', { name: 'Fill login vault@example.test', exact: true })).toBeVisible()
     await expect(popup.getByLabel('Master password')).toHaveCount(0)
   } finally { await fs.writeFile(path.join(directory, 'vault-mode'), '') }
@@ -493,6 +493,7 @@ test('the password popup survives app switching and a username field losing DOM 
   await expect.poll(async () => (await state()).focusedClientId).toBeNull()
   await new Promise(resolve => setTimeout(resolve, 700))
   await expect(password).toHaveValue('fixture-')
+  expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.contentView.children.some((view: any) => view.webContents?.getURL().endsWith('#passwords') && view.getVisible())))).toBe(true)
   await activate()
   await expect(password).toBeVisible()
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL().endsWith('#passwords'))).toBe(true)
