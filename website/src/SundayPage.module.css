@@ -1,8 +1,7 @@
-.page { --paper:#fbfaf6; --ink:#304a41; --muted:#58675e; --line:#d8ded3; --peach:#f2cfb5; background:var(--paper); color:var(--ink); min-height:100vh; font:18px/1.65 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color-scheme:light; }
-.page h1,.page h2,.page h3,.page p,.page figure { margin:0; }
-.page h1,.page h2,.page h3 { font-family:inherit; font-weight:650; }
-.page h2 { font-size:30px; line-height:1.3; letter-spacing:-.015em; }
-.page h3 { font-size:21px; line-height:1.4; }
+.page { --paper:#fbfaf6; --ink:#304a41; --muted:#58675e; --line:#d8ded3; background:var(--paper); color:var(--ink); min-height:100vh; font:18px/1.6 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color-scheme:light; }
+.page h1,.page h2,.page p,.page figure { margin:0; }
+.page h1,.page h2 { font-family:inherit; font-weight:650; }
+.page h2 { font-size:34px; line-height:1.25; letter-spacing:-.015em; }
 .page a,.page button { touch-action:manipulation; text-underline-offset:4px; }
 .page a:focus-visible,.page button:focus-visible,.page pre:focus-visible { outline:3px solid #476e53; outline-offset:5px; }
 .page code,.page pre { font-family:ui-monospace,'SFMono-Regular',Consolas,monospace; }
@@ -10,128 +9,89 @@
 .container { max-width:1160px; padding:0 40px; margin:auto; }
 .skipLink { position:absolute; z-index:5; top:12px; left:12px; background:var(--paper); padding:8px 16px; }
 .skipLink:not(:focus) { clip-path:inset(50%); }
-.header { display:flex; align-items:center; justify-content:space-between; gap:28px; padding:28px 0; }
+.header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:28px 0; }
 .brand { font-size:30px; font-weight:700; line-height:1.2; }
 .header nav { display:flex; gap:32px; font-size:16px; }
 .header nav a:hover,.footer a:hover { text-decoration:underline; }
-.hero { display:flex; flex-direction:column; align-items:center; text-align:center; padding:42px 0 54px; }
-.lantern { width:90px; height:90px; display:block; object-fit:contain; }
-.hero .lantern { margin-bottom:24px; }
+.hero { display:flex; flex-direction:column; align-items:center; text-align:center; padding:38px 0 70px; }
+.lantern { width:84px; height:84px; display:block; object-fit:contain; margin-bottom:23px; }
 .hero h1 { max-width:840px; font-size:clamp(38px,4.5vw,54px); line-height:1.16; letter-spacing:-.025em; }
-.hero>p { max-width:640px; margin-top:23px; font-size:20px; color:var(--muted); }
-.heroActions { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-top:28px; }
-.primaryButton,.secondaryButton { display:inline-flex; align-items:center; justify-content:center; min-height:50px; padding:11px 26px; border:1px solid var(--ink); border-radius:7px; font-size:17px; font-weight:600; }
+.hero>p { margin-top:23px; font-size:19px; color:var(--muted); }
+.heroActions { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-top:27px; }
+.primaryButton,.secondaryButton { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:10px 22px; border:1px solid var(--ink); border-radius:7px; font-size:16px; font-weight:600; }
 .primaryButton { background:var(--ink); color:var(--paper); }
 .primaryButton:hover { background:#426454; }
 .secondaryButton { background:transparent; border-color:#aebfb0; }
 .secondaryButton:hover { background:#edf0e5; }
-.heroNote { color:var(--muted); font-size:15px; margin-top:16px; }
-.showcase { scroll-margin-top:25px; }
-.featureControls { display:flex; justify-content:center; gap:12px; margin-bottom:22px; }
-.featureButton { border:1px solid #aebaae; border-radius:7px; padding:13px 23px; min-height:52px; color:var(--ink); background:#f4f5ee; font-size:17px; font-weight:600; }
-.featureButton:hover { background:#e7ecde; }
-.featureButton[aria-pressed=true] { background:var(--ink); border-color:var(--ink); color:var(--paper); }
-.capture img,.detailCapture img { display:block; width:100%; height:auto; border:1px solid #748174; border-radius:6px; }
-.capture>a { display:block; box-shadow:0 17px 30px -25px #46544580; }
-.capture figcaption { display:flex; justify-content:space-between; gap:20px; padding-top:13px; font-size:14px; color:var(--muted); }
+.feature { padding:46px 0 32px; border-top:1px solid var(--line); scroll-margin-top:24px; }
+.featureHeading { display:flex; align-items:center; justify-content:space-between; gap:30px; margin-bottom:27px; }
+.featureHeading p { max-width:710px; margin-top:13px; color:var(--muted); }
+.featureHeading>a { flex-shrink:0; }
+.capture>a { display:block; }
+.capture img { display:block; width:100%; height:auto; border:1px solid #748174; border-radius:6px; }
+.capture figcaption { padding-top:10px; text-align:right; color:var(--muted); font-size:14px; }
 .capture figcaption a { text-decoration:underline; }
-.featureDescription { display:flex; align-items:flex-start; justify-content:space-between; gap:40px; padding:23px 0 0; min-height:115px; }
-.featureDescription p { max-width:680px; }
-.featureDescription code { flex-shrink:0; font-size:14px; padding:7px 11px; border:1px solid var(--line); border-radius:5px; background:#f1f2e9; }
-.sessions,.agents { display:grid; grid-template-columns:.85fr 1.35fr; align-items:center; gap:48px; padding:58px 0; }
-.sessions { margin-top:22px; border-top:1px solid var(--line); }
-.sectionCopy h2 { margin-bottom:20px; }
-.sectionCopy p { color:var(--muted); }
-.sectionCopy p+p { margin-top:20px; }
-.sectionCopy .note { font-size:15px; line-height:1.65; }
-.detailCapture { min-width:0; }
-.detailCapture figcaption { color:var(--muted); font-size:14px; line-height:1.5; margin-top:13px; }
-.agents { padding:38px; gap:38px; background:#f4e4d4; border-radius:12px; margin:20px 0 65px; grid-template-columns:1.05fr 1.35fr; scroll-margin-top:24px; }
-.textLink { display:inline-block; margin-top:21px; text-decoration:underline; font-size:16px; font-weight:550; }
-.browserTools { padding:0 0 65px; }
-.browserTools>h2 { margin-bottom:32px; }
-.toolsGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:36px; }
-.toolsGrid article { border-top:2px solid #ccd5c6; padding-top:21px; }
-.toolsGrid p { color:var(--muted); font-size:17px; margin-top:13px; }
-.install { display:grid; grid-template-columns:.85fr 1.35fr; gap:48px; padding:55px 0 70px; border-top:1px solid var(--line); scroll-margin-top:24px; }
+.agents { margin-top:14px; padding:32px; border:0; border-radius:12px; background:#f4e4d4; }
+.toolsGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:30px; padding:60px 0; }
+.toolsGrid h2 { font-size:23px; }
+.toolsGrid p { margin-top:12px; color:var(--muted); font-size:16px; }
+.install { display:grid; grid-template-columns:.85fr 1.35fr; gap:48px; padding:50px 0 60px; border-top:1px solid var(--line); scroll-margin-top:24px; }
+.install h2 { font-size:30px; margin-bottom:19px; }
+.install p { color:var(--muted); }
+.install .note { font-size:15px; margin-top:17px; }
+.textLink { display:inline-block; margin-top:18px; text-decoration:underline; font-size:15px; }
 .installCommands { background:#eef1e7; border:1px solid #d5dccd; border-radius:9px; padding:23px; min-width:0; align-self:start; }
 .commandsHeader { display:flex; justify-content:space-between; align-items:center; gap:16px; font-size:15px; font-weight:600; }
 .commandsHeader button { border:1px solid #aebaae; border-radius:5px; background:var(--paper); padding:8px 12px; color:var(--ink); font-size:14px; }
 .commandsHeader button:hover { background:#e0e7d7; }
-.installCommands pre { margin:25px 0 18px; font-size:14px; line-height:1.9; overflow:auto; padding-bottom:8px; }
-.installCommands>p { font-size:14px; color:var(--muted); }
+.installCommands pre { margin:24px 0 17px; font-size:14px; line-height:1.9; overflow:auto; padding-bottom:8px; }
+.installCommands>p { font-size:14px; }
+.installCommands>.textLink { margin-top:8px; font-size:14px; }
 .copyStatus { display:block; min-height:25px; font-size:14px; padding-top:4px; }
 .footer { display:flex; align-items:center; justify-content:space-between; gap:25px; padding:25px 0 35px; border-top:1px solid var(--line); font-size:15px; }
 .footer>span { font-weight:650; }
 .footer nav { display:flex; flex-wrap:wrap; gap:24px; color:var(--muted); }
 
-@media (max-width:1000px) {
-  .sessions,.install { gap:30px; grid-template-columns:1fr 1.25fr; }
-  .agents { grid-template-columns:1fr 1.2fr; gap:28px; padding:30px; }
-  .page h2 { font-size:27px; }
-  .sectionCopy p { font-size:17px; }
-  .featureDescription { gap:25px; }
-  .installCommands { padding:18px; }
-}
 @media (max-width:760px) {
-  .container { padding:0 25px; }
-  .header nav { gap:24px; }
-  .hero { padding:30px 0 40px; }
+  .container { padding:0 24px; }
+  .hero { padding:25px 0 48px; }
   .hero h1 { font-size:42px; }
-  .hero>p { font-size:19px; max-width:570px; }
-  .featureControls { gap:9px; }
-  .featureButton { flex:1; font-size:16px; padding:12px 14px; }
-  .featureDescription { display:block; min-height:155px; }
-  .featureDescription code { display:inline-block; margin-top:13px; }
-  .sessions,.agents,.install { grid-template-columns:1fr; gap:28px; }
-  .sessions { margin-top:15px; padding:38px 0; }
-  .sectionCopy p { font-size:18px; }
-  .agents { padding:28px; margin-bottom:45px; }
-  .toolsGrid { grid-template-columns:1fr; gap:27px; }
-  .browserTools { padding-bottom:42px; }
-  .browserTools>h2 { margin-bottom:25px; }
-  .toolsGrid article { padding-top:18px; }
-  .toolsGrid p { font-size:18px; margin-top:9px; }
-  .install { padding:38px 0 45px; }
+  .featureHeading { display:block; margin-bottom:22px; }
+  .featureHeading>a { margin-top:18px; }
+  .agents { padding:25px; }
+  .toolsGrid { grid-template-columns:1fr; gap:26px; padding:40px 0; }
+  .toolsGrid p { margin-top:7px; }
+  .install { grid-template-columns:1fr; gap:28px; padding:38px 0 45px; }
 }
 @media (max-width:480px) {
   .page { font-size:17px; }
-  .container { padding:0 20px; }
+  .container { padding:0 18px; }
   .header { padding:23px 0; gap:18px; }
   .brand { font-size:27px; }
-  .header nav { font-size:14px; gap:17px; }
-  .hero { padding:22px 0 34px; }
-  .hero .lantern { width:78px; height:78px; margin-bottom:22px; }
+  .header nav { font-size:14px; gap:18px; }
+  .hero { padding:20px 0 37px; }
+  .lantern { width:72px; height:72px; margin-bottom:22px; }
   .hero h1 { font-size:35px; line-height:1.19; letter-spacing:-.02em; }
-  .hero>p { font-size:18px; margin-top:19px; }
-  .heroActions { width:100%; gap:10px; margin-top:23px; }
-  .primaryButton,.secondaryButton { flex:1; padding:11px 15px; font-size:16px; }
-  .heroNote { font-size:14px; }
-  .featureControls { gap:7px; margin-bottom:16px; }
-  .featureButton { font-size:15px; line-height:1.35; padding:11px 7px; }
-  .capture figcaption { font-size:13px; gap:10px; }
-  .featureDescription { padding-top:20px; min-height:177px; }
-  .featureDescription p { font-size:17px; }
-  .featureDescription code { font-size:13px; }
-  .page h2 { font-size:27px; }
-  .page h3 { font-size:21px; }
-  .sectionCopy h2 { margin-bottom:16px; }
-  .sectionCopy p,.toolsGrid p { font-size:17px; }
-  .sectionCopy p+p { margin-top:16px; }
-  .agents { padding:24px 20px; margin:10px -4px 39px; }
-  .detailCapture figcaption { font-size:13px; }
+  .hero>p { font-size:16px; margin-top:20px; }
+  .heroActions { width:100%; gap:10px; margin-top:22px; }
+  .heroActions>a { flex:1; }
+  .primaryButton,.secondaryButton { font-size:15px; padding:10px 16px; }
+  .page h2 { font-size:28px; }
+  .feature { padding:31px 0 23px; }
+  .featureHeading p { margin-top:11px; }
+  .capture figcaption { font-size:13px; }
+  .agents { margin:10px -8px 0; padding:25px 8px 17px; }
+  .agents .featureHeading { padding:0 8px; }
+  .toolsGrid h2 { font-size:22px; }
   .installCommands { padding:18px 15px; }
   .commandsHeader { font-size:14px; gap:10px; }
   .commandsHeader button { padding:8px 9px; font-size:13px; }
   .installCommands pre { font-size:13px; }
-  .installCommands>p { font-size:13px; }
   .footer { align-items:flex-start; font-size:14px; gap:20px; }
   .footer nav { gap:12px 18px; justify-content:flex-end; }
 }
 @media (max-width:360px) {
-  .container { padding:0 17px; }
   .header nav { gap:13px; font-size:13px; }
   .hero h1 { font-size:32px; }
-  .featureButton { font-size:14px; padding:10px 5px; }
   .commandsHeader { flex-wrap:wrap; }
 }

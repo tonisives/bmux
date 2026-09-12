@@ -64,7 +64,7 @@ else if (args[0] === 'list') { if (!unlocked || mode === 'failure') process.exit
     { id: 'style', file: './style.css', enabled: true, matches: [`${url}/*`] },
   ] } }))
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
-  application = await electron.launch({ ...(installed ? { executablePath: path.join(os.homedir(), 'workspace/_tools/bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_BITWARDEN_CLI: vault, BITWARDENCLI_APPDATA_DIR: path.join(directory, 'vault'), BW_SESSION: '' } })
+  application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_BITWARDEN_CLI: vault, BITWARDENCLI_APPDATA_DIR: path.join(directory, 'vault'), BW_SESSION: '' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   popup = application.context().pages().find(page => page.url().endsWith('#passwords'))!

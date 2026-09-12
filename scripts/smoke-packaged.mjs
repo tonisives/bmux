@@ -9,7 +9,7 @@ import http from 'node:http'
 let exec = promisify(execFile)
 let root = process.cwd()
 let data = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-package-'))
-let appPath = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
+let appPath = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
 let env = { ...process.env, BMUX_DATA_DIR: data }
 let command = async (...args) => {
   let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), ...args], { env, maxBuffer: 8 * 1024 * 1024 })

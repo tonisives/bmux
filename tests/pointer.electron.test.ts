@@ -18,7 +18,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
   let application = await electron.launch({
-    ...(packaged ? { executablePath: path.join(os.homedir(), 'workspace/_tools/bmux.app/Contents/MacOS/bmux') } : {}),
+    ...(packaged ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}),
     args: packaged ? [] : [process.cwd()],
     env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' },
   })
