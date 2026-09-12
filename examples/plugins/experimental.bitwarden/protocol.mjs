@@ -71,7 +71,9 @@ export let createBitwardenConnection = child => {
   let command = async (command, payload) => {
     if (!sharedKey) throw new Error('Connect first')
     let response = await request({ encryptedCommand: encrypt({ command, payload }, sharedKey) })
-    let result = decrypt(response.encryptedPayload, sharedKey)
+    // Electron's IPC serializes the desktop EncString instance as an object.
+    let encryptedPayload = response.encryptedPayload
+    let result = decrypt(typeof encryptedPayload === 'string' ? encryptedPayload : encryptedPayload?.encryptedString, sharedKey)
     if (result.command !== command || result.payload?.error) throw new Error('Vault locked or desktop request rejected')
     return result.payload
   }

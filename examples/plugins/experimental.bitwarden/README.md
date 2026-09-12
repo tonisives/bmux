@@ -39,10 +39,22 @@ AES-256-CBC with HMAC-SHA256, null-padded requests, and PKCS7-padded responses.
 Tests use an independent mock peer for encryption, handshake, status, and lookup;
 framing tests cover chunking and UTF-8, and tampered MACs are rejected.
 
-Installed desktop version observed: **2026.8.0**. Live pairing and credential
-retrieval against that build are **not verified**: no disposable logged-in desktop
-vault was provided, and the user's personal vault was not queried. Passing mock
-tests establishes wire behavior, not compatibility with the installed desktop
-proxy's OS/process checks. A live test should record desktop version, setup,
-approval behavior, locked/unlocked results, and a fill into a local fixture using
-disposable credentials. The bmux plugin foundation does not depend on that result.
+Live verification passed on **2026-09-12** with official desktop **2026.8.0** in
+Tart, Vaultwarden **1.37.2**, and web vault **2026.7.0**. The check creates a random
+disposable account, saves one local login, enables DuckDuckGo integration, and
+approves the desktop's bmux pairing request for each invocation. Status reports
+`unlocked`, then `locked` after the native lock command. After unlocking, filling
+requires the HTTP confirmation and login selection; the visible native page
+receives the expected credentials without submitting the form.
+
+The live run exposed a response-format mismatch: Electron IPC strips the
+`EncString` prototype, so the desktop proxy returns an object containing
+`encryptedString`. The plugin accepts that object and the string representation,
+and authenticates either through the same HMAC check. Independent mock-peer
+regressions cover both representations.
+
+See the [disposable Tart setup](../../../docs/bitwarden-desktop-test.md) to repeat
+the check. Evidence is in `artifacts/tart/2026-09-12T11-19-19.762Z/`, including a
+sanitized JSON result and a screenshot with the input values masked. No personal
+vault was read. This remains an unofficial, opt-in experiment with the pairing
+limitations above.

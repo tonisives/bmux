@@ -14,7 +14,7 @@ test('native framing accepts fragmented and combined UTF-8 messages and rejects 
   let invalid = Buffer.alloc(4); invalid.writeUInt32LE(4_194_305)
   expect(() => decode(invalid)).toThrow('size')
 })
-test('pairs as bmux with fresh RSA keys and exchanges authenticated status/lookup with a mock peer', async () => {
+test.each(['string', 'desktop-object'])('pairs as bmux and exchanges authenticated status/lookup using %s responses', async format => {
   let child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => child.emit('exit', 0) })
   let key = randomBytes(64), commands: string[] = [], applicationName = '', buffer = Buffer.alloc(0)
   child.stdin.on('data', chunk => {
@@ -38,7 +38,8 @@ test('pairs as bmux with fresh RSA keys and exchanges authenticated status/looku
         let replyIV = randomBytes(16), cipher = createCipheriv('aes-256-cbc', key.subarray(0, 32), replyIV)
         let ciphertext = Buffer.concat([cipher.update(JSON.stringify({ command: request.command, payload })), cipher.final()])
         let replyMac = createHmac('sha256', key.subarray(32)).update(Buffer.concat([replyIV, ciphertext])).digest()
-        response.encryptedPayload = `2.${replyIV.toString('base64')}|${ciphertext.toString('base64')}|${replyMac.toString('base64')}`
+        let encryptedString = `2.${replyIV.toString('base64')}|${ciphertext.toString('base64')}|${replyMac.toString('base64')}`
+        response.encryptedPayload = format === 'string' ? encryptedString : { encryptedString, encryptionType: 2, iv: replyIV.toString('base64'), data: ciphertext.toString('base64'), mac: replyMac.toString('base64') }
       }
       let body = Buffer.from(JSON.stringify(response)), header = Buffer.alloc(4); header.writeUInt32LE(body.length)
       child.stdout.write(header.subarray(0, 1)); child.stdout.write(Buffer.concat([header.subarray(1), body]))

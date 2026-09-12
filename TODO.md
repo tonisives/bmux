@@ -3,14 +3,12 @@
 This list tracks follow-up work from the current implementation and documented
 limitations.
 
-## Browser tools
-
-- [ ] Verify the experimental Bitwarden desktop integration with a disposable vault:
-  pairing approval, locked/unlocked state, and filling a local fixture. This requires
-  a disposable desktop setup; see the [experiment's verification notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification).
-
 ## Completed
 
+- [x] Verify experimental Bitwarden desktop pairing, locked/unlocked state, and
+  filling a visible local fixture without submission using a disposable vault.
+  Fix the released desktop's serialized encrypted-response format and document
+  the [repeatable Tart setup](docs/bitwarden-desktop-test.md).
 - [x] Stabilize native focus checks in full Tart runs. Preserve current-client
   page/prompt focus during activation, wait for the fixture's own control socket
   and completed native handoffs, and send keys after confirming their focused
