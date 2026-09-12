@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
 import { stringify } from 'yaml'
+import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 let directory: string, application: ElectronApplication, chrome: Page, url: string, server: http.Server
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
@@ -41,6 +42,7 @@ test.beforeAll(async () => {
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
+  await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let current = await state(); await rpc('activate-client', { client: current.clientId })
@@ -50,6 +52,7 @@ test.afterAll(async () => {
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
+test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.beforeEach(async ({}, info) => {
   let current = await state(), first = current.model.sessions[0].windows[0]
   await rpc('select-window', { client: current.clientId, window: first.id }); await activate()
@@ -89,7 +92,9 @@ test('password parameters stay private and Escape cancels', async () => {
   await rpc('activate-client', { client: (await state()).clientId })
   let id = await run('password')
   let password = chrome.getByRole('textbox', { name: 'Fixture password' })
-  await expect(password).toHaveAttribute('type', 'password'); await password.fill('disposable-test-value'); await password.press('Enter')
+  await expect(password).toHaveAttribute('type', 'password')
+  for (let attempt = 0; attempt < 3; attempt++) { await activate(); await expect(password).toBeFocused() }
+  await password.fill('disposable-test-value'); await password.press('Enter')
   await completed(id)
   expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result).toEqual({ received: true })
   expect(JSON.stringify((await state()).pluginRuns)).not.toContain('disposable-test-value')

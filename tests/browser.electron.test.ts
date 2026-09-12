@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 let exec = promisify(execFile)
 let root = process.cwd()
@@ -26,6 +27,7 @@ let launch = async () => {
   application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await observeNativeFocus(application)
   await expect.poll(async () => {
     try { return (await cli('status')).model.version } catch (error) { console.log(String(error)); return 0 }
   }, { timeout: 20000 }).toBe(1)
@@ -47,7 +49,8 @@ test.beforeAll(async () => {
   await launch()
 })
 test.afterEach(async ({}, info) => {
-  if (info.status !== info.expectedStatus) console.log('FOCUS_DIAGNOSTICS', { frontmostPid: await frontmost(), expectedPid: application.process().pid, windows: await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), visible: window.isVisible() }))) })
+  await recordNativeFocus(application, info)
+  if (info.status !== info.expectedStatus) console.log('FOCUS_DIAGNOSTICS', { frontmostPid: await frontmost(), expectedPid: application.process().pid })
 })
 test.afterAll(async () => {
   for (let response of heldResponses) response.end()
@@ -226,6 +229,13 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
       }, { keyCode, modifiers })
     }
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
+    // Repeated activation must preserve the page's first responder and text caret.
+    await cli('eval', { tab: upper.activeTabId, expression: 'document.querySelector("#text").focus()' })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await cli('activate-client', { client: client.id })
+      expect(await focusedUrl()).toBe(`${url}/history-three`)
+      expect(await cli('eval', { tab: upper.activeTabId, expression: 'document.hasFocus() && document.activeElement.id === "text"' })).toBe(true)
+    }
     // Hand off the views to another native client, then refocus without a page click.
     let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
     otherClient = (await cli('attach-session', { session: session.id })).id
