@@ -153,6 +153,8 @@ plugin in bmux's `plugins` panel. Then run `passwords` or its fill action.
 Unlock once in bmux and choose a matching login. The main process keeps the session
 key in memory until bmux quits, your Mac locks or sleeps, or you disable the plugin.
 You do not need to save the key, export it in your shell, or add it to config.
+Temporary CLI lookup failures retain the session; the next action checks whether
+it is still valid instead of discarding it and requiring another unlock.
 An inherited `BW_SESSION` is consumed once at startup and excluded from plugin
 subprocesses. Passwords and keys never enter command arguments, config, clipboard,
 plugin results, or browser state. The CLI receives secrets through its private
@@ -163,6 +165,16 @@ This does not run `bw lock` or invalidate other CLI clients. A session invalidat
 outside bmux requires unlocking again on the next `passwords` action.
 Items with Bitwarden's master-password reprompt enabled require a fresh check for
 each selection; unlocking during that selection satisfies the check.
+That prompt says `Verify master password for this login` to distinguish it from
+unlocking the vault.
+
+While unlocked, focusing a recognized username or password field shows matching
+usernames in the status bar. Suggestions leave keyboard focus in the page so you
+can keep typing. Click a username to fill it without running `passwords` or opening
+another picker. Suggestions never unlock the vault themselves. Only account labels
+enter the UI; bmux rereads the selected login and checks the page and focused field
+before filling. Suggestions disappear when you leave the login field, change tabs
+or pages, or lock the vault. They use the same exact-origin rules below.
 
 Only results of the CLI's origin lookup with an exact matching HTTP(S) origin are
 offered. Different schemes, ports, subdomains, deleted items, and never-match URI

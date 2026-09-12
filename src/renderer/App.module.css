@@ -6,6 +6,9 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { color: #bdc9b4; flex-shrink: 0; }
+.passwordSuggestions { display: flex; align-items: center; gap: 10px; max-width: 50%; min-width: 100px; overflow-x: auto; -webkit-app-region: no-drag; }
+.passwordSuggestions span, .passwordSuggestions button { flex-shrink: 0; }
+.status .passwordSuggestions button { color: #c2d8a7; text-decoration: underline; text-underline-offset: 3px; }
 .windows { display: flex; gap: 10px; max-width: 42%; overflow-x: auto; flex-shrink: 1; }
 .windows button { flex-shrink: 0; }
 .drag { flex: 1; min-width: 24px; align-self: stretch; }

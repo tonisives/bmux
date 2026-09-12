@@ -33,6 +33,7 @@ export let createVault = (options: { executable?: string } = {}) => {
     child.on('close', code => finish(code !== 0 || signal?.aborted === true))
   })
   return {
+    hasSession: () => !!session,
     status: async (signal?: AbortSignal): Promise<{ status: string; userId?: string; serverUrl?: string }> => {
       try { return JSON.parse(await command(['status'], signal)) } catch { throw new Error('Could not check Bitwarden. Install bw and run bw login in a terminal.') }
     },

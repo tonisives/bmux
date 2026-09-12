@@ -67,6 +67,7 @@ export let createRuntime = (dataDirectory: string) => {
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
   let bitwarden: ReturnType<typeof createBitwarden> | undefined
+  let suggestionTimer: ReturnType<typeof setInterval> | undefined
   let lockVault = () => bitwarden?.systemLock()
   let unlockSystem = () => { if (powerMonitor.getSystemIdleState(1) !== 'locked') bitwarden?.systemUnlock() }
   let pageTools: ReturnType<typeof createPageTools> | undefined
@@ -107,7 +108,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ passwordSuggestions: bitwarden?.suggestions(clientId), bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -484,6 +485,12 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'bitwarden.select') {
+      if (!sourceClientId || !bitwarden || !plugins) throw new Error('Trusted UI required')
+      let context = pluginContext({ clientId: sourceClientId })
+      let id = await bitwarden.select(context, required(args, 'id'))
+      return plugins.run('bmux.bitwarden/fill', context, {}, true, id)
+    }
     if (method === 'bitwarden.lock') { bitwarden?.lock(); return { locked: true } }
     if (method === 'bitwarden.cancel') { bitwarden?.cancel(required(args, 'tab')); return { cancelled: true } }
     if (method.startsWith('forms.')) {
@@ -549,7 +556,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'state' || method === 'status') return state()
     if (method === 'client.overlay') {
       let client = resolve(model.clients, args.client, 'Client')
-      if (args.visible) overlays.add(client.id)
+      if (args.visible) { overlays.add(client.id); bitwarden?.clearSuggestions() }
       else overlays.delete(client.id)
       await scheduleVisuals(); return { visible: !!args.visible }
     }
@@ -871,6 +878,13 @@ export let createRuntime = (dataDirectory: string) => {
     powerMonitor.on('unlock-screen', unlockSystem)
     powerMonitor.on('resume', unlockSystem)
     plugins = createPlugins({ bitwarden: bitwarden.fill, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    suggestionTimer = setInterval(() => {
+      if (!focusedClientId || overlays.has(focusedClientId) || !configuration?.plugins['bmux.bitwarden']?.enabled) { bitwarden?.clearSuggestions(); return }
+      let context = pluginContext({ clientId: focusedClientId })
+      let contents = context.tabId ? tabs.get(context.tabId)?.view.webContents : undefined
+      if (contents && !contents.isDestroyed() && contents.isFocused()) void bitwarden?.suggest(context)
+    }, 300)
+    suggestionTimer.unref()
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -887,6 +901,7 @@ export let createRuntime = (dataDirectory: string) => {
     pageTools?.close()
     filters?.close()
     plugins?.close()
+    clearInterval(suggestionTimer)
     bitwarden?.close()
     powerMonitor.removeListener('lock-screen', lockVault)
     powerMonitor.removeListener('suspend', lockVault)

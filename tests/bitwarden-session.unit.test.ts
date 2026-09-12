@@ -13,6 +13,7 @@ let setup = () => {
   let unlocked = false, visible = true
   let form: LoginForm = { kind: 'combined', fields: [{ selector: '#user', role: 'username', expectedType: 'text' }, { selector: '#pass', role: 'password', expectedType: 'password', requireEmpty: true }] }
   let vault = {
+    hasSession: () => unlocked,
     status: vi.fn(async () => ({ status: unlocked ? 'unlocked' : 'locked', userId: 'account', serverUrl: 'https://vault.example.test' })),
     unlock: vi.fn(async () => { unlocked = true }), logins: vi.fn(async () => [login]), close: vi.fn(() => { unlocked = false }),
   }
@@ -22,7 +23,7 @@ let setup = () => {
   let progress = vi.fn()
   let fill = (signal = new AbortController().signal, target = { ...context }) => service.fill(target, signal, { ui, progress })
   cleanup.push(service.close)
-  return { service, fill, context, login, vault, browser, ui, progress, show: (value: boolean) => visible = value, form: (kind: LoginForm['kind']) => { form = { kind, fields: kind === 'username' ? [{ selector: '#user', role: 'username', expectedType: 'text' }] : kind === 'password' ? [{ selector: '#pass', role: 'password', expectedType: 'password', requireEmpty: true }] : [] } }, fills: () => browser.mock.calls.filter(call => call[0] === 'fill').length }
+  return { service, fill, context, login, vault, browser, ui, progress, focus: (selector?: string) => { form.focused = selector }, show: (value: boolean) => visible = value, form: (kind: LoginForm['kind']) => { form = { kind, fields: kind === 'username' ? [{ selector: '#user', role: 'username', expectedType: 'text' }] : kind === 'password' ? [{ selector: '#pass', role: 'password', expectedType: 'password', requireEmpty: true }] : [] } }, fills: () => browser.mock.calls.filter(call => call[0] === 'fill').length }
 }
 
 test('reuses an unlock across independent fills and clears it on explicit or system lock', async () => {
@@ -41,6 +42,7 @@ test('a fresh unlock satisfies reprompt, but a later selection requires a fresh 
   let f = setup(); f.login.reprompt = 1
   await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(1)
   await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(2)
+  expect(f.ui).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Verify master password for this login' }))
 })
 
 test('serializes concurrent unlocks without serializing browser operations', async () => {
@@ -101,12 +103,13 @@ test('a superseded attempt cannot cancel the replacement in the same tab', async
   expect(f.fills()).toBe(1)
 })
 
-test('invalid sessions clear the cache and request unlocking on the next invocation', async () => {
+test('transient lookup failures retain the unlock, while an invalidated session requires unlocking', async () => {
   let f = setup(); await f.fill()
   f.vault.logins.mockRejectedValueOnce(new Error('private CLI failure'))
   await expect(f.fill()).rejects.toThrow('Could not read Bitwarden')
   expect(JSON.stringify(f.progress.mock.calls)).not.toContain('private CLI failure')
-  await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(2)
+  await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+  f.vault.close(); await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(2)
 })
 
 test('waits through a focus transition before presenting a vault prompt', async () => {
@@ -116,4 +119,65 @@ test('waits through a focus transition before presenting a vault prompt', async 
   expect(f.ui).not.toHaveBeenCalled()
   f.show(true); await vi.advanceTimersByTimeAsync(150); await pending
   expect(f.fills()).toBe(1)
+})
+
+
+test('focusing a login field suggests account labels without prompting or exposing passwords', async () => {
+  let f = setup(); f.focus('#user')
+  await f.service.suggest(f.context)
+  expect(f.vault.status).not.toHaveBeenCalled()
+  expect(f.service.suggestions('client')).toBeUndefined()
+  await f.fill(); f.ui.mockClear(); f.focus('#user')
+  await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.items).toEqual([{ id: 'fixture', name: 'Fixture', username: 'fixture-user' }])
+  expect(JSON.stringify(f.service.suggestions('client'))).not.toContain('fixture-password')
+  expect(f.ui).not.toHaveBeenCalled()
+  let lookups = f.vault.logins.mock.calls.length
+  await f.service.suggest(f.context)
+  expect(f.vault.logins).toHaveBeenCalledTimes(lookups)
+  let selected = await f.service.select(f.context, 'fixture')
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.ui).not.toHaveBeenCalled()
+  expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+})
+
+test.each(['field', 'document', 'profile', 'background', 'lock'])('rejects a suggestion after changing %s', async reason => {
+  let f = setup(); await f.fill(); f.focus('#user'); await f.service.suggest(f.context)
+  if (reason === 'field') f.focus('#other')
+  if (reason === 'document') f.context.documentId = '2'
+  if (reason === 'profile') f.context.profileId = 'other-profile'
+  if (reason === 'background') f.show(false)
+  if (reason === 'lock') f.service.lock()
+  await expect(f.service.select(f.context, 'fixture')).rejects.toThrow()
+  expect(f.fills()).toBe(1)
+})
+
+test('leaving a login field hides suggestions and locking never opens an automatic prompt', async () => {
+  let f = setup(); await f.fill(); f.ui.mockClear(); f.focus('#user'); await f.service.suggest(f.context)
+  f.focus(); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')).toBeUndefined()
+  f.focus('#user'); await f.service.suggest(f.context)
+  f.service.lock(); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')).toBeUndefined()
+  expect(f.ui).not.toHaveBeenCalled()
+})
+
+test('a lookup that finishes after navigation cannot publish suggestions or clear the session', async () => {
+  let f = setup(); await f.fill(); f.focus('#user')
+  let finish!: (logins: VaultLogin[]) => void
+  f.vault.logins.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  let pending = f.service.suggest(f.context)
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  f.service.navigation('tab', 'https://elsewhere.test')
+  finish([f.login]); await pending
+  expect(f.service.suggestions('client')).toBeUndefined()
+  await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+})
+
+test('cancelling the picker after unlocking retains the session for field suggestions', async () => {
+  let f = setup(); f.ui.mockImplementation(async args => args.kind === 'password' ? 'fixture-master' : undefined)
+  await expect(f.fill()).rejects.toThrow('cancelled')
+  f.focus('#user'); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.items).toHaveLength(1)
+  expect(f.vault.unlock).toHaveBeenCalledTimes(1)
 })

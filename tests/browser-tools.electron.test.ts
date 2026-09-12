@@ -302,6 +302,53 @@ test('Mac locking cancels an open unlock prompt and discards the cached session'
   await expectVaultPassword()
 })
 
+let prepareSuggestions = async () => {
+  await rpc('plugin.enable', { id: 'bmux.bitwarden', enabled: true })
+  await command('passwords lock')
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-password` })
+  await chooseVaultLogin(true); await expectVaultPassword()
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` })
+  await activate(); await rpc('focus-page', { client: (await state()).clientId })
+  await page.locator('#vault-user').click()
+}
+
+test('an unlocked vault suggests usernames on field focus without taking page focus or unlocking again', async () => {
+  await prepareSuggestions()
+  let suggestions = chrome.getByRole('group', { name: 'Bitwarden logins' })
+  await expect(suggestions).toBeVisible()
+  await expect(chrome.getByRole('textbox', { name: 'Unlock Bitwarden', exact: true })).toHaveCount(0)
+  expect(await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/vault-user-dom`)
+  await page.keyboard.type('still-typing')
+  await expect(page.locator('#vault-user')).toHaveValue('still-typing')
+  await chrome.screenshot({ path: path.resolve('artifacts/password-suggestions.png') })
+  await suggestions.getByRole('button', { name: 'Fill login vault@example.test', exact: true }).click()
+  await expect(chrome.getByText('Fill this login over unencrypted HTTP?', { exact: true })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Yes', exact: true }).click()
+  await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
+  await expect(suggestions).toHaveCount(0)
+  await activate(); await page.locator('#next').click()
+  await expectVaultPassword()
+  await expect(chrome.getByRole('textbox', { name: `Login for ${url}`, exact: true })).toHaveCount(0)
+  let published = JSON.stringify(await state())
+  for (let secret of ['fixture-master', 'fixture-session', 'fixture-vault-password']) expect(published).not.toContain(secret)
+})
+
+test('suggestions disappear outside login fields and do not prompt when the vault is locked', async () => {
+  await prepareSuggestions()
+  await page.evaluate(() => { let search = document.createElement('input'); search.type = 'search'; search.id = 'search'; document.body.append(search) })
+  let suggestions = chrome.getByRole('group', { name: 'Bitwarden logins' })
+  await expect(suggestions).toBeVisible()
+  await page.locator('#search').click()
+  await expect(suggestions).toHaveCount(0)
+  await page.locator('#vault-user').click()
+  await expect(suggestions).toBeVisible()
+  await command('passwords lock')
+  await activate(); await rpc('focus-page', { client: (await state()).clientId }); await page.locator('#vault-user').click()
+  await page.waitForTimeout(800)
+  await expect(suggestions).toHaveCount(0)
+  await expect(chrome.getByRole('textbox', { name: 'Unlock Bitwarden', exact: true })).toHaveCount(0)
+})
+
 test('filter updates compile off-thread and retain working filters after a failed download', async () => {
   await application.evaluate(() => {
     let runtime = globalThis as any

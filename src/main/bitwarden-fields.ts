@@ -1,5 +1,5 @@
 export type LoginField = { selector: string; role: 'username' | 'password'; expectedType: string; requireEmpty?: boolean; loginPassword?: boolean }
-export type LoginForm = { kind: 'username' | 'password' | 'combined' | 'none' | 'ambiguous' | 'occupied'; fields: LoginField[] }
+export type LoginForm = { kind: 'username' | 'password' | 'combined' | 'none' | 'ambiguous' | 'occupied'; fields: LoginField[]; focused?: string }
 
 // This function runs in the page and returns field descriptions only.
 export let inspectLoginForm = (): LoginForm => {
@@ -33,5 +33,6 @@ export let inspectLoginForm = (): LoginForm => {
   let fields: LoginField[] = []
   if (username) fields.push({ selector: selector(username), role: 'username', expectedType: username.type })
   if (password) fields.push({ selector: selector(password), role: 'password', expectedType: 'password', requireEmpty: true, loginPassword: true })
-  return { kind: password ? username ? 'combined' : 'password' : 'username', fields }
+  let active = document.activeElement
+  return { kind: password ? username ? 'combined' : 'password' : 'username', fields, focused: active === username || active === password ? selector(active!) : undefined }
 }
