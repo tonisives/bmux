@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import net from 'node:net'
 import { createHash } from 'node:crypto'
-import { observeNativeFocus, recordNativeFocus } from './native-focus'
+import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 
 let exec = promisify(execFile)
 let root = process.cwd()
@@ -239,13 +239,7 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     await cli('select-pane', { client: client.id, pane: upper.id })
     let focusedUrl = () => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())
     let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
-      await expect.poll(focusedUrl).toBeTruthy()
-      await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
-        let contents = webContents.getFocusedWebContents()
-        if (!contents) throw new Error('No native keyboard focus')
-        contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-        contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-      }, { keyCode, modifiers })
+      await sendNativeKeys(application, [{ keyCode, modifiers }])
     }
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
     // Repeated activation must preserve the page's first responder and text caret.
@@ -511,15 +505,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
-    await expect.poll(() => application.evaluate(({ webContents }) => Boolean(webContents.getFocusedWebContents()))).toBe(true)
-    for (let event of events) {
-      await application.evaluate(({ webContents }, event) => {
-        let contents = webContents.getFocusedWebContents()!
-        contents.sendInputEvent({ type: 'keyDown', ...event })
-        contents.sendInputEvent({ type: 'keyUp', ...event })
-      }, event)
-      await chrome.waitForTimeout(30)
-    }
+    await sendNativeKeys(application, events)
   }
   await cli('focus-page', { client: client.id })
   await nativeKeys([{ keyCode: 'b', modifiers: ['control'] }, { keyCode: 'c' }])
@@ -591,16 +577,7 @@ test('window management shortcuts and keyboard session selection', async () => {
     await cli('focus-page', { client: client.id })
     let events: Omit<Electron.KeyboardInputEvent, 'type'>[] = [{ keyCode, modifiers }]
     if (prefix) events.unshift({ keyCode: 'b', modifiers: ['control'] })
-    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ webContents }) => !!webContents.getFocusedWebContents()) }).toBe(true)
-    // Send the chord together so process launches cannot outlast the prefix timeout.
-    await application.evaluate(async ({ webContents }, events) => {
-      for (let event of events) {
-        let contents = webContents.getFocusedWebContents()!
-        contents.sendInputEvent({ type: 'keyDown', ...event })
-        contents.sendInputEvent({ type: 'keyUp', ...event })
-        await new Promise(resolve => setTimeout(resolve, 30))
-      }
-    }, events)
+    await sendNativeKeys(application, events)
   }
   await shortcut(',')
   let rename = chrome.getByRole('textbox', { name: 'Rename window', exact: true })
@@ -665,12 +642,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
-    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ webContents }) => !!webContents.getFocusedWebContents()) }).toBe(true)
-    await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
-      let contents = webContents.getFocusedWebContents()!
-      contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-    }, { keyCode, modifiers })
+    await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
   await key(']')
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(second.id)
