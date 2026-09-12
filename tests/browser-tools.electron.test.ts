@@ -81,7 +81,7 @@ test.afterAll(async () => { await application?.close(); await new Promise<void>(
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return
   let current = await state().catch(() => undefined)
-  console.error('BROWSER_TOOLS_FAILURE', { focusedClientId: current?.focusedClientId, runs: current?.pluginRuns?.map((run: any) => ({ pluginId: run.pluginId, status: run.status, error: run.error })) })
+  console.error('BROWSER_TOOLS_FAILURE', { focusedClientId: current?.focusedClientId, popup: current?.passwordSuggestions && { locked: current.passwordSuggestions.locked, expanded: current.passwordSuggestions.expanded, busy: current.passwordSuggestions.busy, message: current.passwordSuggestions.message }, runs: current?.pluginRuns?.map((run: any) => ({ pluginId: run.pluginId, status: run.status, error: run.error })) })
 })
 
 test('blocks requests before they reach the server and runs scripts before page JavaScript', async () => {
@@ -480,4 +480,28 @@ test('filter updates compile off-thread and retain working filters after a faile
     let failed = (await rpc('browser.status')).filters
     expect(failed.error).toContain('Keeping the last working lists'); expect(failed.updatedAt).toBe(updated.updatedAt)
   } finally { await application.evaluate(() => { let runtime = globalThis as any; runtime.fetch = runtime.fixtureOriginalFetch; delete runtime.fixtureOriginalFetch }) }
+})
+
+
+test('the password popup survives app switching and a username field losing DOM focus', async () => {
+  await rpc('plugin.enable', { id: 'bmux.bitwarden', enabled: true }); await rpc('bitwarden.lock')
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` }); await focusVaultField()
+  await popup.getByRole('button', { name: 'Unlock Bitwarden', exact: true }).click()
+  let password = popup.getByLabel('Master password', { exact: true })
+  await password.fill('fixture-')
+  await application.evaluate(({ app }) => app.hide())
+  await expect.poll(async () => (await state()).focusedClientId).toBeNull()
+  await new Promise(resolve => setTimeout(resolve, 700))
+  await expect(password).toHaveValue('fixture-')
+  await activate()
+  await expect(password).toBeVisible()
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL().endsWith('#passwords'))).toBe(true)
+  await password.fill('fixture-master'); await password.press('Enter')
+  let account = popup.getByRole('button', { name: 'Fill login vault@example.test', exact: true })
+  await expect(account).toBeVisible()
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  await account.click()
+  await chrome.getByRole('button', { name: 'Yes', exact: true }).click()
+  await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
+  await rpc('bitwarden.cancel', { tab: tabId })
 })

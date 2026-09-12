@@ -17,6 +17,7 @@ type Options = {
   changed: () => void
   context: (target: PluginContext) => PluginContext
   interactive: (context: PluginContext) => boolean
+  selected?: (context: PluginContext) => boolean
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
   bitwarden?: (context: PluginContext, signal: AbortSignal, interaction: VaultInteraction, selectedLogin?: string) => Promise<unknown>
@@ -94,7 +95,7 @@ export let createPlugins = (options: Options) => {
     for (let run of runs.values()) {
       if (!live(run)) continue
       if (!settings[run.public.pluginId]?.enabled || (run.public.hook && !settings[run.public.pluginId]?.hooks)) { finish(run, 'cancelled'); continue }
-      if (run.pending && !options.interactive(run.context)) finish(run, 'cancelled')
+      if (run.pending && !(options.selected ?? options.interactive)(run.context)) finish(run, 'cancelled')
     }
   }
   let host = async (request: Record<string, unknown>) => {
