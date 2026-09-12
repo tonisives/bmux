@@ -36,7 +36,20 @@ Command and picker coverage includes fuzzy command selection, completion, histor
 
 Find coverage checks match counts, forward/backward wrapping, no matches, clearing highlights, tab isolation, and refresh after navigation. A pending CLI wait runs on the same tab while the test exercises native Command+F and the prompt; `find-counts.png` records its appearance. Public CLI tests distinguish attached, detached, visible, and hidden elements in background tabs, including offscreen content, quoted selectors, invalid requests, and unchanged client selections.
 
-Browser-tool coverage uses local filter lists, userscripts/styles, form fixtures, and fake Bitwarden CLI responses. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, password suggestions, unlock/session expiry, cancellation, and profile/tab isolation. This does not validate the experimental desktop pairing protocol against a live vault; its remaining setup and evidence are recorded in the [experimental plugin notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification).
+Browser-tool coverage uses local filter lists, userscripts/styles, form fixtures, and fake Bitwarden CLI responses. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, password suggestions, unlock/session expiry, cancellation, and profile/tab isolation.
+
+The separate live desktop check passed with Bitwarden 2026.8.0 and a disposable
+Vaultwarden 1.37.2 account in Tart. It verifies explicit pairing, unlocked and
+locked status, a fresh pairing after the desktop replaces its renderer on lock,
+HTTP confirmation, login selection, and filling a visible local native page
+without submission. The released desktop's serialized encrypted-response object
+is covered by the protocol regression; `pnpm check` now passes 95 unit tests.
+See the [experimental plugin notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification)
+and [repeatable setup](docs/bitwarden-desktop-test.md). Sanitized evidence is in
+`artifacts/tart/2026-09-12T11-19-19.762Z/`.
+The final integration run passed all 56 tests in 1.7 minutes
+(`artifacts/tart/2026-09-12T11-21-49.878Z/`), and packaging installed the build at
+`~/workspace/_tools/bmux.app` without restarting it.
 
 Frame cosmetics coverage forces separate renderer processes and checks nested
 cross-origin frames, script-disabled sandbox frames, `srcdoc`, `about:blank`,
