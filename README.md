@@ -55,7 +55,7 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 | Profile | Persistent cookies, site storage, cache, and permission choices |
 | Session | Named collection of internal windows |
 | Window | Named layout of browser panes |
-| Pane | One profile, with its own browser tabs |
+| Pane | One profile, with its own browser tab |
 | Client | A macOS window attached to a session |
 
 Clients choose their current internal window independently. The focused client hosts live browser views; other clients show captured previews. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
