@@ -39,6 +39,7 @@
   "dependencies": {
     "@ghostery/adblocker": "2.18.2",
     "darkreader": "^4.9.130",
+    "marked": "^18.0.12",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "yaml": "^2.9.0"

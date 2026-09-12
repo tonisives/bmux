@@ -9,8 +9,8 @@ export let SundayPage = () => <div className={css.page} id="top">
       <a className={css.brand} href="#top">bmux</a>
       <nav aria-label="Main navigation"><a href="#features">Features</a><a href="#install">Install</a><a href={GITHUB}>GitHub</a></nav>
     </header>
-    <main id="content"><Hero /><Features /><BrowserTools /><Install /></main>
-    <footer className={css.footer}><span>bmux</span><nav aria-label="Footer navigation"><a href={GITHUB}>GitHub</a><a href={`${GITHUB}/blob/main/LICENSE`}>MIT license</a><a href="https://tonis.dev">Made by Tõnis</a></nav></footer>
+    <main id="content"><Hero /><Features /><BrowserTools /><Integrations /><Install /></main>
+    <footer className={css.footer}><span>bmux</span><nav aria-label="Footer navigation"><a href={GITHUB}>GitHub</a><a href="/docs/license/">MIT license</a><a href="https://tonis.dev">Made by Tõnis</a></nav></footer>
   </div>
 </div>
 
@@ -31,12 +31,12 @@ let SplitPanes = () => <section className={css.feature} id="split-panes" aria-la
 </section>
 
 let Sessions = () => <section className={css.feature} id="switch-sessions" aria-labelledby="sessions-title">
-  <div className={css.featureHeading}><div><h2 id="sessions-title"><FeatureIcon name="sessions" />Switch sessions</h2><p>Keep a workspace for each project</p></div><a className={css.secondaryButton} href={`${GITHUB}#model`}>About sessions</a></div>
+  <div className={css.featureHeading}><div><h2 id="sessions-title"><FeatureIcon name="sessions" />Switch sessions</h2><p>Keep a workspace for each project</p></div><a className={css.secondaryButton} href="/docs/readme/#model">About sessions</a></div>
   <Capture id="switch-sessions" alt="The bmux session picker showing development, research and personal workspaces" />
 </section>
 
 let Agents = () => <section className={`${css.feature} ${css.agents}`} id="agents" aria-labelledby="agents-title">
-  <div className={css.featureHeading}><div><h2 id="agents-title"><FeatureIcon name="agent" />Run an agent</h2><p>Made for agents that browse, click, type and take screenshots through the CLI, with separate logins and background commands that keep your focus in place</p></div><a className={css.secondaryButton} href={`${GITHUB}/blob/main/AGENT.md`}>Agent guide</a></div>
+  <div className={css.featureHeading}><div><h2 id="agents-title"><FeatureIcon name="agent" />Run an agent</h2><p>Made for agents that browse, click, type and take screenshots through the CLI, with separate logins and background commands that keep your focus in place</p></div><a className={css.secondaryButton} href="/docs/agent/">Agent guide</a></div>
   <Capture id="run-agent" alt="A task added through the bmux CLI in the bot pane while the human pane stays selected" />
 </section>
 
@@ -52,8 +52,30 @@ let BrowserTools = () => <section className={css.toolsGrid} aria-label="More fea
   <article><h2><FeatureIcon name="tools" />Browser tools</h2><p>Ad blocking, dark mode and Bitwarden</p></article>
 </section>
 
+let integrations = [
+  { title: 'Ad blocking', status: 'Built in', description: 'Block ads and trackers', href: '/docs/browser-tools/#ad-and-tracker-blocking', icon: 'tools' },
+  { title: 'Dark Reader', status: 'Built in', description: 'Dark mode for websites', href: '/docs/browser-tools/#website-dark-mode', icon: 'tools' },
+  { title: 'Saved forms', status: 'Included', description: 'Save and fill non-password fields', href: '/docs/browser-tools/#saved-forms', icon: 'profiles' },
+  { title: 'Bitwarden CLI', status: 'Optional setup', description: 'Unlock your vault and fill logins', href: '/docs/browser-tools/#bitwarden', icon: 'profiles' },
+  { title: 'Scripts and plugins', status: 'Available', description: 'Page styles, scripts and local actions', href: '/docs/plugins/', icon: 'agent' },
+  { title: 'Bitwarden desktop', status: 'Experimental', description: 'Pair with the desktop app', href: '/docs/examples/plugins/experimental.bitwarden/', icon: 'tools' },
+] as const
+
+let Integrations = () => <section className={css.integrations} id="integrations" aria-labelledby="integrations-title">
+  <h2 id="integrations-title">Plugins and browser tools</h2>
+  <div className={css.integrationGrid}>{integrations.map(item => <Integration key={item.title} item={item} />)}</div>
+  <p className={css.extensionNote}>Chrome extensions are not supported <a href="/docs/readme/#current-boundaries">Current limits</a></p>
+  <a className={css.textLink} href="/docs/todo/">Development status</a>
+</section>
+
+let Integration = ({ item }: { item: typeof integrations[number] }) => <article className={css.integration}>
+  <FeatureIcon name={item.icon} />
+  <span className={css.badge}>{item.status}</span>
+  <h3>{item.title}</h3><p>{item.description}</p><a className={css.textLink} href={item.href}>Read more<span className={css.srOnly}> about {item.title}</span></a>
+</article>
+
 let Install = () => <section className={css.install} id="install" aria-labelledby="install-title">
-  <div><h2 id="install-title">Install on macOS</h2><p>Build from source with Node 24, pnpm 11 and Xcode Command Line Tools</p><p className={css.note}>Early preview · Unsigned build</p><a className={css.textLink} href={`${GITHUB}#get-started`}>Full setup instructions</a></div>
+  <div><h2 id="install-title">Install on macOS</h2><p>Build from source with Node 24, pnpm 11 and Xcode Command Line Tools</p><p className={css.note}>Early preview · Unsigned build</p><a className={css.textLink} href="/docs/readme/#get-started">Full setup instructions</a></div>
   <InstallCommands />
 </section>
 
@@ -68,7 +90,7 @@ let InstallCommands = () => {
     <div className={css.commandsHeader}><span>Build the app</span><button type="button" onClick={copyCommands}>Copy commands</button></div>
     <pre tabIndex={0} aria-label="Build commands"><code>{commands}</code></pre>
     <p>Output <code>build/bmux.app</code></p>
-    <a className={css.textLink} href={`${GITHUB}#custom-output-folder`}>Choose another output folder</a>
+    <a className={css.textLink} href="/docs/readme/#custom-output-folder">Choose another output folder</a>
     <span className={css.copyStatus} role="status">{copyStatus}</span>
   </div>
 }

@@ -13,7 +13,7 @@ guest using only local sample pages. Media lives under `public/cdn/product/`.
 
 Public product showcase at [bmux.tonis.dev](https://bmux.tonis.dev).
 
-The website uses React, TypeScript, CSS modules, and Vite. Its production HTML is pre-rendered, so the product information and links work before JavaScript loads. All feature sections and screenshots are visible without JavaScript. JavaScript adds the copy button. Screenshots show the real app with disposable local fixture pages.
+The website uses React, TypeScript, CSS modules, and Vite. Its production HTML is pre-rendered, so the product information and links work before JavaScript loads. All feature sections and screenshots are visible without JavaScript. JavaScript adds copying commands, the shortcuts popup, and the docs Back button. Screenshots show the real app with disposable local fixture pages.
 
 From the repository root:
 
@@ -51,3 +51,24 @@ pnpm test:ui
 ```
 
 The website makes no network requests for visitor analytics and requires no application secrets. The public source remains in the main bmux repository.
+
+## Documentation pages
+
+`/docs/` lists the guides generated from repository Markdown. The front page links
+to `/docs/readme/#model`, `/docs/agent/`, setup instructions and packaging options.
+Browser tools and plugin cards link to their guides, with built-in, optional and
+experimental labels matching the repository documentation. Chrome extensions are
+listed as unsupported; the backlog does not currently promise extension support.
+
+Vite imports the root Markdown files (excluding contributor instructions),
+`docs/*.md`, plugin example READMEs, this README and LICENSE. Changes reload locally
+and generate static HTML plus sitemap entries during `pnpm site:build`. The GitHub
+workflow also rebuilds when those source docs change. Markdown HTML is escaped,
+links use safe protocols, and links to included files resolve to local docs routes.
+GitHub source/edit links remain external.
+
+Docs use ordinary document navigation and the browser's native scroll restoration.
+Section links replace the current hash so Back skips in-page jumps. The sticky
+Back control returns through same-origin history, preserving the previous page position;
+visitors arriving directly or from another site get a home link. No scroll position
+is stored in a shared key, so tabs and browser history entries remain independent.
