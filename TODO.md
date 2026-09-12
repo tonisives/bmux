@@ -11,14 +11,14 @@ limitations.
 
 ## Browser tools
 
-- [ ] Extend cosmetic ad hiding into child frames; network filtering already covers
-  iframe requests. Keep page policies and sandboxing intact. See [BROWSER-TOOLS.md](BROWSER-TOOLS.md).
 - [ ] Verify the experimental Bitwarden desktop integration with a disposable vault:
   pairing approval, locked/unlocked state, and filling a local fixture. This requires
   user setup; see the [experiment's verification notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification).
 
 ## Completed
 
+- [x] Extend cosmetic ad hiding into nested, cross-origin, and sandboxed frames,
+  with live scope changes, navigation cleanup, and page policies preserved.
 - [x] Add title/URL search to the tab picker and name search to the session picker.
 - [x] Add bookmark search while preserving profile scope and folder context.
 - [x] Show find-in-page match counts and support previous matches in the prompt,

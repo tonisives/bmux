@@ -32,4 +32,13 @@ Find coverage checks match counts, forward/backward wrapping, no matches, cleari
 
 Browser-tool coverage uses local filter lists, userscripts/styles, form fixtures, and fake Bitwarden CLI responses. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, password suggestions, unlock/session expiry, cancellation, and profile/tab isolation. This does not validate the experimental desktop pairing protocol against a live vault; its remaining setup and evidence are recorded in the [experimental plugin notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification).
 
+Frame cosmetics coverage forces separate renderer processes and checks nested
+cross-origin frames, script-disabled sandbox frames, `srcdoc`, `about:blank`,
+strict CSP, host-specific rules, dynamic content, process swaps, and frame removal.
+Live site/profile changes also cover background tabs during a pending agent wait,
+with unchanged client selections and native focus. Assertions use Electron's frame
+tree and frame locators for script-disabled documents; a screenshot is saved as
+`frame-cosmetics.png`. Unit checks cover stale document work, transient failures,
+stylesheet cleanup, unrelated targets, and disposal.
+
 Accessibility coverage checks live configuration, invalid-edit recovery, startup persistence, and custom Command+bracket window switching. Native oVim validation uses the running app with its existing macOS accessibility permission: at depth 30, enabling bmux accessibility increased Grafana detection from six to seventeen elements. The installed build also detected seventeen Grafana elements with accessibility enabled solely through its startup config. Direct helper invocations from an untrusted terminal can return empty results and are not a valid native accessibility check.

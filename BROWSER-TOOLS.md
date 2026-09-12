@@ -15,8 +15,16 @@ Compilation runs in a worker outside the UI thread.
 Subresource requests are filtered before leaving the browser. CSS rules hide
 matching elements, including dynamic elements on visible pages. Ordinary
 main-frame navigation is allowed. Filter scriptlets, response-body rewriting, and
-extended cosmetic selectors are not implemented. Cosmetic hiding processes the
-main document; iframe requests still use network filtering.
+extended cosmetic selectors are not implemented. Cosmetic hiding covers the main
+document and nested frames, including cross-origin and sandboxed frames. Rules
+match each frame's own hostname; `about:blank` and `srcdoc` frames use the nearest
+containing HTTP(S) document. Other frame URL schemes are excluded.
+
+The top-level page's profile and site settings control blocking throughout its
+frames, as they do for network filtering. A site exception for an embedded origin
+applies when that origin is opened as the top-level page. Frame navigation and
+live setting changes refresh hiding in background tabs too; dynamic DOM tokens
+are rescanned every 2.5 seconds on visible pages.
 
 The panel shows blocked counts and the last 50 blocked resource hosts/types. It
 does not retain paths, query strings, headers, or bodies. Counts reset on navigation.
@@ -49,8 +57,11 @@ dark on --scope profile
 existing appearance. Use site exceptions for pages with their own preferred theme.
 Recoloring begins at DOM readiness. Dark Reader reuses an available page style
 nonce; strict policies without a compatible nonce can limit recoloring. bmux does
-not relax a page's content security policy. Ad-hiding CSS and user styles install
-through Chromium's user stylesheet API and are independent of page style policies.
+not relax a page's content security policy. Main-document ad-hiding CSS and user
+styles install through Chromium's user stylesheet API. Frame ad hiding uses
+dedicated inspector stylesheets through the [Chromium CSS protocol](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-createStyleSheet).
+Both operate independently of page style policies. Inspector sheets use author
+cascade priority, so inline `!important` styles can override frame hiding rules.
 
 ## Scope and configuration
 
