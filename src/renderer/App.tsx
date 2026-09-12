@@ -5,6 +5,7 @@ import css from './App.module.css'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
+import { searchBookmarks } from '../shared/picker-search'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -54,7 +55,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousControl.current === 'tabs' || previousControl.current === 'sessions'
+    let restoreFocus = ['tabs', 'sessions', 'bookmarks', 'find'].includes(previousControl.current ?? '')
     previousControl.current = control
     let cancelled = false
     // Child layout effects publish the selected tab's bounds before it receives focus.
@@ -76,7 +77,7 @@ export let App = () => {
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <Prompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} onMessage={setMessage} /> : <Status message={control === 'address' ? '' : message} />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status message={control === 'address' ? '' : message} />}
     </footer>
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
@@ -209,10 +210,10 @@ let CommandPrompt = () => {
     </section></>
 }
 
-let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' | 'find'; onMessage: (message: string) => void }) => {
-  let { state, run, dismiss } = useUI()
+let AddressPrompt = () => {
+  let { state, run, dismiss, message, onMessage } = useUI()
   let { client, pane, tab } = selection(state)
-  let [text, setText] = useState(mode === 'address' && tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
+  let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
@@ -224,11 +225,11 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
     if (!text.trim() || busy) return
     setBusy(true)
     let target = tab?.id
-    if (!target && mode === 'address') {
+    if (!target) {
       let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { activeTabId: string } | undefined
       target = created?.activeTabId
     }
-    let result = target ? await run(mode === 'address' ? 'navigate' : 'find', { tab: target, ...(mode === 'address' ? { url: text, waitUntil: 'none' } : { text, next: true }) }) : undefined
+    let result = target ? await run('navigate', { tab: target, url: text, waitUntil: 'none' }) : undefined
     if (!mounted.current) return
     setBusy(false)
     if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
@@ -236,9 +237,44 @@ let Prompt = ({ mode, message, onMessage }: { message: string; mode: 'address' |
     void run('focus-page', { client: client!.id })
   }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Escape') { dismiss(); void run('focus-page', { client: client!.id }); return }
+    if (event.key === 'Escape') { dismiss(); void run('focus-page', { client: client!.id }) }
   }
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">{mode === 'find' ? '/' : 'open'}</label><input id="prompt" ref={ref} aria-label={mode === 'address' ? 'URL or search' : 'Find in page'} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><input id="prompt" ref={ref} aria-label="URL or search" value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+}
+
+let FindPrompt = () => {
+  let { state, run, message, onMessage, dismiss } = useUI()
+  let { tab } = selection(state)
+  let loading = !!(tab && state.loading[tab.id])
+  let [text, setText] = useState('')
+  let ref = useRef<HTMLInputElement>(null)
+  let timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
+  useEffect(() => {
+    if (!tab || loading) return
+    timer.current = setTimeout(() => { void run('find', { tab: tab.id, text }) }, text ? 120 : 0)
+    return () => clearTimeout(timer.current)
+  }, [text, tab?.id, loading, run])
+  useEffect(() => () => {
+    if (tab) void bridge.command({ method: 'find', args: { tab: tab.id, text: '' } }).catch(() => undefined)
+  }, [tab?.id])
+  let result = tab ? state.findResults?.[tab.id] : undefined
+  let current = result?.text === text ? result : undefined
+  let change = (event: ChangeEvent<HTMLInputElement>) => { onMessage(''); setText(event.target.value) }
+  let search = (forward = true) => {
+    clearTimeout(timer.current)
+    if (tab && text) void run('find', { tab: tab.id, text, next: current !== undefined, forward })
+    ref.current?.focus()
+  }
+  let next = () => search(), previous = () => search(false)
+  let submit = (event: FormEvent) => { event.preventDefault(); search() }
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); search(false) }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss() }
+  }
+  let summary = !text ? 'Enter next · Shift+Enter previous · Esc close' : !current?.finalUpdate ? 'Searching…' : current.matches ? `${current.activeMatchOrdinal} / ${current.matches}` : 'No matches'
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="find">/</label><input id="find" ref={ref} aria-label="Find in page" value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} /><span className={message ? css.error : undefined} role="status" aria-label="Find results">{message || summary}</span><button type="button" onClick={previous} disabled={!text} aria-label="Previous match">Previous</button><button type="button" onClick={next} disabled={!text} aria-label="Next match">Next</button></form>
 }
 
 let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: string }) => {
@@ -276,14 +312,14 @@ let EmptyPane = ({ paneId }: { paneId?: string }) => {
   return <div className={css.empty}><button onClick={open}>Cmd+L to open a URL</button></div>
 }
 let PaneAddress = ({ paneId }: { paneId?: string }) => {
-  let { state, control, message, onMessage, show } = useUI()
+  let { state, control, show } = useUI()
   let { client, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
   let open = () => show('address', paneId)
   return <div className={css.addressBar} role="group" aria-label="Pane address">
-    {editing ? <Prompt key={tab?.id ?? 'empty'} mode="address" message={message} onMessage={onMessage} /> : <button onClick={open} aria-label="Address" className={css.location} title={tab?.url}>{tab?.url && tab.url !== 'about:blank' ? tab.url : 'Cmd+L to open a URL'}</button>}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={tab?.url}>{tab?.url && tab.url !== 'about:blank' ? tab.url : 'Cmd+L to open a URL'}</button>}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
   </div>
 }
@@ -331,9 +367,8 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
-  let { profile } = selection(state)
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'tabs', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  useEffect(() => { if (!['help', 'sessions', 'tabs', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
@@ -345,7 +380,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'sessions' && <SessionPicker />}
     {type === 'tabs' && <TabPicker />}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
-    {type === 'bookmarks' && <><p>Profile: {profile?.name ?? 'No selected pane'}</p>{profile?.bookmarks?.length ? profile.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} />) : <p>No bookmarks in this profile.</p>}</>}
+    {type === 'bookmarks' && <BookmarkPicker />}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
   </div></div>
 }
@@ -396,23 +431,34 @@ let PluginDialog = () => {
   </form>}</>
 }
 let usePickerNavigation = () => {
+  let [query, setQuery] = useState('')
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]')?.focus() }, [])
+  let input = useRef<HTMLInputElement>(null)
+  useEffect(() => { (ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]') ?? input.current)?.focus() }, [])
+  let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey) return
+    let editing = event.target === input.current
+    if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); input.current?.focus(); return }
+    if (event.key === '/' && !editing) { event.preventDefault(); input.current?.focus(); input.current?.select(); return }
+    if (!editing && event.key.length === 1 && event.key !== ' ') { event.preventDefault(); setQuery(query + event.key); input.current?.focus(); return }
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')].filter(row => row.getClientRects().length)
+    if (editing && event.key === 'Enter') { event.preventDefault(); rows[0]?.click(); return }
+    if (editing && ['Home', 'End'].includes(event.key)) return
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
     event.preventDefault()
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button')]
     let index = rows.findIndex(row => row === document.activeElement)
     let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
     let row = rows[Math.max(0, Math.min(rows.length - 1, next))]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
   }
-  return { ref, keys }
+  return { ref, keys, input, query, change }
 }
 let SessionPicker = () => {
   let { state } = useUI()
-  let { ref, keys } = usePickerNavigation()
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><p>Up/Down to move, Enter to attach, Escape to cancel.</p>{state.model.sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}</div>
+  let { ref, keys, input, query, change } = usePickerNavigation()
+  let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><label>Search sessions<input ref={input} className={css.pluginInput} value={query} onChange={change} autoComplete="off" spellCheck={false} /></label><p>Type or / to search. Up/Down to move, Enter to attach. Escape clears search, then closes.</p>{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
@@ -423,20 +469,28 @@ let SessionRow = ({ id, name }: { id: string; name: string }) => {
 let TabPicker = () => {
   let { state } = useUI()
   let { pane, profile } = selection(state)
-  let { ref, keys } = usePickerNavigation()
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose tab"><p>Profile: {profile?.name}</p><p>Up/Down to move, Enter to select, Escape to cancel.</p>{pane?.tabs.map((tab, index) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane.activeTabId} />)}</div>
+  let { ref, keys, input, query, change } = usePickerNavigation()
+  let tabs = pane?.tabs.map((tab, index) => ({ tab, index })).filter(({ tab }) => fuzzyMatch(query, `${tab.title} ${tab.url}`)) ?? []
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose tab"><p>Profile: {profile?.name}</p><label>Search tabs<input ref={input} className={css.pluginInput} value={query} onChange={change} placeholder="Title or URL" autoComplete="off" spellCheck={false} /></label><p>Type or / to search. Up/Down to move, Enter to select. Escape clears search, then closes.</p>{tabs.map(({ tab, index }) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane!.activeTabId} />)}{!tabs.length && <p role="status">No matching tabs.</p>}</div>
 }
 let TabRow = ({ id, label, url, active }: { id: string; label: string; url: string; active: boolean }) => {
   let { run, dismiss } = useUI()
   // A changed selection closes the picker when App receives the new state and bounds.
   let select = async () => { if (await run('tab.select', { tab: id }) && active) dismiss() }
-  return <button className={css.row} onClick={select} title={url} data-active={active} aria-current={active ? 'true' : undefined}>{label}{active ? ' *' : ''}</button>
+  return <button className={css.row} onClick={select} title={url} data-active={active} aria-current={active ? 'true' : undefined}>{label}{active ? ' *' : ''}<span className={css.pluginDescription}>{url}</span></button>
+}
+let BookmarkPicker = () => {
+  let { state } = useUI()
+  let { profile } = selection(state)
+  let { ref, keys, input, query, change } = usePickerNavigation()
+  let bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><p>Profile: {profile?.name ?? 'No selected pane'}</p><label>Search bookmarks<input ref={input} className={css.pluginInput} value={query} onChange={change} placeholder="Title, URL, or folder" autoComplete="off" spellCheck={false} /></label><p>Up/Down to move, Enter to open. Escape clears search, then closes.</p>{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
 }
 let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
-  let { state, run, dismiss } = useUI()
+  let { state, run } = useUI()
   let { client } = selection(state)
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
-  let activate = async () => { if (supported && client?.paneId && await run('tab.create', { pane: client.paneId, url: bookmark.url, client: client.id })) dismiss() }
+  let activate = () => { if (supported && client?.paneId) void run('tab.create', { pane: client.paneId, url: bookmark.url, client: client.id }) }
   if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} />)}</div></details>
   return <button className={css.row} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
 }

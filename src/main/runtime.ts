@@ -2,7 +2,7 @@ import { app, BaseWindow, WebContentsView, session as electronSession, shell, di
 import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, Download, Model, Permission, PublicState, Snapshot } from '../shared/types'
+import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -18,6 +18,7 @@ import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
 import { createBitwarden } from './bitwarden'
 import { createPageTools } from './page-tools'
+import { waitOptions } from './wait'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
 
@@ -49,6 +50,7 @@ export let createRuntime = (dataDirectory: string) => {
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
+  let findResults: Record<string, FindResult> = {}
   let permissions = new Map<string, PendingPermission>()
   let permissionGrants = new Map<string, boolean>()
   let downloads: Download[] = []
@@ -108,7 +110,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ passwordSuggestions: bitwarden?.suggestions(clientId), bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, passwordSuggestions: bitwarden?.suggestions(clientId), bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -276,7 +278,14 @@ export let createRuntime = (dataDirectory: string) => {
     let bootstrapping = !popupOptions
     let ready = (pageTools?.attach(tabId, pane.profileId, contents, !popupOptions) ?? Promise.resolve()).finally(() => { bootstrapping = false })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
-    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) filters?.reset(tabId) })
+    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { filters?.reset(tabId); delete findResults[tabId]; publish() } })
+    contents.on('found-in-page', (_event, result) => {
+      let current = findResults[tabId]
+      if (live.disposed || current?.requestId !== result.requestId) return
+      findResults[tabId] = { ...current, matches: result.matches, activeMatchOrdinal: result.activeMatchOrdinal, finalUpdate: result.finalUpdate }
+      publish()
+    })
+    contents.on('render-process-gone', () => { delete findResults[tabId] })
     let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, url, _inPlace, mainFrame) => { if (mainFrame) { bitwarden?.navigation(tabId, url); invalidate() } })
     contents.on('will-redirect', (_event, url, _inPlace, mainFrame) => { if (mainFrame) bitwarden?.navigation(tabId, url) })
@@ -350,6 +359,7 @@ export let createRuntime = (dataDirectory: string) => {
     delete snapshots[tabId]
     delete crashes[tabId]
     delete loading[tabId]
+    delete findResults[tabId]
   }
   let visiblePaneIds = (client: Client) => model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
   let moveView = (live: LiveTab, parent: BaseWindow) => {
@@ -756,6 +766,18 @@ export let createRuntime = (dataDirectory: string) => {
       return response.response === 1
     }
     if (method === 'quit') { setTimeout(() => app.quit(), 100); return { quitting: true } }
+    if (method === 'find') {
+      let tabId = required(args, 'tab'); tabById(model, tabId)
+      let contents = tabs.get(tabId)?.view.webContents
+      if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
+      let text = String(args.text ?? '')
+      if (!text) { contents.stopFindInPage('clearSelection'); delete findResults[tabId]; publish(); return { text } }
+      let current = findResults[tabId], repeat = args.next === true && current?.text === text
+      // Electron's findNext option starts a new session when true.
+      let requestId = contents.findInPage(text, { findNext: !repeat, forward: args.forward !== false })
+      findResults[tabId] = { requestId, text, matches: repeat ? current.matches : 0, activeMatchOrdinal: repeat ? current.activeMatchOrdinal : 0, finalUpdate: false }
+      publish(); return { text, requestId }
+    }
     if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
       let contents = tabs.get(tabId)?.view.webContents
@@ -796,7 +818,6 @@ export let createRuntime = (dataDirectory: string) => {
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
         if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { tab: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
-        if (method === 'find') { let text = String(args.text ?? ''); if (!text) contents.stopFindInPage('clearSelection'); else contents.findInPage(text, { findNext: args.next === true, forward: args.forward !== false }); return { text } }
         if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
         if (method === 'eval') {
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: required(args, 'expression'), awaitPromise: true, returnByValue: true, timeout: 15000 })
@@ -823,12 +844,12 @@ export let createRuntime = (dataDirectory: string) => {
           return { tab: tabId, path: target, fullPage: args.fullPage !== false }
         }
         if (method === 'wait') {
-          let timeout = Math.min(60000, Math.max(1, Number(args.timeout ?? 15000)))
+          let { timeout, ms, expression } = waitOptions(args)
           let started = Date.now()
-          if (args.ms !== undefined) { await sleep(Math.min(timeout, Math.max(0, Number(args.ms)))); return { waited: Date.now() - started } }
-          let expression = args.expression ? String(args.expression) : `!!document.querySelector(${JSON.stringify(required(args, 'selector'))})`
+          if (ms !== undefined) { await sleep(ms); return { waited: Date.now() - started } }
           while (Date.now() - started < timeout) {
             let result = await cdp(tabId, 'Runtime.evaluate', { expression, returnByValue: true })
+            if (result.exceptionDetails) throw new Error(args.selector !== undefined ? 'Invalid wait selector' : 'Wait expression threw an error')
             if (result.result.value) return { matched: true }
             await sleep(100)
           }

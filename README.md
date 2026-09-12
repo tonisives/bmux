@@ -153,9 +153,13 @@ The default prefix is Control+B, followed within 1.6 seconds by:
 | ( / ) | Previous / next session |
 | d | Detach client |
 
-In the session picker (Control+B, then s), Up/Down moves the highlight, Enter attaches, and Escape cancels without switching. Home/End jumps to the ends; PageUp/PageDown moves ten rows. The current session is focused when the picker opens.
+In the session picker (Control+B, then s), type or press `/` to search session names. Up/Down moves the highlight and Enter attaches. Home/End jumps to the ends while a row is focused; PageUp/PageDown moves ten rows. The current session is focused when the picker opens. Escape clears the search first; another Escape closes without switching.
 
-The tab picker (`tabs` in the command prompt, or click `profile:` in the status bar) starts with the active tab focused. Up/Down moves the highlight, Home/End jumps to the ends, and PageUp/PageDown moves ten rows. Enter selects the highlighted tab; Escape closes the picker without switching. To open it with a direct shortcut, assign a binding to `tabs` in your keyboard config.
+The tab picker (`tabs` in the command prompt, or click `profile:` in the status bar) starts with the active tab focused and uses the same keyboard controls. Search matches titles and URLs in the selected pane, keeping the original tab indices. Enter selects the highlighted tab, or the first result while typing. To open it with a direct shortcut, assign a binding to `tabs` in your keyboard config.
+
+The `bookmarks` picker searches titles, URLs, and folder names within the selected pane's profile. Matching bookmarks retain their folder context. Up/Down moves between supported bookmarks and Enter opens a new tab. Escape clears the search before closing. Picker searches support case-insensitive fuzzy matching and multiple terms in any order.
+
+Command+F opens Find in the status bar and searches as you type, showing the current match and total count. Enter or Next moves forward; Shift+Enter or Previous moves backward. Escape clears the highlights and restores page focus. Find stays responsive during background CLI waits and refreshes after navigation.
 
 Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
 

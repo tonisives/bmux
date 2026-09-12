@@ -1,15 +1,7 @@
 # Development backlog
 
 This list tracks follow-up work from the current implementation and documented
-limitations. Items under Next are proposed priorities and can be reordered.
-
-## Next
-
-- [ ] Add title/URL search to the tab picker and name search to the session picker.
-- [ ] Add bookmark search while preserving profile scope and folder context.
-- [ ] Show find-in-page match counts and support previous matches in the prompt.
-- [ ] Refresh `VERIFICATION.md`: remove stale test counts and the default-icon claim,
-  and document coverage for browser tools and command search.
+limitations.
 
 ## Browser tools
 
@@ -21,6 +13,13 @@ limitations. Items under Next are proposed priorities and can be reordered.
 
 ## Completed
 
+- [x] Add title/URL search to the tab picker and name search to the session picker.
+- [x] Add bookmark search while preserving profile scope and folder context.
+- [x] Show find-in-page match counts and support previous matches in the prompt,
+  independently of pending agent waits.
+- [x] Add CLI selector waits for attached, detached, visible, and hidden states,
+  with validation and background-tab coverage.
+- [x] Refresh `VERIFICATION.md` and document browser-tool and command-search coverage.
 - [x] Add keyboard navigation to the tab picker, including initial active-tab focus,
   arrow keys, Home/End, PageUp/PageDown, Enter selection, Escape cancellation, and
   keyboard focus restoration after the selected page attaches.

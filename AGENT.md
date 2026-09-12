@@ -21,6 +21,10 @@ Every response is JSON. Keep the returned tab ID for subsequent commands. New ta
 ```sh
 bmux navigate -t <tab-id> https://example.com
 bmux wait -t <tab-id> --selector 'main' --timeout 15000
+bmux wait -t <tab-id> --selector '#results' --state visible
+bmux wait -t <tab-id> --selector '.spinner' --state hidden
+bmux wait -t <tab-id> --selector '.loading-overlay' --state detached
+bmux wait -t <tab-id> --expression 'window.appReady === true'
 bmux dom -t <tab-id>
 bmux dom -t <tab-id> --html
 bmux eval -t <tab-id> 'document.title'
@@ -35,13 +39,22 @@ bmux screenshot -t <tab-id> --output /tmp/viewport.png --viewport
 
 `type` inserts text at the focused input's cursor; it does not clear the field first. CSS selectors address the main document. Use raw CDP for frame-specific actions, file uploads, or more advanced operations.
 
+`wait` accepts exactly one of `--selector`, `--expression`, or `--ms`. Selector waits
+inspect the first match. The default state, `attached`, checks DOM presence;
+`detached` waits for absence. `visible` requires a nonempty bounding box and CSS
+visibility other than hidden or collapse. `hidden` also succeeds when the element
+is absent. Opacity, viewport position, and which client displays the tab do not
+affect this visibility check. These waits work on background tabs without changing
+client selections. Timeouts default to 15 seconds and are capped at 60 seconds;
+invalid selectors, states, durations, and throwing expressions report errors.
+
 ```sh
 bmux cdp -t <tab-id> Page.getLayoutMetrics
 bmux cdp -t <tab-id> Runtime.evaluate '{"expression":"document.title","returnByValue":true}'
 bmux rpc wait '{"tab":"<tab-id>","expression":"document.readyState === \"complete\"","timeout":15000}'
 ```
 
-Raw CDP uses Electron's debugger connection and returns the protocol result. This is a per-tab command interface, not an external Playwright connection endpoint. Browser method calls are serialized per tab. Independent tabs can be controlled concurrently; agents should use separate tabs to avoid interfering with one another.
+Raw CDP uses Electron's debugger connection and returns the protocol result. This is a per-tab command interface, not an external Playwright connection endpoint. Automation calls are serialized per tab. Human controls, including Find, view attachment, and navigation shortcuts, remain independent of that queue. Independent tabs can be controlled concurrently; agents should use separate tabs to avoid interfering with one another.
 
 The screenshot path is returned after the PNG is written. Full-page capture includes the current document below the viewport without changing the native client selection. It does not load every item on infinite-scroll pages automatically.
 

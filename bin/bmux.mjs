@@ -29,7 +29,8 @@ Tabs:     tab list [--pane PANE] | tab new --pane PANE [URL] | tab select -t TAB
 Browser:  navigate -t TAB URL | dom -t TAB [--html] | eval -t TAB EXPRESSION [--file FILE]
           screenshot -t TAB --output FILE [--viewport]
           click -t TAB --selector CSS | type -t TAB --selector CSS --text TEXT
-          key -t TAB Enter | wait -t TAB --selector CSS [--timeout 15000]
+          key -t TAB Enter | wait -t TAB --selector CSS [--state attached|detached|visible|hidden] [--timeout 15000]
+          wait -t TAB --expression JS | wait -t TAB --ms 1000
           cdp -t TAB METHOD [JSON_PARAMS] | back -t TAB | forward -t TAB | reload -t TAB
 Tools:    dark on|off|system|inherit -t TAB [--scope site|profile|global]
           adblock on|off|inherit -t TAB [--scope site|profile|global]
