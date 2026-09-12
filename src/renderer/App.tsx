@@ -38,6 +38,7 @@ export let App = () => {
       }
       accept(current)
     }
+    void run('focus-ui')
     setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {

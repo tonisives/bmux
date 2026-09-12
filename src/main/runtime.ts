@@ -417,7 +417,8 @@ export let createRuntime = (dataDirectory: string) => {
     let activeIds = new Set(client ? visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.activeTabId) : [])
     for (let [tabId, live] of tabs) {
       let bounds = owner?.bounds.find(bounds => bounds.tabId === tabId)
-      let target = owner && bounds && activeIds.has(tabId) && !crashes[tabId] && tabById(model, tabId).tab.url !== 'about:blank' ? owner.window : parkHost(tabById(model, tabId).pane.profileId)
+      // The first navigation needs a native focus target before its URL commits.
+      let target = owner && bounds && activeIds.has(tabId) && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || loading[tabId]) ? owner.window : parkHost(tabById(model, tabId).pane.profileId)
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
@@ -593,6 +594,12 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'settings.reload') { configuration?.reload(); if (configuration?.error) throw new Error(configuration.error); return { path: configuration?.path } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
+    if (method === 'focus-ui') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let owner = clients.get(sourceClientId)
+      if (sourceClientId === focusedClientId && owner?.window.isFocused()) owner.chrome.webContents.focus()
+      return null
+    }
     if (method === 'focus-page') {
       let client = resolve(model.clients, args.client, 'Client')
       await visualQueue
