@@ -23,7 +23,7 @@ let setup = () => {
   let progress = vi.fn()
   let fill = (signal = new AbortController().signal, target = { ...context }) => service.fill(target, signal, { ui, progress })
   cleanup.push(service.close)
-  return { service, fill, context, login, vault, browser, ui, progress, focus: (selector?: string) => { form.focused = selector }, show: (value: boolean) => visible = value, form: (kind: LoginForm['kind']) => { form = { kind, fields: kind === 'username' ? [{ selector: '#user', role: 'username', expectedType: 'text' }] : kind === 'password' ? [{ selector: '#pass', role: 'password', expectedType: 'password', requireEmpty: true }] : [] } }, fills: () => browser.mock.calls.filter(call => call[0] === 'fill').length }
+  return { service, fill, context, login, vault, browser, ui, progress, focus: (selector?: string) => { form.focused = selector; form.anchor = selector ? { x: 40, y: 60, width: 220, height: 30 } : undefined }, show: (value: boolean) => visible = value, form: (kind: LoginForm['kind']) => { form = { kind, fields: kind === 'username' ? [{ selector: '#user', role: 'username', expectedType: 'text' }] : kind === 'password' ? [{ selector: '#pass', role: 'password', expectedType: 'password', requireEmpty: true }] : [] } }, fills: () => browser.mock.calls.filter(call => call[0] === 'fill').length }
 }
 
 test('reuses an unlock across independent fills and clears it on explicit or system lock', async () => {
@@ -128,10 +128,11 @@ test('focusing a login field offers unlocking, then account labels without expos
   expect(f.vault.status).not.toHaveBeenCalled()
   expect(f.vault.logins).not.toHaveBeenCalled()
   expect(f.ui).not.toHaveBeenCalled()
-  expect(f.service.suggestions('client')).toEqual({ tabId: 'tab', origin: 'https://example.test', locked: true, items: [] })
+  expect(f.service.suggestions('client')).toMatchObject({ tabId: 'tab', origin: 'https://example.test', locked: true, items: [] })
   await expect(f.service.select(f.context, 'fixture')).rejects.toThrow('expired')
-  expect(await f.service.select(f.context)).toBeUndefined()
-  await f.fill(); f.ui.mockClear(); f.focus('#user')
+  await f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  expect(f.service.suggestions('client')?.items).toHaveLength(1)
+  f.ui.mockClear(); f.focus('#user')
   await f.service.suggest(f.context)
   expect(f.service.suggestions('client')?.locked).toBe(false)
   expect(f.service.suggestions('client')?.items).toEqual([{ id: 'fixture', name: 'Fixture', username: 'fixture-user' }])
@@ -150,12 +151,14 @@ for (let unlocked of [false, true]) {
   test.each(['field', 'document', 'profile', 'background', 'lock'])(`rejects an ${unlocked ? 'account' : 'unlock'} suggestion after changing %s`, async reason => {
     let f = setup(); if (unlocked) await f.fill()
     f.focus('#user'); await f.service.suggest(f.context)
+    let suggestionId = f.service.suggestions('client')!.id
     if (reason === 'field') f.focus('#other')
     if (reason === 'document') f.context.documentId = '2'
     if (reason === 'profile') f.context.profileId = 'other-profile'
     if (reason === 'background') f.show(false)
     if (reason === 'lock') f.service.lock()
-    await expect(f.service.select(f.context, unlocked ? 'fixture' : undefined)).rejects.toThrow()
+    if (unlocked) await expect(f.service.select(f.context, 'fixture')).rejects.toThrow()
+    else await expect(f.service.loadSuggestions(f.context, suggestionId, 'fixture-master')).rejects.toThrow()
     expect(f.fills()).toBe(unlocked ? 1 : 0)
   })
 }
@@ -192,4 +195,108 @@ test('cancelling the picker after unlocking retains the session for field sugges
   f.focus('#user'); await f.service.suggest(f.context)
   expect(f.service.suggestions('client')?.items).toHaveLength(1)
   expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+})
+
+test('unlocking loads choices immediately and refocusing keeps the same unlocked vault', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  await f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  expect(f.service.suggestions('client')).toMatchObject({ locked: false, busy: false, items: [{ id: 'fixture' }] })
+  f.focus(); await f.service.suggest(f.context)
+  f.focus('#user'); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.items).toHaveLength(1)
+  expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+  expect(f.ui).not.toHaveBeenCalled()
+})
+
+test.each(['empty', 'failure'])('an unlocked %s lookup has a visible result and retains the session', async mode => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  if (mode === 'empty') f.vault.logins.mockResolvedValueOnce([])
+  else f.vault.logins.mockRejectedValueOnce(new Error('private CLI failure'))
+  await f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  let result = f.service.suggestions('client')!
+  expect(result).toMatchObject({ locked: false, busy: false, items: [] })
+  if (mode === 'failure') expect(result.message).toContain('still unlocked')
+  expect(JSON.stringify(result)).not.toContain('private CLI failure')
+  await f.service.loadSuggestions(f.context, result.id)
+  expect(f.service.suggestions('client')?.items).toHaveLength(1)
+  expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+})
+
+test('an unlock that returns an unusable session is reported in the popup', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  f.vault.unlock.mockImplementationOnce(async () => undefined)
+  await f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  expect(f.service.suggestions('client')).toMatchObject({ locked: true, busy: false, items: [], message: 'Bitwarden did not retain the unlock. Try again.' })
+  expect(f.vault.logins).not.toHaveBeenCalled()
+})
+
+test('dismissal lasts until the login field is left, and stale popup actions are rejected', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let old = f.service.suggestions('client')!.id
+  f.service.dismiss(); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')).toBeUndefined()
+  f.focus(); await f.service.suggest(f.context)
+  f.focus('#user'); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.id).not.toBe(old)
+  await expect(f.service.loadSuggestions(f.context, old, 'fixture-master')).rejects.toThrow('expired')
+  expect(f.vault.unlock).not.toHaveBeenCalled()
+})
+
+test('navigation during a slow unlock cannot publish accounts on another document', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let finish!: () => void
+  f.vault.unlock.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  let pending = f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  f.service.navigation('tab', 'https://elsewhere.test'); f.context.documentId = '2'
+  finish(); await pending
+  expect(f.service.suggestions('client')).toBeUndefined()
+  expect(f.vault.logins).not.toHaveBeenCalled()
+})
+
+test('a focus change during continuation inspection pauses until the original tab returns', async () => {
+  let f = setup(); f.form('username'); await f.fill(); f.form('password')
+  f.browser.mockImplementationOnce(async () => { f.show(false); throw new Error('Page changed during focus transition') })
+  await vi.advanceTimersByTimeAsync(300)
+  expect(f.fills()).toBe(1)
+  f.show(true); await vi.advanceTimersByTimeAsync(500)
+  expect(f.fills()).toBe(2)
+})
+
+test('a fill remembers the account reported after unlocking rather than the earlier locked status', async () => {
+  let f = setup()
+  f.vault.status.mockResolvedValueOnce({ status: 'locked', userId: 'previous-account', serverUrl: 'https://vault.example.test' })
+  await f.fill(); f.focus('#user'); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')).toMatchObject({ locked: false, items: [{ id: 'fixture' }] })
+  expect(f.vault.unlock).toHaveBeenCalledTimes(1)
+})
+
+test('an expired session returns to the unlock offer without automatically focusing a password prompt', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let popupId = f.service.suggestions('client')!.id
+  await f.service.prepare(f.context, popupId)
+  await f.service.loadSuggestions(f.context, popupId, 'fixture-master')
+  f.vault.status.mockResolvedValueOnce({ status: 'locked', userId: 'account', serverUrl: 'https://vault.example.test' })
+  await vi.advanceTimersByTimeAsync(30001); await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')).toMatchObject({ locked: true, expanded: false, busy: false })
+  expect(f.ui).not.toHaveBeenCalled()
+})
+
+test('an immediate popup selection uses its fresh unlock for one master-password reprompt', async () => {
+  let f = setup(); f.login.reprompt = 1; f.focus('#user'); await f.service.suggest(f.context)
+  await f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  let selected = await f.service.select(f.context, 'fixture')
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.ui).not.toHaveBeenCalled()
+  await f.fill()
+  expect(f.vault.unlock).toHaveBeenCalledTimes(2)
+})
+
+test('an old popup unlock no longer satisfies an entry master-password reprompt', async () => {
+  let f = setup(); f.login.reprompt = 1; f.focus('#user'); await f.service.suggest(f.context)
+  await f.service.loadSuggestions(f.context, f.service.suggestions('client')!.id, 'fixture-master')
+  await vi.advanceTimersByTimeAsync(120001)
+  let selected = await f.service.select(f.context, 'fixture')
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.ui).toHaveBeenCalledWith(expect.objectContaining({ title: 'Verify master password for this login' }))
 })

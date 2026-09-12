@@ -11,10 +11,13 @@ export let createVault = (options: { executable?: string } = {}) => {
   let session = process.env.BW_SESSION ?? '', generation = 0
   delete process.env.BW_SESSION
   let children = new Set<ReturnType<typeof spawn>>()
-  let command = (args: string[], signal?: AbortSignal, extra: NodeJS.ProcessEnv = {}) => new Promise<string>((resolve, reject) => {
+  let command = (args: string[], signal?: AbortSignal, extra: NodeJS.ProcessEnv = {}, timeout = 30000) => new Promise<string>((resolve, reject) => {
     signal?.throwIfAborted()
     let env: NodeJS.ProcessEnv = { ...process.env, ...extra, BW_SESSION: session, BW_NOINTERACTION: 'true' }
     delete env.BMUX_PLUGIN_TOKEN; delete env.BMUX_PLUGIN_SOCKET; delete env.ELECTRON_RUN_AS_NODE
+    // Shell output preferences must not turn a session key into a JSON response,
+    // suppress output, or make a failed unlock look successful.
+    for (let key of ['BW_RAW', 'BW_RESPONSE', 'BW_PRETTY', 'BW_QUIET', 'BW_CLEANEXIT']) delete env[key]
     let child = spawn(executable, [...args, '--nointeraction'], { env, stdio: ['ignore', 'pipe', 'ignore'] }), output = '', settled = false
     children.add(child)
     let finish = (failed: boolean) => {
@@ -25,7 +28,7 @@ export let createVault = (options: { executable?: string } = {}) => {
       output = ''
     }
     let abort = () => { child.kill('SIGKILL'); finish(true) }
-    let timer = setTimeout(abort, 30000)
+    let timer = setTimeout(abort, timeout)
     signal?.addEventListener('abort', abort, { once: true })
     child.stdout!.setEncoding('utf8')
     child.stdout!.on('data', chunk => { output += chunk; if (output.length > 8_000_000) abort() })
@@ -39,9 +42,10 @@ export let createVault = (options: { executable?: string } = {}) => {
     },
     unlock: async (password: string, signal?: AbortSignal) => {
       let started = generation
-      let key = await command(['unlock', '--passwordenv', 'BMUX_VAULT_PASSWORD', '--raw'], signal, { BMUX_VAULT_PASSWORD: password })
+      let key = await command(['unlock', '--passwordenv', 'BMUX_VAULT_PASSWORD', '--raw'], signal, { BMUX_VAULT_PASSWORD: password }, 120000)
       signal?.throwIfAborted()
-      if (!key || started !== generation) throw new Error('Unlock cancelled')
+      if (started !== generation) throw new Error('Unlock cancelled')
+      if (!/^[A-Za-z0-9+/]{86}==$/.test(key) || Buffer.from(key, 'base64').length !== 64) throw new Error('Bitwarden returned an invalid session key')
       session = key
     },
     logins: async (origin: string, signal?: AbortSignal): Promise<VaultLogin[]> => {

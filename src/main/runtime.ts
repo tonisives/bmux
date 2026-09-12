@@ -19,11 +19,12 @@ import { createSavedForms } from './saved-forms'
 import { createBitwarden } from './bitwarden'
 import { createPageTools } from './page-tools'
 import { waitOptions } from './wait'
+import { passwordPopupBounds } from './password-popup'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -111,11 +112,29 @@ export let createRuntime = (dataDirectory: string) => {
   let settingsReady = readSettings()
 
   let state = (clientId = ''): PublicState => ({ findResults, passwordSuggestions: bitwarden?.suggestions(clientId), bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let updatePasswordPopup = (clientId: string, live: LiveClient, current: PublicState) => {
+    let suggestion = !overlays.has(clientId) ? current.passwordSuggestions : undefined
+    let tab = suggestion ? tabs.get(suggestion.tabId) : undefined
+    let page = suggestion ? live.bounds.find(bounds => bounds.tabId === suggestion.tabId) : undefined
+    if (!suggestion || !page || tab?.parent !== live.window || tab.view.webContents.isDestroyed()) {
+      if (live.popup.webContents.isFocused() && live.window.isFocused()) live.chrome.webContents.focus()
+      live.popup.setVisible(false)
+      return
+    }
+    live.popup.setBounds(passwordPopupBounds(page, suggestion, tab.view.webContents.getZoomFactor()))
+    if (live.window.contentView.children.at(-1) !== live.popup) live.window.contentView.addChildView(live.popup)
+    live.popup.setVisible(true)
+  }
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
       publishTimer = undefined
-      for (let [clientId, live] of clients) if (!live.chrome.webContents.isDestroyed()) live.chrome.webContents.send('state', state(clientId))
+      for (let [clientId, live] of clients) if (!live.chrome.webContents.isDestroyed()) {
+        let current = state(clientId)
+        live.chrome.webContents.send('state', current)
+        live.popup.webContents.send('state', current)
+        updatePasswordPopup(clientId, live, current)
+      }
     }, 30)
   }
   let save = () => {
@@ -233,7 +252,10 @@ export let createRuntime = (dataDirectory: string) => {
       if (automatedContents.has(contents.id)) { contents.setIgnoreMenuShortcuts(true); return }
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
-      if (!focused || (focused.chrome.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
+      if (!focused || (focused.chrome.webContents !== contents && focused.popup.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
+      if (input.key === 'Escape' && contents !== focused.chrome.webContents && bitwarden?.suggestions(focusedClientId)) {
+        event.preventDefault(); bitwarden.dismiss(); void execute({ method: 'focus-page', args: { client: focusedClientId } }).catch(reportError); return
+      }
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
       if (matchesBinding(keyboard.prefix, input)) { event.preventDefault(); dispatchShortcut('prefix'); return }
       if (Date.now() < prefixUntil) {
@@ -447,10 +469,14 @@ export let createRuntime = (dataDirectory: string) => {
     window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
+    let popup = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+    popup.setVisible(false)
+    window.contentView.addChildView(popup)
     let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save() }
-    let owner: LiveClient = { window, chrome, bounds: [], pageFocused: false }
+    let owner: LiveClient = { window, chrome, popup, bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
+    chrome.webContents.on('before-mouse-event', (_event, mouse) => { if (mouse.type === 'mouseDown') bitwarden?.clearSuggestions() })
     resizeChrome()
     window.on('resize', resizeChrome)
     window.on('focus', () => {
@@ -472,22 +498,26 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('closed', () => {
       clients.delete(client.id)
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
+      if (!popup.webContents.isDestroyed()) popup.webContents.close()
       if (focusedClientId === client.id) focusedClientId = null
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
     })
     installKeys(chrome.webContents)
+    installKeys(popup.webContents)
+    popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    popup.webContents.on('will-navigate', event => event.preventDefault())
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
-    if (process.env.ELECTRON_RENDERER_URL) await chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL)
-    else await chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'))
+    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), popup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#passwords')])
+    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), popup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'passwords' })])
     if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); window.focus(); chrome.webContents.focus() }
     else window.showInactive()
     save()
     return client
   }
-  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
+  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.popup.webContents.id === contentsId))?.[0]
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
-    let clientId = sourceClient(contentsId)
+    let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
     if (!clientId || !Array.isArray(bounds)) return
     let valid = bounds.filter(bound => ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bound[key as keyof Bounds])))
     clients.get(clientId)!.bounds = valid
@@ -495,11 +525,22 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
-    if (method === 'bitwarden.select' || method === 'bitwarden.unlock') {
-      if (!sourceClientId || !bitwarden || !plugins) throw new Error('Trusted UI required')
+    if (['bitwarden.select', 'bitwarden.prepare', 'bitwarden.unlock', 'bitwarden.refresh', 'bitwarden.dismiss'].includes(method)) {
+      if (!sourceClientId || !bitwarden || !plugins || !configuration?.plugins['bmux.bitwarden']?.enabled) throw new Error('Trusted password UI required')
       let context = pluginContext({ clientId: sourceClientId })
-      let id = await bitwarden.select(context, method === 'bitwarden.select' ? required(args, 'id') : undefined)
-      return plugins.run('bmux.bitwarden/fill', context, {}, true, id)
+      if (method === 'bitwarden.dismiss') { bitwarden.dismiss(); return execute({ method: 'focus-page', args: { client: sourceClientId } }) }
+      let suggestionId = required(args, 'suggestion')
+      if (method === 'bitwarden.prepare') { await bitwarden.prepare(context, suggestionId); return { ready: true } }
+      if (method === 'bitwarden.unlock' || method === 'bitwarden.refresh') {
+        let password = method === 'bitwarden.unlock' && typeof args.password === 'string' ? args.password : undefined
+        delete args.password
+        try { await bitwarden.loadSuggestions(context, suggestionId, password); return { completed: true } }
+        finally { password = undefined }
+      }
+      let id = await bitwarden.select(context, required(args, 'id'), suggestionId)
+      let run = plugins.run('bmux.bitwarden/fill', context, {}, true, id)
+      await execute({ method: 'focus-page', args: { client: sourceClientId } })
+      return run
     }
     if (method === 'bitwarden.lock') { bitwarden?.lock(); return { locked: true } }
     if (method === 'bitwarden.cancel') { bitwarden?.cancel(required(args, 'tab')); return { cancelled: true } }
@@ -903,7 +944,8 @@ export let createRuntime = (dataDirectory: string) => {
       if (!focusedClientId || overlays.has(focusedClientId) || !configuration?.plugins['bmux.bitwarden']?.enabled) { bitwarden?.clearSuggestions(); return }
       let context = pluginContext({ clientId: focusedClientId })
       let contents = context.tabId ? tabs.get(context.tabId)?.view.webContents : undefined
-      if (contents && !contents.isDestroyed() && contents.isFocused()) void bitwarden?.suggest(context)
+      if (contents && !contents.isDestroyed() && (contents.isFocused() || clients.get(focusedClientId)?.popup.webContents.isFocused())) void bitwarden?.suggest(context)
+      else bitwarden?.clearSuggestions()
     }, 300)
     suggestionTimer.unref()
     await plugins.ready

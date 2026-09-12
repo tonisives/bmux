@@ -69,13 +69,15 @@ test('Bitwarden origin filtering excludes different schemes, ports, subdomains, 
 test('Bitwarden uses private environment input, noninteractive commands, and sanitized failures', async () => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-vault-cli-')), executable = path.join(directory, 'bw-fixture')
   fs.writeFileSync(executable, `#!${process.execPath}
-let args = process.argv.slice(2);
+let args = process.argv.slice(2), session = Buffer.alloc(64, 7).toString('base64');
+if (['BW_RAW','BW_RESPONSE','BW_PRETTY','BW_QUIET','BW_CLEANEXIT'].some(key => process.env[key])) process.exit(2);
 if (!args.includes('--nointeraction') || args.includes('fixture-master') || args.includes('fixture-session') || process.env.BMUX_PLUGIN_TOKEN) process.exit(2);
 if (args[0] === 'status') process.stdout.write(JSON.stringify({ status: process.env.BW_SESSION ? 'unlocked' : 'locked' }));
-else if (args[0] === 'unlock') { if (process.env.BMUX_VAULT_PASSWORD !== 'fixture-master' || !args.includes('--passwordenv')) process.exit(2); process.stdout.write('fixture-session'); }
-else if (args[0] === 'list') { if (process.env.BW_SESSION !== 'fixture-session') { process.stderr.write('private-failure'); process.exit(2) }; process.stdout.write(JSON.stringify([{type:1,id:'fixture',login:{password:'fixture-secret',uris:[{uri:'https://example.test/login'}]}}])); }
+else if (args[0] === 'unlock') { if (process.env.BMUX_VAULT_PASSWORD !== 'fixture-master' || !args.includes('--passwordenv')) process.exit(2); process.stdout.write(session); }
+else if (args[0] === 'list') { if (process.env.BW_SESSION !== session) { process.stderr.write('private-failure'); process.exit(2) }; process.stdout.write(JSON.stringify([{type:1,id:'fixture',login:{password:'fixture-secret',uris:[{uri:'https://example.test/login'}]}}])); }
 `, { mode: 0o700 })
   vi.stubEnv('BW_SESSION', ''); vi.stubEnv('BMUX_PLUGIN_TOKEN', 'invocation-private'); vi.stubEnv('BITWARDENCLI_APPDATA_DIR', directory)
+  for (let key of ['BW_RAW', 'BW_RESPONSE', 'BW_PRETTY', 'BW_QUIET', 'BW_CLEANEXIT']) vi.stubEnv(key, 'true')
   let vault = vaultModule.createVault({ executable })
   try {
     expect((await vault.status()).status).toBe('locked')

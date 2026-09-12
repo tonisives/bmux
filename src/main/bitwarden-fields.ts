@@ -1,5 +1,6 @@
+import type { FieldBounds } from '../shared/types'
 export type LoginField = { selector: string; role: 'username' | 'password'; expectedType: string; requireEmpty?: boolean; loginPassword?: boolean }
-export type LoginForm = { kind: 'username' | 'password' | 'combined' | 'none' | 'ambiguous' | 'occupied'; fields: LoginField[]; focused?: string }
+export type LoginForm = { kind: 'username' | 'password' | 'combined' | 'none' | 'ambiguous' | 'occupied'; fields: LoginField[]; focused?: string; anchor?: FieldBounds }
 
 // This function runs in the page and returns field descriptions only.
 export let inspectLoginForm = (): LoginForm => {
@@ -34,5 +35,8 @@ export let inspectLoginForm = (): LoginForm => {
   if (username) fields.push({ selector: selector(username), role: 'username', expectedType: username.type })
   if (password) fields.push({ selector: selector(password), role: 'password', expectedType: 'password', requireEmpty: true, loginPassword: true })
   let active = document.activeElement
-  return { kind: password ? username ? 'combined' : 'password' : 'username', fields, focused: active === username || active === password ? selector(active!) : undefined }
+  let focused = active === username || active === password
+  let rect = focused ? active!.getBoundingClientRect() : undefined
+  if (rect && (rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth)) focused = false
+  return { kind: password ? username ? 'combined' : 'password' : 'username', fields, focused: focused ? selector(active!) : undefined, anchor: focused && rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : undefined }
 }
