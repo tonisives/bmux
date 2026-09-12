@@ -20,7 +20,7 @@ let failedRequests = []
 let pageErrors = []
 let keepOpen = process.argv.includes('--keep-open')
 let installed = process.argv.includes('--installed')
-let appPath = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app', 'Contents', 'MacOS', 'bmux')
+let appPath = path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app', 'Contents', 'MacOS', 'bmux')
 let application = await electron.launch({ ...(installed ? { executablePath: appPath } : {}), args: installed ? [] : [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
 application.context().on('requestfailed', request => { let url = new URL(request.url()); failedRequests.push({ path: url.origin + url.pathname, error: request.failure()?.errorText }) })
 application.context().on('response', response => { if (response.status() >= 400) { let url = new URL(response.url()); failedRequests.push({ path: url.origin + url.pathname, status: response.status() }) } })

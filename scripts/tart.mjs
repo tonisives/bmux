@@ -128,7 +128,7 @@ mkdir -p ${quote(checkout)}
 staging=$(mktemp -d /tmp/bmux-source.XXXXXX)
 trap 'rm -rf "$staging"' EXIT
 tar -xf - -C "$staging"
-rsync -a --delete --exclude=node_modules --exclude=out --exclude=release --exclude=artifacts --exclude=test-results "$staging/" ${quote(checkout + '/')}
+rsync -a --delete --exclude=node_modules --exclude=out --exclude='/build/*.app' --exclude=release --exclude=artifacts --exclude=test-results "$staging/" ${quote(checkout + '/')}
 `, { input: createReadStream(archive) })
     let forwarded = ['BMUX_TEST_PACKAGED', 'BMUX_TEST_INSTALLED', 'BMUX_TEST_URL', 'BMUX_TEST_SELECTOR', 'BMUX_TEST_SECOND_URL', 'BROWMUX_TEST_URL', 'BROWMUX_TEST_SELECTOR', 'BROWMUX_TEST_SECOND_URL'].filter(key => process.env[key]).map(key => `${key}=${quote(process.env[key])}`).join(' ')
     console.log(`Running ${mode} in ${vm} (${checkout}).`)

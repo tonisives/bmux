@@ -49,8 +49,8 @@ Test output, screenshots, and Playwright results are saved to `artifacts/tart/<r
 The command returns the guest test's exit status. `debug:ui` keeps the isolated
 guest browser open until you quit it inside the VM; it holds the test queue.
 
-`pnpm check` runs locally without GUI windows. `pnpm package` continues to build
-and install the host app at `~/workspace/_tools/bmux.app` without restarting it.
+`pnpm check` runs locally without GUI windows. `pnpm package` builds the host app at `build/bmux.app` without restarting it.
+Use `BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package` for the local tools folder.
 `pnpm test:package`, or `BMUX_TEST_PACKAGED=1 pnpm test:electron`, packages and
 installs a separate copy inside the guest for testing.
 
