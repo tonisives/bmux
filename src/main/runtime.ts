@@ -23,7 +23,7 @@ import { passwordPopupBounds } from './password-popup'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
 
-type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean }
+type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -418,7 +418,7 @@ export let createRuntime = (dataDirectory: string) => {
     for (let [tabId, live] of tabs) {
       let bounds = owner?.bounds.find(bounds => bounds.tabId === tabId)
       // The first navigation needs a native focus target before its URL commits.
-      let target = owner && bounds && activeIds.has(tabId) && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || loading[tabId]) ? owner.window : parkHost(tabById(model, tabId).pane.profileId)
+      let target = owner && bounds && activeIds.has(tabId) && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || live.pendingNavigation) ? owner.window : parkHost(tabById(model, tabId).pane.profileId)
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
@@ -842,11 +842,17 @@ export let createRuntime = (dataDirectory: string) => {
       let tabId = required(args, 'tab'), url = normalizeUrl(required(args, 'url'))
       let { tab } = tabById(model, tabId)
       let live = tabs.get(tabId) ?? createLiveTab(tabId, false)
+      let navigation = Symbol()
+      live.pendingNavigation = navigation
       delete crashes[tabId]; delete snapshots[tabId]; loading[tabId] = true
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.view.webContents.loadURL(url) }).catch(() => undefined)
+      void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.view.webContents.loadURL(url) }).catch(() => undefined).finally(() => {
+        if (live.pendingNavigation !== navigation) return
+        live.pendingNavigation = undefined
+        if (!live.disposed) void scheduleVisuals()
+      })
       return { id: tabId, url, loading: true }
     }
     if (!['navigate', 'eval', 'dom', 'screenshot', 'click', 'type', 'key', 'wait', 'cdp', 'back', 'forward', 'reload', 'find', 'zoom', 'devtools'].includes(method)) throw new Error(`Unknown command: ${method}`)
