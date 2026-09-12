@@ -68,9 +68,12 @@ test.beforeAll(async () => {
   await expect(page.locator('h1')).toBeVisible()
 })
 test.afterAll(async () => {
+  console.log('Frame fixture: closing Electron')
   await application?.close()
+  console.log('Frame fixture: closing HTTP server')
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
   if (directory) await fs.rm(directory, { recursive: true, force: true })
+  console.log('Frame fixture: cleanup complete')
 })
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus || !page) return

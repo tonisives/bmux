@@ -4,7 +4,7 @@ import type { WebContents } from 'electron'
 import { createFrameCosmetics } from '../src/main/frame-cosmetics'
 
 let fixture = () => {
-  let events = new EventEmitter(), enabled = true, sheets = new Map<string, string>(), sequence = 0
+  let events = Object.assign(new EventEmitter(), { isAttached: () => true, detach: vi.fn() }), enabled = true, sheets = new Map<string, string>(), sequence = 0
   let frame = { id: 'child', parentId: 'main', loaderId: 'first', url: 'https://frame.example.test/' }
   let contents = Object.assign(new EventEmitter(), { debugger: events, isDestroyed: () => false, getURL: () => 'https://page.example.test/' }) as unknown as WebContents
   let send = vi.fn(async (method: string, params: Record<string, any> = {}): Promise<any> => {
@@ -74,4 +74,19 @@ test('disposal abandons pending work and removes protocol listeners', async () =
   let commands = send.mock.calls.length
   await tools.refresh()
   expect(send.mock.calls.length).toBe(commands)
+})
+
+test('disposal releases the debugger and its child sessions together', async () => {
+  let { tools, send, events } = fixture()
+  let implementation = send.getMockImplementation()!
+  send.mockImplementation(async (method, params) => {
+    if (method === 'Target.getTargets') return { targetInfos: [{ targetId: 'child', parentId: 'main', url: 'https://frame.example.test/' }] }
+    if (method === 'Target.attachToTarget') return { sessionId: 'child-session' }
+    return implementation(method, params)
+  })
+  await tools.refresh()
+  tools.close()
+  tools.close()
+  expect(events.detach).toHaveBeenCalledOnce()
+  expect(send.mock.calls.some(([method]) => method === 'Target.detachFromTarget')).toBe(false)
 })

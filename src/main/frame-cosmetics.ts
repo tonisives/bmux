@@ -134,6 +134,7 @@ export let createFrameCosmetics = (options: Options) => {
     timer.unref()
   }
   let remove = (id: string) => {
+    if (!sessions.has(id)) return
     sessions.delete(id)
     for (let session of sessions.values()) if (session.parent === id) remove(session.id!)
   }
@@ -161,6 +162,15 @@ export let createFrameCosmetics = (options: Options) => {
   return {
     start: () => initialize(root),
     refresh,
-    close: () => { closed = true; clearTimeout(timer); sessions.clear(); options.contents.debugger.off('message', message); options.contents.debugger.off('detach', detached); options.contents.off('did-frame-finish-load', schedule); options.contents.off('did-frame-navigate', schedule) },
+    close: () => {
+      if (closed) return
+      closed = true; clearTimeout(timer)
+      options.contents.debugger.off('message', message); options.contents.debugger.off('detach', detached)
+      options.contents.off('did-frame-finish-load', schedule); options.contents.off('did-frame-navigate', schedule)
+      sessions.clear()
+      // This owner is disposed only when its tab closes. Release the whole debugger
+      // once; detaching an already-removed child inside its event can reenter CDP.
+      if (options.contents.debugger.isAttached()) options.contents.debugger.detach()
+    },
   }
 }
