@@ -27,12 +27,15 @@ describe('session layouts and persistence', () => {
     let model = initialModel()
     let window = model.sessions[0].windows[0]
     let bot = newPane('profile_bot', 'https://example.com')
+    bot.tabs.push({ id: 'tab_popup', url: 'https://example.com/popup', title: 'Popup', zoom: 1, openerTabId: bot.tabs[0].id })
+    bot.activeTabId = 'tab_popup'
     window.layout = splitLayout(window.layout, window.panes[0].id, bot.id, 'vertical')
     window.panes.push(bot)
     let clone = cloneWindow(window)
     expect(clone.panes.map(pane => pane.profileId)).toEqual(['profile_default', 'profile_bot'])
     expect(clone.panes[1].tabs[0].url).toBe('https://example.com')
-    expect(clone.panes[1].activeTabId).toBe(clone.panes[1].tabs[0].id)
+    expect(clone.panes[1].activeTabId).toBe(clone.panes[1].tabs[1].id)
+    expect(clone.panes[1].tabs[1].openerTabId).toBe(clone.panes[1].tabs[0].id)
     expect(clone.panes[1].id).not.toBe(bot.id)
     expect(clone.panes[1].tabs[0].id).not.toBe(bot.tabs[0].id)
     let leaves: string[] = []

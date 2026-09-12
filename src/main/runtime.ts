@@ -344,6 +344,7 @@ export let createRuntime = (dataDirectory: string) => {
       action: 'allow', outlivesOpener: true,
       createWindow: options => {
         let added = newTab()
+        added.openerTabId = tabId
         pane.tabs.push(added)
         // Preserve Electron's opener relationship by returning the actual new WebContents.
         let popupOptions = options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }
@@ -834,7 +835,19 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
       if (method === 'reload') contents.reload()
       if (method === 'hard-reload') contents.reloadIgnoringCache()
-      if (method === 'back' && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+      if (method === 'back') {
+        if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+        else {
+          let { tab, pane } = tabById(model, tabId)
+          let openerTabId = tab.openerTabId
+          if (openerTabId && pane.tabs.some(tab => tab.id === openerTabId)) {
+            pane.tabs = pane.tabs.filter(tab => tab.id !== tabId)
+            pane.activeTabId = openerTabId
+            changed(); await visualQueue
+            return { closed: tabId, tab: openerTabId }
+          }
+        }
+      }
       if (method === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
       publish(); return { tab: tabId }
     }
