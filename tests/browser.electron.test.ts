@@ -6,6 +6,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import net from 'node:net'
+import { createHash } from 'node:crypto'
+import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 
 let exec = promisify(execFile)
 let root = process.cwd()
@@ -26,9 +29,20 @@ let launch = async () => {
   application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
-  await expect.poll(async () => {
-    try { return (await cli('status')).model.version } catch (error) { console.log(String(error)); return 0 }
-  }, { timeout: 20000 }).toBe(1)
+  await observeNativeFocus(application)
+  // The public CLI auto-starts a server. During a slow restore that can launch the
+  // installed build against this same fixture before the test app starts listening.
+  let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
+  let serverPid = () => new Promise<number>((resolve, reject) => {
+    let connection = net.createConnection(socket), response = ''
+    connection.setEncoding('utf8'); connection.setTimeout(1000)
+    connection.on('connect', () => connection.write(JSON.stringify({ method: 'diagnostics' }) + '\n'))
+    connection.on('data', chunk => { response += chunk })
+    connection.on('timeout', () => connection.destroy(new Error('Test server did not respond')))
+    connection.on('error', reject)
+    connection.on('end', () => { try { resolve(JSON.parse(response).result.pid) } catch (error) { reject(error) } })
+  })
+  await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
 let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
@@ -47,7 +61,8 @@ test.beforeAll(async () => {
   await launch()
 })
 test.afterEach(async ({}, info) => {
-  if (info.status !== info.expectedStatus) console.log('FOCUS_DIAGNOSTICS', { frontmostPid: await frontmost(), expectedPid: application.process().pid, windows: await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), visible: window.isVisible() }))) })
+  await recordNativeFocus(application, info)
+  if (info.status !== info.expectedStatus) console.log('FOCUS_DIAGNOSTICS', { frontmostPid: await frontmost(), expectedPid: application.process().pid })
 })
 test.afterAll(async () => {
   for (let response of heldResponses) response.end()
@@ -224,20 +239,28 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     await cli('select-pane', { client: client.id, pane: upper.id })
     let focusedUrl = () => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())
     let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
-      await expect.poll(focusedUrl).toBeTruthy()
-      await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
-        let contents = webContents.getFocusedWebContents()
-        if (!contents) throw new Error('No native keyboard focus')
-        contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-        contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-      }, { keyCode, modifiers })
+      await sendNativeKeys(application, [{ keyCode, modifiers }])
     }
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
+    // Repeated activation must preserve the page's first responder and text caret.
+    await cli('eval', { tab: upper.activeTabId, expression: 'document.querySelector("#text").focus()' })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await cli('activate-client', { client: client.id })
+      expect(await focusedUrl()).toBe(`${url}/history-three`)
+      expect(await cli('eval', { tab: upper.activeTabId, expression: 'document.hasFocus() && document.activeElement.id === "text"' })).toBe(true)
+    }
     // Hand off the views to another native client, then refocus without a page click.
     let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
     otherClient = (await cli('attach-session', { session: session.id })).id
     await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.isFocused(), nativeId)).toBe(false)
-    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.focus(), nativeId)
+    // Wait for attachment to finish before reversing it. Inspector evaluations
+    // can otherwise refocus the old window inside the new window's show stack.
+    let otherNativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === otherClient).nativeId
+    await expect.poll(() => application.evaluate(({ BaseWindow }, { id, url }) => {
+      let window = BaseWindow.fromId(id)
+      return window?.isFocused() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)
+    }, { id: otherNativeId, url: `${url}/history-three` })).toBe(true)
+    await application.evaluate(({ BaseWindow }, id) => new Promise<void>(resolve => setImmediate(() => { BaseWindow.fromId(id)!.focus(); resolve() })), nativeId)
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
     // No activate-client or focus-page calls between successive pane shortcuts.
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -489,15 +512,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
-    await expect.poll(() => application.evaluate(({ webContents }) => Boolean(webContents.getFocusedWebContents()))).toBe(true)
-    for (let event of events) {
-      await application.evaluate(({ webContents }, event) => {
-        let contents = webContents.getFocusedWebContents()!
-        contents.sendInputEvent({ type: 'keyDown', ...event })
-        contents.sendInputEvent({ type: 'keyUp', ...event })
-      }, event)
-      await chrome.waitForTimeout(30)
-    }
+    await sendNativeKeys(application, events)
   }
   await cli('focus-page', { client: client.id })
   await nativeKeys([{ keyCode: 'b', modifiers: ['control'] }, { keyCode: 'c' }])
@@ -569,16 +584,7 @@ test('window management shortcuts and keyboard session selection', async () => {
     await cli('focus-page', { client: client.id })
     let events: Omit<Electron.KeyboardInputEvent, 'type'>[] = [{ keyCode, modifiers }]
     if (prefix) events.unshift({ keyCode: 'b', modifiers: ['control'] })
-    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ webContents }) => !!webContents.getFocusedWebContents()) }).toBe(true)
-    // Send the chord together so process launches cannot outlast the prefix timeout.
-    await application.evaluate(async ({ webContents }, events) => {
-      for (let event of events) {
-        let contents = webContents.getFocusedWebContents()!
-        contents.sendInputEvent({ type: 'keyDown', ...event })
-        contents.sendInputEvent({ type: 'keyUp', ...event })
-        await new Promise(resolve => setTimeout(resolve, 30))
-      }
-    }, events)
+    await sendNativeKeys(application, events)
   }
   await shortcut(',')
   let rename = chrome.getByRole('textbox', { name: 'Rename window', exact: true })
@@ -643,12 +649,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
-    await expect.poll(async () => { await cli('activate-client', { client: client.id }); return application.evaluate(({ webContents }) => !!webContents.getFocusedWebContents()) }).toBe(true)
-    await application.evaluate(({ webContents }, { keyCode, modifiers }) => {
-      let contents = webContents.getFocusedWebContents()!
-      contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-    }, { keyCode, modifiers })
+    await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
   await key(']')
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(second.id)

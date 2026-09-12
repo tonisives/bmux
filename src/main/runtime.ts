@@ -666,7 +666,14 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
     if (method === 'detach-client') { let client = resolve(model.clients, args.client, 'Client'); clients.get(client.id)?.window.close(); return { detached: client.id } }
-    if (method === 'activate-client') { let client = resolve(model.clients, args.client, 'Client'); await app.dock?.show(); app.focus({ steal: true }); clients.get(client.id)?.window.show(); clients.get(client.id)?.window.focus(); clients.get(client.id)?.chrome.webContents.focus(); return client }
+    if (method === 'activate-client') {
+      let client = resolve(model.clients, args.client, 'Client'), owner = clients.get(client.id)!
+      // Re-activating a focused macOS window briefly resigns it and can drop input
+      // or cancel a guarded plugin prompt. Preserve its current first responder.
+      if (focusedClientId === client.id && owner.window.isFocused()) return client
+      await app.dock?.show(); app.focus({ steal: true }); owner.window.show(); owner.window.focus(); owner.chrome.webContents.focus()
+      return client
+    }
     if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')

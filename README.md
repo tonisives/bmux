@@ -99,7 +99,7 @@ Use the repository CLI without a global installation:
 ./bin/bmux.mjs attach-session -t main
 ```
 
-Optionally add this checkout's `bin` directory to PATH; the `bmux` wrapper invokes the CLI. Browser commands silently start the server when needed. `attach-session` and `activate-client` intentionally show a client; navigation and screenshot commands do not.
+Optionally add this checkout's `bin` directory to PATH; the `bmux` wrapper invokes the CLI. Browser commands silently start the server when needed. `attach-session` and `activate-client` intentionally show a client; navigation and screenshot commands do not. Activating an already-focused client preserves its focused page, text caret, or prompt.
 
 The previous `brmux` command remains as an alias for existing scripts.
 

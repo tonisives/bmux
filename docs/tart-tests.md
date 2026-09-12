@@ -46,6 +46,9 @@ the runner serializes GUI tests across worktrees so they cannot steal each
 other's focus. Tests continue to use temporary browser data and configuration.
 
 Test output, screenshots, and Playwright results are saved to `artifacts/tart/<run-time>/`.
+Browser and plugin failures also save `native-focus.json` under `test-results/`,
+with recent focus transitions, input delivery, and native view bounds. The trace
+records IDs and event types without typed text or credentials.
 The command returns the guest test's exit status. `debug:ui` keeps the isolated
 guest browser open until you quit it inside the VM; it holds the test queue.
 
