@@ -25,12 +25,12 @@
 .secondaryButton:hover { background:#edf0e5; }
 .feature { padding:46px 0 32px; border-top:1px solid var(--line); scroll-margin-top:24px; }
 .featureHeading { display:flex; align-items:center; justify-content:space-between; gap:30px; margin-bottom:27px; }
-.featureHeading p { max-width:710px; margin-top:13px; color:var(--muted); }
-.featureHeading>a { flex-shrink:0; }
-.capture>a { display:block; }
+.featureHeading>div>h2,.toolsGrid h2 { display:flex; align-items:center; gap:13px; }
+.featureIcon { display:block; flex-shrink:0; width:44px; height:44px; }
+.toolsGrid .featureIcon { width:37px; height:37px; }
+.featureHeading>div>p { max-width:710px; margin-top:13px; color:var(--muted); }
+.featureHeading>.secondaryButton { flex-shrink:0; }
 .capture img { display:block; width:100%; height:auto; border:1px solid #748174; border-radius:6px; }
-.capture figcaption { padding-top:10px; text-align:right; color:var(--muted); font-size:14px; }
-.capture figcaption a { text-decoration:underline; }
 .agents { margin-top:14px; padding:32px; border:0; border-radius:12px; background:#f4e4d4; }
 .toolsGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:30px; padding:60px 0; }
 .toolsGrid h2 { font-size:23px; }
@@ -57,7 +57,7 @@
   .hero { padding:25px 0 48px; }
   .hero h1 { font-size:42px; }
   .featureHeading { display:block; margin-bottom:22px; }
-  .featureHeading>a { margin-top:18px; }
+  .featureHeading>.secondaryButton { margin-top:18px; }
   .agents { padding:25px; }
   .toolsGrid { grid-template-columns:1fr; gap:26px; padding:40px 0; }
   .toolsGrid p { margin-top:7px; }
@@ -78,8 +78,7 @@
   .primaryButton,.secondaryButton { font-size:15px; padding:10px 16px; }
   .page h2 { font-size:28px; }
   .feature { padding:31px 0 23px; }
-  .featureHeading p { margin-top:11px; }
-  .capture figcaption { font-size:13px; }
+  .featureHeading>div>p { margin-top:11px; }
   .agents { margin:10px -8px 0; padding:25px 8px 17px; }
   .agents .featureHeading { padding:0 8px; }
   .toolsGrid h2 { font-size:22px; }

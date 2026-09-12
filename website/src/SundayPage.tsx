@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import css from './SundayPage.module.css'
+import { KeyboardShortcuts } from './KeyboardShortcuts'
 
 export let SundayPage = () => <div className={css.page} id="top">
   <a className={css.skipLink} href="#content">Skip to content</a>
@@ -18,34 +19,37 @@ let GITHUB = 'https://github.com/tonisives/bmux'
 let Hero = () => <section className={css.hero}>
   <img className={css.lantern} src="/cdn/icon-512.png" alt="bmux lantern" width="512" height="512" />
   <h1>Browser with split panes, sessions and agent control</h1>
-  <p>Chromium for macOS · Free and open source</p>
+  <p>Free and open source</p>
   <div className={css.heroActions}><a className={css.primaryButton} href="#install">Get bmux</a><a className={css.secondaryButton} href={GITHUB}>View source</a></div>
 </section>
 
-let Features = () => <div id="features">
-  <section className={css.feature} id="split-panes" aria-labelledby="split-title">
-    <div className={css.featureHeading}><div><h2 id="split-title">Split panes</h2><p>Open pages side by side and save your layout</p></div><a className={css.secondaryButton} href={`${GITHUB}#keyboard`}>Keyboard shortcuts</a></div>
-    <Capture id="split-panes" alt="Two Chromium pages side by side in bmux, each with its own address bar" />
-  </section>
-  <section className={css.feature} id="switch-sessions" aria-labelledby="sessions-title">
-    <div className={css.featureHeading}><div><h2 id="sessions-title">Switch sessions</h2><p>Keep a workspace for each project</p></div><a className={css.secondaryButton} href={`${GITHUB}#model`}>About sessions</a></div>
-    <Capture id="switch-sessions" alt="The bmux session picker showing development, research and personal workspaces" />
-  </section>
-  <section className={`${css.feature} ${css.agents}`} id="agents" aria-labelledby="agents-title">
-    <div className={css.featureHeading}><div><h2 id="agents-title">Run an agent</h2><p>Made for agents that browse, click, type and take screenshots through the CLI, with separate logins and background commands that keep your focus in place</p></div><a className={css.secondaryButton} href={`${GITHUB}/blob/main/AGENT.md`}>Agent guide</a></div>
-    <Capture id="run-agent" alt="A task added through the bmux CLI in the bot pane while the human pane stays selected" />
-  </section>
-</div>
+let Features = () => <div id="features"><SplitPanes /><Sessions /><Agents /></div>
+
+let SplitPanes = () => <section className={css.feature} id="split-panes" aria-labelledby="split-title">
+  <div className={css.featureHeading}><div><h2 id="split-title"><FeatureIcon name="split-panes" />Split panes</h2><p>Open pages side by side and save your layout</p></div><KeyboardShortcuts /></div>
+  <Capture id="split-panes" alt="Two Chromium pages side by side in bmux, each with its own address bar" />
+</section>
+
+let Sessions = () => <section className={css.feature} id="switch-sessions" aria-labelledby="sessions-title">
+  <div className={css.featureHeading}><div><h2 id="sessions-title"><FeatureIcon name="sessions" />Switch sessions</h2><p>Keep a workspace for each project</p></div><a className={css.secondaryButton} href={`${GITHUB}#model`}>About sessions</a></div>
+  <Capture id="switch-sessions" alt="The bmux session picker showing development, research and personal workspaces" />
+</section>
+
+let Agents = () => <section className={`${css.feature} ${css.agents}`} id="agents" aria-labelledby="agents-title">
+  <div className={css.featureHeading}><div><h2 id="agents-title"><FeatureIcon name="agent" />Run an agent</h2><p>Made for agents that browse, click, type and take screenshots through the CLI, with separate logins and background commands that keep your focus in place</p></div><a className={css.secondaryButton} href={`${GITHUB}/blob/main/AGENT.md`}>Agent guide</a></div>
+  <Capture id="run-agent" alt="A task added through the bmux CLI in the bot pane while the human pane stays selected" />
+</section>
 
 let Capture = ({ id, alt }: { id: string; alt: string }) => <figure className={css.capture}>
-  <a href={`/cdn/product/${id}.png`} target="_blank" rel="noreferrer" aria-label={`Open full-size screenshot: ${alt}`}><img src={`/cdn/product/${id}.png`} alt={alt} width="1120" height="663" loading={id === 'split-panes' ? 'eager' : 'lazy'} /></a>
-  <figcaption><a href={`/cdn/product/${id}.png`} target="_blank" rel="noreferrer">View full size</a></figcaption>
+  <img src={`/cdn/product/${id}.png`} alt={alt} width="1120" height="663" loading={id === 'split-panes' ? 'eager' : 'lazy'} />
 </figure>
 
+let FeatureIcon = ({ name }: { name: 'split-panes' | 'sessions' | 'agent' | 'profiles' | 'keyboard' | 'tools' }) => <img className={css.featureIcon} src={`/cdn/feature-icons/${name}.svg`} alt="" width="44" height="44" />
+
 let BrowserTools = () => <section className={css.toolsGrid} aria-label="More features">
-  <article><h2>Separate profiles</h2><p>Work, personal and bot logins</p></article>
-  <article><h2>Keyboard control</h2><p>Shortcuts you can customize</p></article>
-  <article><h2>Browser tools</h2><p>Ad blocking, dark mode and Bitwarden</p></article>
+  <article><h2><FeatureIcon name="profiles" />Separate profiles</h2><p>Work, personal and bot logins</p></article>
+  <article><h2><FeatureIcon name="keyboard" />Keyboard control</h2><p>Shortcuts you can customize</p></article>
+  <article><h2><FeatureIcon name="tools" />Browser tools</h2><p>Ad blocking, dark mode and Bitwarden</p></article>
 </section>
 
 let Install = () => <section className={css.install} id="install" aria-labelledby="install-title">
