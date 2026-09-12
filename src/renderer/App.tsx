@@ -97,7 +97,7 @@ let selection = (state: PublicState) => {
 }
 
 let Status = ({ message }: { message: string }) => {
-  let { state, show, control } = useUI()
+  let { state, show } = useUI()
   let { client, session, pane, tab, profile } = selection(state)
   let sessions = () => show('sessions')
   let tabs = () => show('tabs')
@@ -108,24 +108,9 @@ let Status = ({ message }: { message: string }) => {
     <div className={css.windows}>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs">profile:{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</button>
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
-    {!control && state.passwordSuggestions && <PasswordSuggestions />}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
-}
-let PasswordSuggestions = () => {
-  let { state, run } = useUI()
-  let suggestions = state.passwordSuggestions!
-  let choose = async (event: MouseEvent<HTMLButtonElement>) => {
-    let id = event.currentTarget.dataset.loginId
-    if (await run('bitwarden.select', { id }) !== undefined) void run('focus-page', { client: state.clientId })
-  }
-  let unlock = async () => {
-    if (await run('bitwarden.unlock') !== undefined) void run('focus-page', { client: state.clientId })
-  }
-  return <div className={css.passwordSuggestions} role="group" aria-label="Bitwarden logins" title={`Logins for ${suggestions.origin}`}>
-    <span>passwords:</span>{suggestions.locked ? <button onClick={unlock}>Unlock Bitwarden</button> : suggestions.items.map(item => <button key={item.id} data-login-id={item.id} onClick={choose} title={item.name} aria-label={`Fill login ${item.username || item.name}`}>{item.username || item.name}</button>)}
-  </div>
 }
 let StatusWindow = ({ id, label, active }: { id: string; label: string; active: boolean }) => {
   let { state, run } = useUI()

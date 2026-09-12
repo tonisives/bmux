@@ -168,16 +168,26 @@ each selection; unlocking during that selection satisfies the check.
 That prompt says `Verify master password for this login` to distinguish it from
 unlocking the vault.
 
-Focusing a recognized username or password field shows `Unlock Bitwarden` in the
-status bar while the vault is locked. Click it to unlock and choose a matching
-login. The password prompt opens only after you click the suggestion.
-While unlocked, the same bar shows matching usernames. Suggestions leave keyboard
-focus in the page so you can keep typing. Click a username to fill it without
-running `passwords` or opening another picker. Only account labels enter the UI;
-bmux rereads the selected login and checks the page and focused field before
-filling. Suggestions disappear when you leave the login field or change tabs or
-pages. Locking the vault replaces usernames with the unlock suggestion on the
-focused login field. Suggestions use the same exact-origin rules below.
+Focusing a recognized username or password field opens a small Bitwarden popup
+beside that field. It follows the field when you scroll and stays within its pane,
+including zoomed pages. The page keeps keyboard focus until you click the popup.
+The popup is a separate trusted view; websites receive no privileged preload or
+password-manager controls.
+
+When locked, click `Unlock Bitwarden` and enter your master password in the popup.
+The CLI session is verified in a fresh process, then matching accounts appear
+immediately in the same popup. Loading, failed unlocks, lookup errors, and an empty
+match list each have a visible result. Lookup errors retain a valid session and
+provide a retry button. Clicking back into the field keeps using that unlock.
+CLI output preferences inherited from a shell cannot change the session-key format
+or disguise a failed command as a successful unlock.
+
+Click a username to fill it without running `passwords` or opening another picker.
+Only account labels enter the UI; bmux rereads the selected login and checks the
+page and focused field before filling. Suggestions disappear when you leave the
+login field, change tabs or pages, or press Escape. They use the same exact-origin
+rules below. A fresh unlock in the popup satisfies a selected entry's master
+password reprompt; later independent selections require verification again.
 
 Only results of the CLI's origin lookup with an exact matching HTTP(S) origin are
 offered. Different schemes, ports, subdomains, deleted items, and never-match URI

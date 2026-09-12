@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createVault } from './bitwarden-cli'
 import type { VaultLogin } from './bitwarden-cli'
 import { inspectLoginForm } from './bitwarden-fields'
@@ -22,8 +23,9 @@ export let createBitwarden = (options: Options) => {
   let vault = options.vault ?? createVault(), attempts = new Map<string, Attempt>()
   let notices = new Map<string, { tabId?: string; message: string; timer: ReturnType<typeof setTimeout> }>()
   let queue: Promise<unknown> = Promise.resolve(), account = '', locked = false
-  let suggestion: { context: PluginContext; field: string; value: PasswordSuggestions } | undefined
-  let suggestionCheck: AbortController | undefined, suggestionKey = '', suggestionExpiry = 0
+  let suggestion: { context: PluginContext; field: string; fresh?: number; value: PasswordSuggestions } | undefined
+  let suggestionCheck: AbortController | undefined, suggestionKey = '', suggestionExpiry = 0, dismissedKey = ''
+  let freshSelection: { id: string; tabId?: string; documentId?: string; expires: number } | undefined
   let origin = (context: PluginContext) => { try { return new URL(context.url!).origin } catch { return '' } }
   let clearSuggestions = () => {
     suggestionCheck?.abort(); suggestionCheck = undefined; suggestionKey = ''; suggestionExpiry = 0
@@ -46,7 +48,7 @@ export let createBitwarden = (options: Options) => {
     clearSuggestions()
     for (let attempt of attempts.values()) notice(attempt.context, 'Bitwarden locked in bmux')
     for (let tabId of attempts.keys()) cancel(tabId)
-    vault.close(); account = ''
+    vault.close(); account = ''; freshSelection = undefined
   }
   let current = (attempt: Attempt) => {
     attempt.controller.signal.throwIfAborted()
@@ -55,52 +57,95 @@ export let createBitwarden = (options: Options) => {
     return next
   }
   let inspect = async (context: PluginContext, signal: AbortSignal) => await options.browser('eval', { expression: `(${inspectLoginForm.toString()})()` }, context, signal) as LoginForm
+  let validSuggestion = async (context: PluginContext, suggestionId: string) => {
+    let entry = suggestion
+    if (!entry || entry.value.id !== suggestionId || entry.context.clientId !== context.clientId || entry.context.tabId !== context.tabId || entry.context.documentId !== context.documentId || entry.context.profileId !== context.profileId || entry.context.url !== context.url || !options.interactive(context)) throw new Error('Password suggestion expired')
+    let form = await inspect(context, new AbortController().signal)
+    let next = options.context(context)
+    if (suggestion !== entry || form.focused !== entry.field || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId || !options.interactive(context)) throw new Error('Login field changed')
+    return entry
+  }
+  let forgetSession = () => {
+    for (let tabId of attempts.keys()) cancel(tabId)
+    vault.close(); account = ''; freshSelection = undefined
+  }
+  let loadSuggestions = async (context: PluginContext, suggestionId: string, password?: string) => {
+    let unlocking = password !== undefined
+    let entry = await validSuggestion(context, suggestionId)
+    if (entry.value.busy || locked) return
+    suggestionCheck?.abort()
+    let controller = new AbortController(), signal = controller.signal
+    suggestionCheck = controller
+    let valid = async () => { signal.throwIfAborted(); await validSuggestion(context, suggestionId); signal.throwIfAborted() }
+    entry.value = { ...entry.value, busy: true, message: undefined }; options.changed()
+    let previous = queue
+    let next = previous.catch(() => undefined).then(async () => {
+      await valid()
+      let status = await vault.status(signal)
+      await valid()
+      if (status.status === 'unauthenticated') { forgetSession(); throw new Error('Run bw login in a terminal, then try again.') }
+      let identity = JSON.stringify([status.userId, status.serverUrl])
+      if (account && account !== identity) { forgetSession(); status.status = 'locked' }
+      if (status.status !== 'unlocked') {
+        if (password === undefined) { forgetSession(); throw new Error('Your Bitwarden session expired. Unlock again.') }
+        try { await vault.unlock(password, signal) }
+        catch { throw new Error('Could not unlock Bitwarden. Check your master password and try again.') }
+        finally { password = undefined }
+        // Verify the key in a new CLI process before presenting the vault as unlocked.
+        status = await vault.status(signal)
+        if (status.status !== 'unlocked') { forgetSession(); throw new Error('Bitwarden did not retain the unlock. Try again.') }
+        entry.fresh = Date.now() + 120000
+      }
+      account = JSON.stringify([status.userId, status.serverUrl])
+      await valid()
+      entry.value = { ...entry.value, locked: false }; options.changed()
+      try {
+        let logins = await vault.logins(origin(context), signal)
+        return logins.map(item => ({ id: item.id, name: item.name || 'Login', username: item.login.username || '' }))
+      } catch { throw new Error('Could not load logins. Your vault is still unlocked. Try again.') }
+    })
+    queue = next.then(() => undefined, () => undefined)
+    try {
+      let items = await next
+      await valid()
+      entry.value = { ...entry.value, locked: false, busy: false, items }
+      suggestionExpiry = Date.now() + 30000
+      options.changed()
+    } catch (error) {
+      if (!signal.aborted && suggestion === entry) {
+        entry.value = { ...entry.value, locked: !vault.hasSession(), expanded: unlocking && entry.value.expanded, busy: false, items: [], message: error instanceof Error ? error.message : 'Could not load Bitwarden. Try again.' }
+        suggestionExpiry = Date.now() + 30000
+        options.changed()
+      }
+    } finally { password = undefined; if (suggestionCheck === controller) suggestionCheck = undefined }
+  }
   let suggest = async (context?: PluginContext) => {
     if (!context?.tabId || locked || attempts.has(context.tabId) || !options.interactive(context) || !/^https?:\/\//.test(context.url ?? '')) { clearSuggestions(); return }
     if (suggestionCheck) return
     let controller = new AbortController(), signal = controller.signal
     suggestionCheck = controller
-    let valid = () => {
-      signal.throwIfAborted()
-      let next = options.context(context)
-      if (!options.interactive(context) || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId) throw new Error('Login page changed')
-    }
     try {
       let form = await inspect(context, signal)
-      valid()
-      if (!form.focused) { clearSuggestions(); return }
-      let hasSession = vault.hasSession()
-      let key = JSON.stringify([context.clientId, context.tabId, context.profileId, context.documentId, context.url, form.focused, hasSession])
-      if (key === suggestionKey && Date.now() < suggestionExpiry) return
-      if (suggestion && key !== suggestionKey) { suggestion = undefined; options.changed() }
-      suggestionKey = key; suggestionExpiry = Date.now() + 5000
-      if (!hasSession) {
-        suggestion = { context: { ...context }, field: form.focused, value: { tabId: context.tabId, origin: origin(context), locked: true, items: [] } }
+      signal.throwIfAborted()
+      let next = options.context(context)
+      if (!options.interactive(context) || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId) { clearSuggestions(); return }
+      if (!form.focused || !form.anchor || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(form.anchor![key as keyof typeof form.anchor])) || form.anchor.width <= 0 || form.anchor.height <= 0) { dismissedKey = ''; clearSuggestions(); return }
+      let key = JSON.stringify([context.clientId, context.tabId, context.profileId, context.documentId, context.url, form.focused])
+      if (key === dismissedKey) return
+      dismissedKey = ''
+      if (suggestion && key === suggestionKey) {
+        if (JSON.stringify(suggestion.value.anchor) !== JSON.stringify(form.anchor)) { suggestion.value = { ...suggestion.value, anchor: form.anchor }; options.changed() }
+        if (Date.now() < suggestionExpiry) return
+      } else {
+        suggestionKey = key
+        suggestion = { context: { ...context }, field: form.focused, value: { id: randomUUID(), tabId: context.tabId, origin: origin(context), anchor: form.anchor, locked: !vault.hasSession(), items: [] } }
         options.changed()
-        return
       }
-      let previous = queue
-      let next = previous.catch(() => undefined).then(async () => {
-        valid()
-        let status = await vault.status(signal)
-        valid()
-        let identity = JSON.stringify([status.userId, status.serverUrl])
-        if (status.status !== 'unlocked' || (account && account !== identity)) { lock(); return [] }
-        account = identity
-        let logins = await vault.logins(origin(context), signal)
-        // Only account labels leave this operation. Passwords stay in the vault.
-        return logins.map(item => ({ id: item.id, name: item.name || 'Login', username: item.login.username || '' }))
-      })
-      queue = next.then(() => undefined, () => undefined)
-      let items = await next
-      valid()
-      let latest = await inspect(context, signal)
-      valid()
-      if (latest.focused !== form.focused) { clearSuggestions(); return }
-      let hadSuggestions = !!suggestion
-      suggestion = items.length ? { context: { ...context }, field: form.focused, value: { tabId: context.tabId, origin: origin(context), locked: false, items } } : undefined
-      if (hadSuggestions || suggestion) options.changed()
-    } catch { /* Background lookup failures never prompt or discard a valid session. */ }
+      suggestionExpiry = Date.now() + 30000
+      if (!vault.hasSession()) return
+      suggestionCheck = undefined
+      await loadSuggestions(context, suggestion.value.id)
+    } catch { /* Page transitions cancel discovery without touching the vault session. */ }
     finally { if (suggestionCheck === controller) suggestionCheck = undefined }
   }
   let write = async (attempt: Attempt, context: PluginContext, form: LoginForm) => {
@@ -122,10 +167,12 @@ export let createBitwarden = (options: Options) => {
       if (Date.now() >= attempt.expires!) { notice(context, 'Password fill expired. Run passwords again.'); cancelAttempt(attempt); return }
       if (attempt.navigating || !options.interactive(context)) { schedule(attempt); return }
       let form = await inspect(context, attempt.controller.signal)
+      if (!options.interactive(context)) { schedule(attempt); return }
       if (form.kind === 'occupied' || form.kind === 'ambiguous') { notice(context, 'Password fill stopped. Check the form and run passwords again.'); cancelAttempt(attempt); return }
       if (form.kind === 'password' || form.kind === 'combined') {
         let status = await vault.status(attempt.controller.signal)
         if (status.status !== 'unlocked' || JSON.stringify([status.userId, status.serverUrl]) !== account) { notice(context, 'Bitwarden is locked or the account changed. Run passwords again.'); lock(); return }
+        if (!options.interactive(context)) { schedule(attempt); return }
         await write(attempt, context, form)
         notice(context, 'Bitwarden password filled'); cancelAttempt(attempt); return
       }
@@ -134,6 +181,7 @@ export let createBitwarden = (options: Options) => {
       if (attempt.controller.signal.aborted) return
       // A same-origin navigation may replace the document between inspection and fill.
       try { current(attempt) } catch { cancelAttempt(attempt); return }
+      if (!options.interactive(attempt.context)) { schedule(attempt); return }
       if (attempt.navigating || options.context(attempt.context).documentId !== attempt.context.documentId) {
         attempt.context = options.context(attempt.context); schedule(attempt)
       } else { notice(attempt.context, 'Password fill stopped. Run passwords again.'); cancelAttempt(attempt) }
@@ -183,15 +231,20 @@ export let createBitwarden = (options: Options) => {
     }
     try {
       check()
-      let fresh = false
+      let fresh = !!selectedLogin && freshSelection?.id === selectedLogin && freshSelection.tabId === context.tabId && freshSelection.documentId === context.documentId && Date.now() < freshSelection.expires
+      freshSelection = undefined
       let logins = await exclusive(async () => {
         let status = await vault.status(operation)
         check()
         if (status.status === 'unauthenticated') { vault.close(); throw new Error('Run bw login in a terminal, then run passwords again') }
         let identity = JSON.stringify([status.userId, status.serverUrl])
         if (account && account !== identity) { for (let [tabId, other] of attempts) if (other !== attempt) cancel(tabId); vault.close(); status.status = 'locked' }
-        if (status.status !== 'unlocked') { await unlock(); fresh = true }
-        account = identity
+        if (status.status !== 'unlocked') {
+          await unlock(); fresh = true
+          status = await vault.status(operation); check()
+          if (status.status !== 'unlocked') { vault.close(); throw new Error('Bitwarden did not retain the unlock. Try again.') }
+        }
+        account = JSON.stringify([status.userId, status.serverUrl])
         try { return await vault.logins(origin(context), operation) }
         catch { throw new Error('Could not read Bitwarden. Try passwords again; your unlock is retained while the session is valid.') }
       })
@@ -234,12 +287,16 @@ export let createBitwarden = (options: Options) => {
         return next.documentId === suggestion.context.documentId && next.url === suggestion.context.url && next.profileId === suggestion.context.profileId ? suggestion.value : undefined
       } catch { return undefined }
     },
-    select: async (context: PluginContext, id?: string) => {
-      let entry = suggestion
-      if (!entry || entry.context.clientId !== context.clientId || entry.context.tabId !== context.tabId || entry.context.documentId !== context.documentId || entry.context.profileId !== context.profileId || entry.context.url !== context.url || !options.interactive(context) || (entry.value.locked ? id !== undefined : !entry.value.items.some(item => item.id === id))) throw new Error('Password suggestion expired')
-      let form = await inspect(context, new AbortController().signal)
-      let next = options.context(context)
-      if (suggestion !== entry || form.focused !== entry.field || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId || !options.interactive(context)) throw new Error('Login field changed')
+    loadSuggestions,
+    prepare: async (context: PluginContext, suggestionId: string) => {
+      let entry = await validSuggestion(context, suggestionId)
+      entry.value = { ...entry.value, expanded: true }; options.changed()
+    },
+    dismiss: () => { dismissedKey = suggestionKey; clearSuggestions() },
+    select: async (context: PluginContext, id: string, suggestionId = suggestion?.value.id ?? '') => {
+      let entry = await validSuggestion(context, suggestionId)
+      if (entry.value.locked || entry.value.busy || !entry.value.items.some(item => item.id === id)) throw new Error('Password suggestion expired')
+      if (entry.fresh) freshSelection = { id, tabId: context.tabId, documentId: context.documentId, expires: entry.fresh }
       clearSuggestions()
       return id
     },
