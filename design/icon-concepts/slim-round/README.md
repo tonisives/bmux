@@ -2,7 +2,7 @@
 
 Five alternatives generated with the built-in image generation tool. The brief was to make the selected Split planet icon feel slimmer, using lighter geometry and more open space while keeping its lime palette and orbital theme.
 
-These are candidates for review. The installed app and website still use the existing selected icon. Floating panes and Split crescent use opaque dark backgrounds to keep their preview edges clean; the other three retain transparent outer margins.
+These earlier candidates remain for reference. Little lantern from the [warm round](../warm-round/README.md) is now selected for the app and website. Floating panes and Split crescent use opaque dark backgrounds to keep their preview edges clean; the other three retain transparent outer margins.
 
 ## 1. Outline planet
 

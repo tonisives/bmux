@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 let root = fileURLToPath(new URL('..', import.meta.url))
-let source = join(root, 'design/icon-concepts/02-split-planet.png')
+let source = join(root, 'design/app-icon.png')
 let temporary = await mkdtemp(join(tmpdir(), 'bmux-icons-'))
 let iconset = join(temporary, 'bmux.iconset')
 let resize = (size, destination) => execFileSync('sips', ['-z', String(size), String(size), source, '--out', destination], { stdio: 'ignore' })
@@ -20,7 +20,7 @@ try {
   }
   execFileSync('iconutil', ['-c', 'icns', iconset, '-o', join(root, 'build/icon.icns')])
   for (let size of [32, 128, 180]) resize(size, join(root, `website/public/cdn/icon-${size}.png`))
-  console.log('Generated the Split planet app icon and website icons.')
+  console.log('Generated the Little lantern app icon and website icons.')
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

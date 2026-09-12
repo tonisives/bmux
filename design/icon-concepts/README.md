@@ -4,9 +4,9 @@ The [warm follow-up round](warm-round/README.md) explores five more humane, plea
 
 The [slim follow-up round](slim-round/README.md) contains five lighter alternatives for review, with numbered previews and generation prompts.
 
-**Selected: Split planet.** Used for the macOS app, website, and favicon. Run `pnpm icons` on macOS to regenerate the packaged sizes from the original artwork.
+**Selected: Little lantern.** Used for the macOS app, website, and favicon. The [production artwork](../app-icon.png) has a transparent outer margin. Run `pnpm icons` on macOS to regenerate the packaged sizes. The [warm round](warm-round/README.md) records the original concept and prompt.
 
-Five original raster app-icon directions generated with the built-in image generation tool. Split planet is the selected app icon; the other four directions remain here for reference. All retain an orbital or scientific motif inspired by the user's preference for Electron's existing icon.
+Five original raster app-icon directions generated with the built-in image generation tool. Split planet was the first selected app icon; these directions remain here for reference. All retain an orbital or scientific motif inspired by the user's preference for Electron's existing icon.
 
 ## Orbital panes
 

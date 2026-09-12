@@ -1,6 +1,6 @@
 # bmux
 
-<img src="design/icon-concepts/02-split-planet.png" alt="bmux Split planet icon" width="100" />
+<img src="design/app-icon.png" alt="bmux Little lantern icon" width="100" />
 
 ### tmux for your browser.
 

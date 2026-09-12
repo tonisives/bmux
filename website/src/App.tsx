@@ -14,7 +14,7 @@ type DemoContextValue = { mode: DemoMode; setMode: (mode: DemoMode) => void; ses
 let DemoContext = createContext<DemoContextValue | null>(null)
 let useDemo = () => useContext(DemoContext)!
 
-let Brand = () => <a className={styles.brand} href="#top" aria-label="bmux home"><img className={styles.mark} src="/cdn/icon-128.png" alt="" width="40" height="40" />bmux<span className={styles.brandCursor}>_</span></a>
+let Brand = () => <a className={styles.brand} href="#top" aria-label="bmux home"><img className={styles.mark} src="/cdn/icon-128.png?v=lantern" alt="" width="40" height="40" />bmux<span className={styles.brandCursor}>_</span></a>
 
 let DemoControls = () => {
   let { mode, setMode } = useDemo()

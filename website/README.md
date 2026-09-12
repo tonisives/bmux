@@ -13,7 +13,7 @@ pnpm site:build
 pnpm site:preview
 ```
 
-The development server uses `http://127.0.0.1:4317`. Production static files are in `website/dist/client`. The container serves them with unprivileged nginx on port 8080. Images, including the Split planet icon, are published under `/cdn`.
+The development server uses `http://127.0.0.1:4317`. Production static files are in `website/dist/client`. The container serves them with unprivileged nginx on port 8080. Images, including the Little lantern icon, are published under `/cdn`.
 
 ## Deployment
 

@@ -2,7 +2,7 @@
 
 Five alternatives generated with the built-in image generation tool. The brief was to make the hacker browser's icon feel more humane, pleasant, interesting and unique while avoiding the bulk of the first selected icon.
 
-These concepts explore paper, plants, nature and everyday objects, with warmer colors and softer shapes. They are review previews on opaque backgrounds. None has been selected for the app.
+These concepts explore paper, plants, nature and everyday objects, with warmer colors and softer shapes. They are review previews on opaque backgrounds. **Little lantern is selected for the app.** Its [production artwork](../../app-icon.png) uses a transparent outer margin.
 
 ## 1. Paper swallow
 
