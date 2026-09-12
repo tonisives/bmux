@@ -18,7 +18,7 @@ test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-command-search-'))
   await fs.mkdir(path.join(directory, 'plugins/fixture'), { recursive: true })
   await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
   server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
@@ -89,6 +89,24 @@ test('enabled plugin actions appear in fuzzy command results and execute', async
   await expect(chrome.getByRole('option', { selected: true })).toContainText('Cmd+Alt+P')
   await prompt().press('Enter')
   await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.pluginId === 'fixture')?.status).toBe('completed')
+})
+
+test('close-pane shortcut confirms before removing the selected pane', async () => {
+  let current = await state(), window = current.model.sessions[0].windows[0], original = window.panes[0]
+  let pane = await rpc('split-window', { pane: original.id, client: current.clientId })
+  await activate(); await rpc('focus-page', { client: current.clientId })
+  await application.evaluate(async ({ webContents }) => {
+    for (let event of [{ keyCode: 'x', modifiers: ['control'] }, { keyCode: 'q', modifiers: [] }]) {
+      let contents = webContents.getFocusedWebContents()!
+      contents.sendInputEvent({ type: 'keyDown', ...event } as Electron.KeyboardInputEvent)
+      contents.sendInputEvent({ type: 'keyUp', ...event } as Electron.KeyboardInputEvent)
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+  })
+  let confirmation = chrome.getByRole('textbox', { name: 'Close pane confirmation', exact: true })
+  await expect(confirmation).toBeFocused(); await expect(chrome.getByText('Close pane with 1 tab? (y/n)', { exact: true })).toBeVisible()
+  await confirmation.press('y')
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.some((item: { id: string }) => item.id === pane.id)).toBe(false)
 })
 
 test('slash searches help commands and active shortcuts; Escape clears before closing', async () => {
