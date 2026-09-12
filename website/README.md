@@ -1,5 +1,14 @@
 # bmux website
 
+Three lantern-themed design previews are available at `/styles/`: Field notes,
+Workshop, and Lamplight. Each is a complete page with serif or monospace type,
+visible feature controls and actual app screenshots. The
+comparison pages are prerendered and marked `noindex`. The current homepage
+stays in place while a direction is selected.
+
+The [product capture workflow](capture/README.md) runs inside the isolated Tart
+guest using only local sample pages. Media lives under `public/cdn/product/`.
+
 Public product showcase at [bmux.tonis.dev](https://bmux.tonis.dev).
 
 The website uses React, TypeScript, CSS modules, and Vite. Its production HTML is pre-rendered, so the product information and links work before JavaScript loads. JavaScript adds the workspace illustration, session picker, and copy button. The illustration uses fictional fixture content rather than real browser profiles.
@@ -33,10 +42,10 @@ curl -f https://bmux.tonis.dev/health
 
 To roll back, restore a previously deployed `digest` in the kustomization and push it to `main`. Argo CD will reconcile the deployment to that image.
 
-Run `pnpm check` to check types, lint, and application unit tests. Website UI verification uses a disposable bmux instance and isolated configuration:
+Run `pnpm check` to check types, lint, and application unit tests. Application UI verification uses local fixtures in a disposable bmux instance inside Tart:
 
 ```sh
-BMUX_TEST_URL=http://127.0.0.1:4317/ BMUX_TEST_SELECTOR=main pnpm test:ui
+pnpm test:ui
 ```
 
 The website makes no network requests for visitor analytics and requires no application secrets. The public source remains in the main bmux repository.

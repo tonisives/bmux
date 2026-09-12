@@ -1,7 +1,13 @@
 import { createContext, useContext, useState } from 'react'
 import styles from './App.module.css'
+import { DesignPreviews } from './DesignPreviews'
 
-export let App = () => <>
+export let App = ({ pathname = '/' }: { pathname?: string }) => {
+  if (pathname.startsWith('/styles')) return <DesignPreviews pathname={pathname} />
+  return <CurrentWebsite />
+}
+
+let CurrentWebsite = () => <>
   <a className={styles.skipLink} href="#main">Skip to content</a>
   <Header />
   <main id="main"><Hero /><Features /><Keyboard /><CLI /><Install /><FAQ /></main>

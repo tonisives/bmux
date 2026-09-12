@@ -1,0 +1,16 @@
+{
+  "capturedAt": "2026-09-12T05:13:38.062Z",
+  "app": "bmux",
+  "content": "Local demonstration pages; real app UI and CLI operations.",
+  "viewport": {
+    "width": 1360,
+    "height": 663,
+    "scale": 2
+  },
+  "checks": [
+    "URL typed and submitted with Enter",
+    "Two native page views attached",
+    "Real session picker opened",
+    "CLI typed and clicked in a bot profile without changing selected pane"
+  ]
+}
