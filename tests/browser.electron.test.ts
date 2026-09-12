@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import net from 'node:net'
+import { createHash } from 'node:crypto'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 let exec = promisify(execFile)
@@ -28,9 +30,19 @@ let launch = async () => {
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await observeNativeFocus(application)
-  await expect.poll(async () => {
-    try { return (await cli('status')).model.version } catch (error) { console.log(String(error)); return 0 }
-  }, { timeout: 20000 }).toBe(1)
+  // The public CLI auto-starts a server. During a slow restore that can launch the
+  // installed build against this same fixture before the test app starts listening.
+  let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
+  let serverPid = () => new Promise<number>((resolve, reject) => {
+    let connection = net.createConnection(socket), response = ''
+    connection.setEncoding('utf8'); connection.setTimeout(1000)
+    connection.on('connect', () => connection.write(JSON.stringify({ method: 'diagnostics' }) + '\n'))
+    connection.on('data', chunk => { response += chunk })
+    connection.on('timeout', () => connection.destroy(new Error('Test server did not respond')))
+    connection.on('error', reject)
+    connection.on('end', () => { try { resolve(JSON.parse(response).result.pid) } catch (error) { reject(error) } })
+  })
+  await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
 let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
