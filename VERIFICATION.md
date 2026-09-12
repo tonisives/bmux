@@ -12,11 +12,17 @@ Integration coverage includes isolated and shared profile storage, retained Java
 
 Local GUI checks run through the [Tart runner](docs/tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-tab run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
 
-The September 12 search/wait verification encountered intermittent native-focus
-failures during full Tart runs, including window/pane shortcuts and plugin prompts.
-Affected checks passed when rerun separately; the window/pointer comparison also
-passed on unchanged main. The full-suite focus instability remains tracked in
-[TODO.md](TODO.md). A passing isolated run does not establish full-suite stability.
+The September 12 native-focus follow-up passed two consecutive full Tart suites
+(`pnpm test:electron --repeat-each=2 --max-failures=1 --trace=retain-on-failure`):
+112 tests passed in 3.3 minutes. `pnpm check` passed all 94 unit tests. Activating
+the current foreground client now preserves its page, caret, and plugin prompt.
+The test harness waits for its own server socket before using the auto-starting
+CLI, waits for native view attachment before reversing a handoff, and checks
+the focused window and key recipient together before sending native input.
+Focus, attachment, pointer movement, and background-automation assertions remain
+in place. Failure diagnostics record routing IDs and event types without key text.
+The passing full-run evidence is in `artifacts/tart/2026-09-12T08-18-02.547Z/`;
+the URL/Enter and independent-pane UI check passed separately.
 
 The build uses the Little Lantern bmux icon and is unsigned. Extensions and external browser embedding are excluded. JavaScript alert/confirm/prompt dialogs are disabled. See README for other current boundaries.
 
