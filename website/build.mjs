@@ -9,7 +9,7 @@ await build({ configFile, publicDir: false, build: { ssr: `${root}src/render.tsx
 let { render } = await import(`${root}dist/render/render.js`)
 let template = await readFile(`${root}dist/client/index.html`, 'utf8')
 await writeFile(`${root}dist/client/index.html`, template.replace('<!--app-html-->', render()))
-for (let [route, title] of [['styles', 'Three design directions'], ['styles/field-notes', 'Field notes'], ['styles/workshop', 'Workshop'], ['styles/lamplight', 'Lamplight']]) {
+for (let [route, title] of [['styles', 'Three simple designs'], ['styles/sunday', 'Sunday'], ['styles/desktop', 'Desktop'], ['styles/peach', 'Peach']]) {
   let directory = `${root}dist/client/${route}`
   await mkdir(directory, { recursive: true })
   let page = template.replace('<!--app-html-->', render(`/${route}/`))

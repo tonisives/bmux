@@ -1,9 +1,9 @@
 # bmux website
 
-Three lantern-themed design previews are available at `/styles/`: Field notes,
-Workshop, and Lamplight. Each is a complete page with serif or monospace type,
-visible feature controls and actual app screenshots. The
-comparison pages are prerendered and marked `noindex`. The current homepage
+Three simple design previews are available at `/styles/`: Sunday, Desktop,
+and Peach. Each has its own layout, serif or monospace type, a short introduction,
+three feature buttons and actual app screenshots. The comparison pages are
+prerendered and marked `noindex`. The current homepage
 stays in place while a direction is selected.
 
 The [product capture workflow](capture/README.md) runs inside the isolated Tart
