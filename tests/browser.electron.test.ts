@@ -253,7 +253,14 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
     otherClient = (await cli('attach-session', { session: session.id })).id
     await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.isFocused(), nativeId)).toBe(false)
-    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.focus(), nativeId)
+    // Wait for attachment to finish before reversing it. Inspector evaluations
+    // can otherwise refocus the old window inside the new window's show stack.
+    let otherNativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === otherClient).nativeId
+    await expect.poll(() => application.evaluate(({ BaseWindow }, { id, url }) => {
+      let window = BaseWindow.fromId(id)
+      return window?.isFocused() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)
+    }, { id: otherNativeId, url: `${url}/history-three` })).toBe(true)
+    await application.evaluate(({ BaseWindow }, id) => new Promise<void>(resolve => setImmediate(() => { BaseWindow.fromId(id)!.focus(); resolve() })), nativeId)
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
     // No activate-client or focus-page calls between successive pane shortcuts.
     for (let attempt = 0; attempt < 8; attempt++) {

@@ -3,20 +3,19 @@
 This list tracks follow-up work from the current implementation and documented
 limitations.
 
-## Verification
-
-- [ ] Stabilize native focus checks in full Tart runs. Window/pane shortcuts and
-  plugin prompts can lose focus intermittently; isolated reruns pass. Preserve
-  the assertions about focus, attachment, and background automation.
-
 ## Browser tools
 
 - [ ] Verify the experimental Bitwarden desktop integration with a disposable vault:
   pairing approval, locked/unlocked state, and filling a local fixture. This requires
-  user setup; see the [experiment's verification notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification).
+  a disposable desktop setup; see the [experiment's verification notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification).
 
 ## Completed
 
+- [x] Stabilize native focus checks in full Tart runs. Preserve current-client
+  page/prompt focus during activation, wait for the fixture's own control socket
+  and completed native handoffs, and send keys after confirming their focused
+  owner. Two consecutive full passes succeeded with all focus, attachment, and
+  background-automation assertions retained.
 - [x] Extend cosmetic ad hiding into nested, cross-origin, and sandboxed frames,
   with live scope changes, navigation cleanup, and page policies preserved.
 - [x] Add title/URL search to the tab picker and name search to the session picker.
