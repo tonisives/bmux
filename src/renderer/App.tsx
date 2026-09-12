@@ -119,8 +119,11 @@ let PasswordSuggestions = () => {
     let id = event.currentTarget.dataset.loginId
     if (await run('bitwarden.select', { id }) !== undefined) void run('focus-page', { client: state.clientId })
   }
+  let unlock = async () => {
+    if (await run('bitwarden.unlock') !== undefined) void run('focus-page', { client: state.clientId })
+  }
   return <div className={css.passwordSuggestions} role="group" aria-label="Bitwarden logins" title={`Logins for ${suggestions.origin}`}>
-    <span>passwords:</span>{suggestions.items.map(item => <button key={item.id} data-login-id={item.id} onClick={choose} title={item.name} aria-label={`Fill login ${item.username || item.name}`}>{item.username || item.name}</button>)}
+    <span>passwords:</span>{suggestions.locked ? <button onClick={unlock}>Unlock Bitwarden</button> : suggestions.items.map(item => <button key={item.id} data-login-id={item.id} onClick={choose} title={item.name} aria-label={`Fill login ${item.username || item.name}`}>{item.username || item.name}</button>)}
   </div>
 }
 let StatusWindow = ({ id, label, active }: { id: string; label: string; active: boolean }) => {

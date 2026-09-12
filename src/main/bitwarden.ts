@@ -56,7 +56,7 @@ export let createBitwarden = (options: Options) => {
   }
   let inspect = async (context: PluginContext, signal: AbortSignal) => await options.browser('eval', { expression: `(${inspectLoginForm.toString()})()` }, context, signal) as LoginForm
   let suggest = async (context?: PluginContext) => {
-    if (!context?.tabId || locked || !vault.hasSession() || attempts.has(context.tabId) || !options.interactive(context) || !/^https?:\/\//.test(context.url ?? '')) { clearSuggestions(); return }
+    if (!context?.tabId || locked || attempts.has(context.tabId) || !options.interactive(context) || !/^https?:\/\//.test(context.url ?? '')) { clearSuggestions(); return }
     if (suggestionCheck) return
     let controller = new AbortController(), signal = controller.signal
     suggestionCheck = controller
@@ -69,10 +69,16 @@ export let createBitwarden = (options: Options) => {
       let form = await inspect(context, signal)
       valid()
       if (!form.focused) { clearSuggestions(); return }
-      let key = JSON.stringify([context.clientId, context.tabId, context.profileId, context.documentId, context.url, form.focused])
+      let hasSession = vault.hasSession()
+      let key = JSON.stringify([context.clientId, context.tabId, context.profileId, context.documentId, context.url, form.focused, hasSession])
       if (key === suggestionKey && Date.now() < suggestionExpiry) return
       if (suggestion && key !== suggestionKey) { suggestion = undefined; options.changed() }
       suggestionKey = key; suggestionExpiry = Date.now() + 5000
+      if (!hasSession) {
+        suggestion = { context: { ...context }, field: form.focused, value: { tabId: context.tabId, origin: origin(context), locked: true, items: [] } }
+        options.changed()
+        return
+      }
       let previous = queue
       let next = previous.catch(() => undefined).then(async () => {
         valid()
@@ -92,7 +98,7 @@ export let createBitwarden = (options: Options) => {
       valid()
       if (latest.focused !== form.focused) { clearSuggestions(); return }
       let hadSuggestions = !!suggestion
-      suggestion = items.length ? { context: { ...context }, field: form.focused, value: { tabId: context.tabId, origin: origin(context), items } } : undefined
+      suggestion = items.length ? { context: { ...context }, field: form.focused, value: { tabId: context.tabId, origin: origin(context), locked: false, items } } : undefined
       if (hadSuggestions || suggestion) options.changed()
     } catch { /* Background lookup failures never prompt or discard a valid session. */ }
     finally { if (suggestionCheck === controller) suggestionCheck = undefined }
@@ -228,9 +234,9 @@ export let createBitwarden = (options: Options) => {
         return next.documentId === suggestion.context.documentId && next.url === suggestion.context.url && next.profileId === suggestion.context.profileId ? suggestion.value : undefined
       } catch { return undefined }
     },
-    select: async (context: PluginContext, id: string) => {
+    select: async (context: PluginContext, id?: string) => {
       let entry = suggestion
-      if (!entry || entry.context.clientId !== context.clientId || entry.context.tabId !== context.tabId || entry.context.documentId !== context.documentId || entry.context.profileId !== context.profileId || entry.context.url !== context.url || !options.interactive(context) || !entry.value.items.some(item => item.id === id)) throw new Error('Password suggestion expired')
+      if (!entry || entry.context.clientId !== context.clientId || entry.context.tabId !== context.tabId || entry.context.documentId !== context.documentId || entry.context.profileId !== context.profileId || entry.context.url !== context.url || !options.interactive(context) || (entry.value.locked ? id !== undefined : !entry.value.items.some(item => item.id === id))) throw new Error('Password suggestion expired')
       let form = await inspect(context, new AbortController().signal)
       let next = options.context(context)
       if (suggestion !== entry || form.focused !== entry.field || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId || !options.interactive(context)) throw new Error('Login field changed')

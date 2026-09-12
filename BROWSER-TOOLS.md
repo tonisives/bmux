@@ -168,13 +168,16 @@ each selection; unlocking during that selection satisfies the check.
 That prompt says `Verify master password for this login` to distinguish it from
 unlocking the vault.
 
-While unlocked, focusing a recognized username or password field shows matching
-usernames in the status bar. Suggestions leave keyboard focus in the page so you
-can keep typing. Click a username to fill it without running `passwords` or opening
-another picker. Suggestions never unlock the vault themselves. Only account labels
-enter the UI; bmux rereads the selected login and checks the page and focused field
-before filling. Suggestions disappear when you leave the login field, change tabs
-or pages, or lock the vault. They use the same exact-origin rules below.
+Focusing a recognized username or password field shows `Unlock Bitwarden` in the
+status bar while the vault is locked. Click it to unlock and choose a matching
+login. The password prompt opens only after you click the suggestion.
+While unlocked, the same bar shows matching usernames. Suggestions leave keyboard
+focus in the page so you can keep typing. Click a username to fill it without
+running `passwords` or opening another picker. Only account labels enter the UI;
+bmux rereads the selected login and checks the page and focused field before
+filling. Suggestions disappear when you leave the login field or change tabs or
+pages. Locking the vault replaces usernames with the unlock suggestion on the
+focused login field. Suggestions use the same exact-origin rules below.
 
 Only results of the CLI's origin lookup with an exact matching HTTP(S) origin are
 offered. Different schemes, ports, subdomains, deleted items, and never-match URI
