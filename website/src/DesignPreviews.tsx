@@ -1,16 +1,18 @@
 import { createContext, useContext, useState } from 'react'
 import type { ReactNode } from 'react'
 import css from './DesignPreviews.module.css'
+import { SundayPage } from './SundayPage'
 
 export let DesignPreviews = ({ pathname }: { pathname: string }) => {
   let direction = DIRECTIONS.find(item => pathname.replace(/\/$/, '') === `/styles/${item.id}`)
   if (!direction) return <DesignGallery />
+  if (direction.id === 'sunday') return <SundayPage />
   return <PreviewProvider direction={direction}><DesignPage /></PreviewProvider>
 }
 
 let GITHUB = 'https://github.com/tonisives/bmux'
 let DIRECTIONS = [
-  { id: 'sunday', name: 'Sunday', number: '01', description: 'Cream paper · Soft serif · Room to breathe' },
+  { id: 'sunday', name: 'Sunday', number: '01', description: 'Cream background · System font · Product features' },
   { id: 'desktop', name: 'Desktop', number: '02', description: 'Mint green · Monospace · One tidy window' },
   { id: 'peach', name: 'Peach', number: '03', description: 'Peach & teal · Big type · A little playful' },
 ] as const
@@ -52,7 +54,7 @@ let DirectionCard = ({ direction }: { direction: Direction }) => <a className={`
   <div className={css.cardDescription}><h3><span>{direction.number}</span> {direction.name}<span aria-hidden="true">↗</span></h3><p>{direction.description}</p></div>
 </a>
 
-let CardHero = ({ direction }: { direction: Direction }) => <div className={css.cardHero}><Lantern /><h2>{direction.id === 'sunday' ? <>A little<br /><em>more room</em></> : direction.id === 'desktop' ? <>Your browser,<br />in good order</> : <>Space for<br />you & your<br /><em>agents</em></>}</h2></div>
+let CardHero = ({ direction }: { direction: Direction }) => <div className={css.cardHero}><Lantern /><h2>{direction.id === 'sunday' ? <>Split panes<br />Sessions<br />Agent control</> : direction.id === 'desktop' ? <>Your browser,<br />in good order</> : <>Space for<br />you & your<br /><em>agents</em></>}</h2></div>
 
 let DesignSwitcher = () => {
   let { direction } = usePreview()
@@ -64,22 +66,12 @@ let DesignPage = () => {
   return <div className={`${css.preview} ${css[direction.id]}`}>
     <a className={css.skipLink} href="#content">Skip to content</a>
     <DesignSwitcher />
-    {direction.id === 'sunday' ? <SundayPage /> : direction.id === 'desktop' ? <DesktopPage /> : <PeachPage />}
+    {direction.id === 'desktop' ? <DesktopPage /> : <PeachPage />}
   </div>
 }
 
 let Header = () => <header className={css.header}><Brand /><nav aria-label="Main navigation"><span>Browser for macOS</span><a href={GITHUB}>GitHub ↗</a></nav></header>
 let Footer = () => <footer className={css.footer}><span>Free & open source</span><a href="https://tonis.dev">Made by Tõnis ↗</a><span>macOS · Early preview</span></footer>
-
-let SundayPage = () => <div className={css.sundayPage}>
-  <Header />
-  <main id="content">
-    <section className={css.sundayHero}><Lantern /><h1>A little <em>more room</em></h1><p>Your pages, projects and agents, together</p><GetBmux /></section>
-    <section className={css.sundayWorkspace} aria-label="Explore bmux features"><DemoControls /><Capture /></section>
-    <Agents />
-  </main>
-  <Footer />
-</div>
 
 let DesktopPage = () => <div className={css.desktopPage}>
   <Header />

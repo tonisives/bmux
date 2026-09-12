@@ -1,10 +1,9 @@
 # bmux website
 
-Three simple design previews are available at `/styles/`: Sunday, Desktop,
-and Peach. Each has its own layout, serif or monospace type, a short introduction,
-three feature buttons and actual app screenshots. The comparison pages are
-prerendered and marked `noindex`. The current homepage
-stays in place while a direction is selected.
+Sunday at `/styles/sunday/` is the current design under review, with a system
+sans-serif font, factual feature descriptions, real app screenshots and local
+installation instructions. The gallery at `/styles/` also retains the earlier
+Desktop and Peach directions. Preview pages are prerendered and marked `noindex`.
 
 The [product capture workflow](capture/README.md) runs inside the isolated Tart
 guest using only local sample pages. Media lives under `public/cdn/product/`.
