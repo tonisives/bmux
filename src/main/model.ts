@@ -119,9 +119,11 @@ export let cloneWindow = (window: InternalWindow): InternalWindow => {
     let paneId = id('pane')
     paneIds.set(pane.id, paneId)
     pane.id = paneId
+    let tabIds = new Map(pane.tabs.map(tab => [tab.id, id('tab')]))
     for (let tab of pane.tabs) {
-      let tabId = id('tab')
+      let tabId = tabIds.get(tab.id)!
       if (pane.activeTabId === tab.id) pane.activeTabId = tabId
+      if (tab.openerTabId) tab.openerTabId = tabIds.get(tab.openerTabId)
       tab.id = tabId
     }
   }
@@ -159,7 +161,7 @@ export let validateModel = (value: unknown): Model => {
         if (!pane.tabs.some(tab => tab.id === pane.activeTabId)) throw new Error('Missing active tab')
         for (let tab of pane.tabs) {
           checkId(tab.id)
-          if (typeof tab.url !== 'string') throw new Error('Invalid tab URL')
+          if (typeof tab.url !== 'string' || (tab.openerTabId !== undefined && typeof tab.openerTabId !== 'string')) throw new Error('Invalid tab')
         }
       }
     }

@@ -4,7 +4,7 @@ import type { PluginInfo, PluginPrompt, PluginRun } from './plugins'
 export type StatusBarPosition = 'top' | 'bottom'
 export type Bookmark = { id: string; title: string; url?: string; children?: Bookmark[] }
 export type Profile = { id: string; name: string; background: boolean; bookmarks?: Bookmark[]; braveSource?: { root: string; directory: string } }
-export type Tab = { id: string; url: string; title: string; zoom: number }
+export type Tab = { id: string; url: string; title: string; zoom: number; openerTabId?: string }
 export type Pane = { id: string; profileId: string; tabs: Tab[]; activeTabId: string }
 export type Layout = { kind: 'pane'; paneId: string } | { kind: 'split'; id: string; axis: 'horizontal' | 'vertical'; ratio: number; first: Layout; second: Layout }
 export type InternalWindow = { id: string; name: string; automaticName?: boolean; layout: Layout | null; panes: Pane[] }

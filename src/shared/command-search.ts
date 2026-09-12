@@ -2,7 +2,7 @@ import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
 export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles'] as const
-export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-window'; shortcuts?: string[] }
+export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
   { command: 'browser-tools', description: 'Ad blocking, Dark Reader, userscripts, and saved forms', action: 'browser-tools' },
@@ -51,7 +51,7 @@ export let COMMANDS: CommandEntry[] = [
   ...['left', 'down', 'up', 'right'].map(direction => ({ command: `pane-${direction}`, description: `Select the pane to the ${direction}`, action: `pane-${direction}` })),
   { command: 'select-pane -t ', usage: 'select-pane -t PANE_ID', description: 'Select a pane by ID', complete: true },
   { command: 'move-pane --window ', usage: 'move-pane --window WINDOW_ID', description: 'Move this pane into another window', complete: true },
-  { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', complete: true },
+  { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', action: 'close-pane', complete: true },
   { command: 'tab new', usage: 'tab new [URL]', description: 'Create a tab in this pane', action: 'new-tab' },
   { command: 'tab close', description: 'Close the selected tab', action: 'close-tab' },
   { command: 'tab select -t ', usage: 'tab select -t INDEX', description: 'Select a tab by index or ID', complete: true },

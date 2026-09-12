@@ -217,6 +217,13 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     expect(await cli('eval', { tab: lower.activeTabId, expression: 'location.pathname' })).toBe('/lower-scroll')
     await mouse('forward', 'history-two')
     await expect.poll(() => cli('eval', { tab: upper.activeTabId, expression: 'location.pathname' })).toBe('/history-three')
+    await cli('click', { tab: upper.activeTabId, selector: '#popup' })
+    await expect.poll(async () => (await cli('tab.list', { pane: upper.id })).length).toBe(2)
+    let popup = (await cli('tab.list', { pane: upper.id })).find((tab: { active: boolean }) => tab.active)
+    expect(popup.url).toBe(`${url}/popup`)
+    await cli('back', { tab: popup.id })
+    await expect.poll(async () => (await cli('tab.list', { pane: upper.id })).length).toBe(1)
+    expect((await cli('tab.list', { pane: upper.id }))[0]).toMatchObject({ id: upper.activeTabId, active: true })
     await cli('select-pane', { client: client.id, pane: upper.id })
     let focusedUrl = () => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())
     let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {

@@ -7,7 +7,7 @@ import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS,
 import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks } from '../shared/picker-search'
 
-type ManagementControl = 'rename-window' | 'rename-session' | 'close-window'
+type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
 
@@ -51,7 +51,7 @@ export let App = () => {
     let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); if (control !== 'plugin-dialog') show(control as Control) }) })
     return () => { unsubscribe(); controls() }
   }, [accept, show])
-  let management = control === 'rename-window' || control === 'rename-session' || control === 'close-window'
+  let management = control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
   useEffect(() => {
@@ -78,7 +78,7 @@ export let App = () => {
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status message={control === 'address' ? '' : message} />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status message={control === 'address' ? '' : message} />}
     </footer>
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
@@ -269,8 +269,8 @@ let FindPrompt = () => {
 
 let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: string }) => {
   let { state, run, dismiss } = useUI()
-  let { client, session, window } = selection(state)
-  let closing = mode === 'close-window'
+  let { client, session, window, pane } = selection(state)
+  let closingPane = mode === 'close-pane', closingWindow = mode === 'close-window', closing = closingPane || closingWindow
   let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : window!.name)
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
@@ -281,7 +281,7 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let apply = async () => {
     if (busy) return
     setBusy(true)
-    let result = await run(closing ? 'kill-window' : mode, { client: client!.id, window: window!.id, session: session!.id, ...(closing ? { confirm: true } : { name: text.trim() }) })
+    let result = await run(closingPane ? 'kill-pane' : closingWindow ? 'kill-window' : mode, { client: client!.id, window: window!.id, pane: pane?.id, session: session!.id, ...(closing ? { confirm: true } : { name: text.trim() }) })
     if (!mounted.current) return
     setBusy(false)
     if (result !== undefined) finish()
@@ -292,8 +292,8 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
     if (event.key === 'Escape' || (closing && event.key.toLowerCase() === 'n')) { event.preventDefault(); finish(); return }
     if (closing && event.key.toLowerCase() === 'y') { event.preventDefault(); void apply() }
   }
-  let label = closing ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : 'Rename window'
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><input id="manage" ref={ref} aria-label={closing ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || 'esc'}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  let label = closingPane ? `Close pane with ${pane?.tabs.length ?? 0} tab${pane?.tabs.length === 1 ? '' : 's'}? (y/n)` : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : 'Rename window'
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><input id="manage" ref={ref} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || 'esc'}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
 let EmptyPane = ({ paneId }: { paneId?: string }) => {

@@ -210,7 +210,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
-    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-window'].includes(action)) { control(action); return }
+    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
     if (action === 'close-tab' && tab) { void execute({ method: 'tab.close', args: { tab } }).catch(reportError); return }
@@ -344,6 +344,7 @@ export let createRuntime = (dataDirectory: string) => {
       action: 'allow', outlivesOpener: true,
       createWindow: options => {
         let added = newTab()
+        added.openerTabId = tabId
         pane.tabs.push(added)
         // Preserve Electron's opener relationship by returning the actual new WebContents.
         let popupOptions = options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }
@@ -841,7 +842,19 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
       if (method === 'reload') contents.reload()
       if (method === 'hard-reload') contents.reloadIgnoringCache()
-      if (method === 'back' && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+      if (method === 'back') {
+        if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+        else {
+          let { tab, pane } = tabById(model, tabId)
+          let openerTabId = tab.openerTabId
+          if (openerTabId && pane.tabs.some(tab => tab.id === openerTabId)) {
+            pane.tabs = pane.tabs.filter(tab => tab.id !== tabId)
+            pane.activeTabId = openerTabId
+            changed(); await visualQueue
+            return { closed: tabId, tab: openerTabId }
+          }
+        }
+      }
       if (method === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
       publish(); return { tab: tabId }
     }
