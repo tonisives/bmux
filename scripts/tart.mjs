@@ -13,7 +13,7 @@ let vm = process.env.BMUX_TART_VM ?? 'bmux-tests'
 let env = { ...process.env, TART_HOME: tartHome, COPYFILE_DISABLE: '1' }
 let stateDirectory = path.join(tartHome, 'bmux-runner')
 let [mode = 'status', ...args] = process.argv.slice(2)
-let testModes = ['electron', 'ui', 'debug', 'package-smoke']
+let testModes = ['electron', 'ui', 'debug', 'package-smoke', 'bitwarden-desktop']
 let guestPath = '/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin'
 let quote = value => `'${String(value).replaceAll("'", "'\\''")}'`
 
@@ -102,6 +102,7 @@ let nativeTest = async () => {
   if (mode === 'package-smoke' || process.env.BMUX_TEST_PACKAGED === '1' || process.env.BMUX_TEST_INSTALLED === '1' || args.includes('--installed')) await run('pnpm', ['package'])
   else await run('pnpm', ['build'])
   if (mode === 'electron') return run('pnpm', ['exec', 'playwright', 'test', '--workers=1', ...args], { allowFailure: true })
+  if (mode === 'bitwarden-desktop') return run(process.execPath, ['scripts/verify-bitwarden-desktop.mjs', ...args], { allowFailure: true })
   if (mode === 'package-smoke') return run(process.execPath, ['scripts/smoke-packaged.mjs', ...args], { allowFailure: true })
   return run(process.execPath, ['scripts/check-ui.mjs', ...(mode === 'debug' ? ['--keep-open'] : []), ...args], { allowFailure: true })
 }
