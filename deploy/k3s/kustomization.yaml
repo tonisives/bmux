@@ -5,4 +5,4 @@ resources:
   - website.yaml
 images:
   - name: registry.tonisives.com/bmux-website
-    digest: sha256:92b8fae9c58413f1f36dd0aaf909982ddf2f14d0b67e388517a9e73570da3e65
+    digest: sha256:6a8380f1a9c40b23b7e8fca12c0803d3da00710237def43c4595e887aec40475
