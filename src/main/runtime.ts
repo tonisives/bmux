@@ -3,7 +3,7 @@ import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -457,22 +457,13 @@ export let createRuntime = (dataDirectory: string) => {
     }
     return visualQueue
   }
-  let repairClients = () => {
-    for (let client of model.clients) {
-      let session = model.sessions.find(session => session.id === client.sessionId) ?? model.sessions[0]
-      if (!session) continue
-      client.sessionId = session.id
-      let window = session.windows.find(window => window.id === client.windowId) ?? session.windows[0]
-      client.windowId = window.id
-      if (!window.panes.some(pane => pane.id === client.paneId)) client.paneId = window.panes[0]?.id ?? null
-      if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
-    }
-  }
+  let repairClients = () => repairClientSelections(model)
   let changed = () => { repairClients(); save(); void scheduleVisuals() }
   let createClient = async (sessionId: string, restored?: Client, activate = true) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
+    repairClients()
     let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
     window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
