@@ -13,12 +13,24 @@ let activate = async () => { let current = await state(); await expect.poll(asyn
 let prompt = () => chrome.getByRole('combobox', { name: 'Command', exact: true })
 let open = async () => { await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click(); await expect(prompt()).toBeFocused() }
 let nativeVisible = () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as any).webContents.getURL() === url && view.getBounds().height > 300)), url)
+let closeShortcut = async (key: string) => {
+  await activate()
+  await rpc('focus-page', { client: (await state()).clientId })
+  await application.evaluate(async ({ webContents }, key) => {
+    for (let event of [{ keyCode: 'x', modifiers: ['control'] }, { keyCode: key, modifiers: key === 'Q' ? ['shift'] : [] }]) {
+      let contents = webContents.getFocusedWebContents()!
+      contents.sendInputEvent({ type: 'keyDown', ...event } as Electron.KeyboardInputEvent)
+      contents.sendInputEvent({ type: 'keyUp', ...event } as Electron.KeyboardInputEvent)
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+  }, key)
+}
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-command-search-'))
   await fs.mkdir(path.join(directory, 'plugins/fixture'), { recursive: true })
   await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane', Q: 'close-window' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
   server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
@@ -91,7 +103,7 @@ test('enabled plugin actions appear in fuzzy command results and execute', async
   await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.pluginId === 'fixture')?.status).toBe('completed')
 })
 
-test('close-pane shortcut confirms before removing the selected pane', async () => {
+test('close-pane shortcut immediately removes the selected pane', async () => {
   let current = await state(), window = current.model.sessions[0].windows[0], original = window.panes[0]
   let pane = await rpc('split-window', { pane: original.id, client: current.clientId })
   await activate(); await rpc('focus-page', { client: current.clientId })
@@ -103,10 +115,34 @@ test('close-pane shortcut confirms before removing the selected pane', async () 
       await new Promise(resolve => setTimeout(resolve, 30))
     }
   })
-  let confirmation = chrome.getByRole('textbox', { name: 'Close pane confirmation', exact: true })
-  await expect(confirmation).toBeFocused(); await expect(chrome.getByText('Close pane with 1 tab? (y/n)', { exact: true })).toBeVisible()
-  await confirmation.press('y')
+  await expect(chrome.getByRole('textbox', { name: 'Close pane confirmation', exact: true })).toHaveCount(0)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.some((item: { id: string }) => item.id === pane.id)).toBe(false)
+})
+
+test('closing the last pane removes its window and Q confirms only above two windows', async () => {
+  let current = await state(), session = current.model.sessions[0]
+  for (let window of session.windows.slice(1)) await rpc('kill-window', { window: window.id, confirm: true })
+  let create = () => rpc('new-window', { session: session.id, client: current.clientId })
+  let window = await create()
+  await closeShortcut('q')
+  await expect.poll(async () => (await state()).model.sessions[0].windows.some((item: any) => item.id === window.id)).toBe(false)
+  await create()
+  await closeShortcut('Q')
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(1)
+  await create(); await create()
+  await closeShortcut('Q')
+  let confirmation = chrome.getByRole('textbox', { name: 'Close window confirmation', exact: true })
+  await expect(confirmation).toBeFocused()
+  expect((await state()).model.sessions[0].windows.length).toBe(3)
+  await confirmation.press('n')
+  expect((await state()).model.sessions[0].windows.length).toBe(3)
+  await closeShortcut('Q')
+  await confirmation.press('y')
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(2)
+  let remaining = (await state()).model.sessions[0].windows[1]
+  await rpc('select-window', { client: current.clientId, window: remaining.id })
+  await closeShortcut('Q')
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(1)
 })
 
 test('slash searches help commands and active shortcuts; Escape clears before closing', async () => {
