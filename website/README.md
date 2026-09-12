@@ -3,7 +3,9 @@
 The front page uses the Sunday design, also available at `/styles/sunday/`,
 with a system font and three scrolling feature sections: Split panes, Switch
 sessions and Run an agent. Each has a short description and a full-width real
-app screenshot. Packaging outputs to `build/bmux.app` by default. The gallery at `/styles/` also retains the earlier
+app screenshot and a small section icon. Keyboard shortcuts open in a native
+HTML dialog on the page, with Escape, outside-click dismissal and focus return.
+Packaging outputs to `build/bmux.app` by default. The gallery at `/styles/` also retains the earlier
 Desktop and Peach directions. Preview pages are prerendered and marked `noindex`.
 
 The [product capture workflow](capture/README.md) runs inside the isolated Tart
