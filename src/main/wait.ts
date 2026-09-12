@@ -1,13 +1,17 @@
+let duration = (value: unknown, name: string, allowZero = false) => {
+  let numeric = typeof value === 'number' || (typeof value === 'string' && !!value.trim())
+  let number = Number(value)
+  if (!numeric || !Number.isFinite(number) || (allowZero ? number < 0 : number <= 0)) throw new Error(`Wait ${name} must be a ${allowZero ? 'non-negative' : 'positive'} number`)
+  return number
+}
+
 export let waitOptions = (args: Record<string, unknown>) => {
-  let timeout = Number(args.timeout ?? 15000)
-  if (!Number.isFinite(timeout) || timeout <= 0) throw new Error('Wait timeout must be a positive number')
-  timeout = Math.min(timeout, 60000)
+  let timeout = Math.min(duration(args.timeout === undefined ? 15000 : args.timeout, 'timeout'), 60000)
   let modes = ['selector', 'expression', 'ms'].filter(key => args[key] !== undefined)
   if (modes.length !== 1) throw new Error('Provide exactly one of selector, expression, or ms')
   if (args.state !== undefined && modes[0] !== 'selector') throw new Error('Wait state requires a selector')
   if (modes[0] === 'ms') {
-    let ms = Number(args.ms)
-    if (!Number.isFinite(ms) || ms < 0) throw new Error('Wait ms must be a non-negative number')
+    let ms = duration(args.ms, 'ms', true)
     return { timeout, ms: Math.min(ms, timeout) }
   }
   if (modes[0] === 'expression') {

@@ -19,7 +19,11 @@ let cli = async (...args: string[]) => {
   if (!response.ok) throw new Error(response.error)
   return response.result
 }
-let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
+let activate = async () => {
+  let current = await state()
+  if (current.focusedClientId !== current.clientId) await rpc('activate-client', { client: current.clientId })
+  await expect.poll(async () => (await state()).focusedClientId).toBe(current.clientId)
+}
 let open = async (command: string) => {
   await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
   let input = chrome.getByRole('combobox', { name: 'Command', exact: true }); await input.fill(command); await input.press('Enter')

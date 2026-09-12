@@ -250,19 +250,20 @@ let FindPrompt = () => {
   let { tab } = selection(state)
   let loading = !!(tab && state.loading[tab.id])
   let [text, setText] = useState('')
+  let result = tab ? state.findResults?.[tab.id] : undefined
+  let current = result?.text === text ? result : undefined
+  let searching = !!current
   let ref = useRef<HTMLInputElement>(null)
   let timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
   useEffect(() => {
-    if (!tab || loading) return
+    if (!tab || loading || searching) return
     timer.current = setTimeout(() => { void run('find', { tab: tab.id, text }) }, text ? 120 : 0)
     return () => clearTimeout(timer.current)
-  }, [text, tab?.id, loading, run])
+  }, [text, tab?.id, loading, searching, run])
   useEffect(() => () => {
     if (tab) void bridge.command({ method: 'find', args: { tab: tab.id, text: '' } }).catch(() => undefined)
   }, [tab?.id])
-  let result = tab ? state.findResults?.[tab.id] : undefined
-  let current = result?.text === text ? result : undefined
   let change = (event: ChangeEvent<HTMLInputElement>) => { onMessage(''); setText(event.target.value) }
   let search = (forward = true) => {
     clearTimeout(timer.current)

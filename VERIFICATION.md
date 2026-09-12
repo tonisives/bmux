@@ -12,6 +12,12 @@ Integration coverage includes isolated and shared profile storage, retained Java
 
 Local GUI checks run through the [Tart runner](docs/tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-tab run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
 
+The September 12 search/wait verification encountered intermittent native-focus
+failures during full Tart runs, including window/pane shortcuts and plugin prompts.
+Affected checks passed when rerun separately; the window/pointer comparison also
+passed on unchanged main. The full-suite focus instability remains tracked in
+[TODO.md](TODO.md). A passing isolated run does not establish full-suite stability.
+
 The build uses the Little Lantern bmux icon and is unsigned. Extensions and external browser embedding are excluded. JavaScript alert/confirm/prompt dialogs are disabled. See README for other current boundaries.
 
 The URL regression test imports profiles while existing pages are live, submits a URL through the interface, and checks that the page is attached to a visible native window. It also sends Command+L and prefix/help keystrokes to the actual page WebContents and checks command errors. The import fix preserves object identity for existing live tab callbacks.

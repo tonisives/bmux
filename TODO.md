@@ -3,6 +3,12 @@
 This list tracks follow-up work from the current implementation and documented
 limitations.
 
+## Verification
+
+- [ ] Stabilize native focus checks in full Tart runs. Window/pane shortcuts and
+  plugin prompts can lose focus intermittently; isolated reruns pass. Preserve
+  the assertions about focus, attachment, and background automation.
+
 ## Browser tools
 
 - [ ] Extend cosmetic ad hiding into child frames; network filtering already covers
