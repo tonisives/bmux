@@ -138,3 +138,31 @@ tests passed, followed by seven popup checks after the final selection change.
 `pnpm test:ui` passed and the visible native page screenshot was reviewed.
 Artifacts: `2026-09-13T06-59-55.129Z`, `2026-09-13T07-01-31.100Z`, and
 `2026-09-13T07-00-58.862Z`, under `artifacts/tart/`.
+
+
+September 13 warm Bitwarden follow-up caches verified unlocked status and the
+most recent exact-origin lookup for 30 seconds. Every reuse checks data.json
+metadata (device, inode, size, modification and change timestamps) and the local
+session generation. Missing/unreadable metadata disables reuse. Unlock, close,
+command failure, explicit refresh, and changed metadata invalidate the cache.
+Changes during a CLI command prevent its result from being cached. A popup's
+selected credential also records the vault revision, so a fresh status with a
+different revision forces another item lookup. Only in-memory results are cached;
+there is no new secret file or local HTTP API.
+
+CLI storage paths follow [Bitwarden's storage documentation](https://bitwarden.com/help/data-storage/)
+and the [CLI app-data override](https://bitwarden.com/help/cli/). Custom executables
+require an explicit app-data directory to enable caching. These tests use only
+fixture CLI processes and disposable data files; no real vault was inspected.
+
+`pnpm check` passed 110 tests, including real subprocess-count checks for warm
+reuse, explicit refresh, file replacement, expiry, lock, missing files, and a
+vault change during a pending request. All 27 browser-tool native tests passed,
+including a complete popup selection and username fill that launches zero new
+CLI processes. This removes subprocess latency from warm actions; cold unlocks,
+first origin lookups, and expired/invalidated entries still use the CLI.
+Native artifacts: `artifacts/tart/2026-09-13T09-18-38.261Z/`.
+
+Final refresh/empty/failure and warm-fill reruns passed (3 tests):
+`2026-09-13T09-20-25.164Z`. `pnpm test:ui` passed and its native page screenshot
+was reviewed: `2026-09-13T09-19-56.923Z`.

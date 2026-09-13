@@ -24,10 +24,11 @@ export let createBitwarden = (options: Options) => {
   let vault = options.vault ?? createVault(), attempts = new Map<string, Attempt>()
   let notices = new Map<string, { tabId?: string; message: string; timer: ReturnType<typeof setTimeout> }>()
   let queue: Promise<unknown> = Promise.resolve(), account = '', locked = false
+  let vaultRevision: string | undefined
   let suggestion: { context: PluginContext; field: string; fresh?: number; logins?: VaultLogin[]; value: PasswordSuggestions } | undefined
   let suggestionCheck: AbortController | undefined, suggestionKey = '', suggestionExpiry = 0, dismissedKey = ''
   let loginExpiry: ReturnType<typeof setTimeout> | undefined, selectionExpiry: ReturnType<typeof setTimeout> | undefined
-  let selectedCredential: { login: VaultLogin; context: PluginContext; account: string; expires: number } | undefined
+  let selectedCredential: { login: VaultLogin; context: PluginContext; account: string; revision?: string; expires: number } | undefined
   let freshSelection: { id: string; tabId?: string; documentId?: string; expires: number } | undefined
   let origin = (context: PluginContext) => { try { return new URL(context.url!).origin } catch { return '' } }
   let clearSuggestions = () => {
@@ -77,7 +78,7 @@ export let createBitwarden = (options: Options) => {
     for (let tabId of attempts.keys()) cancel(tabId)
     vault.close(); account = ''; freshSelection = undefined; selectedCredential = undefined; clearTimeout(selectionExpiry)
   }
-  let loadSuggestions = async (context: PluginContext, suggestionId: string, password?: string) => {
+  let loadSuggestions = async (context: PluginContext, suggestionId: string, password?: string, refresh = false) => {
     let unlocking = password !== undefined
     let entry = await validSuggestion(context, suggestionId)
     if (entry.value.busy || locked) return
@@ -89,9 +90,9 @@ export let createBitwarden = (options: Options) => {
     let previous = queue
     let next = previous.catch(() => undefined).then(async () => {
       await valid()
-      let lookup = vault.hasSession() ? vault.logins(origin(context), signal).catch(() => undefined) : undefined
+      let lookup = vault.hasSession() ? vault.logins(origin(context), signal, refresh).catch(() => undefined) : undefined
       // An explicit unlock needs only the post-unlock status check.
-      let status: Awaited<ReturnType<typeof vault.status>> = unlocking && !vault.hasSession() ? { status: 'locked' } : await vault.status(signal)
+      let status: Awaited<ReturnType<typeof vault.status>> = unlocking && !vault.hasSession() ? { status: 'locked' } : await vault.status(signal, refresh)
       await valid()
       if (status.status === 'unauthenticated') { forgetSession(); throw new Error('Run bw login in a terminal, then try again.') }
       let identity = JSON.stringify([status.userId, status.serverUrl])
@@ -109,6 +110,7 @@ export let createBitwarden = (options: Options) => {
         entry.fresh = Date.now() + 120000
       }
       account = JSON.stringify([status.userId, status.serverUrl])
+      vaultRevision = status.revision
       await valid()
       entry.value = { ...entry.value, locked: false }; options.changed()
       try {
@@ -271,7 +273,7 @@ export let createBitwarden = (options: Options) => {
         account = JSON.stringify([status.userId, status.serverUrl])
         let pinned = credential
         credential = undefined
-        if (pinned && selectedLogin === pinned.login.id && pinned.account === account
+        if (pinned && selectedLogin === pinned.login.id && pinned.account === account && pinned.revision === status.revision
           && pinned.context.clientId === context.clientId && pinned.context.tabId === context.tabId
           && pinned.context.documentId === context.documentId && pinned.context.profileId === context.profileId && pinned.context.url === context.url) return [pinned.login]
         try { return await vault.logins(origin(context), operation) }
@@ -327,7 +329,7 @@ export let createBitwarden = (options: Options) => {
       if (entry.value.locked || entry.value.busy || !entry.value.items.some(item => item.id === id)) throw new Error('Password suggestion expired')
       if (entry.fresh) freshSelection = { id, tabId: context.tabId, documentId: context.documentId, expires: entry.fresh }
       let login = entry.logins?.find(item => item.id === id)
-      selectedCredential = login ? { login, context: { ...context }, account, expires: Date.now() + 5000 } : undefined
+      selectedCredential = login ? { login, context: { ...context }, account, revision: vaultRevision, expires: Date.now() + 5000 } : undefined
       entry.logins = undefined
       clearSuggestions()
       clearTimeout(selectionExpiry)
