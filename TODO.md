@@ -3,6 +3,56 @@
 This list tracks follow-up work from the current implementation and documented
 limitations.
 
+## Next: everyday browsing
+
+These are proposed additions, ordered by priority. Keep controls keyboard
+accessible and use the existing address bars and transient panels.
+
+- [ ] Show connection security beside each pane's address. Use a lock icon only
+  for a verified encrypted connection, with distinct states for HTTP, certificate
+  errors, mixed content, loading/unknown, and local/internal pages. Derive the
+  state from Chromium's connection information, not just the URL scheme; clear
+  stale state on navigation and keep it scoped to the correct tab.
+- [ ] Open a site-information panel from the connection indicator or a command.
+  Show the current origin, connection status, certificate subject, issuer, and
+  validity dates when available. Explain that encryption does not establish
+  website trustworthiness. Keep certificate failures blocked by default. Verify
+  valid, expired, self-signed, and hostname-mismatched certificates with local
+  fixtures in Tart, including redirects and switching tabs.
+- [ ] Review and reset saved site permissions in the site-information panel.
+  Show existing allow/deny decisions for the current origin and profile, and
+  let users return a decision to ask-on-next-request.
+- [ ] Clear the current site's cookies and storage without clearing the whole
+  profile. Explain the sign-out effect, confirm the affected site/profile, and
+  offer a reload after completion.
+- [ ] Reopen recently closed tabs with Command+Shift+T and a command. Restore
+  their URL and profile in the appropriate pane, retain a bounded list, and
+  handle removed panes/profiles without mixing identities. Do not promise to
+  recover unsaved form state.
+- [ ] Add a searchable history panel using the existing per-profile visit data.
+  Search titles and URLs, open results with the keyboard, and support deleting
+  individual entries or clearing that profile's history.
+- [ ] Create, edit, and delete bookmarks from bmux, including Command+D for the
+  current page, folder selection, and duplicate handling within a profile.
+  Preserve imported folder structure.
+
+## After that
+
+- [ ] Expand download activity with progress, size, cancel, and pause/resume
+  where supported. Distinguish failed and interrupted transfers; offer reveal
+  only when a file exists, and keep actions scoped to the owning profile.
+- [ ] Indicate audible tabs in the tab picker and add mute/unmute commands that
+  work without selecting or focusing the target tab.
+- [ ] Remember page zoom per site and profile, with a visible reset action and
+  consistent behavior for newly opened tabs at the same site.
+- [ ] Offer temporary profiles for short browsing sessions. Keep their cookies,
+  history, permissions, and saved forms out of persistent profiles; define when
+  data is discarded and explain that downloaded files remain on disk.
+
+Connection indicator background: Chromium's
+[HTTPS indicator research](https://blog.chromium.org/2021/07/increasing-https-adoption.html)
+explains why the lock must describe connection security rather than site trust.
+
 ## Completed
 
 - [x] Remove CLI startup from warm password selection and same-origin lookup.
