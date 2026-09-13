@@ -70,3 +70,14 @@ separate plugin test retains a private password prompt through the same app
 switch. Discovery pauses while the popup owns focus; explicit actions validate
 the original document and field, and background actions cannot fill credentials.
 These regressions use disposable local fixtures, not a live X.com account.
+
+Validation: `pnpm check` passed 99 tests. The full Tart run passed 56 of 58
+cases; the remaining cases passed targeted reruns after correcting the default
+window-shortcut test and retrying an unrelated Electron teardown timeout in the
+frame fixture. All four frame cases passed the rerun. Both installed-app popup
+cases passed with `BMUX_TEST_INSTALLED=1`; `pnpm test:ui` passed and its native
+page screenshot was reviewed. Packaging installed the app without restarting it.
+Artifacts: `2026-09-12T23-55-53.604Z` (full run),
+`2026-09-13T00-01-31.685Z` (frames), `2026-09-13T00-03-40.598Z` (shortcuts),
+`2026-09-12T23-53-20.649Z` (installed popup), and
+`2026-09-12T23-53-42.166Z` (URL entry), under `artifacts/tart/`.
