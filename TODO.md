@@ -5,6 +5,9 @@ limitations.
 
 ## Completed
 
+- [x] Reduce Bitwarden CLI latency: avoid the pre-unlock status process, overlap
+  item loading with session checks, and reuse a short-lived selected login.
+
 - [x] Keep live pages attached to visible windows through app defocus. Transfer
   shared pages only when another viewer needs them, and render independent
   windows simultaneously. Verify popup keyboard input after a focus handoff.

@@ -24,11 +24,15 @@ export let createBitwarden = (options: Options) => {
   let vault = options.vault ?? createVault(), attempts = new Map<string, Attempt>()
   let notices = new Map<string, { tabId?: string; message: string; timer: ReturnType<typeof setTimeout> }>()
   let queue: Promise<unknown> = Promise.resolve(), account = '', locked = false
-  let suggestion: { context: PluginContext; field: string; fresh?: number; value: PasswordSuggestions } | undefined
+  let suggestion: { context: PluginContext; field: string; fresh?: number; logins?: VaultLogin[]; value: PasswordSuggestions } | undefined
   let suggestionCheck: AbortController | undefined, suggestionKey = '', suggestionExpiry = 0, dismissedKey = ''
+  let loginExpiry: ReturnType<typeof setTimeout> | undefined, selectionExpiry: ReturnType<typeof setTimeout> | undefined
+  let selectedCredential: { login: VaultLogin; context: PluginContext; account: string; expires: number } | undefined
   let freshSelection: { id: string; tabId?: string; documentId?: string; expires: number } | undefined
   let origin = (context: PluginContext) => { try { return new URL(context.url!).origin } catch { return '' } }
   let clearSuggestions = () => {
+    clearTimeout(loginExpiry)
+    if (suggestion) suggestion.logins = undefined
     suggestionCheck?.abort(); suggestionCheck = undefined; suggestionKey = ''; suggestionExpiry = 0
     if (suggestion) { suggestion = undefined; options.changed() }
   }
@@ -49,7 +53,7 @@ export let createBitwarden = (options: Options) => {
     clearSuggestions()
     for (let attempt of attempts.values()) notice(attempt.context, 'Bitwarden locked in bmux')
     for (let tabId of attempts.keys()) cancel(tabId)
-    vault.close(); account = ''; freshSelection = undefined
+    vault.close(); account = ''; freshSelection = undefined; selectedCredential = undefined; clearTimeout(selectionExpiry)
   }
   let current = (attempt: Attempt) => {
     attempt.controller.signal.throwIfAborted()
@@ -68,8 +72,10 @@ export let createBitwarden = (options: Options) => {
     return entry
   }
   let forgetSession = () => {
+    clearTimeout(loginExpiry)
+    if (suggestion) suggestion.logins = undefined
     for (let tabId of attempts.keys()) cancel(tabId)
-    vault.close(); account = ''; freshSelection = undefined
+    vault.close(); account = ''; freshSelection = undefined; selectedCredential = undefined; clearTimeout(selectionExpiry)
   }
   let loadSuggestions = async (context: PluginContext, suggestionId: string, password?: string) => {
     let unlocking = password !== undefined
@@ -83,7 +89,9 @@ export let createBitwarden = (options: Options) => {
     let previous = queue
     let next = previous.catch(() => undefined).then(async () => {
       await valid()
-      let status = await vault.status(signal)
+      let lookup = vault.hasSession() ? vault.logins(origin(context), signal).catch(() => undefined) : undefined
+      // An explicit unlock needs only the post-unlock status check.
+      let status: Awaited<ReturnType<typeof vault.status>> = unlocking && !vault.hasSession() ? { status: 'locked' } : await vault.status(signal)
       await valid()
       if (status.status === 'unauthenticated') { forgetSession(); throw new Error('Run bw login in a terminal, then try again.') }
       let identity = JSON.stringify([status.userId, status.serverUrl])
@@ -93,6 +101,8 @@ export let createBitwarden = (options: Options) => {
         try { await vault.unlock(password, signal) }
         catch { throw new Error('Could not unlock Bitwarden. Check your master password and try again.') }
         finally { password = undefined }
+        await valid()
+        lookup = vault.hasSession() ? vault.logins(origin(context), signal).catch(() => undefined) : undefined
         // Verify the key in a new CLI process before presenting the vault as unlocked.
         status = await vault.status(signal)
         if (status.status !== 'unlocked') { forgetSession(); throw new Error('Bitwarden did not retain the unlock. Try again.') }
@@ -102,7 +112,13 @@ export let createBitwarden = (options: Options) => {
       await valid()
       entry.value = { ...entry.value, locked: false }; options.changed()
       try {
-        let logins = await vault.logins(origin(context), signal)
+        let logins = lookup ? await lookup : await vault.logins(origin(context), signal)
+        if (!logins) throw new Error()
+        await valid()
+        entry.logins = logins
+        clearTimeout(loginExpiry)
+        loginExpiry = setTimeout(() => { entry.logins = undefined }, 30000)
+        loginExpiry.unref()
         return logins.map(item => ({ id: item.id, name: item.name || 'Login', username: item.login.username || '' }))
       } catch { throw new Error('Could not load logins. Your vault is still unlocked. Try again.') }
     })
@@ -195,6 +211,8 @@ export let createBitwarden = (options: Options) => {
   let fill = async (context: PluginContext, signal: AbortSignal, interaction: VaultInteraction, selectedLogin?: string) => {
     if (locked) throw new Error('Unlock your Mac before using Bitwarden')
     if (!context.tabId || !context.profileId || !/^https?:\/\//.test(context.url ?? '')) throw new Error('Open a login page first')
+    let credential = selectedCredential && Date.now() < selectedCredential.expires ? selectedCredential : undefined
+    selectedCredential = undefined; clearTimeout(selectionExpiry)
     clearSuggestions()
     for (let other of attempts.values()) if (!other.expires && !options.interactive(other.context)) cancelAttempt(other)
     cancel(context.tabId)
@@ -245,11 +263,17 @@ export let createBitwarden = (options: Options) => {
         let identity = JSON.stringify([status.userId, status.serverUrl])
         if (account && account !== identity) { for (let [tabId, other] of attempts) if (other !== attempt) cancel(tabId); vault.close(); status.status = 'locked' }
         if (status.status !== 'unlocked') {
+          credential = undefined
           await unlock(); fresh = true
           status = await vault.status(operation); check()
           if (status.status !== 'unlocked') { vault.close(); throw new Error('Bitwarden did not retain the unlock. Try again.') }
         }
         account = JSON.stringify([status.userId, status.serverUrl])
+        let pinned = credential
+        credential = undefined
+        if (pinned && selectedLogin === pinned.login.id && pinned.account === account
+          && pinned.context.clientId === context.clientId && pinned.context.tabId === context.tabId
+          && pinned.context.documentId === context.documentId && pinned.context.profileId === context.profileId && pinned.context.url === context.url) return [pinned.login]
         try { return await vault.logins(origin(context), operation) }
         catch { throw new Error('Could not read Bitwarden. Try passwords again; your unlock is retained while the session is valid.') }
       })
@@ -302,7 +326,13 @@ export let createBitwarden = (options: Options) => {
       let entry = await validSuggestion(context, suggestionId)
       if (entry.value.locked || entry.value.busy || !entry.value.items.some(item => item.id === id)) throw new Error('Password suggestion expired')
       if (entry.fresh) freshSelection = { id, tabId: context.tabId, documentId: context.documentId, expires: entry.fresh }
+      let login = entry.logins?.find(item => item.id === id)
+      selectedCredential = login ? { login, context: { ...context }, account, expires: Date.now() + 5000 } : undefined
+      entry.logins = undefined
       clearSuggestions()
+      clearTimeout(selectionExpiry)
+      selectionExpiry = setTimeout(() => { selectedCredential = undefined }, 5000)
+      selectionExpiry.unref()
       return id
     },
     cancel: (tabId: string) => { let attempt = attempts.get(tabId); if (attempt) notice(attempt.context, 'Password fill cancelled'); cancel(tabId) },

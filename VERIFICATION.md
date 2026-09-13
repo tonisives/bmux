@@ -119,3 +119,22 @@ Artifacts: `2026-09-13T06-39-07.871Z` (targeted native tests) and
 
 The full native suite then passed all 58 tests in one run (1.6 minutes):
 `artifacts/tart/2026-09-13T06-39-44.144Z/`.
+
+
+September 13 Bitwarden latency follow-up removes the pre-unlock status process
+for an explicit password unlock, overlaps item lookup with status validation,
+and retains popup lookup results privately for at most 30 seconds. A selected
+credential is consumed once by the matching client/tab/document/profile/URL fill
+within five seconds; that fill still validates vault status and account identity.
+Lock, expired entries, changed accounts, and mismatched contexts require a fresh
+lookup. No credentials are added to published state or persisted on disk.
+
+A fake-timer regression with one-second CLI operations completes unlock and item
+loading in two seconds instead of four sequential seconds. This measures command
+scheduling, not the user's real vault or machine. Selection reuses one lookup
+while still issuing a new status check. Cache expiry and account/lock invalidation
+have regression coverage. `pnpm check` passed 105 tests; all 26 native browser-tool
+tests passed, followed by seven popup checks after the final selection change.
+`pnpm test:ui` passed and the visible native page screenshot was reviewed.
+Artifacts: `2026-09-13T06-59-55.129Z`, `2026-09-13T07-01-31.100Z`, and
+`2026-09-13T07-00-58.862Z`, under `artifacts/tart/`.
