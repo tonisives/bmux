@@ -1,0 +1,20 @@
+{
+  "bucket": "digthree-cdn",
+  "baseUrl": "https://cdn.digthree.tonis.dev/bmux/website-82388779203b",
+  "files": [
+    "feature-icons/agent.svg",
+    "feature-icons/keyboard.svg",
+    "feature-icons/profiles.svg",
+    "feature-icons/sessions.svg",
+    "feature-icons/split-panes.svg",
+    "feature-icons/tools.svg",
+    "icon-128.png",
+    "icon-180.png",
+    "icon-32.png",
+    "icon-512.png",
+    "og.png",
+    "product/run-agent.png",
+    "product/split-panes.png",
+    "product/switch-sessions.png"
+  ]
+}

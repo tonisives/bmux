@@ -32,7 +32,7 @@ let PreviewProvider = ({ direction, children }: { direction: Direction; children
   return <PreviewContext.Provider value={{ direction, demo, setDemo }}>{children}</PreviewContext.Provider>
 }
 
-let Lantern = () => <img className={css.lantern} src="/cdn/icon-512.png" alt="bmux lantern" width="512" height="512" />
+let Lantern = () => <img className={css.lantern} src="https://cdn.digthree.tonis.dev/bmux/website-82388779203b/icon-512.png" alt="bmux lantern" width="512" height="512" />
 let Brand = () => <a className={css.brand} href="/styles/" aria-label="bmux design previews">bmux</a>
 let GetBmux = () => <a className={css.getBmux} href={`${GITHUB}#get-started`}>Get bmux <span aria-hidden="true">↗</span></a>
 
@@ -49,7 +49,7 @@ let DirectionCard = ({ direction }: { direction: Direction }) => <a className={`
   <div className={css.cardPreview}>
     <div className={css.cardMasthead}><span>bmux</span><span aria-hidden="true">↗</span></div>
     <CardHero direction={direction} />
-    <div className={css.cardDemo}><img src="/cdn/product/split-panes.png" alt="" width="1360" height="663" /></div>
+    <div className={css.cardDemo}><img src="https://cdn.digthree.tonis.dev/bmux/website-82388779203b/product/split-panes.png" alt="" width="1360" height="663" /></div>
   </div>
   <div className={css.cardDescription}><h3><span>{direction.number}</span> {direction.name}<span aria-hidden="true">↗</span></h3><p>{direction.description}</p></div>
 </a>
@@ -115,7 +115,7 @@ let DemoControls = () => <div className={css.demoControls} role="group" aria-lab
 let Capture = () => {
   let { demo } = usePreview()
   return <figure id="app-capture" className={css.capture}>
-    <a className={css.captureLink} href={`/cdn/product/${demo.id}.png`} target="_blank" rel="noreferrer" aria-label={`Open real app screenshot: ${demo.label}`}><img src={`/cdn/product/${demo.id}.png`} alt={`bmux on macOS — ${demo.caption.toLowerCase()}, using local demo pages`} width="1360" height="663" /><span>Real app capture ↗</span></a>
+    <a className={css.captureLink} href={`https://cdn.digthree.tonis.dev/bmux/website-82388779203b/product/${demo.id}.png`} target="_blank" rel="noreferrer" aria-label={`Open real app screenshot: ${demo.label}`}><img src={`https://cdn.digthree.tonis.dev/bmux/website-82388779203b/product/${demo.id}.png`} alt={`bmux on macOS — ${demo.caption.toLowerCase()}, using local demo pages`} width="1360" height="663" /><span>Real app capture ↗</span></a>
     <figcaption aria-live="polite" aria-atomic="true"><span>{demo.caption}</span><code>{demo.shortcut}</code></figcaption>
   </figure>
 }

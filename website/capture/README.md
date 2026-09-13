@@ -19,4 +19,6 @@ capture. The host desktop is never captured.
 
 Copy the three PNGs to `website/public/cdn/product` and the capture metadata to
 this directory. Inspect the images before replacing the public files. Captures
-are served at `/cdn/product/` by the existing website container on k3s.
+are uploaded to the versioned Cloudflare R2 prefix recorded in `../cdn.json`.
+Update the website URLs after uploading and verifying the new captures; see the
+[CDN asset instructions](../README.md#cdn-assets).
