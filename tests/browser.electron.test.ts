@@ -712,6 +712,7 @@ test('pending permissions open a popup and new requests reopen it after dismissa
   let popup = chrome.getByRole('dialog', { name: 'Permissions', exact: true })
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('notifications')
+  await chrome.screenshot({ path: path.join(root, 'artifacts/permission-popup.png') })
   await popup.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(popup).toBeHidden()
   await chrome.getByRole('button', { name: 'Activity', exact: true }).click()
