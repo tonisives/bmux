@@ -24,7 +24,7 @@ pnpm site:build
 pnpm site:preview
 ```
 
-The development server uses `http://127.0.0.1:4317`. Production static files are in `website/dist/client`. The container serves them with unprivileged nginx on port 8080. Images, including the Little lantern icon, are published under `/cdn`.
+The development server uses `http://127.0.0.1:4317`. Production static files are in `website/dist/client`. The container serves them with unprivileged nginx on port 8080. Images, including the Little lantern icon, are served from Cloudflare R2 at `https://cdn.digthree.tonis.dev/bmux/website-82388779203b/`. Local `public/cdn` files are retained as capture sources.
 
 ## Deployment
 
@@ -72,3 +72,15 @@ Section links replace the current hash so Back skips in-page jumps. The sticky
 Back control returns through same-origin history, preserving the previous page position;
 visitors arriving directly or from another site get a home link. No scroll position
 is stored in a shared key, so tabs and browser history entries remain independent.
+
+## CDN assets
+
+`cdn.json` records the shared R2 bucket, immutable asset prefix and uploaded files.
+All website images, preview images, favicons, social cards and the README image use
+these public CDN URLs. Each uploaded file was verified byte-for-byte over HTTPS.
+
+When updating assets, upload the complete `public/cdn/` set into a new versioned
+`bmux/website-<content-hash>/` prefix in `digthree-cdn`, following the shared CDN
+skill. Use the correct PNG/SVG content types and immutable one-year caching.
+Verify public downloads, update `cdn.json` and replace the old base URL in the
+website source, HTML metadata and root README. Never overwrite a versioned asset.
