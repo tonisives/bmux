@@ -13,14 +13,12 @@ let resize = (size, destination) => execFileSync('sips', ['-z', String(size), St
 try {
   await mkdir(iconset)
   await mkdir(join(root, 'build'), { recursive: true })
-  await mkdir(join(root, 'website/public/cdn'), { recursive: true })
   for (let size of [16, 32, 128, 256, 512]) {
     resize(size, join(iconset, `icon_${size}x${size}.png`))
     resize(size * 2, join(iconset, `icon_${size}x${size}@2x.png`))
   }
   execFileSync('iconutil', ['-c', 'icns', iconset, '-o', join(root, 'build/icon.icns')])
-  for (let size of [32, 128, 180]) resize(size, join(root, `website/public/cdn/icon-${size}.png`))
-  console.log('Generated the Little lantern app icon and website icons.')
+  console.log('Generated the Little lantern app icon.')
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

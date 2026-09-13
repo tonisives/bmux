@@ -13,9 +13,6 @@
   },
   "packageManager": "pnpm@11.18.0",
   "scripts": {
-    "site:dev": "vite --config website/vite.config.ts",
-    "site:build": "node website/build.mjs",
-    "site:preview": "vite preview --config website/vite.config.ts",
     "dev": "pnpm build:native && electron-vite dev",
     "build:native": "node scripts/build-native.mjs",
     "build": "pnpm build:native && electron-vite build",
@@ -39,7 +36,6 @@
   "dependencies": {
     "@ghostery/adblocker": "2.18.2",
     "darkreader": "^4.9.130",
-    "marked": "^18.0.12",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "yaml": "^2.9.0"
@@ -73,7 +69,9 @@
       "bin/**/*",
       "resources/**/*"
     ],
-    "asarUnpack": ["out/native/*.node"],
+    "asarUnpack": [
+      "out/native/*.node"
+    ],
     "extraResources": [
       {
         "from": "bin",
