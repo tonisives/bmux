@@ -8,7 +8,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 
 [Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](#keyboard) · [Automation guide](AGENT.md)
 
-[![bmux — tmux for your browser, illustrated workspace](https://cdn.digthree.tonis.dev/bmux/website-82388779203b/og.png)](https://bmux.tonis.dev)
+[![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.tonis.dev/#split-panes)
 
 ## Features
 
@@ -25,9 +25,17 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 
 bmux is an early preview, free under the [MIT license](LICENSE). Current builds are unsigned and built locally. It does not require tmux.
 
+### Switch sessions
+
+Keep a workspace for each project.
+
+[![The bmux session picker showing development, research and personal workspaces](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/switch-sessions.png)](https://bmux.tonis.dev/#switch-sessions)
+
 ## Made for agents
 
 Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit tab IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.
+
+[![A task added through the bmux CLI in the bot pane while the human pane stays selected](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/run-agent.png)](https://bmux.tonis.dev/#agents)
 
 ## Get started
 
