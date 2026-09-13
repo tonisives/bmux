@@ -8,7 +8,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 
 [Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](#keyboard) · [Automation guide](AGENT.md)
 
-[![bmux — tmux for your browser, illustrated workspace](https://bmux.tonis.dev/cdn/og.png)](https://bmux.tonis.dev)
+[![bmux — tmux for your browser, illustrated workspace](https://cdn.digthree.tonis.dev/bmux/website-82388779203b/og.png)](https://bmux.tonis.dev)
 
 ## Features
 

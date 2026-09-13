@@ -17,7 +17,7 @@ export let SundayPage = () => <div className={css.page} id="top">
 let GITHUB = 'https://github.com/tonisives/bmux'
 
 let Hero = () => <section className={css.hero}>
-  <img className={css.lantern} src="/cdn/icon-512.png" alt="bmux lantern" width="512" height="512" />
+  <img className={css.lantern} src="https://cdn.digthree.tonis.dev/bmux/website-82388779203b/icon-512.png" alt="bmux lantern" width="512" height="512" />
   <h1>Browser with split panes, sessions and agent control</h1>
   <p>Free and open source</p>
   <div className={css.heroActions}><a className={css.primaryButton} href="#install">Get bmux</a><a className={css.secondaryButton} href={GITHUB}>View source</a></div>
@@ -41,10 +41,10 @@ let Agents = () => <section className={`${css.feature} ${css.agents}`} id="agent
 </section>
 
 let Capture = ({ id, alt }: { id: string; alt: string }) => <figure className={css.capture}>
-  <img src={`/cdn/product/${id}.png`} alt={alt} width="1120" height="663" loading={id === 'split-panes' ? 'eager' : 'lazy'} />
+  <img src={`https://cdn.digthree.tonis.dev/bmux/website-82388779203b/product/${id}.png`} alt={alt} width="1120" height="663" loading={id === 'split-panes' ? 'eager' : 'lazy'} />
 </figure>
 
-let FeatureIcon = ({ name }: { name: 'split-panes' | 'sessions' | 'agent' | 'profiles' | 'keyboard' | 'tools' }) => <img className={css.featureIcon} src={`/cdn/feature-icons/${name}.svg`} alt="" width="44" height="44" />
+let FeatureIcon = ({ name }: { name: 'split-panes' | 'sessions' | 'agent' | 'profiles' | 'keyboard' | 'tools' }) => <img className={css.featureIcon} src={`https://cdn.digthree.tonis.dev/bmux/website-82388779203b/feature-icons/${name}.svg`} alt="" width="44" height="44" />
 
 let BrowserTools = () => <section className={css.toolsGrid} aria-label="More features">
   <article><h2><FeatureIcon name="profiles" />Separate profiles</h2><p>Work, personal and bot logins</p></article>

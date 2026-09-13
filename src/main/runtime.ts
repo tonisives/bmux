@@ -3,7 +3,7 @@ import type { WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -24,7 +24,7 @@ import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-too
 import type { BrowserToolsState } from '../shared/browser-tools'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -94,12 +94,12 @@ export let createRuntime = (dataDirectory: string) => {
     let contents = tabs.get(tabId)?.view.webContents
     return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, tabId: tab.id, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
   }
-  let pluginInteractive = (context: PluginContext) => {
+  let pluginSelected = (context: PluginContext) => {
     let client = model.clients.find(client => client.id === context.clientId)
-    let owner = client && clients.get(client.id)
-    if (!client || client.id !== focusedClientId || !owner?.window.isFocused() || client.windowId !== context.windowId || client.paneId !== context.paneId) return false
+    if (!client || client.windowId !== context.windowId || client.paneId !== context.paneId) return false
     return !!client.paneId && paneById(model, client.paneId).pane.activeTabId === context.tabId
   }
+  let pluginInteractive = (context: PluginContext) => pluginSelected(context) && context.clientId === focusedClientId && clients.get(context.clientId!)?.window.isFocused() === true
   let accessibilityPreference = false
   let visualScheduled = false
   let snapshotPending = new Set<string>()
@@ -116,7 +116,7 @@ export let createRuntime = (dataDirectory: string) => {
     let suggestion = !overlays.has(clientId) ? current.passwordSuggestions : undefined
     let tab = suggestion ? tabs.get(suggestion.tabId) : undefined
     let page = suggestion ? live.bounds.find(bounds => bounds.tabId === suggestion.tabId) : undefined
-    if (!suggestion || !page || tab?.parent !== live.window || tab.view.webContents.isDestroyed()) {
+    if (!suggestion || !page || !tab || tab.view.webContents.isDestroyed()) {
       if (live.popup.webContents.isFocused() && live.window.isFocused()) live.chrome.webContents.focus()
       live.popup.setVisible(false)
       return
@@ -334,6 +334,9 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('did-start-loading', () => { loading[tabId] = true; publish() })
     contents.on('did-stop-loading', () => { delete loading[tabId]; publish() })
     contents.on('page-title-updated', update)
+    contents.on('before-mouse-event', (_event, mouse) => {
+      if (mouse.type === 'mouseDown') { let owner = [...clients.values()].find(client => client.window === live.parent); if (owner) owner.popupFocused = false }
+    })
     contents.on('focus', () => {
       let client = model.clients.find(client => client.id === focusedClientId)
       if (client && live.parent === clients.get(client.id)?.window && visiblePaneIds(client).includes(pane.id)) {
@@ -457,22 +460,13 @@ export let createRuntime = (dataDirectory: string) => {
     }
     return visualQueue
   }
-  let repairClients = () => {
-    for (let client of model.clients) {
-      let session = model.sessions.find(session => session.id === client.sessionId) ?? model.sessions[0]
-      if (!session) continue
-      client.sessionId = session.id
-      let window = session.windows.find(window => window.id === client.windowId) ?? session.windows[0]
-      client.windowId = window.id
-      if (!window.panes.some(pane => pane.id === client.paneId)) client.paneId = window.panes[0]?.id ?? null
-      if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
-    }
-  }
+  let repairClients = () => repairClientSelections(model)
   let changed = () => { repairClients(); save(); void scheduleVisuals() }
   let createClient = async (sessionId: string, restored?: Client, activate = true) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
+    repairClients()
     let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
     window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
@@ -481,10 +475,11 @@ export let createRuntime = (dataDirectory: string) => {
     popup.setVisible(false)
     window.contentView.addChildView(popup)
     let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save() }
-    let owner: LiveClient = { window, chrome, popup, bounds: [], pageFocused: false }
+    let owner: LiveClient = { window, chrome, popup, bounds: [], pageFocused: false, popupFocused: false }
     clients.set(client.id, owner)
+    popup.webContents.on('focus', () => { owner.popupFocused = true })
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
-    chrome.webContents.on('before-mouse-event', (_event, mouse) => { if (mouse.type === 'mouseDown') bitwarden?.clearSuggestions() })
+    chrome.webContents.on('before-mouse-event', (_event, mouse) => { if (mouse.type === 'mouseDown') { owner.popupFocused = false; bitwarden?.clearSuggestions() } })
     resizeChrome()
     window.on('resize', resizeChrome)
     window.on('focus', () => {
@@ -492,7 +487,9 @@ export let createRuntime = (dataDirectory: string) => {
       save()
       void scheduleVisuals().then(() => {
         // Reattaching views after a blur can leave AppKit with no web first responder.
-        if (window.isDestroyed() || !window.isFocused() || webContents.getFocusedWebContents()) return
+        if (window.isDestroyed() || !window.isFocused()) return
+        if (owner.popupFocused && bitwarden?.suggestions(client.id)) { popup.webContents.focus(); return }
+        if (webContents.getFocusedWebContents()) return
         let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
         if (owner.pageFocused && live?.parent === window) live.view.webContents.focus()
         else chrome.webContents.focus()
@@ -538,7 +535,13 @@ export let createRuntime = (dataDirectory: string) => {
       let context = pluginContext({ clientId: sourceClientId })
       if (method === 'bitwarden.dismiss') { bitwarden.dismiss(); return execute({ method: 'focus-page', args: { client: sourceClientId } }) }
       let suggestionId = required(args, 'suggestion')
-      if (method === 'bitwarden.prepare') { await bitwarden.prepare(context, suggestionId); return { ready: true } }
+      if (method === 'bitwarden.prepare') {
+        await bitwarden.prepare(context, suggestionId)
+        let owner = clients.get(sourceClientId)!
+        owner.popupFocused = true
+        if (pluginInteractive(context)) owner.popup.webContents.focus()
+        return { ready: true }
+      }
       if (method === 'bitwarden.unlock' || method === 'bitwarden.refresh') {
         let password = method === 'bitwarden.unlock' && typeof args.password === 'string' ? args.password : undefined
         delete args.password
@@ -613,6 +616,7 @@ export let createRuntime = (dataDirectory: string) => {
       let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
       if (client.id === focusedClientId) {
         let owner = clients.get(client.id)!
+        owner.popupFocused = false
         if (live?.parent === owner.window) live.view.webContents.focus()
         else owner.chrome.webContents.focus()
       }
@@ -677,7 +681,9 @@ export let createRuntime = (dataDirectory: string) => {
       // Re-activating a focused macOS window briefly resigns it and can drop input
       // or cancel a guarded plugin prompt. Preserve its current first responder.
       if (focusedClientId === client.id && owner.window.isFocused()) return client
-      await app.dock?.show(); app.focus({ steal: true }); owner.window.show(); owner.window.focus(); owner.chrome.webContents.focus()
+      await app.dock?.show(); app.focus({ steal: true }); owner.window.show(); owner.window.focus();
+      if (owner.popupFocused && bitwarden?.suggestions(client.id)) owner.popup.webContents.focus()
+      else owner.chrome.webContents.focus()
       return client
     }
     if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
@@ -977,17 +983,20 @@ export let createRuntime = (dataDirectory: string) => {
     } })
     pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => live.view.webContents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
-    bitwarden = createBitwarden({ context: pluginContext, interactive: pluginInteractive, changed: publish, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    bitwarden = createBitwarden({ context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, changed: publish, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     powerMonitor.on('lock-screen', lockVault)
     powerMonitor.on('suspend', lockVault)
     powerMonitor.on('unlock-screen', unlockSystem)
     powerMonitor.on('resume', unlockSystem)
-    plugins = createPlugins({ bitwarden: bitwarden.fill, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    plugins = createPlugins({ bitwarden: bitwarden.fill, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     suggestionTimer = setInterval(() => {
-      if (!focusedClientId || overlays.has(focusedClientId) || !configuration?.plugins['bmux.bitwarden']?.enabled) { bitwarden?.clearSuggestions(); return }
+      if (!configuration?.plugins['bmux.bitwarden']?.enabled) { bitwarden?.clearSuggestions(); return }
+      if (!focusedClientId) return
+      if (overlays.has(focusedClientId)) { bitwarden?.clearSuggestions(); return }
       let context = pluginContext({ clientId: focusedClientId })
       let contents = context.tabId ? tabs.get(context.tabId)?.view.webContents : undefined
-      if (contents && !contents.isDestroyed() && (contents.isFocused() || clients.get(focusedClientId)?.popup.webContents.isFocused())) void bitwarden?.suggest(context)
+      if (clients.get(focusedClientId)?.popup.webContents.isFocused()) return
+      if (contents && !contents.isDestroyed() && contents.isFocused()) void bitwarden?.suggest(context)
       else bitwarden?.clearSuggestions()
     }, 300)
     suggestionTimer.unref()

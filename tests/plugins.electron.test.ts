@@ -94,7 +94,12 @@ test('password parameters stay private and Escape cancels', async () => {
   let password = chrome.getByRole('textbox', { name: 'Fixture password' })
   await expect(password).toHaveAttribute('type', 'password')
   for (let attempt = 0; attempt < 3; attempt++) { await activate(); await expect(password).toBeFocused() }
-  await password.fill('disposable-test-value'); await password.press('Enter')
+  await password.fill('disposable-test-value')
+  await application.evaluate(({ app }) => app.hide())
+  await expect.poll(async () => (await state()).focusedClientId).toBeNull()
+  await new Promise(resolve => setTimeout(resolve, 700))
+  await expect(password).toHaveValue('disposable-test-value')
+  await activate(); await password.press('Enter')
   await completed(id)
   expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result).toEqual({ received: true })
   expect(JSON.stringify((await state()).pluginRuns)).not.toContain('disposable-test-value')

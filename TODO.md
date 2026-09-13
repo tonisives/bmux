@@ -5,6 +5,10 @@ limitations.
 
 ## Completed
 
+- [x] Keep password popups and plugin prompts through app defocus, restore native
+  password input focus, and accept popup selections after the original login
+  field loses DOM focus. Preserve document, profile, and foreground fill checks.
+
 - [x] Verify experimental Bitwarden desktop pairing, locked/unlocked state, and
   filling a visible local fixture without submission using a disposable vault.
   Fix the released desktop's serialized encrypted-response format and document

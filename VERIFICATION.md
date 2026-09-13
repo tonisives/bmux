@@ -61,3 +61,23 @@ tree and frame locators for script-disabled documents; a screenshot is saved as
 stylesheet cleanup, unrelated targets, and disposal.
 
 Accessibility coverage checks live configuration, invalid-edit recovery, startup persistence, and custom Command+bracket window switching. Native oVim validation uses the running app with its existing macOS accessibility permission: at depth 30, enabling bmux accessibility increased Grafana detection from six to seventeen elements. The installed build also detected seventeen Grafana elements with accessibility enabled solely through its startup config. Direct helper invocations from an untrusted terminal can return empty results and are not a valid native accessibility check.
+
+
+The September 13 password-popup follow-up covers app hiding/reactivation while
+an unlock form contains input, restoration of the popup's native keyboard focus,
+and selecting a login after the original username field loses DOM focus. A
+separate plugin test retains a private password prompt through the same app
+switch. Discovery pauses while the popup owns focus; explicit actions validate
+the original document and field, and background actions cannot fill credentials.
+These regressions use disposable local fixtures, not a live X.com account.
+
+Validation: `pnpm check` passed 99 tests. The full Tart run passed 56 of 58
+cases; the remaining cases passed targeted reruns after correcting the default
+window-shortcut test and retrying an unrelated Electron teardown timeout in the
+frame fixture. All four frame cases passed the rerun. Both installed-app popup
+cases passed with `BMUX_TEST_INSTALLED=1`; `pnpm test:ui` passed and its native
+page screenshot was reviewed. Packaging installed the app without restarting it.
+Artifacts: `2026-09-12T23-55-53.604Z` (full run),
+`2026-09-13T00-01-31.685Z` (frames), `2026-09-13T00-03-40.598Z` (shortcuts),
+`2026-09-12T23-53-20.649Z` (installed popup), and
+`2026-09-12T23-53-42.166Z` (URL entry), under `artifacts/tart/`.

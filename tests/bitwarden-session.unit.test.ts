@@ -18,7 +18,7 @@ let setup = () => {
     unlock: vi.fn(async () => { unlocked = true }), logins: vi.fn(async () => [login]), close: vi.fn(() => { unlocked = false }),
   }
   let browser = vi.fn(async (method: string) => method === 'eval' ? form : { filled: form.fields.length })
-  let service = createBitwarden({ vault, context: target => ({ ...context, tabId: target.tabId ?? context.tabId }), interactive: () => visible, browser, changed: vi.fn() })
+  let service = createBitwarden({ vault, context: target => ({ ...context, tabId: target.tabId ?? context.tabId }), interactive: () => visible, selected: () => true, browser, changed: vi.fn() })
   let ui = vi.fn(async (args: Record<string, unknown>): Promise<unknown> => args.kind === 'password' ? 'fixture-master' : args.kind === 'pick' ? login.id : true)
   let progress = vi.fn()
   let fill = (signal = new AbortController().signal, target = { ...context }) => service.fill(target, signal, { ui, progress })
@@ -299,4 +299,30 @@ test('an old popup unlock no longer satisfies an entry master-password reprompt'
   let selected = await f.service.select(f.context, 'fixture')
   await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
   expect(f.ui).toHaveBeenCalledWith(expect.objectContaining({ title: 'Verify master password for this login' }))
+})
+
+
+test('an expanded popup survives app defocus and completes lookup in the background', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  await f.service.prepare(f.context, id)
+  f.show(false)
+  expect(f.service.suggestions('client')).toMatchObject({ id, expanded: true })
+  f.show(true)
+  f.vault.logins.mockImplementationOnce(async () => { f.show(false); return [f.login] })
+  await f.service.loadSuggestions(f.context, id, 'fixture-master')
+  expect(f.service.suggestions('client')).toMatchObject({ id, locked: false, busy: false, items: [{ id: 'fixture' }] })
+  await expect(f.service.select(f.context, 'fixture', id)).rejects.toThrow('expired')
+  f.show(true)
+  expect(await f.service.select(f.context, 'fixture', id)).toBe('fixture')
+})
+
+test('selecting a popup login tolerates the page losing input focus while retaining the original field', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  await f.service.loadSuggestions(f.context, id, 'fixture-master')
+  f.focus()
+  let selected = await f.service.select(f.context, 'fixture', id)
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.fills()).toBe(1)
 })
