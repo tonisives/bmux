@@ -697,3 +697,32 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   await expect.poll(async () => (await cli('state')).accessibility).toBe(false)
   await cli('detach-client', { client: client.id })
 })
+
+
+test('new panes focus URL entry and suggest persistent profile history', async () => {
+  let session = await cli('new-session', { name: 'History suggestions' })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('activate-client', { client: client.id })
+  await cli('navigate', { tab: pane.activeTabId, url: `${url}/history-suggestion` })
+  let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
+  let created = await cli('split-window', { pane: pane.id, client: client.id })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(address).toBeFocused()
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
+  await address.fill('history-suggestion')
+  await expect(chrome.getByRole('option')).toHaveCount(1)
+  await address.press('ArrowDown')
+  await address.press('Enter')
+  await expect(address).toHaveCount(0)
+  await expect.poll(async () => (await cli('tab.list', { pane: created.id }))[0].url).toBe(`${url}/history-suggestion`)
+  let saved = JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8'))
+  expect(saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId).history.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`)).toBe(true)
+  let isolated = await cli('split-window', { pane: created.id, profile: 'bot', client: client.id })
+  await expect(address).toBeFocused()
+  await address.fill('history-suggestion')
+  await expect(chrome.getByRole('option')).toHaveCount(0)
+  await address.fill(`${url}/typed-history-url`)
+  await address.press('Enter')
+  await expect.poll(async () => (await cli('tab.list', { pane: isolated.id }))[0].url).toBe(`${url}/typed-history-url`)
+})

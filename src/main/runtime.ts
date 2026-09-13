@@ -328,6 +328,10 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       tab.url = contents.getURL() || tab.url
       tab.title = contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
+      if (/^https?:\/\//.test(tab.url)) {
+        let profile = model.profiles.find(profile => profile.id === pane.profileId)!
+        profile.history = [{ url: tab.url, title: tab.title, visitedAt: Date.now() }, ...(profile.history ?? []).filter(entry => entry.url !== tab.url)].slice(0, 1000)
+      }
       save()
       void scheduleVisuals()
     }
