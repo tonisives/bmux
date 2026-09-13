@@ -5,6 +5,10 @@ limitations.
 
 ## Completed
 
+- [x] Keep live pages attached to visible windows through app defocus. Transfer
+  shared pages only when another viewer needs them, and render independent
+  windows simultaneously. Verify popup keyboard input after a focus handoff.
+
 - [x] Preserve the password overlay when an in-flight field inspection finishes
   after app defocus; do not dismiss it during native focus handoffs.
 

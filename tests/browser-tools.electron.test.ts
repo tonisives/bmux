@@ -497,6 +497,7 @@ test('the password popup survives app switching and a username field losing DOM 
     await expect.poll(async () => (await state()).focusedClientId).toBeNull()
     await new Promise(resolve => setTimeout(resolve, 700))
     await expect(popup.getByRole('button', { name: 'Unlock Bitwarden', exact: true })).toBeVisible()
+    expect(await application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some((view: any) => view.webContents?.getURL() === url)), `${url}/vault-user-dom`)).toBe(true)
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.contentView.children.some((view: any) => view.webContents?.getURL().endsWith('#passwords') && view.getVisible())))).toBe(true)
   } finally {
     await application.evaluate(() => { let runtime = globalThis as any; runtime.fixtureFocusWindow.destroy(); delete runtime.fixtureFocusWindow })
@@ -513,7 +514,17 @@ test('the password popup survives app switching and a username field losing DOM 
   await activate()
   await expect(password).toBeVisible()
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL().endsWith('#passwords'))).toBe(true)
-  await password.fill('fixture-master'); await password.press('Enter')
+  await application.evaluate(({ webContents }) => {
+    let contents = webContents.getFocusedWebContents()!
+    for (let keyCode of 'master') contents.sendInputEvent({ type: 'char', keyCode })
+  })
+  await expect(password).toHaveValue('fixture-master')
+  await application.evaluate(({ webContents }) => {
+    let contents = webContents.getFocusedWebContents()!
+    contents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    contents.sendInputEvent({ type: 'char', keyCode: '\r' })
+    contents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+  })
   let account = popup.getByRole('button', { name: 'Fill login vault@example.test', exact: true })
   await expect(account).toBeVisible()
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
