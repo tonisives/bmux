@@ -486,6 +486,22 @@ test('filter updates compile off-thread and retain working filters after a faile
 test('the password popup survives app switching and a username field losing DOM focus', async () => {
   await rpc('plugin.enable', { id: 'bmux.bitwarden', enabled: true }); await rpc('bitwarden.lock')
   await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` }); await focusVaultField()
+  await expect(popup.getByRole('button', { name: 'Unlock Bitwarden', exact: true })).toBeVisible()
+  // A visible competing window exercises native blur without hiding bmux.
+  await application.evaluate(({ BrowserWindow }) => {
+    let runtime = globalThis as any
+    runtime.fixtureFocusWindow = new BrowserWindow({ width: 300, height: 200, show: true })
+    runtime.fixtureFocusWindow.focus()
+  })
+  try {
+    await expect.poll(async () => (await state()).focusedClientId).toBeNull()
+    await new Promise(resolve => setTimeout(resolve, 700))
+    await expect(popup.getByRole('button', { name: 'Unlock Bitwarden', exact: true })).toBeVisible()
+    expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.contentView.children.some((view: any) => view.webContents?.getURL().endsWith('#passwords') && view.getVisible())))).toBe(true)
+  } finally {
+    await application.evaluate(() => { let runtime = globalThis as any; runtime.fixtureFocusWindow.destroy(); delete runtime.fixtureFocusWindow })
+  }
+  await activate()
   await popup.getByRole('button', { name: 'Unlock Bitwarden', exact: true }).click()
   let password = popup.getByLabel('Master password', { exact: true })
   await password.fill('fixture-')

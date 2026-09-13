@@ -5,6 +5,9 @@ limitations.
 
 ## Completed
 
+- [x] Preserve the password overlay when an in-flight field inspection finishes
+  after app defocus; do not dismiss it during native focus handoffs.
+
 - [x] Keep password popups and plugin prompts through app defocus, restore native
   password input focus, and accept popup selections after the original login
   field loses DOM focus. Preserve document, profile, and foreground fill checks.
