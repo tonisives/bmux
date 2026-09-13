@@ -326,3 +326,17 @@ test('selecting a popup login tolerates the page losing input focus while retain
   await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
   expect(f.fills()).toBe(1)
 })
+
+
+test('a discovery check finishing after defocus preserves the existing popup', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  f.browser.mockImplementationOnce(async () => {
+    f.show(false)
+    return { kind: 'combined', fields: [] }
+  })
+  await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.id).toBe(id)
+  await f.service.suggest(f.context)
+  expect(f.service.suggestions('client')?.id).toBe(id)
+})

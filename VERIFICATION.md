@@ -81,3 +81,19 @@ Artifacts: `2026-09-12T23-55-53.604Z` (full run),
 `2026-09-13T00-01-31.685Z` (frames), `2026-09-13T00-03-40.598Z` (shortcuts),
 `2026-09-12T23-53-20.649Z` (installed popup), and
 `2026-09-12T23-53-42.166Z` (URL entry), under `artifacts/tart/`.
+
+
+The second September 13 defocus follow-up fixes a discovery race: an inspection
+started in the foreground could finish in the background and clear the popup.
+Background discovery now pauses without clearing existing UI, and the native
+poller no longer treats a temporarily missing web first responder as dismissal.
+Navigation, field changes, explicit dismissal, and foreground fill checks remain.
+The new unit regression failed before the fix and passed afterward. `pnpm check`
+passed all 101 tests. The browser-tools Tart run passed its existing 25 cases;
+the expanded app-switching test passed a targeted rerun after adding a wait for
+the initial popup before switching windows. That test checks a visible competing
+window, app hiding with partial password input, native popup visibility and focus
+restoration, and username fill after DOM blur. `pnpm test:ui` passed and the native
+URL-entry screenshot was reviewed. All pages and credentials were disposable
+fixtures. Artifacts: `2026-09-13T00-36-27.801Z`,
+`2026-09-13T00-37-33.543Z`, and `2026-09-13T00-37-16.508Z`.

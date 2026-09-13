@@ -122,7 +122,8 @@ export let createBitwarden = (options: Options) => {
     } finally { password = undefined; if (suggestionCheck === controller) suggestionCheck = undefined }
   }
   let suggest = async (context?: PluginContext) => {
-    if (!context?.tabId || locked || attempts.has(context.tabId) || !options.interactive(context) || !/^https?:\/\//.test(context.url ?? '')) { clearSuggestions(); return }
+    if (!context?.tabId || locked || attempts.has(context.tabId) || !/^https?:\/\//.test(context.url ?? '')) { clearSuggestions(); return }
+    if (!options.interactive(context)) return
     if (suggestionCheck) return
     let controller = new AbortController(), signal = controller.signal
     suggestionCheck = controller
@@ -130,7 +131,9 @@ export let createBitwarden = (options: Options) => {
       let form = await inspect(context, signal)
       signal.throwIfAborted()
       let next = options.context(context)
-      if (!options.interactive(context) || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId) { clearSuggestions(); return }
+      if (next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId) { clearSuggestions(); return }
+      // A pending inspection can finish after the app has lost focus.
+      if (!options.interactive(context)) return
       if (!form.focused || !form.anchor || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(form.anchor![key as keyof typeof form.anchor])) || form.anchor.width <= 0 || form.anchor.height <= 0) { dismissedKey = ''; clearSuggestions(); return }
       let key = JSON.stringify([context.clientId, context.tabId, context.profileId, context.documentId, context.url, form.focused])
       if (key === dismissedKey) return

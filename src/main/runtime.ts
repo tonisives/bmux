@@ -997,7 +997,8 @@ export let createRuntime = (dataDirectory: string) => {
       let contents = context.tabId ? tabs.get(context.tabId)?.view.webContents : undefined
       if (clients.get(focusedClientId)?.popup.webContents.isFocused()) return
       if (contents && !contents.isDestroyed() && contents.isFocused()) void bitwarden?.suggest(context)
-      else bitwarden?.clearSuggestions()
+      // Native focus can be empty while switching apps or restoring a view.
+      // Page inspection and explicit dismissals own popup invalidation.
     }, 300)
     suggestionTimer.unref()
     await plugins.ready
