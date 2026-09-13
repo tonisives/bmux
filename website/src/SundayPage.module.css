@@ -108,9 +108,10 @@
 .comingSoon>.badge { margin:0 0 18px; }
 .comingSoonIntro { max-width:720px; margin-top:18px !important; color:var(--muted); }
 .roadmapGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px 40px; margin-top:32px; }
-.roadmapGrid article { border-top:1px solid var(--line); padding-top:20px; }
-.roadmapGrid h3 { font-size:22px; margin:0 0 8px; }
-.roadmapGrid p { color:var(--muted); font-size:16px; }
-@media(max-width:480px) { .roadmapGrid { grid-template-columns:1fr; gap:24px; } }
+.roadmapGrid article { display:flex; flex-direction:column; min-width:0; border-top:1px solid var(--line); padding-top:20px; }
+.roadmapGrid h3 { display:flex; align-items:center; gap:12px; font-size:22px; margin:0 0 12px; }
+.roadmapGrid .featureIcon { width:37px; height:37px; }
+.roadmapGrid p { flex:1; color:var(--muted); font-size:16px; }
+@media(max-width:760px) { .roadmapGrid { grid-template-columns:1fr; gap:32px; } }
 @media(max-width:760px) { .integrationGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:480px) { .integrationGrid { grid-template-columns:1fr; } }
