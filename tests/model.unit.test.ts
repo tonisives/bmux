@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { cloneWindow, initialModel, mapLayout, newPane, paneInDirection, removePane, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, paneInDirection, removePane, repairClientSelections, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
@@ -82,4 +82,27 @@ describe('session layouts and persistence', () => {
     model.sessions[0].windows[0].layout = { kind: 'pane', paneId: 'missing' }
     expect(() => validateModel(model)).toThrow('Invalid pane')
   })
+})
+
+it('returns each client to its most recently visited surviving window after closing', () => {
+  let model = initialModel(), session = model.sessions[0]
+  let first = session.windows[0], second = newWindow('second', session.defaultProfileId), third = newWindow('third', session.defaultProfileId)
+  session.windows.push(second, third)
+  model.clients = [first, second].map((window, index) => ({ id: `client_${index}`, sessionId: session.id, windowId: window.id, paneId: window.panes[0].id, width: 800, height: 600 }))
+  repairClientSelections(model)
+  let [client, other] = model.clients
+  client.windowId = third.id
+  repairClientSelections(model)
+  client.windowId = second.id
+  repairClientSelections(model)
+  repairClientSelections(model)
+  session.windows = session.windows.filter(window => window !== second)
+  repairClientSelections(model)
+  expect(client.windowId).toBe(third.id)
+  expect(client.paneId).toBe(third.panes[0].id)
+  expect(other.windowId).toBe(first.id)
+  session.windows = session.windows.filter(window => window !== third)
+  repairClientSelections(model)
+  expect(client.windowId).toBe(first.id)
+  expect(client.windowHistory).toEqual([first.id])
 })
