@@ -17,11 +17,18 @@ export let App = () => {
   let [message, setMessage] = useState('')
   let shownPermissions = useRef(new Set<string>())
   let previous = useRef('')
+  let knownPanes = useRef<Set<string> | null>(null)
   let previousControl = useRef<Control | null>(null)
   let accept = useCallback((next: PublicState) => {
     let { client, tab } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
     if (previous.current && previous.current !== target) { setControl(null); setMessage('') }
+    let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
+    if (client?.paneId && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank') {
+      setControl('address')
+      void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
+    }
+    knownPanes.current = new Set(paneIds)
     if (next.pluginPrompt) setControl('plugin-dialog')
     else setControl(current => current === 'plugin-dialog' ? null : current)
     previous.current = target; setState(next)
@@ -212,34 +219,44 @@ let CommandPrompt = () => {
 
 let AddressPrompt = () => {
   let { state, run, dismiss, message, onMessage } = useUI()
-  let { client, pane, tab } = selection(state)
+  let { client, pane, tab, profile } = selection(state)
+  let [index, setIndex] = useState(-1)
   let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
-  let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
-  let submit = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!text.trim() || busy) return
+  let results = (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 6)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setText(event.target.value); setIndex(-1) }
+  let navigate = async (url: string) => {
+    if (!url.trim() || busy) return
     setBusy(true)
     let target = tab?.id
     if (!target) {
       let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { activeTabId: string } | undefined
       target = created?.activeTabId
     }
-    let result = target ? await run('navigate', { tab: target, url: text, waitUntil: 'none' }) : undefined
+    let result = target ? await run('navigate', { tab: target, url, waitUntil: 'none' }) : undefined
     if (!mounted.current) return
     setBusy(false)
     if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
     dismiss()
     void run('focus-page', { client: client!.id })
   }
+  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(results[index]?.url ?? text) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.url!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      setIndex(current => Math.max(-1, Math.min(results.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1))))
+    }
     if (event.key === 'Escape') { dismiss(); void run('focus-page', { client: client!.id }) }
   }
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><input id="prompt" ref={ref} aria-label="URL or search" value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="list" aria-controls="url-history" aria-activedescendant={results[index] ? `url-history-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    {!!results.length && <div id="url-history" role="listbox" aria-label="URL history" className={css.urlHistory}>{results.map((entry, position) => <button key={entry.url} id={`url-history-${position}`} type="button" role="option" aria-selected={position === index} data-url={entry.url} onClick={choose} disabled={busy}><strong>{entry.title}</strong><span>{entry.url}</span></button>)}</div>}
+  </div>
 }
 
 let FindPrompt = () => {
