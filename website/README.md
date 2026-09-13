@@ -54,6 +54,10 @@ The website makes no network requests for visitor analytics and requires no appl
 
 ## Documentation pages
 
+The homepage's Coming soon section outlines planned remote sessions, attaching to
+bot sessions, home proxies for scrapers and an overview of automation across servers.
+These are marked as planned features, not current capabilities.
+
 `/docs/` lists the guides generated from repository Markdown. The front page links
 to `/docs/readme/#model`, `/docs/agent/`, setup instructions and packaging options.
 Browser tools and plugin cards link to their guides, with built-in, optional and

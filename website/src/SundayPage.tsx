@@ -9,7 +9,7 @@ export let SundayPage = () => <div className={css.page} id="top">
       <a className={css.brand} href="#top">bmux</a>
       <nav aria-label="Main navigation"><a href="#features">Features</a><a href="#install">Install</a><a href={GITHUB}>GitHub</a></nav>
     </header>
-    <main id="content"><Hero /><Features /><BrowserTools /><Integrations /><Install /></main>
+    <main id="content"><Hero /><Features /><BrowserTools /><Integrations /><ComingSoon /><Install /></main>
     <footer className={css.footer}><span>bmux</span><nav aria-label="Footer navigation"><a href={GITHUB}>GitHub</a><a href="/docs/license/">MIT license</a><a href="https://tonis.dev">Made by Tõnis</a></nav></footer>
   </div>
 </div>
@@ -73,6 +73,18 @@ let Integration = ({ item }: { item: typeof integrations[number] }) => <article 
   <span className={css.badge}>{item.status}</span>
   <h3>{item.title}</h3><p>{item.description}</p><a className={css.textLink} href={item.href}>Read more<span className={css.srOnly}> about {item.title}</span></a>
 </article>
+
+let ComingSoon = () => <section className={css.comingSoon} id="coming-soon" aria-labelledby="coming-soon-title">
+  <span className={css.badge}>Coming soon</span>
+  <h2 id="coming-soon-title">Browser automation across your servers</h2>
+  <p className={css.comingSoonIntro}>A shared view of your remote browsers, bot sessions and scraper connections. These features are planned and not available yet.</p>
+  <div className={css.roadmapGrid}>
+    <article><h3>Remote sessions</h3><p>Run browser sessions on your servers and connect to them from bmux.</p></article>
+    <article><h3>Attach to bot sessions</h3><p>Join a remote session to see what your bot is doing and take over when it needs a hand.</p></article>
+    <article><h3>Home proxies for scrapers</h3><p>Set up your home connection as a proxy for scrapers running on your servers.</p></article>
+    <article><h3>One overview across servers</h3><p>See where your browser automation is running, which sessions are active and which bots need attention.</p></article>
+  </div>
+</section>
 
 let Install = () => <section className={css.install} id="install" aria-labelledby="install-title">
   <div><h2 id="install-title">Install on macOS</h2><p>Build from source with Node 24, pnpm 11 and Xcode Command Line Tools</p><p className={css.note}>Early preview · Unsigned build</p><a className={css.textLink} href="/docs/readme/#get-started">Full setup instructions</a></div>
