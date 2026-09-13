@@ -340,3 +340,57 @@ test('a discovery check finishing after defocus preserves the existing popup', a
   await f.service.suggest(f.context)
   expect(f.service.suggestions('client')?.id).toBe(id)
 })
+
+
+test('popup selection reuses the displayed login while still checking the vault session', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  await f.service.loadSuggestions(f.context, id, 'fixture-master')
+  let lookups = f.vault.logins.mock.calls.length, checks = f.vault.status.mock.calls.length
+  let selected = await f.service.select(f.context, 'fixture', id)
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.vault.logins).toHaveBeenCalledTimes(lookups)
+  expect(f.vault.status).toHaveBeenCalledTimes(checks + 1)
+  expect(f.fills()).toBe(1)
+})
+
+test('expired popup credentials are fetched again before filling', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  await f.service.loadSuggestions(f.context, id, 'fixture-master')
+  await vi.advanceTimersByTimeAsync(30001)
+  let lookups = f.vault.logins.mock.calls.length
+  let selected = await f.service.select(f.context, 'fixture', id)
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.vault.logins).toHaveBeenCalledTimes(lookups + 1)
+})
+
+test('unlock and item loading take two CLI intervals instead of four', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  let unlock = f.vault.unlock.getMockImplementation()!, status = f.vault.status.getMockImplementation()!
+  let delay = () => new Promise<void>(resolve => setTimeout(resolve, 1000))
+  f.vault.unlock.mockImplementation(async () => { await delay(); await unlock() })
+  f.vault.status.mockImplementation(async () => { await delay(); return status() })
+  f.vault.logins.mockImplementation(async () => { await delay(); return [f.login] })
+  let completed = false
+  let pending = f.service.loadSuggestions(f.context, id, 'fixture-master').then(() => { completed = true })
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(completed).toBe(true)
+  await pending
+  expect(f.vault.status).toHaveBeenCalledTimes(1)
+  expect(f.service.suggestions('client')?.items).toHaveLength(1)
+})
+
+test.each(['lock', 'account', 'selection expiry'])('a popup credential is not reused after %s', async reason => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  await f.service.loadSuggestions(f.context, id, 'fixture-master')
+  let selected = await f.service.select(f.context, 'fixture', id)
+  let lookups = f.vault.logins.mock.calls.length
+  if (reason === 'lock') f.service.lock()
+  if (reason === 'account') f.vault.status.mockImplementation(async () => ({ status: 'unlocked', userId: 'another-account', serverUrl: 'https://vault.example.test' }))
+  if (reason === 'selection expiry') await vi.advanceTimersByTimeAsync(5001)
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.vault.logins).toHaveBeenCalledTimes(lookups + 1)
+})
