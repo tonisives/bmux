@@ -14,6 +14,7 @@ type Options = {
   vault?: ReturnType<typeof createVault>
   context: (context: PluginContext) => PluginContext
   interactive: (context: PluginContext) => boolean
+  selected?: (context: PluginContext) => boolean
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
   changed: () => void
 }
@@ -57,12 +58,13 @@ export let createBitwarden = (options: Options) => {
     return next
   }
   let inspect = async (context: PluginContext, signal: AbortSignal) => await options.browser('eval', { expression: `(${inspectLoginForm.toString()})()` }, context, signal) as LoginForm
-  let validSuggestion = async (context: PluginContext, suggestionId: string) => {
+  let validSuggestion = async (context: PluginContext, suggestionId: string, requireFocus = true) => {
+    let available = requireFocus ? options.interactive : options.selected ?? options.interactive
     let entry = suggestion
-    if (!entry || entry.value.id !== suggestionId || entry.context.clientId !== context.clientId || entry.context.tabId !== context.tabId || entry.context.documentId !== context.documentId || entry.context.profileId !== context.profileId || entry.context.url !== context.url || !options.interactive(context)) throw new Error('Password suggestion expired')
+    if (!entry || entry.value.id !== suggestionId || entry.context.clientId !== context.clientId || entry.context.tabId !== context.tabId || entry.context.documentId !== context.documentId || entry.context.profileId !== context.profileId || entry.context.url !== context.url || !available(context)) throw new Error('Password suggestion expired')
     let form = await inspect(context, new AbortController().signal)
     let next = options.context(context)
-    if (suggestion !== entry || form.focused !== entry.field || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId || !options.interactive(context)) throw new Error('Login field changed')
+    if (suggestion !== entry || (form.focused ? form.focused !== entry.field : !form.fields.some(field => field.selector === entry.field)) || next.documentId !== context.documentId || next.url !== context.url || next.profileId !== context.profileId || !available(context)) throw new Error('Login field changed')
     return entry
   }
   let forgetSession = () => {
@@ -76,7 +78,7 @@ export let createBitwarden = (options: Options) => {
     suggestionCheck?.abort()
     let controller = new AbortController(), signal = controller.signal
     suggestionCheck = controller
-    let valid = async () => { signal.throwIfAborted(); await validSuggestion(context, suggestionId); signal.throwIfAborted() }
+    let valid = async () => { signal.throwIfAborted(); await validSuggestion(context, suggestionId, false); signal.throwIfAborted() }
     entry.value = { ...entry.value, busy: true, message: undefined }; options.changed()
     let previous = queue
     let next = previous.catch(() => undefined).then(async () => {
@@ -281,7 +283,7 @@ export let createBitwarden = (options: Options) => {
   return {
     fill, lock, suggest, clearSuggestions,
     suggestions: (clientId: string) => {
-      if (!suggestion || suggestion.context.clientId !== clientId || !options.interactive(suggestion.context)) return undefined
+      if (!suggestion || suggestion.context.clientId !== clientId || !(options.selected ?? options.interactive)(suggestion.context)) return undefined
       try {
         let next = options.context(suggestion.context)
         return next.documentId === suggestion.context.documentId && next.url === suggestion.context.url && next.profileId === suggestion.context.profileId ? suggestion.value : undefined
