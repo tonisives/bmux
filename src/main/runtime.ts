@@ -24,7 +24,7 @@ import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-too
 import type { BrowserToolsState } from '../shared/browser-tools'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -125,6 +125,27 @@ export let createRuntime = (dataDirectory: string) => {
     if (live.window.contentView.children.at(-1) !== live.popup) live.window.contentView.addChildView(live.popup)
     live.popup.setVisible(true)
   }
+  let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
+    live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
+    let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
+    let visible = pending.length > 0 && focusedClientId === clientId && !overlays.has(clientId) && !current.pluginPrompt
+    live.permissionPopup.webContents.send('state', { ...current, permissions: visible ? pending : [] })
+    if (!visible) {
+      if (live.permissionPopup.webContents.isFocused() && live.window.isFocused()) {
+        let client = model.clients.find(client => client.id === clientId)
+        let tab = client?.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
+        if (tab?.parent === live.window && !overlays.has(clientId)) tab.view.webContents.focus()
+        else live.chrome.webContents.focus()
+      }
+      live.permissionPopup.setVisible(false)
+      return
+    }
+    let bounds = live.window.getContentBounds()
+    let width = Math.min(340, bounds.width - 24), y = current.statusBar === 'bottom' ? 40 : 68
+    live.permissionPopup.setBounds({ x: bounds.width - width - 12, y, width, height: Math.min(210, bounds.height - y - 40) })
+    if (live.window.contentView.children.at(-1) !== live.permissionPopup) live.window.contentView.addChildView(live.permissionPopup)
+    live.permissionPopup.setVisible(true)
+  }
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -134,6 +155,7 @@ export let createRuntime = (dataDirectory: string) => {
         live.chrome.webContents.send('state', current)
         live.popup.webContents.send('state', current)
         updatePasswordPopup(clientId, live, current)
+        updatePermissionPopup(clientId, live, current)
       }
     }, 30)
   }
@@ -258,7 +280,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (automatedContents.has(contents.id)) { contents.setIgnoreMenuShortcuts(true); return }
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
-      if (!focused || (focused.chrome.webContents !== contents && focused.popup.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
+      if (!focused || (focused.chrome.webContents !== contents && focused.popup.webContents !== contents && focused.permissionPopup.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
       if (input.key === 'Escape' && contents !== focused.chrome.webContents && bitwarden?.suggestions(focusedClientId)) {
         event.preventDefault(); bitwarden.dismiss(); void execute({ method: 'focus-page', args: { client: focusedClientId } }).catch(reportError); return
       }
@@ -495,8 +517,11 @@ export let createRuntime = (dataDirectory: string) => {
     let popup = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     popup.setVisible(false)
     window.contentView.addChildView(popup)
+    let permissionPopup = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+    permissionPopup.setVisible(false)
+    window.contentView.addChildView(permissionPopup)
     let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save() }
-    let owner: LiveClient = { window, chrome, popup, bounds: [], pageFocused: false, popupFocused: false }
+    let owner: LiveClient = { window, chrome, popup, permissionPopup, dismissedPermissions: new Set(), bounds: [], pageFocused: false, popupFocused: false }
     clients.set(client.id, owner)
     popup.webContents.on('focus', () => { owner.popupFocused = true })
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
@@ -529,23 +554,27 @@ export let createRuntime = (dataDirectory: string) => {
       clients.delete(client.id)
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!popup.webContents.isDestroyed()) popup.webContents.close()
+      if (!permissionPopup.webContents.isDestroyed()) permissionPopup.webContents.close()
       if (focusedClientId === client.id) focusedClientId = null
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
     })
     installKeys(chrome.webContents)
     installKeys(popup.webContents)
+    installKeys(permissionPopup.webContents)
+    permissionPopup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    permissionPopup.webContents.on('will-navigate', event => event.preventDefault())
     popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     popup.webContents.on('will-navigate', event => event.preventDefault())
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
-    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), popup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#passwords')])
-    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), popup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'passwords' })])
+    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), popup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#passwords'), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions')])
+    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), popup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'passwords' }), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' })])
     if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); window.focus(); chrome.webContents.focus() }
     else window.showInactive()
     save()
     return client
   }
-  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.popup.webContents.id === contentsId))?.[0]
+  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.popup.webContents.id === contentsId || live.permissionPopup.webContents.id === contentsId))?.[0]
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
     if (!clientId || !Array.isArray(bounds)) return
@@ -844,6 +873,13 @@ export let createRuntime = (dataDirectory: string) => {
       if (!pane.tabs.length) pane.tabs.push(newTab())
       if (pane.activeTabId === tab.id) pane.activeTabId = pane.tabs[0].id
       changed(); await visualQueue; return { closed: tab.id }
+    }
+    if (method === 'permission.dismiss') {
+      let owner = sourceClientId ? clients.get(sourceClientId) : undefined
+      if (!owner) throw new Error('Trusted permission UI required')
+      if (!Array.isArray(args.ids)) throw new Error('Permission IDs required')
+      for (let requestId of args.ids) if (typeof requestId === 'string' && permissions.has(requestId)) owner.dismissedPermissions.add(requestId)
+      publish(); return null
     }
     if (method === 'permission.list') return state().permissions
     if (method === 'permission.respond') {
