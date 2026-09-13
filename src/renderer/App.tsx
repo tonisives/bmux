@@ -8,13 +8,14 @@ import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks } from '../shared/picker-search'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'permissions' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
   let [message, setMessage] = useState('')
+  let shownPermissions = useRef(new Set<string>())
   let previous = useRef('')
   let previousControl = useRef<Control | null>(null)
   let accept = useCallback((next: PublicState) => {
@@ -51,12 +52,22 @@ export let App = () => {
     let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); if (control !== 'plugin-dialog') show(control as Control) }) })
     return () => { unsubscribe(); controls() }
   }, [accept, show])
+  useEffect(() => {
+    let pending = state?.permissions ?? []
+    shownPermissions.current = new Set([...shownPermissions.current].filter(id => pending.some(request => request.id === id)))
+    if (control === 'permissions' && !pending.length) { setControl(null); return }
+    if (!state || state.focusedClientId !== state.clientId || state.pluginPrompt) return
+    if (control && control !== 'permissions' && control !== 'activity') return
+    if (!pending.some(request => !shownPermissions.current.has(request.id))) return
+    for (let request of pending) shownPermissions.current.add(request.id)
+    if (control !== 'activity') { setMessage(''); setControl('permissions') }
+  }, [state, control])
   let management = control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = ['tabs', 'sessions', 'bookmarks', 'find'].includes(previousControl.current ?? '')
+    let restoreFocus = ['tabs', 'sessions', 'bookmarks', 'find', 'permissions'].includes(previousControl.current ?? '')
     previousControl.current = control
     let cancelled = false
     // Child layout effects publish the selected tab's bounds before it receives focus.
@@ -356,7 +367,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 }
 
 let Panel = ({ type }: { type: Control }) => {
-  let { state, dismiss } = useUI()
+  let { state, dismiss, message } = useUI()
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!['help', 'sessions', 'tabs', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
@@ -371,6 +382,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'tabs' && <TabPicker />}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
     {type === 'bookmarks' && <BookmarkPicker />}
+    {type === 'permissions' && <>{state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />)}{message && <p role="alert">{message}</p>}</>}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
   </div></div>
 }

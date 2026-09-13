@@ -697,3 +697,33 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   await expect.poll(async () => (await cli('state')).accessibility).toBe(false)
   await cli('detach-client', { client: client.id })
 })
+
+
+test('pending permissions open a popup and new requests reopen it after dismissal', async () => {
+  let profile = await cli('profile.create', { name: 'permission-popup', background: true })
+  let session = await cli('new-session', { name: 'permission-popup', profile: profile.id })
+  let tab = session.windows[0].panes[0].tabs[0]
+  await cli('navigate', { tab: tab.id, url: `${url}/permission-popup` })
+  await cli('wait', { tab: tab.id, selector: '#text' })
+  await cli('eval', { tab: tab.id, expression: 'Notification.requestPermission(); true' })
+  await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.windows().find(window => window.url().endsWith('/renderer/index.html'))!
+  let popup = chrome.getByRole('dialog', { name: 'Permissions', exact: true })
+  await expect(popup).toBeVisible()
+  await expect(popup).toContainText('notifications')
+  await popup.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(popup).toBeHidden()
+  await chrome.getByRole('button', { name: 'Activity', exact: true }).click()
+  let activity = chrome.getByRole('dialog', { name: 'Activity', exact: true })
+  await activity.getByRole('button', { name: 'Deny', exact: true }).click()
+  await expect.poll(async () => (await cli('permission.list')).length).toBe(0)
+  await activity.getByRole('button', { name: 'Close', exact: true }).click()
+  await cli('eval', { tab: tab.id, expression: 'navigator.geolocation.getCurrentPosition(()=>{},()=>{}); true' })
+  await expect(popup).toBeVisible()
+  await expect(popup).toContainText('geolocation')
+  await popup.getByRole('button', { name: 'Deny', exact: true }).click()
+  await expect(popup).toBeHidden()
+  await expect.poll(async () => (await cli('permission.list')).length).toBe(0)
+  await cli('detach-client', { client: client.id })
+})

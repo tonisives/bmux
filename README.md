@@ -268,7 +268,7 @@ On first launch, bmux moves existing Browmux application data and `~/.config/bro
 
 Layouts, profiles, open URLs, zoom, and client selections are persisted. Relaunching reopens pages; it does not reconstruct arbitrary JavaScript memory or unsaved forms. Named layout restoration replaces a window's pages and requires confirmation.
 
-Permissions are requested in the Activity panel and saved by profile, origin, and permission. Background requests wait there; they do not open a foreground window. CLI users can use `permission list` and `permission respond ID --allow` (omit `--allow` to deny). Downloads go to the standard Downloads directory using unique filenames, with status in Activity.
+Pending permissions automatically open a Permissions popup in the focused browser window when no other control is open. Allow or deny each request there; choices are saved by profile, origin, and permission. Closing the popup leaves requests in Activity, accessible from the permission count in the status bar. Background requests wait until a browser window is focused; they do not activate the app. CLI users can use `permission list` and `permission respond ID --allow` (omit `--allow` to deny). Downloads go to the standard Downloads directory using unique filenames, with status in Activity.
 
 The control socket is accessible only to the current OS user. No network debugger port is exposed by default. See [AGENT.md](AGENT.md) for browser automation.
 
