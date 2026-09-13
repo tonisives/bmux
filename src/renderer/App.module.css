@@ -85,3 +85,7 @@
 .urlHistory strong, .urlHistory span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .urlHistory strong { flex: 0 1 35%; font-weight: 400; }
 .urlHistory span { flex: 1; color: #8e98a4; }
+
+.toolStatus { padding-bottom: 16px; border-bottom: 1px solid #444b59; margin-bottom: 16px; }
+.toolStatus dl > div { flex-wrap: wrap; padding: 5px 0; }
+.toolActions { display: flex; flex-wrap: wrap; gap: 8px; }

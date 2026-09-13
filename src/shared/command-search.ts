@@ -5,10 +5,10 @@ export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'se
 export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
-  { command: 'browser-tools', description: 'Ad blocking, Dark Reader, userscripts, and saved forms', action: 'browser-tools' },
+  { command: 'browser-tools', description: 'Status and configuration for ad blocking, Dark Reader, and userscripts', action: 'browser-tools' },
   { command: 'help', description: 'Search commands and current keyboard shortcuts', action: 'help' },
   { command: 'settings', description: 'Browser settings and keyboard configuration', action: 'settings' },
-  { command: 'plugins', description: 'Enable plugins and run plugin actions', action: 'plugins' },
+  { command: 'plugins', description: 'Tool status, plugin configuration, and plugin actions', action: 'plugins' },
   { command: 'sessions', description: 'Choose a persistent browser session', action: 'sessions' },
   { command: 'tabs', description: 'Choose a tab in this pane', action: 'tabs' },
   { command: 'bookmarks', description: 'Browse bookmarks in this profile', action: 'bookmarks' },

@@ -410,7 +410,7 @@ let PluginList = () => {
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
-  return <><label>Find plugin action<input className={css.pluginInput} value={query} onChange={change} autoFocus /></label>
+  return <><ToolStatus /><h2>Installed plugins</h2><label>Find plugin action<input className={css.pluginInput} value={query} onChange={change} autoFocus /></label>
     {!state.plugins?.length && <p>No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.</p>}
     {state.plugins?.map(plugin => <div key={plugin.id}><label><input type="checkbox" data-id={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.row} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
@@ -556,6 +556,31 @@ let HelpContent = () => {
   </div>
 }
 
+let ToolStatus = () => {
+  let { state, show, run, control } = useUI()
+  let { tab, profile } = selection(state)
+  let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
+  let configure = () => show('browser-tools')
+  let plugins = () => show('plugins')
+  let edit = () => { void run('settings.open') }
+  let blocking = !current?.origin ? 'No website selected' : current.adblock ? 'On' : 'Off'
+  let filters = tools?.filters
+  return <section className={css.toolStatus} aria-label="Tools status">
+    <h2>Tools status</h2>
+    <p>{profile?.name ?? 'No profile'} · {current?.origin || 'No website selected'}</p>
+    <dl>
+      <div><dt>Ad blocking</dt><dd>{blocking}{current?.origin && ` · ${current.blocked} requests blocked since navigation`}</dd></div>
+      <div><dt>Filter lists</dt><dd>{!filters ? 'Loading' : filters.error ? 'Needs attention' : filters.updating ? 'Updating' : filters.network ? 'Ready' : 'Unavailable'}</dd></div>
+      <div><dt>Website dark mode</dt><dd>{current?.origin ? current.darkMode === 'dark' ? 'On' : current.darkMode === 'system' ? 'Follow system' : 'Off' : 'No website selected'}</dd></div>
+      <div><dt>Userscripts</dt><dd>{tools ? `${tools.scripts.filter(script => script.enabled).length} enabled · ${tools.scripts.filter(script => script.error).length} errors` : 'Loading'}</dd></div>
+      <div><dt>Plugins</dt><dd>{state.plugins?.filter(plugin => plugin.enabled).length ?? 0} enabled · {state.plugins?.filter(plugin => plugin.error).length ?? 0} errors</dd></div>
+    </dl>
+    {current?.error && <p className={css.error}>{current.error}</p>}
+    {filters?.error && <p className={css.error}>{filters.error}</p>}
+    <div className={css.toolActions}>{control !== 'browser-tools' && <button onClick={configure}>Configure browser tools</button>}{control !== 'plugins' && <button onClick={plugins}>Manage plugins</button>}{control === 'plugins' && <button onClick={edit}>Edit config</button>}</div>
+  </section>
+}
+
 let BrowserTools = () => {
   let { state, run, show } = useUI()
   let { tab, profile } = selection(state)
@@ -571,7 +596,7 @@ let BrowserTools = () => {
   let edit = () => { void run('settings.open') }
   let plugins = () => show('plugins')
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
-  return <><p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>
+  return <><ToolStatus /><h2>Browser tool settings</h2><p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>
     <div className={css.toolOptions}><label>Apply changes to<select value={scope} onChange={changeScope}><option value="site">This site in this profile</option><option value="profile">This profile</option><option value="global">All profiles</option></select></label>
       <button onClick={adblock} disabled={!tab || (scope === 'site' && !current?.origin)} aria-pressed={settings?.adblock}>Ad and tracker blocking: {settings?.adblock ? 'on' : 'off'}</button>
       <label>Website dark mode<select value={settings?.darkMode ?? 'off'} onChange={dark} disabled={!tab || (scope === 'site' && !current?.origin)}><option value="off">Off</option><option value="dark">Dark Reader</option><option value="system">Follow system</option></select></label>
@@ -579,9 +604,9 @@ let BrowserTools = () => {
     </div>
     {scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
     {current?.error && <p className={css.error}>{current.error}</p>}
-    <p>{current?.blocked ?? 0} requests blocked on this page. Reload to retry blocked resources.</p>
-    {!!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type}</div>)}</details>}
-    <p>{tools?.filters.network ?? 0} network rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>
+    <p>{current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.</p>
+    {!!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
+    <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>
     {tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
     <button onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>
     <p>Userscripts and styles</p>
@@ -597,5 +622,5 @@ let KeyboardSettings = () => {
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  return <><ToolStatus /><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
 }
