@@ -50,6 +50,7 @@ test.beforeAll(async () => {
   await fs.writeFile(vault, `#!${process.execPath}
 let fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 let args = process.argv.slice(2), origin = args[args.indexOf('--url') + 1], stored = path.join(__dirname, 'vault-session');
+fs.appendFileSync(path.join(__dirname, 'vault-calls'), args[0] + '\\n');
 let mode = ''; try { mode = fs.readFileSync(path.join(__dirname, 'vault-mode'), 'utf8') } catch {}
 let session = ''; try { session = fs.readFileSync(stored, 'utf8') } catch {}
 let unlocked = !!session && process.env.BW_SESSION === session;
@@ -532,4 +533,22 @@ test('the password popup survives app switching and a username field losing DOM 
   await chrome.getByRole('button', { name: 'Yes', exact: true }).click()
   await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
   await rpc('bitwarden.cancel', { tab: tabId })
+})
+
+
+test('warm popup selection fills without another CLI process', async () => {
+  await fs.mkdir(path.join(directory, 'vault'), { recursive: true })
+  await fs.writeFile(path.join(directory, 'vault', 'data.json'), '{}')
+  try {
+    await rpc('plugin.enable', { id: 'bmux.bitwarden', enabled: true }); await rpc('bitwarden.lock')
+    await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` }); await focusVaultField(); await unlockPopup()
+    let account = popup.getByRole('button', { name: 'Fill login vault@example.test', exact: true })
+    await expect(account).toBeVisible()
+    let before = await fs.readFile(path.join(directory, 'vault-calls'), 'utf8')
+    await account.click()
+    await chrome.getByRole('button', { name: 'Yes', exact: true }).click()
+    await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
+    expect(await fs.readFile(path.join(directory, 'vault-calls'), 'utf8')).toBe(before)
+    await rpc('bitwarden.cancel', { tab: tabId })
+  } finally { await rpc('bitwarden.lock'); await fs.rm(path.join(directory, 'vault', 'data.json'), { force: true }) }
 })

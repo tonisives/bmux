@@ -5,6 +5,10 @@ limitations.
 
 ## Completed
 
+- [x] Remove CLI startup from warm password selection and same-origin lookup.
+  Reuse results for 30 seconds only while the CLI data file and session remain
+  unchanged; invalidate on lock, refresh, expiry, and vault revision changes.
+
 - [x] Reduce Bitwarden CLI latency: avoid the pre-unlock status process, overlap
   item loading with session checks, and reuse a short-lived selected login.
 

@@ -394,3 +394,14 @@ test.each(['lock', 'account', 'selection expiry'])('a popup credential is not re
   await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
   expect(f.vault.logins).toHaveBeenCalledTimes(lookups + 1)
 })
+
+
+test('a changed vault revision refreshes a previously selected credential', async () => {
+  let f = setup(); f.focus('#user'); await f.service.suggest(f.context)
+  let id = f.service.suggestions('client')!.id
+  await f.service.loadSuggestions(f.context, id, 'fixture-master')
+  let selected = await f.service.select(f.context, 'fixture', id), lookups = f.vault.logins.mock.calls.length
+  f.vault.status.mockImplementation(async () => ({ status: 'unlocked', userId: 'account', serverUrl: 'https://vault.example.test', revision: 'new-vault-revision' }))
+  await f.service.fill(f.context, new AbortController().signal, { ui: f.ui, progress: f.progress }, selected)
+  expect(f.vault.logins).toHaveBeenCalledTimes(lookups + 1)
+})

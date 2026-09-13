@@ -566,7 +566,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'bitwarden.unlock' || method === 'bitwarden.refresh') {
         let password = method === 'bitwarden.unlock' && typeof args.password === 'string' ? args.password : undefined
         delete args.password
-        try { await bitwarden.loadSuggestions(context, suggestionId, password); return { completed: true } }
+        try { await bitwarden.loadSuggestions(context, suggestionId, password, method === 'bitwarden.refresh'); return { completed: true } }
         finally { password = undefined }
       }
       let id = await bitwarden.select(context, required(args, 'id'), suggestionId)
