@@ -424,15 +424,32 @@ export let createRuntime = (dataDirectory: string) => {
     for (let tabId of liveIds) if (!tabs.has(tabId)) createLiveTab(tabId)
     let client = model.clients.find(client => client.id === focusedClientId)
     let owner = client && !overlays.has(client.id) ? clients.get(client.id) : undefined
-    let activeIds = new Set(client ? visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.activeTabId) : [])
+    let viewers = new Map<string, { id: string; live: LiveClient; bounds: Bounds }[]>()
+    for (let candidate of model.clients) {
+      let live = clients.get(candidate.id)
+      if (!live || !live.window.isVisible() || live.window.isMinimized() || overlays.has(candidate.id)) continue
+      for (let paneId of visiblePaneIds(candidate)) {
+        let tabId = paneById(model, paneId).pane.activeTabId
+        let bounds = live.bounds.find(bounds => bounds.tabId === tabId)
+        if (!bounds) continue
+        let entries = viewers.get(tabId) ?? []
+        entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
+      }
+    }
     for (let [tabId, live] of tabs) {
-      let bounds = owner?.bounds.find(bounds => bounds.tabId === tabId)
+      let candidates = viewers.get(tabId) ?? []
+      // Focus chooses between competing viewers; losing focus alone keeps the
+      // native page in its current visible window, including other sessions.
+      let viewer = candidates.find(candidate => candidate.id === focusedClientId)
+        ?? candidates.find(candidate => candidate.live.window === live.parent)
+        ?? candidates[0]
+      let bounds = viewer?.bounds
       // The first navigation needs a native focus target before its URL commits.
-      let target = owner && bounds && activeIds.has(tabId) && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || live.pendingNavigation) ? owner.window : parkHost(tabById(model, tabId).pane.profileId)
+      let target = viewer && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || live.pendingNavigation) ? viewer.live.window : parkHost(tabById(model, tabId).pane.profileId)
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
-      if (target === owner?.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
+      if (target === viewer?.live.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
     }
     if (pointerTarget) {
       let cursor = screen.getCursorScreenPoint()
@@ -495,6 +512,10 @@ export let createRuntime = (dataDirectory: string) => {
         else chrome.webContents.focus()
       }).catch(reportError)
     })
+    window.on('show', () => { void scheduleVisuals() })
+    window.on('hide', () => { void scheduleVisuals() })
+    window.on('minimize', () => { void scheduleVisuals() })
+    window.on('restore', () => { void scheduleVisuals() })
     window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
@@ -526,7 +547,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (!clientId || !Array.isArray(bounds)) return
     let valid = bounds.filter(bound => ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bound[key as keyof Bounds])))
     clients.get(clientId)!.bounds = valid
-    if (focusedClientId === clientId) void scheduleVisuals()
+    void scheduleVisuals()
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
@@ -681,7 +702,11 @@ export let createRuntime = (dataDirectory: string) => {
       // Re-activating a focused macOS window briefly resigns it and can drop input
       // or cancel a guarded plugin prompt. Preserve its current first responder.
       if (focusedClientId === client.id && owner.window.isFocused()) return client
-      await app.dock?.show(); app.focus({ steal: true }); owner.window.show(); owner.window.focus();
+      await app.dock?.show()
+      // Reactivating an already-active app can restore its previous key window
+      // after the requested client takes focus. Only activate from outside bmux.
+      if (!BaseWindow.getFocusedWindow()) app.focus({ steal: true })
+      owner.window.show(); owner.window.focus();
       if (owner.popupFocused && bitwarden?.suggestions(client.id)) owner.popup.webContents.focus()
       else owner.chrome.webContents.focus()
       return client

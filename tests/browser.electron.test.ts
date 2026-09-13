@@ -97,6 +97,25 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(state.model.clients.find((client: { id: string }) => client.id === clientA.id).windowId).toBe(mainWindow.id)
   expect(state.model.clients.find((client: { id: string }) => client.id === clientB.id).windowId).toBe(secondWindow.id)
 
+  let secondTab = secondWindow.panes[0].activeTabId
+  await cli('navigate', { tab: secondTab, url: `${url}/other-visible` })
+  let visibleOwners = () => application.evaluate(({ BaseWindow }, urls) => urls.map(url => BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some((view: any) => view.webContents?.getURL() === url))?.id), [`${url}/`, `${url}/other-visible`])
+  await expect.poll(async () => (await visibleOwners()).every(Boolean)).toBe(true)
+  let owners = await visibleOwners()
+  expect(owners[0]).not.toBe(owners[1])
+  await application.evaluate(({ BrowserWindow }) => {
+    let runtime = globalThis as any
+    runtime.fixtureFocusWindow = new BrowserWindow({ width: 300, height: 200 })
+    runtime.fixtureFocusWindow.focus()
+  })
+  try {
+    await expect.poll(async () => (await cli('state')).focusedClientId).toBeNull()
+    await new Promise(resolve => setTimeout(resolve, 700))
+    expect(await visibleOwners()).toEqual(owners)
+  } finally {
+    await application.evaluate(() => { let runtime = globalThis as any; runtime.fixtureFocusWindow.destroy(); delete runtime.fixtureFocusWindow })
+  }
+
   await cli('select-window', { client: clientB.id, window: mainWindow.id })
   await cli('activate-client', { client: clientA.id })
   await cli('type', { tab: mainTab.id, selector: '#text', text: 'Retain this form' })

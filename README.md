@@ -60,7 +60,7 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 | Pane | One profile, with its own browser tab |
 | Client | A macOS window attached to a session |
 
-Clients choose their current internal window independently. The focused client hosts live browser views; other clients show captured previews. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
+Clients choose their current internal window independently. Visible clients keep their live browser views when the app loses focus. If multiple clients display the same page, focusing one transfers that page to it; the others show captured previews. Clients displaying different pages can render them simultaneously. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
 
 Panes can mix profiles within a layout. Panes with the same profile share logins; different profiles have separate site storage. A pane's profile is fixed for its lifetime. Create a new pane to use another profile.
 

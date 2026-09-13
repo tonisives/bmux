@@ -97,3 +97,25 @@ restoration, and username fill after DOM blur. `pnpm test:ui` passed and the nat
 URL-entry screenshot was reviewed. All pages and credentials were disposable
 fixtures. Artifacts: `2026-09-13T00-36-27.801Z`,
 `2026-09-13T00-37-33.543Z`, and `2026-09-13T00-37-16.508Z`.
+
+
+September 13 visible-page ownership follow-up: native views remain attached to
+visible, non-minimized clients when bmux loses focus. Each page prefers its
+focused viewer, then its existing visible viewer, then another eligible viewer.
+Independent windows can display live pages together; shared pages still transfer
+without reloading. Background bounds updates and visibility changes reconcile
+ownership. Explicit activation avoids reactivating the app when it already owns
+the key window, preventing an old client from reclaiming focus during handoff.
+
+The native regressions verify two simultaneous visible page hosts, unchanged
+hosts during a competing window's focus, shared-page identity and form state
+through handoffs, and password popup visibility and native character/Enter input
+after defocus. Macro input is simulated with disposable fixture text; the user's
+Hammerspoon chooser and typing script were inspected but not executed or changed.
+The targeted handoff and password cases passed; `pnpm check` passed 101 tests.
+`pnpm test:ui` passed and its visible native URL-entry screenshot was reviewed.
+Artifacts: `2026-09-13T06-39-07.871Z` (targeted native tests) and
+`2026-09-13T06-39-31.022Z` (URL entry), under `artifacts/tart/`.
+
+The full native suite then passed all 58 tests in one run (1.6 minutes):
+`artifacts/tart/2026-09-13T06-39-44.144Z/`.
