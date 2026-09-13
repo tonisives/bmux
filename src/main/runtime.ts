@@ -294,7 +294,9 @@ export let createRuntime = (dataDirectory: string) => {
       }
       let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
       if (!entry || (entry[1] === 'stop' && contents === focused.chrome.webContents)) return
-      event.preventDefault(); dispatchShortcut(entry[1])
+      // Escape must also reach websites so they can dismiss dialogs and overlays.
+      if (input.key !== 'Escape' || entry[1] !== 'stop') event.preventDefault()
+      dispatchShortcut(entry[1])
     })
     contents.on('before-mouse-event', (event, mouse) => {
       if (!automatedContents.has(contents.id) && mouse.type === 'mouseDown') pointerTarget = undefined

@@ -43,6 +43,19 @@ test('native accessibility focus follows URL and website text inputs', async () 
       if (name === 'Editor') await expect(input).toHaveText('ugug')
       else await expect(input).toHaveValue('ugug')
     }
+    // Use native input: automation commands can bypass browser shortcut handling.
+    await page.evaluate(() => {
+      let overlay = document.createElement('div')
+      overlay.id = 'escape-overlay'
+      overlay.textContent = 'Search details'
+      document.body.append(overlay)
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') overlay.remove()
+      }, { once: true })
+    })
+    await expect(page.locator('#escape-overlay')).toBeVisible()
+    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 53'])
+    await expect(page.locator('#escape-overlay')).toHaveCount(0)
     // Accessibility actions can open controls without a native mouse click.
     await chrome.getByRole('button', { name: 'Address', exact: true }).evaluate(button => (button as HTMLButtonElement).click())
     await expect(address).toBeFocused()
