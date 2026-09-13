@@ -75,3 +75,7 @@
 .panel .helpCommands > div { display: block; margin-bottom: 10px; }
 .helpCommands dt { overflow-wrap: anywhere; }
 @media (max-width: 650px) { .status .commandOption { grid-template-columns: 1fr; gap: 3px; } .commandKeys { text-align: left; } }
+
+.toolStatus { padding-bottom: 16px; border-bottom: 1px solid #444b59; margin-bottom: 16px; }
+.toolStatus dl > div { flex-wrap: wrap; padding: 5px 0; }
+.toolActions { display: flex; flex-wrap: wrap; gap: 8px; }

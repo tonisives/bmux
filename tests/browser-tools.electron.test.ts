@@ -98,6 +98,21 @@ test('blocks requests before they reach the server and runs scripts before page 
   expect(await page.evaluate(() => ['process', 'require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined', 'undefined'])
 })
 
+test('plugin screen shows live tool status and opens blocking configuration', async () => {
+  await command('plugins')
+  let panel = chrome.getByRole('dialog', { name: 'Plugins', exact: true })
+  let status = panel.getByRole('region', { name: 'Tools status' })
+  await expect(status).toContainText('requests blocked since navigation')
+  await expect(status).toContainText('Ready')
+  await status.getByRole('button', { name: 'Configure browser tools' }).click()
+  let tools = chrome.getByRole('dialog', { name: 'Browser tools', exact: true })
+  await tools.getByRole('button', { name: 'Ad and tracker blocking: on', exact: true }).click()
+  await expect(tools.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true })).toBeVisible()
+  await expect(tools.getByRole('region', { name: 'Tools status' })).toContainText('Off')
+  await tools.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true }).click()
+  await tools.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
 test('dark mode renders on the native page and site settings persist without changing selection', async () => {
   await command('browser-tools')
   let panel = chrome.getByRole('dialog', { name: 'Browser tools', exact: true })

@@ -235,3 +235,5 @@ Bundled plugins use bmux's embedded Node runtime, with no separate Node install.
 Local plugins remain OS processes with user privileges; see [PLUGINS.md](PLUGINS.md).
 Local plugins cannot shadow bundled IDs. Neither system loads Chrome Web Store
 extensions.
+
+Open `plugins`, `settings`, or `browser-tools` from the command prompt to see Tools status for the selected page: effective blocking, requests blocked since navigation, filter readiness, dark mode, and enabled script/plugin counts and errors. Choose Configure browser tools for site/profile/global controls and timestamped blocked-request history, or Manage plugins for plugin toggles and actions. Disabling blocking allows new requests; reload to retry resources already blocked.
