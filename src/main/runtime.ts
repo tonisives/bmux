@@ -257,8 +257,9 @@ export let createRuntime = (dataDirectory: string) => {
     let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape').map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-      { role: 'editMenu' },
       { label: 'Browser', submenu: [{ label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
+      // Configured accelerators take precedence over native menu defaults.
+      { role: 'editMenu' },
       { role: 'windowMenu' },
     ]))
   }

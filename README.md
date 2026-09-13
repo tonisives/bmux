@@ -246,7 +246,9 @@ keyboard:
 
 Set `statusBar: bottom` to place the bar below page content. The default is `top`, and changes apply live.
 
-Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], tab switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
+Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], window switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
+
+The old `next-tab` and `previous-tab` action names are accepted as aliases for `next-window` and `previous-window`. Configured shortcuts take precedence over website shortcuts and native menu defaults.
 
 Multiple shortcuts can point to the same action. For example, adding `Cmd+Z: toggle-pane-zoom` under `keyboard.shortcuts` keeps the prefix binding while also providing a direct shortcut. This explicitly replaces native Undo for Command+Z inside bmux.
 

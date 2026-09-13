@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { parseDocument, stringify } from 'yaml'
-import { DEFAULT_KEYBOARD, KEY_ACTIONS, parseBinding } from '../shared/keyboard'
+import { DEFAULT_KEYBOARD, KEY_ACTIONS, normalizeKeyAction, parseBinding } from '../shared/keyboard'
 import type { KeyboardConfig } from '../shared/keyboard'
 import type { StatusBarPosition } from '../shared/types'
 import { pluginBinding } from '../shared/plugins'
@@ -55,6 +55,7 @@ export let parseConfig = (text: string): Settings => {
         for (let prior of Object.keys(result.shortcuts)) if (JSON.stringify(parseBinding(prior)) === canonical) delete result.shortcuts[prior]
       }
       else if (key.length !== 1) throw new Error('Prefix bindings must be single characters')
+      if (typeof action === 'string') action = normalizeKeyAction(action)
       if (action === null) delete result[field][key]
       else if (typeof action !== 'string' || (!KEY_ACTIONS.has(action) && action !== 'plugins' && !pluginBinding(action))) throw new Error(`Unknown keyboard action for ${key}`)
       else result[field][key] = action

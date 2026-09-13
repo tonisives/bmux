@@ -95,3 +95,13 @@ it('moves the previous config into the bmux config directory', () => {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+it('merges legacy tab navigation into window actions and overrides history defaults', () => {
+  let config = parseConfig('keyboard:\n  shortcuts:\n    "Command+[": previous-window\n    "Cmd+]": next-window\n    "Ctrl+Tab": next-tab\n  prefixBindings:\n    p: previous-tab\n').keyboard
+  expect(config.shortcuts['Cmd+[']).toBeUndefined()
+  expect(config.shortcuts['Command+[']).toBe('previous-window')
+  expect(config.shortcuts['Cmd+]']).toBe('next-window')
+  expect(config.shortcuts['Ctrl+Tab']).toBe('next-window')
+  expect(config.prefixBindings.p).toBe('previous-window')
+  expect(defaultConfigText()).not.toMatch(/next-tab|previous-tab/)
+})

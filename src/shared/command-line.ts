@@ -1,3 +1,4 @@
+import { normalizeKeyAction } from './keyboard'
 import type { Command, PublicState } from './types'
 
 export let tokenize = (line: string): string[] => {
@@ -19,6 +20,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let words = tokenize(line)
   let name = words.shift()
   if (!name) throw new Error('Enter a command')
+  name = normalizeKeyAction(name)
   let client = state.model.clients.find(client => client.id === state.clientId)
   if (!client) throw new Error('Client is detached')
   let session = state.model.sessions.find(session => session.id === client.sessionId)!
@@ -85,11 +87,6 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'next-pane') return { method: 'cycle-pane', args: current }
   if (name === 'toggle-pane-zoom') return { method: name, args: current }
   if (['pane-left', 'pane-right', 'pane-up', 'pane-down'].includes(name)) return { method: 'select-pane-direction', args: { ...current, direction: name.slice(5) } }
-  if (name === 'next-tab' || name === 'previous-tab') {
-    if (!pane) throw new Error('No selected pane')
-    let index = pane.tabs.findIndex(tab => tab.id === pane.activeTabId)
-    return { method: 'tab.select', args: { tab: pane.tabs[(index + (name === 'next-tab' ? 1 : -1) + pane.tabs.length) % pane.tabs.length].id } }
-  }
   if (name === 'tab') {
     let action = positional.shift()
     if (action === 'new') return { method: 'tab.create', args: { ...current, pane: pane?.id, url: positional[0], ...options } }

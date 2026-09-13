@@ -674,10 +674,19 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
     await cli('focus-page', { client: client.id })
     await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
+  let historyTabs = [session.windows[0].panes[0].activeTabId, second.panes[0].activeTabId]
+  for (let tab of historyTabs) {
+    await cli('navigate', { tab, url: `${url}/shortcut-history-one` })
+    await cli('navigate', { tab, url: `${url}/shortcut-history-two` })
+    await cli('navigate', { tab, url: `${url}/shortcut-history-three` })
+    await cli('back', { tab })
+    await expect.poll(() => cli('eval', { tab, expression: 'location.pathname' })).toBe('/shortcut-history-two')
+  }
   await key(']')
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(second.id)
   await key('[')
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(session.windows[0].id)
+  for (let tab of historyTabs) expect(await cli('eval', { tab, expression: 'location.pathname' })).toBe('/shortcut-history-two')
   let firstPane = session.windows[0].panes[0].id
   await key('\\')
   await expect.poll(async () => (await cli('list-panes', { window: session.windows[0].id })).length).toBe(2)

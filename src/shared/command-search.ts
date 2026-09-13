@@ -55,8 +55,6 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'tab new', usage: 'tab new [URL]', description: 'Create a tab in this pane', action: 'new-tab' },
   { command: 'tab close', description: 'Close the selected tab', action: 'close-tab' },
   { command: 'tab select -t ', usage: 'tab select -t INDEX', description: 'Select a tab by index or ID', complete: true },
-  { command: 'next-tab', description: 'Select the next tab', action: 'next-tab' },
-  { command: 'previous-tab', description: 'Select the previous tab', action: 'previous-tab' },
   ...['back', 'forward', 'reload', 'hard-reload', 'stop'].map(command => ({ command, description: ({ back: 'Go back in page history', forward: 'Go forward in page history', reload: 'Reload the page', 'hard-reload': 'Reload without cached resources', stop: 'Stop loading this page' })[command]!, action: command })),
   { command: 'devtools', description: 'Open Chromium developer tools for this tab' },
   { command: 'zoom ', usage: 'zoom PERCENT', description: 'Set the page zoom percentage', complete: true },
