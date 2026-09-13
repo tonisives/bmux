@@ -25,5 +25,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm check
-      - run: pnpm site:build
       - run: pnpm test:electron

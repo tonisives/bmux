@@ -82,7 +82,7 @@ Local GUI tests run inside a Tart macOS VM whose viewer stays on AeroSpace works
 usual. See [the Tart test setup](docs/tart-tests.md) for installation under
 `/Volumes/sam`, test artifacts, and VM controls.
 
-The product website lives in [`website/`](website/README.md). Run `pnpm site:dev` for its local preview and `pnpm site:build` for a pre-rendered production build.
+The product website is at [bmux.tonis.dev](https://bmux.tonis.dev). Its source and deployment are maintained separately from this browser repository.
 
 Build and launch locally:
 
