@@ -635,8 +635,11 @@ test('window management shortcuts and keyboard session selection', async () => {
   let sessionName = chrome.getByRole('textbox', { name: 'Rename session', exact: true })
   await sessionName.fill('keyboard-renamed'); await sessionName.press('Enter')
   await expect(chrome.getByRole('button', { name: 'Sessions', exact: true })).toHaveText('[keyboard-renamed]')
-  await shortcut('s')
   let picker = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+  await shortcut('w', ['meta', 'control', 'alt', 'shift'], false)
+  await expect(picker).toBeVisible()
+  await chrome.keyboard.press('Escape')
+  await shortcut('s')
   await expect(picker.getByRole('button', { name: 'keyboard-renamed', exact: true })).toBeFocused()
   await chrome.keyboard.press('ArrowDown')
   await expect(picker.getByRole('button', { name: 'keyboard-beta', exact: true })).toBeFocused()
@@ -787,4 +790,20 @@ test('new panes focus URL entry and suggest persistent profile history', async (
   await address.fill(`${url}/typed-history-url`)
   await address.press('Enter')
   await expect.poll(async () => (await cli('tab.list', { pane: isolated.id }))[0].url).toBe(`${url}/typed-history-url`)
+})
+
+test('external web links open new selected tabs and reject other schemes', async () => {
+  let before = await cli('tab.list')
+  await application.evaluate(({ app }) => {
+    app.emit('open-url', { preventDefault() {} }, 'javascript:alert(1)')
+    app.emit('open-url', { preventDefault() {} }, 'file:///etc/passwd')
+  })
+  expect((await cli('tab.list')).length).toBe(before.length)
+  await application.evaluate(({ app }, link) => {
+    app.emit('open-url', { preventDefault() {} }, link)
+  }, `${url}/external-link`)
+  await expect.poll(async () => (await cli('tab.list')).filter((tab: { url: string }) => tab.url === `${url}/external-link`).length).toBe(1)
+  let after = await cli('tab.list')
+  expect(after.length).toBe(before.length + 1)
+  expect(after.find((tab: { url: string }) => tab.url === `${url}/external-link`).active).toBe(true)
 })

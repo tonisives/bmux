@@ -668,6 +668,14 @@ export let createRuntime = (dataDirectory: string) => {
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
       return execute(command, sourceClientId)
     }
+    if (method === 'settings.default-browser') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      if (!app.isPackaged) throw new Error('Use the installed bmux app to set the default browser')
+      let http = app.setAsDefaultProtocolClient('http')
+      let https = app.setAsDefaultProtocolClient('https')
+      if (!http || !https) throw new Error('Could not set bmux as default. Choose bmux in System Settings > Desktop & Dock > Default web browser.')
+      return { requested: true }
+    }
     if (method === 'settings.reload') { configuration?.reload(); if (configuration?.error) throw new Error(configuration.error); return { path: configuration?.path } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {

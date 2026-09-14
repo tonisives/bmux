@@ -636,10 +636,11 @@ let BrowserTools = () => {
 }
 
 let KeyboardSettings = () => {
-  let { state, run, show } = useUI()
+  let { state, run, show, onMessage } = useUI()
+  let makeDefault = async () => { if (await run('settings.default-browser')) onMessage('Default browser requested. Confirm any macOS prompt; you can also choose bmux in System Settings > Desktop & Dock.') }
   let tools = () => show('browser-tools')
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><ToolStatus /><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  return <><ToolStatus /><button onClick={makeDefault}>Make bmux the default browser</button><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
 }

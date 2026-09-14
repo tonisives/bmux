@@ -158,3 +158,8 @@ Local script plugins are available through the `plugins` command and `bmux plugi
 No Chrome extensions, external Chrome/Brave embedding, or cloud synchronization. Website recoloring, ad blocking, and stored fills are described in [Browser tools](docs/browser-tools.md). JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 
 Do not expect Electron to provide every Chrome feature: DRM media, platform authentication integrations, and sites that reject embedded browsers may require additional work.
+
+To make bmux your default browser, open Settings with `Cmd+,` in the installed
+app and choose **Make bmux the default browser**. Confirm the macOS prompt if
+shown. You can also select bmux in System Settings > Desktop & Dock > Default
+web browser. Links from other apps open in a new tab in the active bmux pane.

@@ -29,6 +29,7 @@ Common direct shortcuts:
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
 | Command+R | Reload |
 | Command+F | Find in page |
+| Hyper+W (Command+Control+Option+Shift+W) | Show sessions |
 | Command+Shift+W | Detach the client |
 | Command+, | Open settings |
 | F1 | Show help and shortcuts |
@@ -76,6 +77,7 @@ keyboard:
     Cmd+W: close-tab
     Cmd+Shift+W: detach
     Cmd+F: find
+    Cmd+Ctrl+Alt+Shift+W: sessions
     Cmd+,: settings
     Escape: stop
   prefixBindings:
