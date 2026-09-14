@@ -55,9 +55,12 @@ export let App = () => {
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
-    let controls = bridge.controls(control => { void bridge.state().then(next => { accept(next); if (control !== 'plugin-dialog') show(control as Control) }) })
+    let controls = bridge.controls(control => {
+      if (control === 'dismiss') { dismiss(); return }
+      void bridge.state().then(next => { accept(next); if (control !== 'plugin-dialog') show(control as Control) })
+    })
     return () => { unsubscribe(); controls() }
-  }, [accept, show])
+  }, [accept, show, dismiss])
   let management = control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
@@ -107,6 +110,7 @@ let selection = (state: PublicState) => {
 let Status = ({ message }: { message: string }) => {
   let { state, show } = useUI()
   let { client, session, pane, tab, profile } = selection(state)
+  let windows = useRef<HTMLDivElement>(null)
   let sessions = () => show('sessions')
   let tabs = () => show('tabs')
   let help = () => show('help')
@@ -114,8 +118,21 @@ let Status = ({ message }: { message: string }) => {
   let activity = () => show('activity')
   let downloads = () => show('downloads')
   let activeDownloads = state.downloads.filter(item => item.profileId === profile?.id && item.active).length
+  useLayoutEffect(() => {
+    let list = windows.current
+    if (!list) return
+    let reveal = () => {
+      let active = list.querySelector('[data-active="true"]')?.getBoundingClientRect(), bounds = list.getBoundingClientRect()
+      if (!active) return
+      if (active.left < bounds.left) list.scrollLeft -= bounds.left - active.left
+      else if (active.right > bounds.right) list.scrollLeft += active.right - bounds.right
+    }
+    let observer = new ResizeObserver(reveal)
+    observer.observe(list); reveal()
+    return () => observer.disconnect()
+  }, [client?.windowId, session?.windows.length])
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
-    <div className={css.windows}>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
+    <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
     <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs">profile:{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
@@ -244,7 +261,7 @@ let AddressPrompt = () => {
       event.preventDefault()
       setIndex(current => Math.max(-1, Math.min(results.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1))))
     }
-    if (event.key === 'Escape') { dismiss(); void run('focus-page', { client: client!.id }) }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); void run('focus-page', { client: client!.id }) }
   }
   return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="list" aria-controls="url-history" aria-activedescendant={results[index] ? `url-history-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && <div id="url-history" role="listbox" aria-label="URL history" className={css.urlHistory}>{results.map((entry, position) => <button key={entry.url} id={`url-history-${position}`} type="button" role="option" aria-selected={position === index} data-url={entry.url} onClick={choose} disabled={busy}><strong>{entry.title}</strong><span>{entry.url}</span></button>)}</div>}

@@ -6,7 +6,8 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { color: #bdc9b4; flex-shrink: 0; }
-.windows { display: flex; gap: 10px; max-width: 42%; overflow-x: auto; flex-shrink: 1; }
+.windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; }
+.windows::-webkit-scrollbar { display: none; }
 .windows button { flex-shrink: 0; }
 .drag { flex: 1; min-width: 24px; align-self: stretch; }
 .status .error, .notice { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

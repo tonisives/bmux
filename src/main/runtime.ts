@@ -310,6 +310,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (input.key === 'Escape' && contents !== focused.chrome.webContents && bitwarden?.suggestions(focusedClientId)) {
         event.preventDefault(); bitwarden.dismiss(); void execute({ method: 'focus-page', args: { client: focusedClientId } }).catch(reportError); return
       }
+      // The page can regain focus while a renderer control remains open. Let the
+      // website receive Escape, but also give the renderer a chance to dismiss it.
+      if (input.key === 'Escape' && contents !== focused.chrome.webContents) focused.chrome.webContents.send('focus-control', 'dismiss')
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
       if (matchesBinding(keyboard.prefix, input)) { event.preventDefault(); dispatchShortcut('prefix'); return }
       if (Date.now() < prefixUntil) {
