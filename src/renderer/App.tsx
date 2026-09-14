@@ -166,7 +166,17 @@ let CommandPrompt = () => {
     if (entry?.complete) { complete(entry.command); return }
     if (!line.trim()) return
     let exact = entries.find(item => item.command === line.trim())
-    if (exact?.control) { remember(line); show(exact.control); return }
+    if (exact?.control) {
+      remember(line)
+      let { session, window } = selection(state)
+      if (exact.control !== 'close-window' || !session || !window || session.windows.length > 2) { show(exact.control); return }
+      setBusy(true)
+      let result = await run('kill-window', { client: state.clientId, window: window.id, confirm: true })
+      if (!mounted.current) return
+      setBusy(false)
+      if (result !== undefined) finish()
+      return
+    }
     if (PANEL_COMMANDS.some(panel => panel === line.trim())) { remember(line); show(line.trim() as Control); return }
     setBusy(true); remember(line)
     let result = await run('command-line', { client: state.clientId, line })

@@ -237,6 +237,11 @@ test('Command+W closes an internal window while the command and menu expose nati
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(1)
     expect((await cli('list-windows', { session: session.id })).some((window: { id: string }) => window.id === secondWindow.id)).toBe(false)
     expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
+    let onlyWindow = (await cli('list-windows', { session: session.id }))[0]
+    await cli('activate-client', { client: openedClientId })
+    await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+    await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].id).not.toBe(onlyWindow.id)
+    expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
     expect(await application.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('close-system-window')?.label)).toBe('Close System Window')
     await cli('command-line', { client: openedClientId, line: 'close-system-window' })
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length)
