@@ -24,6 +24,7 @@ export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { tabId: string; x: number; y: number; width: number; height: number }
 export type Bridge = {
   controls: (listener: (control: string) => void) => () => void
+  linkPreview: (listener: (url: string) => void) => () => void
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>
   bounds: (bounds: Bounds[]) => void
