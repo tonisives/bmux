@@ -149,8 +149,8 @@ tokens, card data, or one-time codes are excluded too. Document identity and fie
 types are checked again before filling; changed documents, missing fields, or
 changed field types are rejected.
 
-Values and names use Electron `safeStorage` encryption (macOS Keychain) in
-`saved-forms/` inside bmux's data directory. If OS encryption is unavailable,
+Values and names use Electron `safeStorage` encryption in `saved-forms/` inside
+bmux's data directory. If OS encryption is unavailable,
 saving fails instead of using plaintext. Profiles can hold up to 100 forms.
 Values do not appear in plugin history or browser state. Filled text is accessible
 to its website and trusted local automation, as manually entered text is.
@@ -162,7 +162,7 @@ by default. Install the CLI, run `bw login` once in a terminal, and enable the
 plugin in bmux's `plugins` panel. Then run `passwords` or its fill action.
 
 Unlock once in bmux and choose a matching login. The main process keeps the session
-key in memory until bmux quits, your Mac locks or sleeps, or you disable the plugin.
+key in memory until bmux quits, the device locks or sleeps, or you disable the plugin.
 You do not need to save the key, export it in your shell, or add it to config.
 Temporary CLI lookup failures retain the session; the next action checks whether
 it is still valid instead of discarding it and requiring another unlock.

@@ -66,7 +66,7 @@ tree and frame locators for script-disabled documents; a screenshot is saved as
 `frame-cosmetics.png`. Unit checks cover stale document work, transient failures,
 stylesheet cleanup, unrelated targets, and disposal.
 
-Accessibility coverage checks live configuration, invalid-edit recovery, startup persistence, and custom Command+bracket window switching. Native oVim validation uses the running app with its existing macOS accessibility permission: at depth 30, enabling bmux accessibility increased Grafana detection from six to seventeen elements. The installed build also detected seventeen Grafana elements with accessibility enabled solely through its startup config. Direct helper invocations from an untrusted terminal can return empty results and are not a valid native accessibility check.
+Accessibility coverage checks live configuration, invalid-edit recovery, startup persistence, and custom Command+bracket window switching. Enabling accessibility increased native Grafana element detection from six to seventeen elements in the installed build. Direct helper invocations from an untrusted terminal can return empty results and aren't a valid native accessibility check.
 
 
 The September 13 password-popup follow-up covers app hiding/reactivation while

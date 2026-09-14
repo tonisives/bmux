@@ -4,7 +4,7 @@
 
 ### tmux for your browser.
 
-Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
+Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
 
 [Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](KEYBOARD.md) · [Automation guide](AGENT.md)
 
@@ -15,7 +15,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 - **Split your workspace** — Keep docs, dashboards, and apps side by side. Save and restore named layouts.
 - **Persistent sessions** — Detach a client while its pages keep running. Reattach to the same live pages and form state.
 - **Isolated profiles** — Separate logins, cookies, storage, and permissions. Use different profiles in the same layout.
-- **Keyboard control** — A tmux-style prefix, command prompt, and familiar macOS shortcuts. See [Keyboard](KEYBOARD.md).
+- **Keyboard control** — A tmux-style prefix, command prompt, and desktop shortcuts. See [Keyboard](KEYBOARD.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
 - **Bring your bookmarks** — Import Brave profile names and bookmark folders. See [Import from Brave](BRAVE.md).
@@ -39,7 +39,7 @@ Give your agents a browser that stays out of your way. With bmux, they can navig
 
 ## Get started
 
-Requires macOS, Node.js 22.12+ (Node 24 recommended), and pnpm 11.
+Requires Node.js 22.12+ (Node 24 recommended) and pnpm 11.
 
 ```sh
 git clone https://github.com/tonisives/bmux.git
@@ -48,37 +48,9 @@ pnpm install
 pnpm dev
 ```
 
-To build and install the app locally:
-
-```sh
-pnpm package
-```
-
-This writes the app to `build/bmux.app`. Set `BMUX_OUTPUT_DIR` to choose another output folder. Packaging does not restart a running instance. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
+See [Packaging](PACKAGING.md) for build artifacts and platform notes. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
 
 Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. See [Keyboard](KEYBOARD.md) for more shortcuts.
-
-## Downloads
-
-Run `downloads` in the command prompt to manage transfers for the selected
-pane's profile. Active transfers also appear as a `downloads:N` status-bar
-button. The panel shows transferred bytes, total size when known, and completed,
-paused, cancelled, or failed states. Pause, resume where available, or cancel
-active transfers; use Show in Finder for completed files. Resume behavior
-[depends on the server](https://www.electronjs.org/docs/latest/api/download-item#downloaditemresume).
-
-Downloads save automatically to the macOS Downloads folder with unique filenames,
-without a dialog stealing focus. The list lasts for the running browser process;
-completed files remain on disk after quitting. The manager is also available in
-`activity`, and `downloads` can be assigned a keyboard shortcut in config.yaml.
-
-```sh
-bmux downloads --profile PROFILE_ID
-bmux download pause DOWNLOAD_ID --profile PROFILE_ID
-bmux download resume DOWNLOAD_ID --profile PROFILE_ID
-bmux download cancel DOWNLOAD_ID --profile PROFILE_ID
-bmux download reveal DOWNLOAD_ID --profile PROFILE_ID
-```
 
 ## Model
 
@@ -88,7 +60,7 @@ bmux download reveal DOWNLOAD_ID --profile PROFILE_ID
 | Session | Named collection of internal windows |
 | Window | Named layout of browser panes |
 | Pane | One profile, with its own browser tab |
-| Client | A macOS window attached to a session |
+| Client | A desktop window attached to a session |
 
 Clients choose their current internal window independently. Visible clients keep their live browser views when the app loses focus. If multiple clients display the same page, focusing one transfers that page to it; the others show captured previews. Clients displaying different pages can render them simultaneously. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
 
@@ -96,7 +68,7 @@ Panes can mix profiles within a layout. Panes with the same profile share logins
 
 ## Development
 
-Requires macOS, Xcode Command Line Tools, Node.js 22.12+ (Node 24 recommended), and pnpm 11. The build compiles the bundled native pointer integration; installed apps do not need developer tools.
+Requires Node.js 22.12+ (Node 24 recommended) and pnpm 11. See [Platform notes](PLATFORMS.md) for host-specific requirements.
 
 ```sh
 pnpm install
@@ -107,10 +79,7 @@ The renderer reloads during development. Browser content runs sandboxed, without
 
 See [TODO.md](TODO.md) for the development backlog and recently completed work.
 
-Local GUI tests run inside a Tart macOS VM whose viewer stays on AeroSpace workspace
-`bot`. Run `pnpm vm:setup` once, then use `pnpm test:electron` and `pnpm test:ui` as
-usual. See [the Tart test setup](docs/tart-tests.md) for installation under
-`/Volumes/sam`, test artifacts, and VM controls.
+See [Local verification](VERIFICATION.md) for checks, test artifacts, and GUI test setup.
 
 The product website is at [bmux.tonis.dev](https://bmux.tonis.dev). Its source and deployment are maintained separately from this browser repository.
 
@@ -156,57 +125,23 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 
 - [Keyboard shortcuts and configuration](KEYBOARD.md)
 - [Import profiles and bookmarks from Brave](BRAVE.md)
+- [Downloads](DOWNLOADS.md)
 - [Browser tools](BROWSER-TOOLS.md)
 - [Plugin authoring](PLUGINS.md)
 - [Browser automation](AGENT.md)
+- [Packaging](PACKAGING.md)
+- [Platform notes](PLATFORMS.md)
+- [Local verification](VERIFICATION.md)
 
 ## Data and permissions
 
-Application state and profile partitions live under `~/Library/Application Support/bmux`. Set `BMUX_DATA_DIR` to an absolute path to run an isolated instance. Tests use disposable directories and never use your real profiles.
-
-On first launch, bmux moves existing Browmux application data and `~/.config/browmux/config.yaml` into the new bmux paths. The previous `BROWMUX_DATA_DIR`, `BROWMUX_CONFIG`, and `BROWMUX_APP` environment variable names remain accepted.
+Application state and profile partitions use the platform's application-data directory. Set `BMUX_DATA_DIR` to an absolute path to run an isolated instance. Tests use disposable directories and never use your real profiles.
 
 Layouts, profiles, open URLs, zoom, and client selections are persisted. Relaunching reopens pages; it does not reconstruct arbitrary JavaScript memory or unsaved forms. Named layout restoration replaces a window's pages and requires confirmation.
 
-Pending permissions appear in a small top-right popup in the focused browser window. The website stays interactive and keeps keyboard focus, so you can keep browsing or ignore the request. Requests are shown one at a time with Allow and Deny buttons; choices are saved by profile, origin, and permission. Close dismisses the current queue without deciding it; pending requests remain in Activity, accessible from the permission count in the status bar. New requests show the popup again. Background requests do not activate the app. CLI users can use `permission list` and `permission respond ID --allow` (omit `--allow` to deny). Downloads go to the standard Downloads directory using unique filenames, with status in Activity.
+Permission requests appear in the focused window without taking focus from the page. Decisions are saved by profile, origin, and permission. Manage pending requests in Activity or with `permission list` and `permission respond`.
 
 The control socket is accessible only to the current OS user. No network debugger port is exposed by default. See [AGENT.md](AGENT.md) for browser automation.
-
-## Verification and packaging
-
-```sh
-pnpm check
-pnpm test:electron
-pnpm test:ui
-pnpm package
-pnpm test:package
-```
-
-The UI check types a local fixture URL into a pane's URL prompt, submits Enter, verifies the native page is attached and visible, and saves `artifacts/url-opened.png`. It also opens a second pane and saves `artifacts/pane-addresses.png` with both address bars and the separate window status bar. `pnpm debug:ui` runs the same check and leaves the debug window open with temporary profiles. Set `BMUX_TEST_URL` to check a different URL.
-
-Integration tests open disposable Electron clients, exercise native view transfers, verify isolated storage and restart recovery, and check that bot automation preserves the frontmost macOS application. They produce a client screenshot under `artifacts/`.
-
-Every `pnpm package` writes the completed app to `build/bmux.app`, replacing the previous bundle only after the new build succeeds. The `release/` directory is temporary packaging output. Packaging does not restart a running app; reopen it to use the new build. This is a local unsigned build, not a notarized public release. The CLI uses the app in the build folder, then falls back to an existing `~/workspace/_tools/bmux.app`. `BMUX_APP` can override the app path:
-
-```sh
-# Optional override: export BMUX_APP=/absolute/path/to/bmux.app
-bmux attach-session -t main
-```
-
-## Custom output folder
-
-`BMUX_OUTPUT_DIR` chooses the folder containing `bmux.app`. Relative paths are resolved from the checkout; use an absolute path for a shared tools directory:
-
-```sh
-BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package
-```
-
-Other files in that folder are preserved. Keep `BMUX_OUTPUT_DIR` set when using the CLI, or set `BMUX_APP` to the resulting app:
-
-```sh
-export BMUX_APP="$HOME/workspace/_tools/bmux.app"
-bmux attach-session -t main
-```
 
 ## Current boundaries
 
