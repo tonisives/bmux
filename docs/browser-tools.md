@@ -160,6 +160,8 @@ to its website and trusted local automation, as manually entered text is.
 The bundled **Bitwarden CLI** plugin uses the documented `bw` CLI and is disabled
 by default. Install the CLI, run `bw login` once in a terminal, and enable the
 plugin in bmux's `plugins` panel. Then run `passwords` or its fill action.
+If bmux has no active CLI session, the unlock prompt opens immediately; session
+status is verified after the password is submitted.
 
 Unlock once in bmux and choose a matching login. The main process keeps the session
 key in memory until bmux quits, the device locks or sleeps, or you disable the plugin.

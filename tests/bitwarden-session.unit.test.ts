@@ -38,6 +38,17 @@ test('reuses an unlock across independent fills and clears it on explicit or sys
   expect(f.vault.unlock).toHaveBeenCalledTimes(3)
 })
 
+test('an explicit password action opens unlock before checking CLI status', async () => {
+  let f = setup()
+  f.ui.mockImplementationOnce(async args => {
+    expect(args).toMatchObject({ kind: 'password', title: 'Unlock Bitwarden' })
+    expect(f.vault.status).not.toHaveBeenCalled()
+    return 'fixture-master'
+  })
+  await f.fill()
+  expect(f.vault.status).toHaveBeenCalledTimes(1)
+})
+
 test('a fresh unlock satisfies reprompt, but a later selection requires a fresh check', async () => {
   let f = setup(); f.login.reprompt = 1
   await f.fill(); expect(f.vault.unlock).toHaveBeenCalledTimes(1)
@@ -263,9 +274,8 @@ test('a focus change during continuation inspection pauses until the original ta
   expect(f.fills()).toBe(2)
 })
 
-test('a fill remembers the account reported after unlocking rather than the earlier locked status', async () => {
+test('a fill records the account reported by post-unlock verification', async () => {
   let f = setup()
-  f.vault.status.mockResolvedValueOnce({ status: 'locked', userId: 'previous-account', serverUrl: 'https://vault.example.test' })
   await f.fill(); f.focus('#user'); await f.service.suggest(f.context)
   expect(f.service.suggestions('client')).toMatchObject({ locked: false, items: [{ id: 'fixture' }] })
   expect(f.vault.unlock).toHaveBeenCalledTimes(1)
