@@ -71,6 +71,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'session') name = 'switch-client'
   if (name === 'new-client') name = 'attach-session'
   if (name === 'detach') name = 'detach-client'
+  if (name === 'close-system-window') name = 'detach-client'
   if (name === 'split') name = 'split-window'
   if (name === 'new-session') return { method: name, args: { ...current, ...options, name: options.name ?? positional[0] } }
   if (name === 'switch-client' || name === 'attach-session') return { method: name, args: { ...current, ...options, session: target ?? positional[0] ?? client.sessionId } }

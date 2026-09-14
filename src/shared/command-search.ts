@@ -44,6 +44,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'next-session', description: 'Switch to the next session', action: 'next-session' },
   { command: 'previous-session', description: 'Switch to the previous session', action: 'previous-session' },
   { command: 'new-client', description: 'Open another native browser client', action: 'new-client' },
+  { command: 'close-system-window', description: 'Close this native macOS window and keep its session running' },
   { command: 'detach', description: 'Close this client and keep its session running', action: 'detach' },
   { command: 'split-window -h', usage: 'split-window -h [--profile PROFILE]', description: 'Split the pane side by side', action: 'split-right' },
   { command: 'split-window -v', usage: 'split-window -v [--profile PROFILE]', description: 'Split the pane above and below', action: 'split-down' },

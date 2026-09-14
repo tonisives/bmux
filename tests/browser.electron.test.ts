@@ -219,21 +219,25 @@ test('automatic window names follow the active pane and tab and stop after an ex
   await cli('detach-client', { client: client.id })
 })
 
-test('Command+N opens and Command+W closes a native macOS window', async () => {
-  let session = (await cli('list-sessions'))[0]
+test('Command+W closes an internal window while the command and menu expose native window closing', async () => {
+  let session = await cli('new-session', { name: 'window-closing' })
   let client = await cli('attach-session', { session: session.id })
   let clientsBefore = await cli('list-clients')
-  let tabsBefore = await cli('tab.list')
   try {
     await cli('activate-client', { client: client.id })
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     let openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
+    let secondWindow = await cli('new-window', { session: session.id, client: openedClientId })
     await cli('activate-client', { client: openedClientId })
     await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(1)
+    expect((await cli('list-windows', { session: session.id })).some((window: { id: string }) => window.id === secondWindow.id)).toBe(false)
+    expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
+    expect(await application.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('close-system-window')?.label)).toBe('Close System Window')
+    await cli('command-line', { client: openedClientId, line: 'close-system-window' })
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length)
     expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(false)
-    expect(await cli('tab.list')).toHaveLength(tabsBefore.length)
   } finally {
     for (let openClient of await cli('list-clients')) if (!clientsBefore.some((item: { id: string }) => item.id === openClient.id)) await cli('detach-client', { client: openClient.id })
     if ((await cli('list-clients')).some((item: { id: string }) => item.id === client.id)) await cli('detach-client', { client: client.id })

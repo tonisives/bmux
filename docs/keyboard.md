@@ -46,6 +46,7 @@ open https://example.com
 new-session -s work --profile professional
 session personal
 new-window -n research
+close-system-window
 split-window -h --profile bot
 pane-left
 save-layout development
