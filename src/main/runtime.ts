@@ -751,7 +751,16 @@ export let createRuntime = (dataDirectory: string) => {
       // Reactivating an already-active app can restore its previous key window
       // after the requested client takes focus. Only activate from outside bmux.
       if (!BaseWindow.getFocusedWindow()) app.focus({ steal: true })
-      owner.window.show(); owner.window.focus();
+      owner.window.show()
+      // AppKit can briefly make the requested window key and then restore the
+      // previous key window, especially after another native window closes.
+      // Wait for that restoration and retry so the RPC resolves on the window
+      // the caller requested rather than during the transient focus event.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        owner.window.focus()
+        await sleep(attempt ? 80 : 200)
+        if (owner.window.isFocused()) break
+      }
       if (owner.popupFocused && bitwarden?.suggestions(client.id)) owner.popup.webContents.focus()
       else owner.chrome.webContents.focus()
       return client

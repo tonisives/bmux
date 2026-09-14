@@ -330,17 +330,18 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   let before = (await cli('diagnostics')).tabs
   await cli('kill-pane', { pane: pane.id })
   expect((await cli('diagnostics')).tabs).toBe(before - 1)
-  let source = session.windows[1].panes[0]
+  let sourceWindow = await cli('new-window', { session: session.id, name: 'move source' })
+  let source = await cli('split-window', { pane: sourceWindow.panes[0].id })
   await cli('move-pane', { pane: source.id, window: window.id })
   expect((await cli('list-panes', { window: window.id })).some((pane: { id: string }) => pane.id === source.id)).toBe(true)
 
   let client = await cli('attach-session', { session: session.id })
-  await cli('select-window', { client: client.id, window: session.windows[1].id })
+  await cli('select-window', { client: client.id, window: sourceWindow.id })
   await application.close()
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
-  expect((await cli('list-clients'))[0].windowId).toBe(session.windows[1].id)
+  expect((await cli('list-clients'))[0].windowId).toBe(sourceWindow.id)
   await cli('detach-client', { client: client.id })
   await cli('diagnostics')
   await new Promise(resolve => setTimeout(resolve, 2000))
@@ -540,7 +541,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let third = (await cli('list-windows', { session: session.id }))[2]
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(third.id)
   await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow'))), { timeout: 1500 }).toBe(false)
-  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  await expect(address).toBeFocused()
   await address.fill(`${url}/independent`); await address.press('Enter')
   await cli('wait', { tab: third.panes[0].activeTabId, selector: '#text' })
   let windows = await cli('list-windows', { session: session.id })
@@ -775,8 +776,10 @@ test('new panes focus URL entry and suggest persistent profile history', async (
   await address.press('Enter')
   await expect(address).toHaveCount(0)
   await expect.poll(async () => (await cli('tab.list', { pane: created.id }))[0].url).toBe(`${url}/history-suggestion`)
-  let saved = JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8'))
-  expect(saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId).history.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`)).toBe(true)
+  await expect.poll(async () => {
+    let saved = JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8'))
+    return saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId).history.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`)
+  }).toBe(true)
   let isolated = await cli('split-window', { pane: created.id, profile: 'bot', client: client.id })
   await expect(address).toBeFocused()
   await address.fill('history-suggestion')

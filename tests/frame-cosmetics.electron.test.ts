@@ -8,6 +8,7 @@ import { stringify } from 'yaml'
 
 let application: ElectronApplication, chrome: Page, page: Page, directory: string, url: string, remote: string, server: http.Server, tabId: string
 let adRequests = 0
+let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let frameBody = '<h2>Frame content</h2><p class="bmux-frame-local">Local ad</p><p class="bmux-frame-remote">Remote ad</p><p class="bmux-frame-generic">Generic ad</p><p class="user-style">User style stays in the main document</p>'
@@ -69,7 +70,16 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   console.log('Frame fixture: closing Electron')
-  await application?.close()
+  if (application) {
+    let closed = application.close().then(() => true, () => true)
+    if (!await Promise.race([closed, sleep(5000).then(() => false)])) {
+      // Chromium can leave an out-of-process iframe renderer alive after the
+      // browser close request. The test profile is disposable, so terminate
+      // the fixture process instead of consuming the entire worker timeout.
+      application.process().kill('SIGKILL')
+      await closed
+    }
+  }
   console.log('Frame fixture: closing HTTP server')
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
   if (directory) await fs.rm(directory, { recursive: true, force: true })
