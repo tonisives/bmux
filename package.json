@@ -21,7 +21,7 @@
     "lint": "eslint .",
     "test": "vitest run --maxWorkers=4",
     "test:electron": "node scripts/tart.mjs electron",
-    "package": "pnpm build && electron-builder --mac --dir && node scripts/install-app.mjs",
+    "package": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir && BMUX_DEFAULT_SIGNING_IDENTITY=EF765C5EE39AC9C656688DD1DFB230405C03F735 node scripts/install-app.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "test:package": "node scripts/tart.mjs package-smoke",
     "test:ui": "node scripts/tart.mjs ui",
