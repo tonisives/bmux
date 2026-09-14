@@ -80,7 +80,7 @@ explains why the lock must describe connection security rather than site trust.
 - [x] Verify experimental Bitwarden desktop pairing, locked/unlocked state, and
   filling a visible local fixture without submission using a disposable vault.
   Fix the released desktop's serialized encrypted-response format and document
-  the [repeatable Tart setup](docs/bitwarden-desktop-test.md).
+  the [repeatable Tart setup](bitwarden-desktop-test.md).
 - [x] Stabilize native focus checks in full Tart runs. Preserve current-client
   page/prompt focus during activation, wait for the fixture's own control socket
   and completed native handoffs, and send keys after confirming their focused
@@ -94,7 +94,7 @@ explains why the lock must describe connection security rather than site trust.
   independently of pending agent waits.
 - [x] Add CLI selector waits for attached, detached, visible, and hidden states,
   with validation and background-tab coverage.
-- [x] Refresh `VERIFICATION.md` and document browser-tool and command-search coverage.
+- [x] Refresh `verification.md` and document browser-tool and command-search coverage.
 - [x] Add keyboard navigation to the tab picker, including initial active-tab focus,
   arrow keys, Home/End, PageUp/PageDown, Enter selection, Escape cancellation, and
   keyboard focus restoration after the selected page attaches.
@@ -103,4 +103,4 @@ explains why the lock must describe connection security rather than site trust.
 - [x] Add local script plugins and page hooks.
 
 Chrome extensions, external browser embedding, and cloud synchronization remain
-outside the current scope; see [README.md](README.md#current-boundaries).
+outside the current scope; see [README.md](../README.md#current-boundaries).

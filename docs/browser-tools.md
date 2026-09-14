@@ -222,7 +222,7 @@ require one confirmation covering both steps of that selected login.
 an account directory. Tests use a mock CLI and disposable credentials; real-account
 login is a user setup step.
 
-The [desktop pairing experiment](examples/plugins/experimental.bitwarden/README.md)
+The [desktop pairing experiment](../examples/plugins/experimental.bitwarden/README.md)
 remains separate. This CLI provider does not use or replace its pairing key.
 
 ## Plugin host additions
@@ -232,7 +232,7 @@ remains separate. This CLI provider does not use or replace its pairing key.
 contain metadata or counts, never stored values. Calls bypass automation queues.
 
 Bundled plugins use bmux's embedded Node runtime, with no separate Node install.
-Local plugins remain OS processes with user privileges; see [PLUGINS.md](PLUGINS.md).
+Local plugins remain OS processes with user privileges; see [Plugin authoring](plugins.md).
 Local plugins cannot shadow bundled IDs. Neither system loads Chrome Web Store
 extensions.
 

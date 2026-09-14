@@ -14,4 +14,4 @@ bmux download cancel DOWNLOAD_ID --profile PROFILE_ID
 bmux download reveal DOWNLOAD_ID --profile PROFILE_ID
 ```
 
-Assign the `downloads` action in [keyboard configuration](KEYBOARD.md#configuration) to add a direct shortcut.
+Assign the `downloads` action in [keyboard configuration](keyboard.md#configuration) to add a direct shortcut.

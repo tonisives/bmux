@@ -16,7 +16,7 @@ interruptions, missing-file errors, profile filtering, and CLI profile guards.
 The September 14 implementation passed this targeted Tart test, `pnpm test:ui`,
 all 111 unit tests with type/lint checks, and macOS packaging.
 
-Local GUI checks run through the [Tart runner](docs/tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-tab run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
+Local GUI checks run through the [Tart runner](tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-tab run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
 
 The September 12 native-focus follow-up passed two consecutive full Tart suites
 (`pnpm test:electron --repeat-each=2 --max-failures=1 --trace=retain-on-failure`):
@@ -50,8 +50,8 @@ locked status, a fresh pairing after the desktop replaces its renderer on lock,
 HTTP confirmation, login selection, and filling a visible local native page
 without submission. The released desktop's serialized encrypted-response object
 is covered by the protocol regression; `pnpm check` now passes 95 unit tests.
-See the [experimental plugin notes](examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification)
-and [repeatable setup](docs/bitwarden-desktop-test.md). Sanitized evidence is in
+See the [experimental plugin notes](../examples/plugins/experimental.bitwarden/README.md#protocol-evidence-and-verification)
+and [repeatable setup](bitwarden-desktop-test.md). Sanitized evidence is in
 `artifacts/tart/2026-09-12T11-19-19.762Z/`.
 The final integration run passed all 56 tests in 1.7 minutes
 (`artifacts/tart/2026-09-12T11-21-49.878Z/`), and packaging installed the build at

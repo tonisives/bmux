@@ -1,6 +1,6 @@
 # Browser automation
 
-Local plugins can contribute actions and hooks. See [PLUGINS.md](PLUGINS.md) for
+Local plugins can contribute actions and hooks. See [Plugin authoring](plugins.md) for
 the manifest, private host API, and isolated testing workflow. `bmux plugin run`
 returns a run ID; `bmux plugin runs` reports completion. Do not print invocation
 credentials or send secrets through command arguments or explicit plugin results.

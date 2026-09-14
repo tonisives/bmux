@@ -171,7 +171,7 @@ may collect parameters; CLI invocations have no interactive client. Shortcuts us
 
 `local.page-tools` demonstrates a shell title query, a Python heading picker,
 parameter collection, and an opt-in page hook scoped to local fixture paths.
-Bitwarden's [experimental plugin](examples/plugins/experimental.bitwarden/README.md)
+Bitwarden's [experimental plugin](../examples/plugins/experimental.bitwarden/README.md)
 demonstrates native desktop communication using the same host API.
 
 Test plugins in a disposable `BMUX_DATA_DIR` with local fixture pages. Never copy
@@ -181,6 +181,6 @@ diagnostics; raw command output is intentionally not surfaced by bmux.
 ## Bundled browser tools
 
 Saved forms and the Bitwarden CLI provider are bundled actions. The `browser.forms`
-capability and browser userscript settings are described in [Browser tools](BROWSER-TOOLS.md).
+capability and browser userscript settings are described in [Browser tools](browser-tools.md).
 Use the plugin panel to enable or disable individual plugins; hooks remain a
 separate opt-in in config. Bundled IDs take precedence over local plugin folders.

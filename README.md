@@ -6,7 +6,7 @@
 
 Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
 
-[Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](KEYBOARD.md) · [Automation guide](AGENT.md)
+[Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](docs/keyboard.md) · [Automation guide](docs/agent.md)
 
 [![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.tonis.dev/#split-panes)
 
@@ -15,13 +15,13 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Split your workspace** — Keep docs, dashboards, and apps side by side. Save and restore named layouts.
 - **Persistent sessions** — Detach a client while its pages keep running. Reattach to the same live pages and form state.
 - **Isolated profiles** — Separate logins, cookies, storage, and permissions. Use different profiles in the same layout.
-- **Keyboard control** — A tmux-style prefix, command prompt, and desktop shortcuts. See [Keyboard](KEYBOARD.md).
+- **Keyboard control** — A tmux-style prefix, command prompt, and desktop shortcuts. See [Keyboard](docs/keyboard.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
-- **Bring your bookmarks** — Import Brave profile names and bookmark folders. See [Import from Brave](BRAVE.md).
+- **Bring your bookmarks** — Import Brave profile names and bookmark folders. See [Import from Brave](docs/brave.md).
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
-- **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden CLI filling, and local userscripts. See [Browser tools](BROWSER-TOOLS.md).
-- **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](PLUGINS.md).
+- **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden CLI filling, and local userscripts. See [Browser tools](docs/browser-tools.md).
+- **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](docs/plugins.md).
 
 bmux is an early preview, free under the [MIT license](LICENSE). Release builds are unsigned. It does not require tmux.
 
@@ -56,9 +56,9 @@ pnpm install
 pnpm dev
 ```
 
-See [Packaging](PACKAGING.md) for build artifacts and platform notes. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
+See [Packaging](docs/packaging.md) for build artifacts and platform notes. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
 
-Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. See [Keyboard](KEYBOARD.md) for more shortcuts.
+Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. See [Keyboard](docs/keyboard.md) for more shortcuts.
 
 ## Model
 
@@ -76,7 +76,7 @@ Panes can mix profiles within a layout. Panes with the same profile share logins
 
 ## Development
 
-Requires Node.js 22.12+ (Node 24 recommended) and pnpm 11. See [Platform notes](PLATFORMS.md) for host-specific requirements.
+Requires Node.js 22.12+ (Node 24 recommended) and pnpm 11. See [Platform notes](docs/platforms.md) for host-specific requirements.
 
 ```sh
 pnpm install
@@ -85,9 +85,9 @@ pnpm dev
 
 The renderer reloads during development. Browser content runs sandboxed, without Node integration or a privileged preload. The application interface has a narrow IPC bridge.
 
-See [TODO.md](TODO.md) for the development backlog and recently completed work.
+See the [roadmap](docs/todo.md) for the development backlog and recently completed work.
 
-See [Local verification](VERIFICATION.md) for checks, test artifacts, and GUI test setup.
+See [Local verification](docs/verification.md) for checks, test artifacts, and GUI test setup.
 
 The product website is at [bmux.tonis.dev](https://bmux.tonis.dev). Its source and deployment are maintained separately from this browser repository.
 
@@ -131,15 +131,15 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 
 ## Guides
 
-- [Keyboard shortcuts and configuration](KEYBOARD.md)
-- [Import profiles and bookmarks from Brave](BRAVE.md)
-- [Downloads](DOWNLOADS.md)
-- [Browser tools](BROWSER-TOOLS.md)
-- [Plugin authoring](PLUGINS.md)
-- [Browser automation](AGENT.md)
-- [Packaging](PACKAGING.md)
-- [Platform notes](PLATFORMS.md)
-- [Local verification](VERIFICATION.md)
+- [Keyboard shortcuts and configuration](docs/keyboard.md)
+- [Import profiles and bookmarks from Brave](docs/brave.md)
+- [Downloads](docs/downloads.md)
+- [Browser tools](docs/browser-tools.md)
+- [Plugin authoring](docs/plugins.md)
+- [Browser automation](docs/agent.md)
+- [Packaging](docs/packaging.md)
+- [Platform notes](docs/platforms.md)
+- [Local verification](docs/verification.md)
 
 ## Data and permissions
 
@@ -149,12 +149,12 @@ Layouts, profiles, open URLs, zoom, and client selections are persisted. Relaunc
 
 Permission requests appear in the focused window without taking focus from the page. Decisions are saved by profile, origin, and permission. Manage pending requests in Activity or with `permission list` and `permission respond`.
 
-The control socket is accessible only to the current OS user. No network debugger port is exposed by default. See [AGENT.md](AGENT.md) for browser automation.
+The control socket is accessible only to the current OS user. No network debugger port is exposed by default. See [Browser automation](docs/agent.md) for CLI usage.
 
 ## Current boundaries
 
 Local script plugins are available through the `plugins` command and `bmux plugin` CLI. They are explicitly enabled in YAML and run with your OS privileges. The example Bitwarden desktop plugin is experimental; see its [verification status](examples/plugins/experimental.bitwarden/README.md).
 
-No Chrome extensions, external Chrome/Brave embedding, or cloud synchronization. Website recoloring, ad blocking, and stored fills are described in [Browser tools](BROWSER-TOOLS.md). JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
+No Chrome extensions, external Chrome/Brave embedding, or cloud synchronization. Website recoloring, ad blocking, and stored fills are described in [Browser tools](docs/browser-tools.md). JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 
 Do not expect Electron to provide every Chrome feature: DRM media, platform authentication integrations, and sites that reject embedded browsers may require additional work.
