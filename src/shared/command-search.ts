@@ -34,7 +34,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'passwords cancel', description: 'Cancel the pending password fill in this tab' },
   { command: 'new-window', usage: 'new-window [-n NAME]', description: 'Create a window in the current session', action: 'new-window' },
   { command: 'rename-window', usage: 'rename-window -n NAME', description: 'Rename the current window', action: 'rename-window', control: 'rename-window' },
-  { command: 'close-window', description: 'Confirm closing the current window', action: 'close-window', control: 'close-window' },
+  { command: 'close-window', description: 'Close the current internal window', action: 'close-window', control: 'close-window' },
   { command: 'next-window', description: 'Switch to the next window', action: 'next-window' },
   { command: 'previous-window', description: 'Switch to the previous window', action: 'previous-window' },
   { command: 'select-window -t ', usage: 'select-window -t INDEX', description: 'Switch to a window by index or ID', complete: true },

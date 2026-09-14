@@ -119,33 +119,23 @@ test('close-pane shortcut immediately removes the selected pane', async () => {
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.some((item: { id: string }) => item.id === pane.id)).toBe(false)
 })
 
-test('close commands confirm only above two windows', async () => {
+test('close commands confirm only when an internal window contains multiple pages', async () => {
   let current = await state(), session = current.model.sessions[0]
   for (let window of session.windows.slice(1)) await rpc('kill-window', { window: window.id, confirm: true })
   let create = () => rpc('new-window', { session: session.id, client: current.clientId })
-  let originalWindow = (await state()).model.sessions[0].windows[0]
-  await open(); await prompt().fill('close-window'); await prompt().press('Enter')
-  await expect.poll(async () => (await state()).model.sessions[0].windows[0].id).not.toBe(originalWindow.id)
-  await expect(chrome.getByRole('textbox', { name: 'Close window confirmation', exact: true })).toHaveCount(0)
   let window = await create()
-  await closeShortcut('q')
-  await expect.poll(async () => (await state()).model.sessions[0].windows.some((item: any) => item.id === window.id)).toBe(false)
-  await create()
-  await closeShortcut('Q')
-  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(1)
-  await create(); await create()
   await open(); await prompt().fill('close-window'); await prompt().press('Enter')
+  await expect.poll(async () => (await state()).model.sessions[0].windows.some((item: any) => item.id === window.id)).toBe(false)
+  await expect(chrome.getByRole('textbox', { name: 'Close window confirmation', exact: true })).toHaveCount(0)
+  await create(); await rpc('split-window', { pane: (await state()).model.sessions[0].windows[1].panes[0].id, client: current.clientId })
+  await closeShortcut('Q')
   let confirmation = chrome.getByRole('textbox', { name: 'Close window confirmation', exact: true })
   await expect(confirmation).toBeFocused()
-  expect((await state()).model.sessions[0].windows.length).toBe(3)
+  expect((await state()).model.sessions[0].windows.length).toBe(2)
   await confirmation.press('n')
-  expect((await state()).model.sessions[0].windows.length).toBe(3)
+  expect((await state()).model.sessions[0].windows.length).toBe(2)
   await open(); await prompt().fill('close-window'); await prompt().press('Enter')
   await confirmation.press('y')
-  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(2)
-  let remaining = (await state()).model.sessions[0].windows[1]
-  await rpc('select-window', { client: current.clientId, window: remaining.id })
-  await closeShortcut('Q')
   await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(1)
 })
 

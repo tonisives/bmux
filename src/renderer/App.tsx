@@ -6,6 +6,7 @@ import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks } from '../shared/picker-search'
+import { windowCloseBehavior } from '../shared/window-close'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -186,9 +187,13 @@ let CommandPrompt = () => {
     if (exact?.control) {
       remember(line)
       let { session, window } = selection(state)
-      if (exact.control !== 'close-window' || !session || !window || session.windows.length > 2) { show(exact.control); return }
+      if (exact.control !== 'close-window' || !session || !window) { show(exact.control); return }
+      let behavior = windowCloseBehavior(session, window)
+      if (behavior === 'confirm') { show(exact.control); return }
       setBusy(true)
-      let result = await run('kill-window', { client: state.clientId, window: window.id, confirm: true })
+      let result = behavior === 'close-client'
+        ? await run('detach-client', { client: state.clientId })
+        : await run('kill-window', { client: state.clientId, window: window.id, confirm: true })
       if (!mounted.current) return
       setBusy(false)
       if (result !== undefined) finish()

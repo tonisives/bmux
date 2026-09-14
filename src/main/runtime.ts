@@ -22,6 +22,7 @@ import { waitOptions } from './wait'
 import { passwordPopupBounds } from './password-popup'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
+import { windowCloseBehavior } from '../shared/window-close'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
@@ -257,8 +258,12 @@ export let createRuntime = (dataDirectory: string) => {
     if (action === 'close-pane') {
       void execute({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }).catch(reportError); return
     }
-    if (action === 'close-window' && model.sessions.find(session => session.id === client.sessionId)!.windows.length <= 2) {
-      void execute({ method: 'kill-window', args: { window: client.windowId, confirm: true } }).catch(reportError); return
+    if (action === 'close-window') {
+      let session = model.sessions.find(session => session.id === client.sessionId)!
+      let window = session.windows.find(window => window.id === client.windowId)!
+      let behavior = windowCloseBehavior(session, window)
+      if (behavior === 'close-client') { focused.window.close(); return }
+      if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
     }
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
