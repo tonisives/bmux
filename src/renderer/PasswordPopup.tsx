@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, MouseEvent } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { Bridge, PasswordSuggestions } from '../shared/types'
 import css from './PasswordPopup.module.css'
 
@@ -16,6 +16,7 @@ export let PasswordPopup = () => {
 let bridge = (window as unknown as { bmux: Bridge }).bmux
 let PasswordChoices = ({ suggestion }: { suggestion: PasswordSuggestions }) => {
   let [pending, setPending] = useState(false), [error, setError] = useState(''), [query, setQuery] = useState('')
+  let [selected, setSelected] = useState(0)
   let input = useRef<HTMLInputElement>(null), search = useRef<HTMLInputElement>(null)
   let busy = pending || suggestion.busy
   useEffect(() => { if (suggestion.expanded && suggestion.locked && !busy) input.current?.focus() }, [suggestion.expanded, suggestion.locked, busy])
@@ -41,9 +42,20 @@ let PasswordChoices = ({ suggestion }: { suggestion: PasswordSuggestions }) => {
   let retry = () => { void command('bitwarden.refresh') }
   let choose = (event: MouseEvent<HTMLButtonElement>) => { void command('bitwarden.select', { id: event.currentTarget.dataset.loginId }) }
   let close = () => { void command('bitwarden.dismiss') }
-  let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setQuery(event.target.value); setSelected(0) }
+  let navigate = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (busy || !items.length || event.nativeEvent.isComposing) return
+    if (event.key === 'Enter') { event.preventDefault(); void command('bitwarden.select', { id: items[Math.min(selected, items.length - 1)].id }) }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      let next = (selected + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+      setSelected(next)
+      document.getElementById(`password-account-${next}`)?.scrollIntoView({ block: 'nearest' })
+    }
+  }
   return <section className={css.popup} role="group" aria-label="Bitwarden logins">
     <header><strong>Bitwarden</strong><span title={suggestion.origin}>{suggestion.origin}</span><button aria-label="Close password suggestions" onClick={close}>×</button></header>
+    {!suggestion.locked && !busy && !!suggestion.items.length && <input className={css.search} aria-label="Search accounts" ref={search} type="search" value={query} onChange={change} onKeyDown={navigate} placeholder="Search accounts" autoComplete="off" spellCheck={false} />}
     <div className={css.content}>
       {suggestion.locked && !suggestion.expanded && <button className={css.unlock} onClick={unlock}>Unlock Bitwarden</button>}
       {suggestion.locked && suggestion.expanded && <form onSubmit={submit}>
@@ -55,9 +67,8 @@ let PasswordChoices = ({ suggestion }: { suggestion: PasswordSuggestions }) => {
       {!busy && (error || suggestion.message) && <p role="alert">{error || suggestion.message}</p>}
       {!suggestion.locked && !busy && suggestion.message && <button onClick={retry}>Try again</button>}
       {!suggestion.locked && !busy && !suggestion.message && !suggestion.items.length && <p>No logins saved for this site.</p>}
-      {!suggestion.locked && !busy && !!suggestion.items.length && <label className={css.search}>Search accounts<input ref={search} type="search" value={query} onChange={change} placeholder="Username or name" autoComplete="off" spellCheck={false} /></label>}
       {!suggestion.locked && !busy && !!suggestion.items.length && !items.length && <p role="status">No matching accounts.</p>}
-      {!suggestion.locked && !busy && items.map(item => <button className={css.login} key={item.id} data-login-id={item.id} onClick={choose} aria-label={`Fill login ${item.username || item.name}`}><strong>{item.username || item.name}</strong><span>{item.name}</span></button>)}
+      {!suggestion.locked && !busy && items.map((item, index) => <button className={css.login} key={item.id} id={`password-account-${index}`} aria-pressed={index === Math.min(selected, items.length - 1)} data-login-id={item.id} onClick={choose} aria-label={`Fill login ${item.username || item.name}`}><strong>{item.username || item.name}</strong><span>{item.name}</span></button>)}
     </div>
   </section>
 }
