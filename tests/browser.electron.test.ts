@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import net from 'node:net'
 import { createHash } from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 
 let exec = promisify(execFile)
@@ -911,4 +912,18 @@ test('external web links open new selected tabs and reject other schemes', async
   let after = await cli('tab.list')
   expect(after.length).toBe(before.length + 1)
   expect(after.find((tab: { url: string }) => tab.url === `${url}/external-link`).active).toBe(true)
+})
+
+test('external HTML files open in new selected internal windows', async () => {
+  let file = path.join(directory, 'external file.html')
+  await fs.writeFile(file, '<!doctype html><title>External file</title><h1>External file</h1>')
+  let client = (await cli('list-clients'))[0] ?? await cli('attach-session', { session: (await cli('list-sessions'))[0].id })
+  let before = await cli('list-windows', { session: client.sessionId })
+  await application.evaluate(({ app }, filePath) => {
+    app.emit('open-file', { preventDefault() {} }, filePath)
+  }, file)
+  await expect.poll(async () => (await cli('list-windows', { session: client.sessionId })).length).toBe(before.length + 1)
+  let created = (await cli('list-windows', { session: client.sessionId })).find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
+  expect(created.panes[0].tabs[0].url).toBe(pathToFileURL(file).href)
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(created.id)
 })

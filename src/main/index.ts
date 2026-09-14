@@ -4,6 +4,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 
@@ -22,26 +23,28 @@ let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 
 let readyForLinks = false
-let pendingLinks: string[] = []
+let pendingLinks: { url: string; newWindow: boolean }[] = []
 let linkQueue = Promise.resolve()
-let receiveLink = (url: string) => {
-  try { if (!['http:', 'https:'].includes(new URL(url).protocol)) return } catch { return }
-  if (!readyForLinks) { pendingLinks.push(url); return }
+let receiveLink = (url: string, newWindow = false) => {
+  try { if (!['http:', 'https:', ...(newWindow ? ['file:'] : [])].includes(new URL(url).protocol)) return } catch { return }
+  if (!readyForLinks) { pendingLinks.push({ url, newWindow }); return }
   linkQueue = linkQueue.then(async () => {
     let browser = runtime!
     let client = browser.model.clients.find(item => item.id === browser.state().focusedClientId) ?? browser.model.clients[0]
     if (!client) client = await browser.createClient(browser.model.sessions[0].id)
-    await browser.execute({ method: 'tab.create', args: { pane: client.paneId, client: client.id, url } })
+    if (newWindow) await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } })
+    else await browser.execute({ method: 'tab.create', args: { pane: client.paneId, client: client.id, url } })
     await browser.execute({ method: 'activate-client', args: { client: client.id } })
   }).catch(() => { console.error('Could not open external browser link') })
 }
 app.on('open-url', (event, url) => { event.preventDefault(); receiveLink(url) })
+app.on('open-file', (event, filePath) => { event.preventDefault(); receiveLink(pathToFileURL(filePath).href, true) })
 
 if (!app.requestSingleInstanceLock()) app.quit()
 else {
   app.on('second-instance', (_event, argv) => {
     let links = argv.filter(value => /^https?:\/\//i.test(value))
-    if (links.length) { links.forEach(receiveLink); return }
+    if (links.length) { links.forEach(link => receiveLink(link)); return }
     if (!argv.includes('--background') && runtime) void runtime.createClient(runtime.model.sessions[0].id)
   })
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
@@ -72,7 +75,7 @@ else {
     ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
     await runtime.start(background)
     readyForLinks = true
-    pendingLinks.splice(0).forEach(receiveLink)
+    pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.newWindow))
     fs.mkdirSync(socketDirectory, { recursive: true, mode: 0o700 })
     if (fs.statSync(socketDirectory).uid !== process.getuid?.()) throw new Error('Socket directory belongs to another user')
     fs.chmodSync(socketDirectory, 0o700)

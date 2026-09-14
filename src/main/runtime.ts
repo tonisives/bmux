@@ -843,6 +843,11 @@ export let createRuntime = (dataDirectory: string) => {
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
+      if (args.url) {
+        let tab = window.panes[0].tabs[0]
+        tab.url = normalizeUrl(String(args.url))
+        tab.title = tab.url
+      }
       session.windows.push(window)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = window.panes[0].id }
       changed(); await visualQueue; return window

@@ -105,6 +105,16 @@
         ],
         "role": "Viewer"
       }
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "htm",
+          "html"
+        ],
+        "name": "HTML document",
+        "role": "Viewer"
+      }
     ]
   }
 }
