@@ -26,6 +26,7 @@
     "test:package": "node scripts/tart.mjs package-smoke",
     "test:ui": "node scripts/tart.mjs ui",
     "debug:ui": "node scripts/tart.mjs debug",
+    "hooks:install": "git config --local core.hooksPath .githooks",
     "vm:setup": "node scripts/tart-setup.mjs",
     "vm:start": "node scripts/tart.mjs start",
     "vm:stop": "node scripts/tart.mjs stop",

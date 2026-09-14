@@ -12,4 +12,8 @@ test-results/
 !.env.example
 .wrangler/
 
+# Repository-provided hooks are tracked; Git activation remains opt-in.
+!.githooks/
+!.githooks/post-merge
+
 /build/*.app/
