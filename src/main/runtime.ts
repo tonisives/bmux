@@ -259,12 +259,17 @@ export let createRuntime = (dataDirectory: string) => {
     if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
     void execute(command).catch(reportError)
   }
+  let closeFocusedWindow = () => {
+    let focused = [...clients.values()].find(client => client.window.isFocused()) ?? (focusedClientId ? clients.get(focusedClientId) : undefined)
+    focused?.window.close()
+  }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
-    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape').map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
+    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && (process.platform !== 'darwin' || !matchesBinding(key, { key: 'w', meta: true }))).map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
+    let nativeWindowItems = process.platform === 'darwin' ? [{ label: 'Close Window', accelerator: 'Cmd+W', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-      { label: 'Browser', submenu: [{ label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
+      { label: 'Browser', submenu: [...nativeWindowItems, { label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
       // Configured accelerators take precedence over native menu defaults.
       { role: 'editMenu' },
       { role: 'windowMenu' },
@@ -289,6 +294,7 @@ export let createRuntime = (dataDirectory: string) => {
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && focused.popup.webContents !== contents && focused.permissionPopup.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
+      if (process.platform === 'darwin' && matchesBinding('Cmd+W', input)) { event.preventDefault(); focused.window.close(); return }
       if (input.key === 'Escape' && contents !== focused.chrome.webContents && bitwarden?.suggestions(focusedClientId)) {
         event.preventDefault(); bitwarden.dismiss(); void execute({ method: 'focus-page', args: { client: focusedClientId } }).catch(reportError); return
       }
