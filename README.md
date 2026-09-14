@@ -6,7 +6,7 @@
 
 Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
 
-[Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](#keyboard) · [Automation guide](AGENT.md)
+[Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](KEYBOARD.md) · [Automation guide](AGENT.md)
 
 [![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.tonis.dev/#split-panes)
 
@@ -15,10 +15,10 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a macOS Chromium br
 - **Split your workspace** — Keep docs, dashboards, and apps side by side. Save and restore named layouts.
 - **Persistent sessions** — Detach a client while its pages keep running. Reattach to the same live pages and form state.
 - **Isolated profiles** — Separate logins, cookies, storage, and permissions. Use different profiles in the same layout.
-- **Keyboard control** — A tmux-style prefix, transient command prompt, and familiar macOS tab shortcuts.
+- **Keyboard control** — A tmux-style prefix, command prompt, and familiar macOS shortcuts. See [Keyboard](KEYBOARD.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
-- **Bring your bookmarks** — Import Brave profile names and bookmark folders while preserving their structure.
+- **Bring your bookmarks** — Import Brave profile names and bookmark folders. See [Import from Brave](BRAVE.md).
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
 - **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden CLI filling, and local userscripts. See [Browser tools](BROWSER-TOOLS.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](PLUGINS.md).
@@ -56,7 +56,7 @@ pnpm package
 
 This writes the app to `build/bmux.app`. Set `BMUX_OUTPUT_DIR` to choose another output folder. Packaging does not restart a running instance. Add this checkout's `bin` directory to your PATH to use `bmux` from any terminal, or run `./bin/bmux` directly.
 
-Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. Command+L opens the URL prompt.
+Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. See [Keyboard](KEYBOARD.md) for more shortcuts.
 
 ## Downloads
 
@@ -152,145 +152,13 @@ CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an 
 
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.
 
-## Import Brave profiles and bookmarks
+## Guides
 
-```sh
-bmux import-brave
-```
-
-This copies profile names and bookmark folders from Brave into separate bmux profiles and sessions. Use the session switcher to choose an imported profile, then run `bookmarks` in the command prompt (Control+B, then `:`). Imports preserve folders and leave Brave unchanged. A name collision creates a separate name such as `bot (Brave)`; it does not reuse another profile's storage. Repeating the import updates the imported bookmarks without duplicating profiles or sessions. An existing state file is backed up before import.
-
-Use `import-brave` in the command prompt to repeat the import. `--source` selects another Brave user-data directory. Website logins, saved passwords, site data, extensions, and Brave settings are not copied. Unsupported URLs, such as bookmarklets, are preserved but disabled in the panel.
-
-## Keyboard
-
-The default prefix is Control+B, followed within 1.6 seconds by:
-
-| Key | Action |
-| --- | --- |
-| c | New internal window |
-| n / p | Next / previous internal window |
-| % | Split pane horizontally (side by side) |
-| " | Split pane vertically (above and below) |
-| o | Next pane |
-| z | Toggle the selected pane between split and full-window views |
-| s | Show sessions |
-| : | Open command prompt |
-| ? | Show help and shortcuts |
-| , / r | Rename internal window |
-| & | Close internal window (y confirms; n or Escape cancels) |
-| $ | Rename session |
-| ( / ) | Previous / next session |
-| d | Detach client |
-
-In the session picker (Control+B, then s), type or press `/` to search session names. Up/Down moves the highlight and Enter attaches. Home/End jumps to the ends while a row is focused; PageUp/PageDown moves ten rows. The current session is focused when the picker opens. Escape clears the search first; another Escape closes without switching.
-
-The tab picker (`tabs` in the command prompt, or click `profile:` in the status bar) starts with the active tab focused and uses the same keyboard controls. Search matches titles and URLs in the selected pane, keeping the original tab indices. Enter selects the highlighted tab, or the first result while typing. To open it with a direct shortcut, assign a binding to `tabs` in your keyboard config.
-
-The `bookmarks` picker searches titles, URLs, and folder names within the selected pane's profile. Matching bookmarks retain their folder context. Up/Down moves between supported bookmarks and Enter opens a new tab. Escape clears the search before closing. Picker searches support case-insensitive fuzzy matching and multiple terms in any order.
-
-Command+F opens Find in the status bar and searches as you type, showing the current match and total count. Enter or Next moves forward; Shift+Enter or Previous moves backward. Escape clears the highlights and restores page focus. Find stays responsive during background CLI waits and refreshes after navigation.
-
-Command+Shift+W closes the native client and keeps its session running. Control+B then & closes the selected internal window and its tabs after confirmation; closing the last one leaves a new empty window. Control+B then , or r opens a rename prompt prefilled with the current name. Names can contain spaces and quotes.
-
-Each pane has its own compact address bar above the page. Click a pane's address or press Command+L to edit the selected pane's URL, then press Enter to navigate. Control+B then z toggles the selected pane between the split layout and a full-window view without changing the saved split. The separate status bar keeps sessions, windows, and commands available while entering a URL; it sits at the top by default and follows the `statusBar` setting. Command+T creates a tab and opens the prompt, Command+W closes a tab, Command+R reloads, and Command+F opens find. Command+Shift+] / [ switches tabs. F1 also opens help. Escape dismisses prompts and panels. Drag an empty part of the status bar to move the native window.
-
-Generated window names (`main` and `window-N`) follow the selected pane's active page domain, including when switching panes or tabs. Background tabs do not change the name. If several clients show the same window, the focused client determines its name; without a client, the first pane does. A name set explicitly with the rename prompt or `rename-window` is preserved. The `profile:default` item after the window list identifies the selected pane's browser profile: its isolated cookies, logins, and site storage. Click it to open that pane's tabs.
-
-Control+B then `:` opens a fuzzy command finder. You can also click `:` in the
-status bar. Type part of a command or description, such as `brtls` for
-`browser-tools`. Up/Down or Control+P/N selects a result, Tab completes it, and
-Enter opens or runs it. Commands requiring arguments complete into the prompt.
-Enabled plugin actions and your active shortcuts appear in the results.
-
-Complete commands and URLs run as typed. Shift+Enter always runs the typed text
-exactly. Commands use the selected session/window/pane/tab by default. Examples:
-
-```text
-open https://example.com
-new-session -s work --profile professional
-session personal
-new-window -n research
-select-window -t 1
-split-window -h --profile bot
-pane-left
-pane-down
-pane-up
-pane-right
-save-layout development
-restore-layout development --confirm
-bookmarks
-sessions
-tabs
-activity
-help
-```
-
-Use quotes around names with spaces. Window/tab indices start at 0. Control+R/S
-recalls earlier/later command history. Command+Shift+N creates another client. Set
-the prefix with `prefix LETTER` or `bmux settings prefix LETTER`.
-
-Open `?` (or F1), then press `/` to search help. Search filters commands, active
-keybindings, and usage notes. Escape clears the search first; another Escape
-closes help.
-
-## Keyboard configuration
-
-Edit `~/.config/bmux/config.yaml`, or press Command+, to view settings and open the file. Changes reload automatically; invalid YAML retains the last working configuration and reports the error. Help shows the active bindings.
-
-```yaml
-statusBar: top
-accessibility: false
-keyboard:
-  prefix: Ctrl+B
-  prefixTimeoutMs: 1600
-  shortcuts:
-    Cmd+R: reload
-    Cmd+Shift+R: hard-reload
-    Cmd+L: address
-    Cmd+N: new-client
-    Cmd+T: new-tab
-    Cmd+W: close-tab
-    Cmd+Shift+W: detach
-    Cmd+F: find
-    Cmd+,: settings
-    Escape: stop
-  prefixBindings:
-    ":": command
-    "?": help
-    c: new-window
-    ",": rename-window
-    "&": close-window
-    "$": rename-session
-    "(": previous-session
-    ")": next-session
-```
-
-Set `statusBar: bottom` to place the bar below page content. The default is `top`, and changes apply live.
-
-Omitted bindings use defaults. Set a binding to `null` to disable it. Defaults also include history navigation with Command+[ / ], window switching with Command+Shift+[ / ] or Control+Tab, and zoom with Command+plus/minus/0. Standard copy, paste, cut, select-all, and undo remain native macOS editing commands. Use `reload-config` to reload explicitly, `edit-config` to open the file, or `prefix LETTER` to update the prefix.
-
-The old `next-tab` and `previous-tab` action names are accepted as aliases for `next-window` and `previous-window`. Configured shortcuts take precedence over website shortcuts and native menu defaults.
-
-Multiple shortcuts can point to the same action. For example, adding `Cmd+Z: toggle-pane-zoom` under `keyboard.shortcuts` keeps the prefix binding while also providing a direct shortcut. This explicitly replaces native Undo for Command+Z inside bmux.
-
-Mouse back/forward buttons navigate the page under the pointer, alongside the default Command+[/] history bindings. The mouse buttons still navigate history when Command+[/] is customized for window switching.
-
-`BMUX_CONFIG` selects an explicit configuration file. Normal instances respect `XDG_CONFIG_HOME`; isolated `BMUX_DATA_DIR` instances use their own `config.yaml` so tests never alter personal settings.
-
-Window switching, reload, stop, and keyboard commands remain responsive during navigation. URL submission starts loading immediately; a slow request does not hold the command prompt open or block another internal window. CLI `navigate` continues to wait for loading by default; use `--waitUntil none` for immediate return.
-
-## oVim and accessibility
-
-Electron can expose page links, buttons, and inputs through macOS accessibility. Set `accessibility: true` at the top of bmux's config to enable this explicitly; it reloads live and applies after relaunch. The default is automatic detection (`false`), so isolated bot instances do not force accessibility tree construction.
-
-For oVim click mode, allow sufficient traversal depth in oVim's settings. Grafana's login controls were 18–23 levels deep in Chromium's tree; a `click_mode.max_depth` of 10 missed them. Raising it to 30 and enabling bmux accessibility exposed the login controls. oVim currently requires a restart to load its YAML changes. No extension is required for native accessibility hints; canvas-only controls still depend on the website providing accessible elements.
-
-Personal window-switching overrides can use `Cmd+[: previous-window` and `Cmd+]: next-window` under `keyboard.shortcuts`; these replace history navigation only in that config. The application's default bindings remain unchanged.
-
-Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. They follow the visible split layout and can be assigned to direct shortcuts such as Command+H/J/K/L or to prefix bindings. `split-right` and `split-down` can likewise be assigned to direct shortcuts while the tmux-style prefix defaults remain available.
-
-On macOS, pane movement shortcuts also move the pointer to the center of the newly selected pane's page content, below its URL bar. This lets oVim's mouse-wheel-based `j/k` scrolling follow keyboard pane selection. Mouse clicks, background automation, and shortcuts with no neighboring pane leave the pointer in place. CLI pane selection does not move the pointer unless explicitly requested with `movePointer: true` in its RPC arguments.
+- [Keyboard shortcuts and configuration](KEYBOARD.md)
+- [Import profiles and bookmarks from Brave](BRAVE.md)
+- [Browser tools](BROWSER-TOOLS.md)
+- [Plugin authoring](PLUGINS.md)
+- [Browser automation](AGENT.md)
 
 ## Data and permissions
 
