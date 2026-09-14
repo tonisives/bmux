@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - run: pnpm check
+
+  build:
+    needs: check
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+
+      - name: Set release version
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must use vMAJOR.MINOR.PATCH format: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          pnpm version --no-git-tag-version "$version"
+
+      - name: Build ${{ matrix.arch }} DMG
+        env:
+          BMUX_NATIVE_ARCH: ${{ matrix.arch }}
+        run: |
+          pnpm build
+          test "$(lipo -archs out/native/pointer.node)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          pnpm exec electron-builder --mac dmg --${{ matrix.arch }} --publish never
+
+      - name: Verify package architecture
+        shell: bash
+        run: |
+          app="release/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/bmux.app"
+          test -d "$app"
+          lipo "$app/Contents/MacOS/bmux" -verify_arch "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          lipo "$app/Contents/Resources/app.asar.unpacked/out/native/pointer.node" -verify_arch "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          artifact="release/bmux-${RELEASE_TAG#v}-${{ matrix.arch }}.dmg"
+          test -f "$artifact"
+          gh release upload "$RELEASE_TAG" "$artifact" --clobber --repo "$GITHUB_REPOSITORY"
+
+  update-homebrew:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download release DMGs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          gh release download "$RELEASE_TAG" \
+            --pattern "bmux-${version}-*.dmg" \
+            --repo "$GITHUB_REPOSITORY"
+          echo "BMUX_VERSION=$version" >> "$GITHUB_ENV"
+          echo "BMUX_SHA256_ARM=$(sha256sum "bmux-${version}-arm64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "BMUX_SHA256_INTEL=$(sha256sum "bmux-${version}-x64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: tonisives/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update cask
+        working-directory: homebrew-tap
+        run: |
+          sed -E -i "s/^  version .*/  version \"$BMUX_VERSION\"/" Casks/bmux.rb
+          sed -E -i "s/^  sha256 .*/  sha256 arm: \"$BMUX_SHA256_ARM\", intel: \"$BMUX_SHA256_INTEL\"/" Casks/bmux.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/bmux.rb
+          git diff --staged --quiet || git commit -m "Update bmux to $RELEASE_TAG"
+          git push

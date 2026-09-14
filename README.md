@@ -23,7 +23,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden CLI filling, and local userscripts. See [Browser tools](BROWSER-TOOLS.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](PLUGINS.md).
 
-bmux is an early preview, free under the [MIT license](LICENSE). Current builds are unsigned and built locally. It does not require tmux.
+bmux is an early preview, free under the [MIT license](LICENSE). Release builds are unsigned. It does not require tmux.
 
 ### Switch sessions
 
@@ -39,7 +39,15 @@ Give your agents a browser that stays out of your way. With bmux, they can navig
 
 ## Get started
 
-Requires Node.js 22.12+ (Node 24 recommended) and pnpm 11.
+Install the latest release with Homebrew:
+
+```sh
+brew install --cask tonisives/tap/bmux
+```
+
+The app is currently unsigned, so macOS may require you to confirm the first launch in System Settings. The bundled `bmux` CLI requires Node.js 22.12+ (Node 24 recommended).
+
+To run from source, install Node.js 22.12+ and pnpm 11:
 
 ```sh
 git clone https://github.com/tonisives/bmux.git
