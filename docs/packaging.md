@@ -27,6 +27,23 @@ bmux attach-session -t main
 
 Without an override, the CLI checks `build/bmux.app` and then `~/workspace/_tools/bmux.app`.
 
+## Package after local merges
+
+The repository includes a tracked `post-merge` hook that packages the primary
+checkout into `~/workspace/_tools/bmux.app`. Enable it once after cloning:
+
+```sh
+pnpm hooks:install
+```
+
+Git does not enable repository-provided hooks automatically. The setting is
+shared by this repository's linked worktrees, but the hook skips merges inside
+task worktrees so only a merge into the primary checkout replaces the installed
+application. It also skips non-macOS systems and never restarts a running app.
+
+Set `BMUX_OUTPUT_DIR` to change the installation folder. Set
+`BMUX_SKIP_POST_MERGE_PACKAGE=1` for a merge that should not create a package.
+
 ## Verification
 
 Run `pnpm test:package` after packaging. See [Local verification](verification.md) for the full test setup and current results.
