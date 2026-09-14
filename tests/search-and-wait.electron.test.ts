@@ -94,11 +94,26 @@ test('tab and session searches filter by title, URL, and name without changing s
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true }), sessionSearch = sessions.getByRole('textbox', { name: 'Search sessions', exact: true })
+  let sessionRows = sessions.locator('button:not([data-picker-action])')
   await chrome.keyboard.press('p'); await expect(sessionSearch).toBeFocused(); await expect(sessionSearch).toHaveValue('p')
-  await sessionSearch.fill('pjct pln'); await expect(sessions.getByRole('button')).toHaveCount(1)
+  await sessionSearch.fill('pjct pln'); await expect(sessionRows).toHaveCount(1)
   expect((await state()).model.clients[0].sessionId).toBe(session.id)
   await sessionSearch.press('Enter'); await expect(sessions).toHaveCount(0)
   expect((await state()).model.clients[0].sessionId).toBe(model.sessions[1].id)
+})
+
+test('session picker creates and attaches a named session', async () => {
+  await open('sessions')
+  let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  let create = sessions.getByRole('button', { name: 'New session', exact: true })
+  await expect(sessions.getByRole('button').last()).toHaveText('New session')
+  await create.click()
+  let name = sessions.getByRole('textbox', { name: 'Session name', exact: true })
+  await expect(name).toBeFocused(); await name.fill('Fresh workspace')
+  await sessions.getByRole('button', { name: 'Create session', exact: true }).click()
+  await expect(sessions).toHaveCount(0)
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('Fresh workspace')
 })
 
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {

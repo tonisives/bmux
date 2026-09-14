@@ -55,6 +55,8 @@
 .row:focus { background: #303944; color: #f0f2f5; outline: 1px solid #83917b; outline-offset: -1px; }
 .pluginInput { display: block; width: 100%; margin: 8px 0 12px; padding: 8px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .pluginDescription { display: block; color: #8e98a4; }
+.sessionCreate { margin-top: 12px; padding-top: 12px; border-top: 1px solid #363c45; }
+.sessionCreate > div { display: flex; gap: 16px; }
 .toolOptions { display: grid; gap: 12px; margin: 16px 0; }
 .toolOptions label { display: grid; gap: 6px; }
 .toolOptions select { padding: 7px; background: #20242d; color: inherit; border: 1px solid #444b59; font: inherit; }

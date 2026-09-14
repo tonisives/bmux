@@ -453,7 +453,7 @@ let usePickerNavigation = () => {
     if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); input.current?.focus(); return }
     if (event.key === '/' && !editing) { event.preventDefault(); input.current?.focus(); input.current?.select(); return }
     if (!editing && event.key.length === 1 && event.key !== ' ') { event.preventDefault(); setQuery(query + event.key); input.current?.focus(); return }
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')].filter(row => row.getClientRects().length)
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')].filter(row => row.getClientRects().length)
     if (editing && event.key === 'Enter') { event.preventDefault(); rows[0]?.click(); return }
     if (editing && ['Home', 'End'].includes(event.key)) return
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
@@ -466,10 +466,22 @@ let usePickerNavigation = () => {
   return { ref, keys, input, query, change }
 }
 let SessionPicker = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
+  let [creating, setCreating] = useState(false), [name, setName] = useState(''), [busy, setBusy] = useState(false)
   let { ref, keys, input, query, change } = usePickerNavigation()
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><label>Search sessions<input ref={input} className={css.pluginInput} value={query} onChange={change} autoComplete="off" spellCheck={false} /></label><p>Type or / to search. Up/Down to move, Enter to attach. Escape clears search, then closes.</p>{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}</div>
+  let begin = () => setCreating(true)
+  let cancel = () => { setCreating(false); setName('') }
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let creationKeys = (event: KeyboardEvent<HTMLFormElement>) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancel() } }
+  let create = async (event: FormEvent) => {
+    event.preventDefault()
+    let sessionName = name.trim()
+    if (!sessionName || busy) return
+    setBusy(true)
+    if (await run('new-session', { name: sessionName, client: state.clientId }) === undefined) setBusy(false)
+  }
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><label>Search sessions<input ref={input} className={css.pluginInput} value={query} onChange={change} autoComplete="off" spellCheck={false} /></label><p>Type or / to search. Up/Down to move, Enter to attach. Escape clears search, then closes.</p>{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={css.row} data-picker-action onClick={begin}>New session</button>}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
