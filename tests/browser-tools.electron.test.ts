@@ -459,6 +459,32 @@ test('an unlocked vault suggests usernames on field focus without taking page fo
   for (let secret of ['fixture-master', 'fixture-session', 'fixture-vault-password']) expect(published).not.toContain(secret)
 })
 
+test('password suggestions search accounts with slash and return after a cleared password field', async () => {
+  await prepareSuggestions()
+  let search = popup.getByRole('searchbox', { name: 'Search accounts', exact: true })
+  await expect(search).toBeVisible()
+  await application.evaluate(({ webContents }) => {
+    let contents = webContents.getFocusedWebContents()!
+    contents.sendInputEvent({ type: 'keyDown', keyCode: '/' })
+    contents.sendInputEvent({ type: 'char', keyCode: '/' })
+    contents.sendInputEvent({ type: 'keyUp', keyCode: '/' })
+  })
+  await expect(search).toBeFocused()
+  await search.fill('second')
+  await expect(popup.getByRole('button', { name: 'Fill login second@example.test', exact: true })).toBeVisible()
+  await expect(popup.getByRole('button', { name: 'Fill login vault@example.test', exact: true })).toHaveCount(0)
+
+  await rpc('navigate', { tab: tabId, url: `${url}/vault-password` })
+  await activate(); await rpc('focus-page', { client: (await state()).clientId })
+  let password = page.locator('#vault-password')
+  await password.click()
+  await expect(popup.getByRole('group', { name: 'Bitwarden logins' })).toBeVisible()
+  await password.fill('temporary')
+  await expect(popup.getByRole('group', { name: 'Bitwarden logins' })).toHaveCount(0)
+  await password.fill('')
+  await expect(popup.getByRole('group', { name: 'Bitwarden logins' })).toBeVisible()
+})
+
 test('suggestions disappear outside login fields and do not prompt when the vault is locked', async () => {
   await prepareSuggestions()
   await page.evaluate(() => { let search = document.createElement('input'); search.type = 'search'; search.id = 'search'; document.body.append(search) })
