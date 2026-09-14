@@ -4,7 +4,7 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
   shortcuts: {
     'Cmd+L': 'address', 'Cmd+R': 'reload', 'Cmd+Shift+R': 'hard-reload',
     'Cmd+T': 'new-tab', 'Cmd+W': 'close-tab', 'Cmd+Shift+W': 'detach', 'Cmd+N': 'new-client', 'Cmd+Shift+N': 'new-client',
-    'Cmd+F': 'find', 'Cmd+[': 'back', 'Cmd+]': 'forward',
+    'Cmd+F': 'find', 'Cmd+Ctrl+Alt+Shift+W': 'sessions', 'Cmd+[': 'back', 'Cmd+]': 'forward',
     'Cmd+Shift+[': 'previous-window', 'Cmd+Shift+]': 'next-window',
     'Ctrl+Tab': 'next-window', 'Ctrl+Shift+Tab': 'previous-window',
     'Cmd+=': 'zoom-in', 'Cmd+Shift+=': 'zoom-in', 'Cmd+-': 'zoom-out', 'Cmd+0': 'zoom-reset',
