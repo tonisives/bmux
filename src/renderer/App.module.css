@@ -50,6 +50,7 @@
 .panel dd { margin: 0; }
 .row { display: block; padding: 7px 0; width: 100%; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .row[data-active="true"] { color: #d6dfcf; }
+.row[data-search-selected="true"] { background: #303b49; }
 .folder > summary { padding: 6px 0; cursor: pointer; }
 .folder > div { padding-left: 14px; }
 
