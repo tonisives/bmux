@@ -59,11 +59,20 @@ test('offline filter fallback, custom exceptions, and profile isolation use one 
   } finally { filters.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('Bitwarden origin filtering excludes different schemes, ports, subdomains, and never-match entries', () => {
-  let item = (uri: string, match = 0) => ({ id: 'fixture', type: 1, login: { password: '', uris: [{ uri, match }] } })
-  expect(vaultModule.sameOrigin(item('https://example.test/login'), 'https://example.test')).toBe(true)
-  for (let uri of ['http://example.test', 'https://example.test:8443', 'https://sub.example.test', 'https://example.test.evil', 'invalid']) expect(vaultModule.sameOrigin(item(uri), 'https://example.test')).toBe(false)
-  expect(vaultModule.sameOrigin(item('https://example.test', 5), 'https://example.test')).toBe(false)
+test('Bitwarden filtering follows base-domain and explicit URI match modes', () => {
+  let item = (uri: string, match?: number) => ({ id: 'fixture', type: 1, login: { password: '', uris: [{ uri, match }] } })
+  expect(vaultModule.matchesLoginUrl(item('https://apple.com'), 'https://account.apple.com/sign-in')).toBe(true)
+  expect(vaultModule.matchesLoginUrl(item('https://example.co.uk'), 'https://login.example.co.uk/account')).toBe(true)
+  for (let uri of ['https://apple.net', 'https://apple.com.evil.test', 'invalid']) expect(vaultModule.matchesLoginUrl(item(uri), 'https://account.apple.com/sign-in')).toBe(false)
+  expect(vaultModule.matchesLoginUrl(item('https://first.github.io'), 'https://second.github.io/sign-in')).toBe(false)
+  expect(vaultModule.matchesLoginUrl(item('http://127.0.0.1:4000/login'), 'http://127.0.0.1:4000/account')).toBe(true)
+  expect(vaultModule.matchesLoginUrl(item('http://127.0.0.1:4000/login', 0), 'http://127.0.0.1:4000/account')).toBe(false)
+  expect(vaultModule.matchesLoginUrl(item('http://account.apple.com:4000', 1), 'https://account.apple.com:4000/sign-in')).toBe(true)
+  expect(vaultModule.matchesLoginUrl(item('https://apple.com', 1), 'https://account.apple.com/sign-in')).toBe(false)
+  expect(vaultModule.matchesLoginUrl(item('https://account.apple.com/sign-', 2), 'https://account.apple.com/sign-in')).toBe(true)
+  expect(vaultModule.matchesLoginUrl(item('https://account.apple.com/sign-in', 3), 'https://account.apple.com/sign-in')).toBe(true)
+  expect(vaultModule.matchesLoginUrl(item('^https://account\\.apple\\.com/', 4), 'https://account.apple.com/sign-in')).toBe(true)
+  expect(vaultModule.matchesLoginUrl(item('https://account.apple.com', 5), 'https://account.apple.com/sign-in')).toBe(false)
 })
 
 test('Bitwarden uses private environment input, noninteractive commands, and sanitized failures', async () => {
