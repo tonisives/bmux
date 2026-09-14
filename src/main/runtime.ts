@@ -433,9 +433,13 @@ export let createRuntime = (dataDirectory: string) => {
       owner.linkPreview.webContents.send('link-preview', url)
       publish()
     })
-    contents.on('context-menu', (_event, params) => {
+    contents.on('context-menu', (event, params) => {
+      event.preventDefault()
       let owner = [...clients.values()].find(client => client.window === live.parent)
       if (!owner) return
+      if (params.linkURL && params.frame && !params.frame.isDestroyed()) {
+        void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
+      }
       let navigation = contents.navigationHistory
       let template: Electron.MenuItemConstructorOptions[] = []
       if (params.linkURL) template.push(

@@ -287,8 +287,16 @@ test('links show their target, offer browser actions, and open popups in bmux wi
       Menu.prototype.popup = function (this: Electron.Menu) { runtime.fixtureMenuLabels = this.items.map((item: Electron.MenuItem) => item.label) } as typeof Menu.prototype.popup
     })
     try {
+      await website.locator('#popup').evaluate(element => {
+        let selection = globalThis.getSelection()
+        let range = document.createRange()
+        range.selectNodeContents(element)
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+      })
       await website.locator('#popup').click({ button: 'right' })
       await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(expect.arrayContaining(['Open Link in New bmux Window', 'Open Link in Background bmux Window', 'Open Link in This Tab', 'Copy Link Address', 'Back', 'Forward', 'Reload']))
+      await expect.poll(() => website.evaluate(() => globalThis.getSelection()?.toString())).toBe('')
     } finally {
       await application.evaluate(({ Menu }) => {
         let runtime = globalThis as any
