@@ -6,6 +6,10 @@ let suggestion: PasswordSuggestions = { id: 'popup', tabId: 'tab', origin: 'http
 test('password popup follows field coordinates and page zoom inside its pane', () => {
   expect(passwordPopupBounds({ x: 500, y: 60, width: 600, height: 700 }, suggestion, 1.5)).toEqual({ x: 530, y: 156, width: 300, height: 96 })
 })
+test('an unlocked account list leaves room for search above its rows', () => {
+  let unlocked = { ...suggestion, locked: false, items: Array.from({ length: 8 }, (_, index) => ({ id: `${index}`, name: `Account ${index}`, username: `user-${index}` })) }
+  expect(passwordPopupBounds({ x: 0, y: 0, width: 600, height: 700 }, unlocked, 1).height).toBe(372)
+})
 test('password popup opens above low fields and clamps at the pane edge', () => {
   expect(passwordPopupBounds({ x: 500, y: 60, width: 300, height: 500 }, { ...suggestion, anchor: { x: 210, y: 420, width: 80, height: 30 } }, 1)).toEqual({ x: 520, y: 378, width: 280, height: 96 })
 })

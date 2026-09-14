@@ -316,6 +316,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (input.key === 'Escape' && contents !== focused.chrome.webContents && bitwarden?.suggestions(focusedClientId)) {
         event.preventDefault(); bitwarden.dismiss(); void execute({ method: 'focus-page', args: { client: focusedClientId } }).catch(reportError); return
       }
+      let passwordSuggestions = bitwarden?.suggestions(focusedClientId)
+      if ((input.key === '/' || input.code === 'Slash') && !input.meta && !input.control && !input.alt && contents !== focused.popup.webContents && passwordSuggestions && !passwordSuggestions.locked && !passwordSuggestions.busy && passwordSuggestions.items.length) {
+        event.preventDefault(); focused.popupFocused = true; focused.popup.webContents.focus()
+        setTimeout(() => { if (!focused.popup.webContents.isDestroyed()) focused.popup.webContents.send('focus-control', 'password-search') }, 0)
+        return
+      }
       // The page can regain focus while a renderer control remains open. Let the
       // website receive Escape, but also give the renderer a chance to dismiss it.
       if (input.key === 'Escape' && contents !== focused.chrome.webContents) focused.chrome.webContents.send('focus-control', 'dismiss')
@@ -1188,8 +1194,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (overlays.has(focusedClientId)) { bitwarden?.clearSuggestions(); return }
       let context = pluginContext({ clientId: focusedClientId })
       let contents = context.tabId ? tabs.get(context.tabId)?.view.webContents : undefined
-      if (clients.get(focusedClientId)?.popup.webContents.isFocused()) return
-      if (contents && !contents.isDestroyed() && contents.isFocused()) void bitwarden?.suggest(context)
+      let owner = clients.get(focusedClientId)
+      if (owner?.popup.webContents.isFocused()) return
+      if (contents && !contents.isDestroyed() && owner?.pageFocused) void bitwarden?.suggest(context)
       // Native focus can be empty while switching apps or restoring a view.
       // Page inspection and explicit dismissals own popup invalidation.
     }, 300)

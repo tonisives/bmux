@@ -194,6 +194,9 @@ CLI output preferences inherited from a shell cannot change the session-key form
 or disguise a failed command as a successful unlock.
 
 Click a username to fill it without running `passwords` or opening another picker.
+The account list has a search field for usernames and item names. Press `/` while
+the suggestion popup is visible to focus that search field without entering the
+slash in the website.
 Only account labels enter the UI; bmux rereads the selected login and checks the
 page and focused field before filling. Suggestions disappear when you leave the
 login field, change tabs or pages, or press Escape. They use the same URI matching
