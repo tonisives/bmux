@@ -267,7 +267,8 @@ export let createRuntime = (dataDirectory: string) => {
       let current = tabById(model, tab).tab.zoom
       void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
     }
-    let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : action
+    let windowNumber = action.match(/^select-window-([1-9])$/)?.[1]
+    let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : windowNumber ? `select-window -t ${windowNumber}` : action
     let command = parseCommandLine(line, state(client.id))
     if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
     void execute(command).catch(reportError)

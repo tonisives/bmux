@@ -16,8 +16,11 @@ it('parses quoted names and URL arguments without shell interpretation', () => {
   expect(() => tokenize('open "unfinished')).toThrow('Unfinished quote')
 })
 it('resolves current targets, numeric indices, and confirmation flags', () => {
-  let current = state(), window = current.model.sessions[0].windows[0]
-  expect(parseCommandLine('select-window -t 0', current)).toMatchObject({ args: { window: window.id } })
+  let current = state(), session = current.model.sessions[0], window = session.windows[0]
+  let secondWindow = newSession('second', session.defaultProfileId).windows[0]
+  session.windows.push(secondWindow)
+  expect(parseCommandLine('select-window -t 1', current)).toMatchObject({ args: { window: window.id } })
+  expect(parseCommandLine('select-window -t 2', current)).toMatchObject({ args: { window: secondWindow.id } })
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })
   expect(parseCommandLine('pane-left', current)).toEqual({ method: 'select-pane-direction', args: { client: 'client', direction: 'left' } })
   expect(parseCommandLine('toggle-pane-zoom', current)).toEqual({ method: 'toggle-pane-zoom', args: { client: 'client' } })

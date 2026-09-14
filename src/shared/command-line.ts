@@ -43,7 +43,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let target = options.target
   delete options.target
   let current = { client: client.id }
-  let windowTarget = target !== undefined && /^\d+$/.test(String(target)) ? session.windows[Number(target)]?.id ?? target : target ?? client.windowId
+  let windowTarget = target !== undefined && /^[1-9]\d*$/.test(String(target)) ? session.windows[Number(target) - 1]?.id ?? target : target ?? client.windowId
   let tabTarget = target !== undefined && /^\d+$/.test(String(target)) ? pane?.tabs[Number(target)]?.id ?? target : target ?? pane?.activeTabId
   if (name === 'dark' || name === 'adblock') {
     let value: unknown = positional[0] ?? 'toggle'

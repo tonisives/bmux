@@ -76,7 +76,7 @@ test('command finder accepts fuzzy selection and restores the native page', asyn
 
 test('command arguments, completion, history, and keyboard result selection work together', async () => {
   await open(); await prompt().fill('new-window -n "two words"'); await prompt().press('Enter')
-  await expect(chrome.getByRole('button', { name: '1:two words*', exact: true })).toBeVisible()
+  await expect(chrome.getByRole('button', { name: '2:two words*', exact: true })).toBeVisible()
   await open(); await prompt().press('Control+r'); await expect(prompt()).toHaveValue('new-window -n "two words"')
   await prompt().press('Control+s'); await expect(prompt()).toHaveValue('')
   await prompt().fill('new-session'); await prompt().press('Tab'); await expect(prompt()).toHaveValue('new-session -s ')

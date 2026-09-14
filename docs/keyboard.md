@@ -4,6 +4,7 @@ The default prefix is Control+B. Press the next key within 1.6 seconds.
 
 | Key | Action |
 | --- | --- |
+| 1–9 | Select internal window 1–9 |
 | c | New internal window |
 | n / p | Next / previous internal window |
 | % | Split pane side by side |
@@ -24,6 +25,7 @@ Common direct shortcuts:
 
 | Shortcut | Action |
 | --- | --- |
+| Command+1–9 | Select internal window 1–9 |
 | Command+L | Open the selected pane's address bar |
 | Command+T / Command+W | New / close internal window |
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
@@ -70,6 +72,7 @@ keyboard:
   prefix: Ctrl+B
   prefixTimeoutMs: 1600
   shortcuts:
+    Cmd+1: select-window-1
     Cmd+R: reload
     Cmd+Shift+R: hard-reload
     Cmd+L: address
@@ -82,6 +85,7 @@ keyboard:
     Cmd+,: settings
     Escape: stop
   prefixBindings:
+    "1": select-window-1
     ":": command
     "?": help
     c: new-window

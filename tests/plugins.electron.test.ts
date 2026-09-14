@@ -136,7 +136,7 @@ test('navigation rejects stale fills and hidden fields; plugin waits do not bloc
   let waiting = await run('wait'), slow = await run('slow')
   let next = await rpc('new-window', { session: current.model.sessions[0].id, name: 'other' })
   await rpc('select-window', { client: current.clientId, window: next.id })
-  await expect(chrome.getByRole('button', { name: '1:other*', exact: true })).toBeVisible()
+  await expect(chrome.getByRole('button', { name: '2:other*', exact: true })).toBeVisible()
   await rpc('select-window', { client: current.clientId, window: pane ? current.model.sessions[0].windows[0].id : '' })
   await activate()
   await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some((view: any) => view.webContents?.getURL().startsWith(url))), url)).toBe(true)
