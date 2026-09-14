@@ -497,8 +497,11 @@ let usePickerNavigation = () => {
     event.preventDefault()
     let index = rows.findIndex(row => row === document.activeElement)
     let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
-    let row = rows[Math.max(0, Math.min(rows.length - 1, next))]
+    let nextIndex = Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+    let panel = ref.current?.closest<HTMLElement>('[role="dialog"]')
+    if (event.key === 'ArrowUp' && nextIndex === 0 && panel) panel.scrollTop = 0
+    if (event.key === 'ArrowDown' && nextIndex === rows.length - 1 && panel) panel.scrollTop = panel.scrollHeight
   }
   return { ref, keys, input, query, change }
 }

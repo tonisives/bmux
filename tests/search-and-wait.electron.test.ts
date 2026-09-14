@@ -52,6 +52,7 @@ test.beforeAll(async () => {
   ] }, { id: 'notes', title: 'Research notes', url: `${url}/notes` }] }]
   model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
   model.sessions.push(newSession('Project planning', model.profiles[1].id))
+  for (let index = 0; index < 24; index++) model.sessions.push(newSession(`Scroll fixture ${index + 1}`, model.profiles[0].id))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
@@ -114,6 +115,20 @@ test('session picker creates and attaches a named session', async () => {
   await expect(sessions).toHaveCount(0)
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('Fresh workspace')
+})
+
+test('picker arrows expose panel content beyond the first and last rows', async () => {
+  await open('sessions')
+  let panel = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+  let scroll = () => panel.evaluate(element => ({ top: element.scrollTop, bottom: element.scrollHeight - element.clientHeight }))
+  await chrome.keyboard.press('End')
+  await expect.poll(async () => (await scroll()).top).toBeLessThan((await scroll()).bottom)
+  await chrome.keyboard.press('ArrowDown')
+  await expect.poll(async () => { let position = await scroll(); return position.bottom - position.top }).toBeLessThan(1)
+  await chrome.keyboard.press('Home')
+  await expect.poll(async () => (await scroll()).top).toBeGreaterThan(0)
+  await chrome.keyboard.press('ArrowUp')
+  await expect.poll(async () => (await scroll()).top).toBe(0)
 })
 
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {
