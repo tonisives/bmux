@@ -8,7 +8,7 @@ import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks } from '../shared/picker-search'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
 
 export let App = () => {
@@ -63,7 +63,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = ['tabs', 'sessions', 'bookmarks', 'find'].includes(previousControl.current ?? '')
+    let restoreFocus = ['tabs', 'sessions', 'bookmarks', 'find', 'downloads', 'activity'].includes(previousControl.current ?? '')
     previousControl.current = control
     let cancelled = false
     // Child layout effects publish the selected tab's bounds before it receives focus.
@@ -112,11 +112,14 @@ let Status = ({ message }: { message: string }) => {
   let help = () => show('help')
   let commands = () => show('command')
   let activity = () => show('activity')
+  let downloads = () => show('downloads')
+  let activeDownloads = state.downloads.filter(item => item.profileId === profile?.id && item.active).length
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div className={css.windows}>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
     <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs">profile:{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
+    {activeDownloads > 0 && <button onClick={downloads} aria-label="Downloads">downloads:{activeDownloads}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -388,7 +391,8 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'tabs' && <TabPicker />}
     {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
     {type === 'bookmarks' && <BookmarkPicker />}
-    {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<p>Downloads</p>{state.downloads.map(download => <DownloadRow key={download.id} download={download} />)}</>}
+    {type === 'downloads' && <DownloadManager />}
+    {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
   </div></div>
 }
 let PluginList = () => {
@@ -507,10 +511,37 @@ let PermissionRow = ({ permission }: { permission: Permission }) => {
   let allow = () => { void run('permission.respond', { id: permission.id, allow: true }) }
   return <div className={css.row}>{permission.origin}: {permission.permission}<div><button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
 }
+let downloadSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+let DownloadManager = () => {
+  let { state } = useUI()
+  let { profile } = selection(state)
+  let downloads = state.downloads.filter(download => download.profileId === profile?.id)
+  return <section aria-label="Profile downloads"><p>Downloads · {profile?.name}</p>
+    {!downloads.length && <p>No downloads in this profile.</p>}
+    {downloads.map(download => <DownloadRow key={download.id} download={download} />)}
+  </section>
+}
 let DownloadRow = ({ download }: { download: Download }) => {
   let { run } = useUI()
-  let reveal = () => { void run('download.reveal', { id: download.id }) }
-  return <button className={css.row} onClick={reveal}>{download.name} — {download.state}</button>
+  let [busy, setBusy] = useState(false)
+  let action = async (event: MouseEvent<HTMLButtonElement>) => {
+    let method = event.currentTarget.dataset.method!
+    setBusy(true)
+    try { await run(`download.${method}`, { id: download.id, profile: download.profileId }) }
+    finally { setBusy(false) }
+  }
+  let status = download.paused ? 'Paused' : download.state === 'interrupted' ? download.active ? 'Interrupted' : 'Failed' : download.state === 'progressing' ? 'Downloading' : download.state === 'completed' ? 'Completed' : 'Cancelled'
+  let progress = download.total > 0 ? Math.min(100, Math.floor(download.received / download.total * 100)) : undefined
+  return <article className={css.download} aria-label={download.name}>
+    <strong>{download.name}</strong><span>{status} · {downloadSize(download.received)}{download.total > 0 ? ` / ${downloadSize(download.total)} (${progress}%)` : ' · Size unknown'}</span>
+    {download.active && <progress aria-label={`Download progress for ${download.name}`} max={100} value={progress} />}
+    <div>
+      {download.active && download.state === 'progressing' && !download.paused && <button disabled={busy} data-method="pause" onClick={action}>Pause</button>}
+      {download.active && (download.paused || download.state === 'interrupted') && <button disabled={busy || !download.canResume} data-method="resume" onClick={action}>Resume</button>}
+      {download.active && <button disabled={busy} data-method="cancel" onClick={action}>Cancel</button>}
+      {download.state === 'completed' && <button disabled={busy} data-method="reveal" onClick={action}>Show in Finder</button>}
+    </div>
+  </article>
 }
 
 let HelpRow = ({ label, description, query }: { label: string; description: string; query: string }) => <div><dt><MatchText value={label} query={query} /></dt><dd><MatchText value={description} query={query} /></dd></div>

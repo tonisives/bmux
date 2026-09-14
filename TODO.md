@@ -38,9 +38,6 @@ accessible and use the existing address bars and transient panels.
 
 ## After that
 
-- [ ] Expand download activity with progress, size, cancel, and pause/resume
-  where supported. Distinguish failed and interrupted transfers; offer reveal
-  only when a file exists, and keep actions scoped to the owning profile.
 - [ ] Indicate audible tabs in the tab picker and add mute/unmute commands that
   work without selecting or focusing the target tab.
 - [ ] Remember page zoom per site and profile, with a visible reset action and
@@ -54,6 +51,13 @@ Connection indicator background: Chromium's
 explains why the lock must describe connection security rather than site trust.
 
 ## Completed
+
+- [x] Add a profile-scoped download manager with byte progress, known/unknown
+  totals, pause/resume where supported, cancellation, and guarded Show in Finder.
+  Expose it through command search, activity, configurable shortcuts, an active
+  transfer indicator, and CLI commands. Verify real transfers, resumable
+  interruptions, missing files, and profile isolation in Tart. The list is
+  process-local; downloaded files persist on disk.
 
 - [x] Remove CLI startup from warm password selection and same-origin lookup.
   Reuse results for 30 seconds only while the CLI data file and session remain

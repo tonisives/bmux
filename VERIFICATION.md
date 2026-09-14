@@ -10,6 +10,12 @@ Validated on macOS, Apple Silicon, with Electron 44.3.0 and Node.js 24.18.0.
 
 Integration coverage includes isolated and shared profile storage, retained JavaScript and form state across native view handoffs, independent client selections, captured previews, layout restoration, background automation, popup profile/opener behavior, persistence after restart, permissions, downloads, renderer recovery, pane cleanup, and Brave bookmark import/opening/restart using fixture profiles.
 
+Download-manager coverage (`tests/downloads.electron.test.ts`) uses local HTTP
+transfers to verify byte progress, pause/resume/cancel, completion, resumable
+interruptions, missing-file errors, profile filtering, and CLI profile guards.
+The September 14 implementation passed this targeted Tart test, `pnpm test:ui`,
+all 111 unit tests with type/lint checks, and macOS packaging.
+
 Local GUI checks run through the [Tart runner](docs/tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-tab run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
 
 The September 12 native-focus follow-up passed two consecutive full Tart suites

@@ -1,5 +1,5 @@
 import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor } from 'electron'
-import type { WebContents } from 'electron'
+import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
@@ -55,6 +55,7 @@ export let createRuntime = (dataDirectory: string) => {
   let permissions = new Map<string, PendingPermission>()
   let permissionGrants = new Map<string, boolean>()
   let downloads: Download[] = []
+  let downloadItems = new Map<string, DownloadItem>()
   let focusedClientId: string | null = null
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let overlays = new Set<string>()
@@ -202,15 +203,23 @@ export let createRuntime = (dataDirectory: string) => {
       publish()
     })
     session.on('will-download', (_event, item) => {
-      let record: Download = { id: id('download'), profileId, name: item.getFilename(), path: '', state: 'progressing', received: 0, total: item.getTotalBytes() }
+      let record: Download = { id: id('download'), profileId, name: item.getFilename(), path: '', state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
       // Avoid a Save As dialog activating the application during bot work.
       let target = path.join(app.getPath('downloads'), `${record.id}-${path.basename(record.name)}`)
       item.setSavePath(target)
       record.path = target
       downloads.unshift(record)
-      downloads = downloads.slice(0, 100)
-      item.on('updated', (_event, status) => { record.state = status; record.received = item.getReceivedBytes(); record.total = item.getTotalBytes(); publish() })
-      item.once('done', (_event, status) => { record.state = status; publish() })
+      downloadItems.set(record.id, item)
+      downloads = downloads.filter((entry, index) => entry.active || index < 100)
+      let update = () => {
+        record.received = item.getReceivedBytes(); record.total = item.getTotalBytes()
+        record.paused = record.active && item.isPaused(); record.canResume = record.active && item.canResume()
+      }
+      item.on('updated', (_event, status) => { record.state = status; update(); publish() })
+      item.once('done', (_event, status) => {
+        record.state = status; record.active = false; update()
+        downloadItems.delete(record.id); publish()
+      })
       publish()
     })
     return session
@@ -238,7 +247,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (action === 'close-window' && model.sessions.find(session => session.id === client.sessionId)!.windows.length <= 2) {
       void execute({ method: 'kill-window', args: { window: client.windowId, confirm: true } }).catch(reportError); return
     }
-    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
+    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-tab' && pane) { void execute({ method: 'tab.create', args: { pane: pane.id, client: client.id } }).then(() => control('address')).catch(reportError); return }
     if (action === 'close-tab' && tab) { void execute({ method: 'tab.close', args: { tab } }).catch(reportError); return }
@@ -893,8 +902,32 @@ export let createRuntime = (dataDirectory: string) => {
       request.reply(allowed); permissions.delete(request.id)
       await fs.writeFile(grantFile, JSON.stringify([...permissionGrants]), { mode: 0o600 }); publish(); return { allowed }
     }
-    if (method === 'downloads') return downloads
-    if (method === 'download.reveal') { let item = downloads.find(item => item.id === args.id); if (!item) throw new Error('Download not found'); shell.showItemInFolder(item.path); return { path: item.path } }
+    if (method === 'downloads') return args.profile ? downloads.filter(item => item.profileId === required(args, 'profile')) : downloads
+    if (['download.pause', 'download.resume', 'download.cancel', 'download.reveal'].includes(method)) {
+      let record = downloads.find(item => item.id === required(args, 'id'))
+      if (!record) throw new Error('Download not found')
+      if (required(args, 'profile') !== record.profileId) throw new Error('Download belongs to another profile')
+      if (method === 'download.reveal') {
+        if (record.state !== 'completed') throw new Error('Download has not completed')
+        if (!(await fs.stat(record.path).catch(() => null))?.isFile()) throw new Error('Downloaded file no longer exists')
+        shell.showItemInFolder(record.path); return { path: record.path }
+      }
+      let item = downloadItems.get(record.id)
+      if (!item || !record.active) throw new Error('Download is no longer active')
+      if (method === 'download.pause') {
+        if (record.state !== 'progressing' || item.isPaused()) throw new Error('Download cannot be paused')
+        item.pause()
+      }
+      if (method === 'download.resume') {
+        if (!item.canResume() || (!item.isPaused() && record.state !== 'interrupted')) throw new Error('Download cannot be resumed')
+        item.resume()
+      }
+      if (method === 'download.cancel') item.cancel()
+      if (downloadItems.has(record.id)) {
+        record.paused = item.isPaused(); record.canResume = item.canResume()
+      }
+      publish(); return { id: record.id, state: record.state }
+    }
     if (method === 'settings.prefix') {
       let key = required(args, 'key').toLowerCase()
       if (!/^[a-z]$/.test(key)) throw new Error('Prefix key must be one letter (used with Control)')

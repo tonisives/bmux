@@ -58,6 +58,28 @@ This writes the app to `build/bmux.app`. Set `BMUX_OUTPUT_DIR` to choose another
 
 Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help. Command+L opens the URL prompt.
 
+## Downloads
+
+Run `downloads` in the command prompt to manage transfers for the selected
+pane's profile. Active transfers also appear as a `downloads:N` status-bar
+button. The panel shows transferred bytes, total size when known, and completed,
+paused, cancelled, or failed states. Pause, resume where available, or cancel
+active transfers; use Show in Finder for completed files. Resume behavior
+[depends on the server](https://www.electronjs.org/docs/latest/api/download-item#downloaditemresume).
+
+Downloads save automatically to the macOS Downloads folder with unique filenames,
+without a dialog stealing focus. The list lasts for the running browser process;
+completed files remain on disk after quitting. The manager is also available in
+`activity`, and `downloads` can be assigned a keyboard shortcut in config.yaml.
+
+```sh
+bmux downloads --profile PROFILE_ID
+bmux download pause DOWNLOAD_ID --profile PROFILE_ID
+bmux download resume DOWNLOAD_ID --profile PROFILE_ID
+bmux download cancel DOWNLOAD_ID --profile PROFILE_ID
+bmux download reveal DOWNLOAD_ID --profile PROFILE_ID
+```
+
 ## Model
 
 | Term | Meaning |

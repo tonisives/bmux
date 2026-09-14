@@ -36,7 +36,8 @@ Tools:    dark on|off|system|inherit -t TAB [--scope site|profile|global]
           adblock on|off|inherit -t TAB [--scope site|profile|global]
           update-filters | reload-scripts
 Other:    permission list | permission respond ID [--allow]
-          settings prefix LETTER | downloads | status | quit
+          settings prefix LETTER | downloads [--profile PROFILE_ID] | status | quit
+          download pause|resume|cancel|reveal ID --profile PROFILE_ID
 Plugins:  plugin list | plugin run ID/ACTION [-t TAB] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
@@ -56,7 +57,7 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 
 let parse = () => {
   let command = argv.shift()
-  let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings'].includes(command) ? argv.shift() : null
+  let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings', 'download'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next'])
@@ -97,6 +98,7 @@ let parse = () => {
   if (method === 'key') args.key = positional[0] ?? args.key
   if (method === 'cdp') { args.method = positional[0]; args.params = JSON.parse(positional[1] ?? '{}') }
   if (method === 'screenshot') { args.output = args.output ? path.resolve(args.output) : undefined; args.fullPage = args.viewport !== true }
+  if (command === 'download') args.id = positional[0] ?? args.id
   if (method === 'permission.respond') args.id = positional[0] ?? args.id
   if (method === 'settings.prefix') args.key = positional[0] ?? args.key
   if (method === 'plugin.run') { args.action = positional[0]; args.parameters = JSON.parse(args.parameters ?? '{}') }

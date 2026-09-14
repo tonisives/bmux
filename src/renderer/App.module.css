@@ -89,3 +89,8 @@
 .toolStatus { padding-bottom: 16px; border-bottom: 1px solid #444b59; margin-bottom: 16px; }
 .toolStatus dl > div { flex-wrap: wrap; padding: 5px 0; }
 .toolActions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.download { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-bottom: 1px solid #444; overflow-wrap: anywhere; }
+.download > span { color: #aaa; font-size: 12px; }
+.download progress { width: 100%; accent-color: #9dc5ee; }
+.download > div { display: flex; gap: 8px; }
