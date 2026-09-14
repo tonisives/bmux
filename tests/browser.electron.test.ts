@@ -881,13 +881,23 @@ test('new panes focus URL entry and suggest persistent profile history', async (
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('history-suggestion')
   await expect(chrome.getByRole('option')).toHaveCount(1)
+  await cli('focus-page', { client: client.id })
+  await application.evaluate(({ webContents }) => {
+    let page = webContents.getFocusedWebContents()!
+    page.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    page.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+  })
+  await expect(address).toHaveCount(0)
+  await chrome.locator(`[data-pane-id="${created.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+  await address.fill('history-suggestion')
+  await expect(chrome.getByRole('option')).toHaveCount(1)
   await address.press('ArrowDown')
   await address.press('Enter')
   await expect(address).toHaveCount(0)
   await expect.poll(async () => (await cli('tab.list', { pane: created.id }))[0].url).toBe(`${url}/history-suggestion`)
   await expect.poll(async () => {
     let saved = JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8'))
-    return saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId).history.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`)
+    return saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`) ?? false
   }).toBe(true)
   let isolated = await cli('split-window', { pane: created.id, profile: 'bot', client: client.id })
   await expect(address).toBeFocused()
@@ -896,6 +906,29 @@ test('new panes focus URL entry and suggest persistent profile history', async (
   await address.fill(`${url}/typed-history-url`)
   await address.press('Enter')
   await expect.poll(async () => (await cli('tab.list', { pane: isolated.id }))[0].url).toBe(`${url}/typed-history-url`)
+  await cli('detach-client', { client: client.id })
+})
+
+test('status window list uses available room and hides its native scrollbar', async () => {
+  let session = await cli('new-session', { name: 'status-window-list' })
+  let client = await cli('attach-session', { session: session.id })
+  for (let index = 1; index <= 3; index++) await cli('new-window', { session: session.id, client: client.id, name: `descriptive-window-${index}` })
+  let chrome = application.context().pages().filter(page => page.url().endsWith('index.html')).at(-1)!
+  let status = chrome.getByRole('contentinfo', { name: 'Browser status' })
+  let list = status.locator('[data-window-list]')
+  await expect(status.getByRole('button', { name: '3:descriptive-window-3*', exact: true })).toBeVisible()
+  let roomy = await list.evaluate(element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }))
+  expect(roomy.scrollWidth).toBe(roomy.clientWidth)
+  await application.evaluate(({ BaseWindow }, clientId) => {
+    let window = BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow()
+    window?.setBounds({ x: 90, y: 90, width: 480, height: 700 })
+  }, client.id)
+  await expect.poll(() => list.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  await expect.poll(() => list.evaluate(element => {
+    let active = element.querySelector('[data-active="true"]')!.getBoundingClientRect(), bounds = element.getBoundingClientRect()
+    return { scrollbar: (element as HTMLElement).offsetHeight - element.clientHeight, activeVisible: active.left >= bounds.left && active.right <= bounds.right }
+  })).toEqual({ scrollbar: 0, activeVisible: true })
+  await cli('detach-client', { client: client.id })
 })
 
 test('external web links open new selected tabs and reject other schemes', async () => {
