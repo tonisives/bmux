@@ -259,7 +259,9 @@ export let createBitwarden = (options: Options) => {
       let fresh = !!selectedLogin && freshSelection?.id === selectedLogin && freshSelection.tabId === context.tabId && freshSelection.documentId === context.documentId && Date.now() < freshSelection.expires
       freshSelection = undefined
       let logins = await exclusive(async () => {
-        let status = await vault.status(operation)
+        // With no bmux session, show the unlock UI before starting a CLI status
+        // process. The post-unlock status still verifies the returned key.
+        let status: Awaited<ReturnType<typeof vault.status>> = vault.hasSession() ? await vault.status(operation) : { status: 'locked' }
         check()
         if (status.status === 'unauthenticated') { vault.close(); throw new Error('Run bw login in a terminal, then run passwords again') }
         let identity = JSON.stringify([status.userId, status.serverUrl])
