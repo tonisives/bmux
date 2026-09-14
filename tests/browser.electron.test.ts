@@ -160,11 +160,14 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(await frontmost()).toBe(before)
   expect(await cli('eval', { tab: botTab.id, expression: 'document.querySelector("#text").value' })).toBe('Background input')
 
+  let windowsBeforePopup = await cli('list-windows', { session: session.id })
   await cli('eval', { tab: botTab.id, expression: `window.open(${JSON.stringify(`${url}/popup`)}, '_blank'); true` })
-  await expect.poll(async () => (await cli('tab.list', { pane: botPane.id })).length).toBe(2)
-  let popup = (await cli('tab.list', { pane: botPane.id })).find((tab: { id: string }) => tab.id !== botTab.id)
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
+  let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
+  let popup = popupWindow.panes[0].tabs[0]
   await cli('wait', { tab: popup.id, selector: '#text' })
   expect(await cli('eval', { tab: popup.id, expression: '({profile:localStorage.getItem("profile"),opener:!!window.opener})' })).toEqual({ profile: 'bot', opener: true })
+  expect(await cli('tab.list', { pane: botPane.id })).toHaveLength(1)
   expect(await frontmost()).toBe(before)
 
   await cli('save-layout', { window: mainWindow.id, name: 'development' })
@@ -178,7 +181,7 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
 
   await application.close()
   await launch()
-  expect((await cli('list-sessions'))[0].windows).toHaveLength(2)
+  expect((await cli('list-sessions'))[0].windows).toHaveLength(3)
   await cli('wait', { tab: mainTab.id, selector: '#text' })
   await cli('wait', { tab: botTab.id, selector: '#text' })
   expect(await cli('eval', { tab: mainTab.id, expression: 'localStorage.getItem("profile")' })).toBe('personal')
@@ -240,6 +243,66 @@ test('Command+N opens and Command+W closes a native macOS window', async () => {
   }
 })
 
+test('links show their target, offer browser actions, and open popups in bmux windows', async () => {
+  let session = await cli('new-session', { name: 'link-behavior' })
+  let sourceWindow = session.windows[0]
+  let tab = sourceWindow.panes[0].tabs[0]
+  await cli('navigate', { tab: tab.id, url: `${url}/link-behavior` })
+  let client = await cli('attach-session', { session: session.id })
+  let createdWindow: { id: string } | undefined
+  try {
+    await cli('activate-client', { client: client.id })
+    let website = application.context().pages().find(page => page.url() === `${url}/link-behavior`)!
+    let preview = application.context().pages().find(page => page.url().endsWith('#link-preview'))!
+    await website.locator('#popup').hover()
+    await expect(preview.locator('#root > div')).toHaveText(`${url}/popup`)
+    await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#link-preview') && (view as any).getVisible())))).toBe(true)
+    let placement = await application.evaluate(({ BaseWindow }, target) => {
+      for (let window of BaseWindow.getAllWindows()) {
+        if (!window.isVisible()) continue
+        let page = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)
+        let preview = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#link-preview'))
+        if (page && preview) return { page: page.getBounds(), preview: preview.getBounds(), visible: (preview as any).getVisible() }
+      }
+      return null
+    }, `${url}/link-behavior`)
+    expect(placement?.visible).toBe(true)
+    expect(placement?.preview.x).toBe(placement?.page.x)
+    expect(placement!.preview.y + placement!.preview.height).toBe(placement!.page.y + placement!.page.height)
+
+    await application.evaluate(({ Menu }) => {
+      let runtime = globalThis as any
+      runtime.fixtureOriginalMenuPopup = Menu.prototype.popup
+      runtime.fixtureMenuLabels = []
+      Menu.prototype.popup = function (this: Electron.Menu) { runtime.fixtureMenuLabels = this.items.map((item: Electron.MenuItem) => item.label) } as typeof Menu.prototype.popup
+    })
+    try {
+      await website.locator('#popup').click({ button: 'right' })
+      await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(expect.arrayContaining(['Open Link in New bmux Window', 'Open Link in Background bmux Window', 'Open Link in This Tab', 'Copy Link Address', 'Back', 'Forward', 'Reload']))
+    } finally {
+      await application.evaluate(({ Menu }) => {
+        let runtime = globalThis as any
+        Menu.prototype.popup = runtime.fixtureOriginalMenuPopup
+        delete runtime.fixtureOriginalMenuPopup
+        delete runtime.fixtureMenuLabels
+      })
+    }
+
+    let windowsBeforePopup = await cli('list-windows', { session: session.id })
+    await website.locator('#popup').click()
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
+    createdWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
+    let openedTab = (await cli('tab.list')).find((candidate: { windowId: string }) => candidate.windowId === createdWindow!.id)
+    await cli('wait', { tab: openedTab.id, selector: '#text' })
+    expect(openedTab).toMatchObject({ url: `${url}/popup`, openerTabId: tab.id })
+    expect((await cli('list-clients')).find((candidate: { id: string }) => candidate.id === client.id).windowId).toBe(createdWindow!.id)
+    expect(await cli('tab.list', { pane: sourceWindow.panes[0].id })).toHaveLength(1)
+  } finally {
+    if (createdWindow) await cli('kill-window', { window: createdWindow.id, confirm: true })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('mouse history buttons target their pane and pane shortcuts keep native keyboard focus', async () => {
   let config = path.join(directory, 'config.yaml')
   let original = await fs.readFile(config, 'utf8')
@@ -269,12 +332,15 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     expect(await cli('eval', { tab: lower.activeTabId, expression: 'location.pathname' })).toBe('/lower-scroll')
     await mouse('forward', 'history-two')
     await expect.poll(() => cli('eval', { tab: upper.activeTabId, expression: 'location.pathname' })).toBe('/history-three')
+    let windowsBeforePopup = await cli('list-windows', { session: session.id })
     await cli('click', { tab: upper.activeTabId, selector: '#popup' })
-    await expect.poll(async () => (await cli('tab.list', { pane: upper.id })).length).toBe(2)
-    let popup = (await cli('tab.list', { pane: upper.id })).find((tab: { active: boolean }) => tab.active)
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
+    let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
+    let popup = popupWindow.panes[0].tabs[0]
     expect(popup.url).toBe(`${url}/popup`)
-    await cli('back', { tab: popup.id })
-    await expect.poll(async () => (await cli('tab.list', { pane: upper.id })).length).toBe(1)
+    expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(popupWindow.id)
+    await cli('kill-window', { window: popupWindow.id, confirm: true })
+    await cli('select-window', { client: client.id, window: session.windows[0].id })
     expect((await cli('tab.list', { pane: upper.id }))[0]).toMatchObject({ id: upper.activeTabId, active: true })
     await cli('select-pane', { client: client.id, pane: upper.id })
     let focusedUrl = () => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())

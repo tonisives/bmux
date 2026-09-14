@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor } from 'electron'
+import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor, clipboard } from 'electron'
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -24,7 +24,7 @@ import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-too
 import type { BrowserToolsState } from '../shared/browser-tools'
 
 type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -147,6 +147,18 @@ export let createRuntime = (dataDirectory: string) => {
     if (live.window.contentView.children.at(-1) !== live.permissionPopup) live.window.contentView.addChildView(live.permissionPopup)
     live.permissionPopup.setVisible(true)
   }
+  let updateLinkPreview = (clientId: string, live: LiveClient) => {
+    let client = model.clients.find(client => client.id === clientId)
+    let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.tabs.some(tab => tab.id === live.linkTabId)) : undefined
+    let bounds = live.linkTabId ? live.bounds.find(bounds => bounds.tabId === live.linkTabId) : undefined
+    let page = live.linkTabId ? tabs.get(live.linkTabId) : undefined
+    let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.activeTabId === live.linkTabId && !!bounds
+    if (!visible || !bounds) { live.linkPreview.setVisible(false); return }
+    live.linkPreview.webContents.send('link-preview', live.linkUrl)
+    live.linkPreview.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y + bounds.height - 26), width: Math.max(1, Math.min(520, Math.round(bounds.width))), height: 26 })
+    if (live.window.contentView.children.at(-1) !== live.linkPreview) live.window.contentView.addChildView(live.linkPreview)
+    live.linkPreview.setVisible(true)
+  }
   let publish = () => {
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
@@ -157,6 +169,7 @@ export let createRuntime = (dataDirectory: string) => {
         live.popup.webContents.send('state', current)
         updatePasswordPopup(clientId, live, current)
         updatePermissionPopup(clientId, live, current)
+        updateLinkPreview(clientId, live)
       }
     }, 30)
   }
@@ -331,7 +344,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
-    let { tab, pane } = tabById(model, tabId)
+    let { tab, pane, session } = tabById(model, tabId)
     let initialUrl = tab.url
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
@@ -391,22 +404,57 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('did-finish-load', () => { delete crashes[tabId]; update() })
     contents.on('render-process-gone', (_event, details) => { crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, _url, mainFrame) => { if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
+    let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
+      let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
+      let added = created.panes[0].tabs[0]
+      added.openerTabId = tabId
+      if (!options) { added.url = url; added.title = url }
+      session.windows.push(created)
+      let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
+      if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
+      if (!options) { changed(); return undefined }
+      let popup = createLiveTab(added.id, false, options)
+      if (!options.webContents) void popup.view.webContents.loadURL(url, loadOptions).catch(reportError)
+      changed()
+      return popup.view.webContents
+    }
     contents.setWindowOpenHandler(details => ({
       action: 'allow', outlivesOpener: true,
-      createWindow: options => {
-        let added = newTab()
-        added.openerTabId = tabId
-        pane.tabs.push(added)
-        // Preserve Electron's opener relationship by returning the actual new WebContents.
-        let popupOptions = options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }
-        let popup = createLiveTab(added.id, false, popupOptions)
-        if (!popupOptions.webContents) void popup.view.webContents.loadURL(details.url, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }).catch(reportError)
-        let owner = model.clients.find(client => client.id === focusedClientId)
-        if (owner && visiblePaneIds(owner).includes(pane.id) && details.disposition !== 'background-tab') pane.activeTabId = added.id
-        changed()
-        return popup.view.webContents
-      },
+      createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) })!,
     }))
+    contents.on('update-target-url', (_event, url) => {
+      let owner = [...clients.values()].find(client => client.window === live.parent)
+      if (!owner) return
+      owner.linkUrl = url
+      owner.linkTabId = url ? tabId : undefined
+      owner.linkPreview.webContents.send('link-preview', url)
+      publish()
+    })
+    contents.on('context-menu', (_event, params) => {
+      let owner = [...clients.values()].find(client => client.window === live.parent)
+      if (!owner) return
+      let navigation = contents.navigationHistory
+      let template: Electron.MenuItemConstructorOptions[] = []
+      if (params.linkURL) template.push(
+        { label: 'Open Link in New bmux Window', click: () => { openLinkWindow(params.linkURL, true) } },
+        { label: 'Open Link in Background bmux Window', click: () => { openLinkWindow(params.linkURL, false) } },
+        { label: 'Open Link in This Tab', click: () => { void contents.loadURL(params.linkURL).catch(reportError) } },
+        { label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) },
+        { type: 'separator' },
+      )
+      template.push(
+        { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
+        { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
+        { label: 'Reload', click: () => contents.reload() },
+      )
+      if (params.selectionText || params.isEditable) template.push(
+        { type: 'separator' },
+        ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
+        { role: 'copy' },
+        { role: 'selectAll' },
+      )
+      Menu.buildFromTemplate(template).popup({ window: owner.window })
+    })
     if (load && initialUrl !== 'about:blank') void ready.then(() => { if (!live.disposed) return contents.loadURL(initialUrl) }).catch(error => { if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
     return live
   }
@@ -536,8 +584,11 @@ export let createRuntime = (dataDirectory: string) => {
     let permissionPopup = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     permissionPopup.setVisible(false)
     window.contentView.addChildView(permissionPopup)
+    let linkPreview = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+    linkPreview.setVisible(false)
+    window.contentView.addChildView(linkPreview)
     let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save() }
-    let owner: LiveClient = { window, chrome, popup, permissionPopup, dismissedPermissions: new Set(), bounds: [], pageFocused: false, popupFocused: false }
+    let owner: LiveClient = { window, chrome, popup, permissionPopup, linkPreview, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false, popupFocused: false }
     clients.set(client.id, owner)
     popup.webContents.on('focus', () => { owner.popupFocused = true })
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
@@ -571,6 +622,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!popup.webContents.isDestroyed()) popup.webContents.close()
       if (!permissionPopup.webContents.isDestroyed()) permissionPopup.webContents.close()
+      if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
       if (focusedClientId === client.id) focusedClientId = null
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
     })
@@ -579,12 +631,14 @@ export let createRuntime = (dataDirectory: string) => {
     installKeys(permissionPopup.webContents)
     permissionPopup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     permissionPopup.webContents.on('will-navigate', event => event.preventDefault())
+    linkPreview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    linkPreview.webContents.on('will-navigate', event => event.preventDefault())
     popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     popup.webContents.on('will-navigate', event => event.preventDefault())
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
-    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), popup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#passwords'), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions')])
-    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), popup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'passwords' }), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' })])
+    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), popup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#passwords'), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview')])
+    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), popup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'passwords' }), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' })])
     if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); window.focus(); chrome.webContents.focus() }
     else window.showInactive()
     save()
