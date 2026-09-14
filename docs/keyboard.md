@@ -25,7 +25,7 @@ Common direct shortcuts:
 | Shortcut | Action |
 | --- | --- |
 | Command+L | Open the selected pane's address bar |
-| Command+T / Command+W | New / close tab |
+| Command+T / Command+W | New / close internal window |
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
 | Command+R | Reload |
 | Command+F | Find in page |
@@ -73,8 +73,8 @@ keyboard:
     Cmd+Shift+R: hard-reload
     Cmd+L: address
     Cmd+N: new-client
-    Cmd+T: new-tab
-    Cmd+W: close-tab
+    Cmd+T: new-window
+    Cmd+W: close-window
     Cmd+Shift+W: detach
     Cmd+F: find
     Cmd+Ctrl+Alt+Shift+W: sessions

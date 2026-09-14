@@ -11,6 +11,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(defaultConfig.statusBar).toBe('top')
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
   expect(defaults.shortcuts['Cmd+Ctrl+Alt+Shift+W']).toBe('sessions')
+  expect(defaults.shortcuts['Cmd+T']).toBe('new-window')
+  expect(defaults.shortcuts['Cmd+W']).toBe('close-window')
   expect(defaults.prefixBindings.z).toBe('toggle-pane-zoom')
   expect(parseConfig('keyboard:\n  prefixBindings:\n    q: close-pane\n').keyboard.prefixBindings.q).toBe('close-pane')
   let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n').keyboard
@@ -98,12 +100,14 @@ it('moves the previous config into the bmux config directory', () => {
   }
 })
 
-it('merges legacy tab navigation into window actions and overrides history defaults', () => {
-  let config = parseConfig('keyboard:\n  shortcuts:\n    "Command+[": previous-window\n    "Cmd+]": next-window\n    "Ctrl+Tab": next-tab\n  prefixBindings:\n    p: previous-tab\n').keyboard
+it('merges legacy tab actions into window actions and overrides history defaults', () => {
+  let config = parseConfig('keyboard:\n  shortcuts:\n    "Command+[": previous-window\n    "Cmd+]": next-window\n    "Ctrl+Tab": next-tab\n    "Cmd+T": new-tab\n    "Cmd+W": close-tab\n  prefixBindings:\n    p: previous-tab\n').keyboard
   expect(config.shortcuts['Cmd+[']).toBeUndefined()
   expect(config.shortcuts['Command+[']).toBe('previous-window')
   expect(config.shortcuts['Cmd+]']).toBe('next-window')
   expect(config.shortcuts['Ctrl+Tab']).toBe('next-window')
+  expect(config.shortcuts['Cmd+T']).toBe('new-window')
+  expect(config.shortcuts['Cmd+W']).toBe('close-window')
   expect(config.prefixBindings.p).toBe('previous-window')
-  expect(defaultConfigText()).not.toMatch(/next-tab|previous-tab/)
+  expect(defaultConfigText()).not.toMatch(/(?:new|close|next|previous)-tab/)
 })
