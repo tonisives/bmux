@@ -90,7 +90,7 @@ export let createBitwarden = (options: Options) => {
     let previous = queue
     let next = previous.catch(() => undefined).then(async () => {
       await valid()
-      let lookup = vault.hasSession() ? vault.logins(origin(context), signal, refresh).catch(() => undefined) : undefined
+      let lookup = vault.hasSession() ? vault.logins(context.url!, signal, refresh).catch(() => undefined) : undefined
       // An explicit unlock needs only the post-unlock status check.
       let status: Awaited<ReturnType<typeof vault.status>> = unlocking && !vault.hasSession() ? { status: 'locked' } : await vault.status(signal, refresh)
       await valid()
@@ -103,7 +103,7 @@ export let createBitwarden = (options: Options) => {
         catch { throw new Error('Could not unlock Bitwarden. Check your master password and try again.') }
         finally { password = undefined }
         await valid()
-        lookup = vault.hasSession() ? vault.logins(origin(context), signal).catch(() => undefined) : undefined
+        lookup = vault.hasSession() ? vault.logins(context.url!, signal).catch(() => undefined) : undefined
         // Verify the key in a new CLI process before presenting the vault as unlocked.
         status = await vault.status(signal)
         if (status.status !== 'unlocked') { forgetSession(); throw new Error('Bitwarden did not retain the unlock. Try again.') }
@@ -114,7 +114,7 @@ export let createBitwarden = (options: Options) => {
       await valid()
       entry.value = { ...entry.value, locked: false }; options.changed()
       try {
-        let logins = lookup ? await lookup : await vault.logins(origin(context), signal)
+        let logins = lookup ? await lookup : await vault.logins(context.url!, signal)
         if (!logins) throw new Error()
         await valid()
         entry.logins = logins
@@ -276,11 +276,11 @@ export let createBitwarden = (options: Options) => {
         if (pinned && selectedLogin === pinned.login.id && pinned.account === account && pinned.revision === status.revision
           && pinned.context.clientId === context.clientId && pinned.context.tabId === context.tabId
           && pinned.context.documentId === context.documentId && pinned.context.profileId === context.profileId && pinned.context.url === context.url) return [pinned.login]
-        try { return await vault.logins(origin(context), operation) }
+        try { return await vault.logins(context.url!, operation) }
         catch { throw new Error('Could not read Bitwarden. Try passwords again; your unlock is retained while the session is valid.') }
       })
       check()
-      if (!logins.length) throw new Error('No Bitwarden logins match this exact origin')
+      if (!logins.length) throw new Error('No Bitwarden logins match this site')
       let id = selectedLogin ?? await ask({ kind: 'pick', title: `Login for ${origin(context)}`, items: logins.map(item => ({ id: item.id, label: item.name || 'Login', description: item.login.username || '' })) })
       check()
       attempt.login = logins.find(item => item.id === id)

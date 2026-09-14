@@ -196,14 +196,17 @@ or disguise a failed command as a successful unlock.
 Click a username to fill it without running `passwords` or opening another picker.
 Only account labels enter the UI; bmux rereads the selected login and checks the
 page and focused field before filling. Suggestions disappear when you leave the
-login field, change tabs or pages, or press Escape. They use the same exact-origin
+login field, change tabs or pages, or press Escape. They use the same URI matching
 rules below. A fresh unlock in the popup satisfies a selected entry's master
 password reprompt; later independent selections require verification again.
 
-Only results of the CLI's origin lookup with an exact matching HTTP(S) origin are
-offered. Different schemes, ports, subdomains, deleted items, and never-match URI
-entries are excluded. This does not reproduce all Bitwarden path/equivalent-domain
-matching. Username-only, password-only, and combined login forms are supported.
+Only results of the CLI's URL lookup that also pass bmux's local URI check are
+offered. The default and base-domain modes include subdomains on the same
+registrable domain, including country-code suffixes such as `.co.uk`. Host,
+starts-with, exact, regular-expression, and never-match entries retain their
+explicit behavior. Deleted items are excluded. Bitwarden equivalent-domain
+groups are not reproduced by the local check. Username-only, password-only, and
+combined login forms are supported.
 After filling a username, click Next yourself: bmux watches for the password step
 for two minutes, including same-origin page navigation. It fills once in that
 same tab and browser profile, without another picker or unlock prompt. Waiting

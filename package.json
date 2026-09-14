@@ -38,6 +38,7 @@
     "darkreader": "^4.9.130",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tldts": "7.4.12",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

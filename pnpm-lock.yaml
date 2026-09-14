@@ -20,6 +20,9 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.2.8(react@19.2.8)
+      tldts:
+        specifier: 7.4.12
+        version: 7.4.12
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -2141,6 +2144,10 @@ packages:
 
   tldts-experimental@7.4.12:
     resolution: {integrity: sha512-9ekSzO1PiwKHPS+WfA4EIXj49c8hFLi5TeEnW1xAlc6EufOX4Owp1rSC6HoSWq34z3cFLa7Ov2wUQm4fy+31xA==}
+
+  tldts@7.4.12:
+    resolution: {integrity: sha512-WylhSDKVeYnWXL3a+vKTaOxjnOeEGw938hImY8zoRWJjRRK/Jp1K+IihBzIONpUmW4e3WmXT6q5FW6vlESVZCA==}
+    hasBin: true
 
   tmp-promise@3.0.3:
     resolution: {integrity: sha512-RwM7MoPojPxsOBYnyd2hy0bxtIlVrihNs9pj5SUvY8Zz1sQcQG2tG1hSr8PDxfgEB8RNKDhqbIlroIarSNDNsQ==}
@@ -4466,6 +4473,10 @@ snapshots:
   tldts-core@7.4.12: {}
 
   tldts-experimental@7.4.12:
+    dependencies:
+      tldts-core: 7.4.12
+
+  tldts@7.4.12:
     dependencies:
       tldts-core: 7.4.12
 

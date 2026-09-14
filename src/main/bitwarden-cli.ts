@@ -2,10 +2,22 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { getDomain } from 'tldts'
 
 export type VaultLogin = { id: string; type: number; name?: string; deletedDate?: string; reprompt?: number; login: { username?: string; password: string; uris?: { uri: string; match?: number }[] } }
-export let sameOrigin = (item: VaultLogin, origin: string) => item?.type === 1 && !item.deletedDate && item.login?.uris?.some(entry => {
-  try { return entry.match !== 5 && new URL(entry.uri).origin === origin } catch { return false }
+export let matchesLoginUrl = (item: VaultLogin, pageUrl: string) => item?.type === 1 && !item.deletedDate && item.login?.uris?.some(entry => {
+  try {
+    if (entry.match === 5) return false
+    if (entry.match === 2) return pageUrl.startsWith(entry.uri)
+    if (entry.match === 3) return pageUrl === entry.uri
+    if (entry.match === 4) return new RegExp(entry.uri, 'i').test(pageUrl)
+    let saved = new URL(entry.uri), page = new URL(pageUrl)
+    if (!['http:', 'https:'].includes(saved.protocol) || !['http:', 'https:'].includes(page.protocol)) return false
+    if (entry.match === 1) return saved.host === page.host
+    let savedDomain = getDomain(saved.hostname, { allowPrivateDomains: true }), pageDomain = getDomain(page.hostname, { allowPrivateDomains: true })
+    if (savedDomain && pageDomain) return savedDomain === pageDomain
+    return entry.match === undefined && saved.origin === page.origin
+  } catch { return false }
 })
 
 export let createVault = (options: { executable?: string } = {}) => {
@@ -18,7 +30,7 @@ export let createVault = (options: { executable?: string } = {}) => {
         : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'Bitwarden CLI'))
   type Status = { status: string; userId?: string; serverUrl?: string; revision?: string }
   type Cached<T> = { value: T; stamp: string; generation: number; expires: number }
-  let statusCache: Cached<Status> | undefined, loginCache: (Cached<VaultLogin[]> & { origin: string }) | undefined
+  let statusCache: Cached<Status> | undefined, loginCache: (Cached<VaultLogin[]> & { url: string }) | undefined
   let cacheExpiry: ReturnType<typeof setTimeout> | undefined
   let clearCache = () => { statusCache = undefined; loginCache = undefined; clearTimeout(cacheExpiry) }
   // Only metadata is inspected. Never parse the CLI's encrypted vault ourselves.
@@ -89,19 +101,19 @@ export let createVault = (options: { executable?: string } = {}) => {
       if (!/^[A-Za-z0-9+/]{86}==$/.test(key) || Buffer.from(key, 'base64').length !== 64) throw new Error('Bitwarden returned an invalid session key')
       session = key
     },
-    logins: async (origin: string, signal?: AbortSignal, fresh = false): Promise<VaultLogin[]> => {
+    logins: async (url: string, signal?: AbortSignal, fresh = false): Promise<VaultLogin[]> => {
       try {
         if (fresh) clearCache()
-        let hit = await cached(loginCache?.origin === origin ? loginCache : undefined, signal)
+        let hit = await cached(loginCache?.url === url ? loginCache : undefined, signal)
         if (hit) return hit
         let started = generation, before = await stamp()
-        let items = JSON.parse(await command(['list', 'items', '--url', origin], signal))
+        let items = JSON.parse(await command(['list', 'items', '--url', url], signal))
         let after = await stamp()
         signal?.throwIfAborted()
         if (started !== generation || !Array.isArray(items)) throw new Error()
-        let value: VaultLogin[] = items.filter(item => sameOrigin(item, origin) && typeof item.login.password === 'string')
+        let value: VaultLogin[] = items.filter(item => matchesLoginUrl(item, url) && typeof item.login.password === 'string')
         if (session && before && before === after) {
-          loginCache = { value: structuredClone(value), origin, stamp: after, generation, expires: Date.now() + 30000 }
+          loginCache = { value: structuredClone(value), url, stamp: after, generation, expires: Date.now() + 30000 }
           clearTimeout(cacheExpiry)
           cacheExpiry = setTimeout(() => { loginCache = undefined }, 30000)
           cacheExpiry.unref()

@@ -26,7 +26,7 @@ if (command === 'list') process.stdout.write(JSON.stringify([{ id: 'fixture', ty
   return { vault, file, calls: () => fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').trim().split('\n') : [] }
 }
 
-test('warm status and exact-origin lookups spawn no CLI process and return separate objects', async () => {
+test('warm status and URL lookups spawn no CLI process and return separate objects', async () => {
   let f = setup()
   await f.vault.unlock('fixture-master')
   let status = await f.vault.status(), items = await f.vault.logins('https://example.test')
