@@ -477,6 +477,7 @@ test('password suggestions search accounts with slash and return after a cleared
   await search.press('Enter')
   await chrome.getByRole('button', { name: 'Yes', exact: true }).click()
   await expect(page.locator('#vault-user')).toHaveValue('second@example.test')
+  await rpc('bitwarden.cancel', { tab: tabId })
 
   await rpc('navigate', { tab: tabId, url: `${url}/vault-password` })
   await activate(); await rpc('focus-page', { client: (await state()).clientId })
