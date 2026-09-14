@@ -63,7 +63,10 @@ jobs:
             echo "Release tag must use vMAJOR.MINOR.PATCH format: $RELEASE_TAG" >&2
             exit 1
           fi
-          pnpm version --no-git-tag-version "$version"
+          current="$(node -p "require('./package.json').version")"
+          if [ "$current" != "$version" ]; then
+            pnpm version --no-git-tag-version "$version"
+          fi
 
       - name: Build ${{ matrix.arch }} DMG
         env:
