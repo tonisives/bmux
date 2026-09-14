@@ -6,7 +6,7 @@
 
 Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
 
-[Website](https://bmux.tonis.dev) · [Get started](#get-started) · [Keyboard shortcuts](docs/keyboard.md) · [Automation guide](docs/agent.md)
+[Website](https://bmux.tonis.dev) · [Download](https://github.com/tonisives/bmux/releases/latest) · [Get started](#get-started) · [Keyboard shortcuts](docs/keyboard.md) · [Automation guide](docs/agent.md)
 
 [![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.tonis.dev/#split-panes)
 
@@ -45,7 +45,9 @@ Install the latest release with Homebrew:
 brew install --cask tonisives/tap/bmux
 ```
 
-The app is currently unsigned, so macOS may require you to confirm the first launch in System Settings. The bundled `bmux` CLI requires Node.js 22.12+ (Node 24 recommended).
+You can also download Apple Silicon and Intel DMGs from the [latest GitHub release](https://github.com/tonisives/bmux/releases/latest).
+
+Release builds are currently unsigned, so macOS may require you to confirm the first launch in System Settings. The bundled `bmux` CLI requires Node.js 22.12+ (Node 24 recommended).
 
 To run from source, install Node.js 22.12+ and pnpm 11:
 
