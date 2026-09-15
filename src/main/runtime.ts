@@ -754,7 +754,12 @@ export let createRuntime = (dataDirectory: string) => {
       browserSession(profile.id)
       if (method === 'extension.list') return extensions.list(profile.id)
       if (method === 'extension.load') return extensions.load(profile.id, required(args, 'path'))
-      if (method === 'extension.install-bitwarden') return extensions.load(profile.id, await installBitwardenExtension(dataDirectory))
+      if (method === 'extension.install-bitwarden') {
+        let before = await extensions.list(profile.id)
+        let installed = await extensions.load(profile.id, await installBitwardenExtension(dataDirectory))
+        for (let extension of before.extensions) if (extension.name === installed.name && extension.id !== installed.id) await extensions.remove(profile.id, extension.id)
+        return installed
+      }
       if (method === 'extension.remove') return extensions.remove(profile.id, required(args, 'id'))
       if (method === 'extension.open') return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId)
       throw new Error('Unknown extension command')

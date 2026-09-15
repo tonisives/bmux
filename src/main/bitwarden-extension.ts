@@ -4,9 +4,11 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-// Official browser-v2026.8.0 release asset and its GitHub SHA-256 digest.
-let version = '2026.8.0'
-let digest = '867b5a671ae40f3122b79b580841de9dc37c84b83dd13d34e971fc986e36d6c0'
+// 2026.7.0 and 2026.8.0 can sync encrypted ciphers but leave the decrypted
+// vault empty for affected accounts. Keep the last known-good browser build
+// until Bitwarden ships the upstream WASM decryption fix.
+let version = '2026.6.1'
+let digest = 'fcd29c5971d9b218ad9159717a19c38cca5150f2a0aa909ddf805bd7695d097e'
 export let installBitwardenExtension = async (directory: string) => {
   let root = path.join(directory, 'extension-packages')
   let target = path.join(root, `bitwarden-${version}`)

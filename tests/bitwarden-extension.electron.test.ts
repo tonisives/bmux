@@ -16,7 +16,6 @@ test('official Bitwarden reaches its login screen', async () => {
     await rpc('extension.open', { profile: 'profile_default', id: 'Bitwarden' })
     await expect.poll(() => application.context().pages().some(page => page.url().startsWith('chrome-extension://'))).toBe(true)
     let popup = application.context().pages().find(page => page.url().startsWith('chrome-extension://'))!
-    await popup.getByRole('button', { name: 'Log in', exact: true }).click()
     await expect(popup.getByRole('textbox', { name: /email/i })).toBeVisible({ timeout: 20000 })
     await popup.screenshot({ path: test.info().outputPath('bitwarden-login.png') })
   } finally {
