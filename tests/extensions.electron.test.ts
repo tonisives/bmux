@@ -42,6 +42,10 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => application!.context().pages().some(page => page.url().startsWith('chrome-extension://'))).toBe(true)
     let popup = application!.context().pages().find(page => page.url().startsWith('chrome-extension://'))!
     await expect(popup.locator('h1')).toHaveText('Extension fixture')
+    expect(await application!.evaluate(({ BrowserWindow }, url) => {
+      let window = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.getURL() === url)
+      return window && { contentSize: window.getContentSize(), resizable: window.isResizable(), maximizable: window.isMaximizable(), fullscreenable: window.isFullScreenable() }
+    }, popup.url())).toEqual({ contentSize: [420, 640], resizable: false, maximizable: false, fullscreenable: false })
     expect(await popup.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])
     await popup.evaluate(async () => { let chrome = (window as any).chrome; await chrome.storage.session.set({ fixture: 'memory only' }) })
     expect(await popup.evaluate(() => (window as any).chrome.storage.session.get('fixture'))).toEqual({ fixture: 'memory only' })

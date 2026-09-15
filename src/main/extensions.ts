@@ -121,7 +121,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     let key = `${profile}:${extension.id}`
     let window = popups.get(key)
     if (!window || window.isDestroyed()) {
-      window = new BrowserWindow({ width: 420, height: 640, show: false, title: extension.name, webPreferences: { session, nodeIntegration: false, contextIsolation: true, sandbox: true } })
+      window = new BrowserWindow({ width: 420, height: 640, useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, show: false, title: extension.name, webPreferences: { session, nodeIntegration: false, contextIsolation: true, sandbox: true } })
       popups.set(key, window)
       window.on('closed', () => popups.delete(key))
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
