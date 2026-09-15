@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { cloneWindow, initialModel, mapLayout, newPane, paneInDirection, removePane, repairClientSelections, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
@@ -105,4 +105,21 @@ it('returns each client to its most recently visited surviving window after clos
   repairClientSelections(model)
   expect(client.windowId).toBe(first.id)
   expect(client.windowHistory).toEqual([first.id])
+})
+
+it('removes a session and advances its clients to the next session', () => {
+  let model = initialModel(), first = model.sessions[0], second = newSession('second', first.defaultProfileId), third = newSession('third', first.defaultProfileId)
+  model.sessions.push(second, third)
+  model.clients = [{ id: 'client', sessionId: second.id, windowId: second.windows[0].id, paneId: second.windows[0].panes[0].id, width: 800, height: 600 }]
+  expect(removeSession(model, second)).toBe(third)
+  expect(model.sessions).toEqual([first, third])
+  expect(model.clients[0]).toMatchObject({ sessionId: third.id, windowId: third.windows[0].id, paneId: third.windows[0].panes[0].id })
+})
+
+it('replaces the only removed session with a fresh main session', () => {
+  let model = initialModel(), removed = model.sessions[0]
+  let next = removeSession(model, removed)
+  expect(model.sessions).toEqual([next])
+  expect(next.id).not.toBe(removed.id)
+  expect(next.name).toBe('main')
 })

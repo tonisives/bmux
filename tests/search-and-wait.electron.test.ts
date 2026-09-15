@@ -95,7 +95,7 @@ test('tab and session searches filter by title, URL, and name without changing s
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true }), sessionSearch = sessions.getByRole('textbox', { name: 'Search sessions', exact: true })
-  let sessionRows = sessions.locator('button:not([data-picker-action])')
+  let sessionRows = sessions.locator('button[data-session-row]')
   await chrome.keyboard.press('p'); await expect(sessionSearch).toBeFocused(); await expect(sessionSearch).toHaveValue('p')
   await sessionSearch.fill('pjct pln'); await expect(sessionRows).toHaveCount(1)
   expect((await state()).model.clients[0].sessionId).toBe(session.id)
@@ -106,8 +106,8 @@ test('tab and session searches filter by title, URL, and name without changing s
 test('session picker creates and attaches a named session', async () => {
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
-  let create = sessions.getByRole('button', { name: 'New session', exact: true })
-  await expect(sessions.getByRole('button').last()).toHaveText('New session')
+  let create = sessions.getByRole('button', { name: 'new session', exact: true })
+  await expect(sessions.getByRole('button').last()).toHaveText('new session')
   await create.click()
   let name = sessions.getByRole('textbox', { name: 'Session name', exact: true })
   await expect(name).toBeFocused(); await name.fill('Fresh workspace')
@@ -115,6 +115,21 @@ test('session picker creates and attaches a named session', async () => {
   await expect(sessions).toHaveCount(0)
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('Fresh workspace')
+})
+
+test('session picker reaches creation by keyboard and confirms session closing', async () => {
+  await open('sessions')
+  let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  let create = sessions.getByRole('button', { name: 'new session', exact: true })
+  await chrome.keyboard.press('End'); await expect(create).toBeFocused()
+  await chrome.keyboard.press('Enter'); await expect(sessions.getByRole('textbox', { name: 'Session name', exact: true })).toBeFocused()
+  await chrome.keyboard.press('Escape')
+  let close = sessions.getByRole('button', { name: 'Close session Fresh workspace', exact: true })
+  await close.click()
+  let confirmation = sessions.getByRole('alertdialog', { name: 'Close session Fresh workspace?', exact: true })
+  await expect(confirmation).toBeVisible(); await confirmation.getByRole('button', { name: 'no', exact: true }).click()
+  await close.click(); await confirmation.getByRole('button', { name: 'yes', exact: true }).click()
+  await expect.poll(async () => (await state()).model.sessions.some((session: { name: string }) => session.name === 'Fresh workspace')).toBe(false)
 })
 
 test('picker arrows expose panel content beyond the first and last rows', async () => {

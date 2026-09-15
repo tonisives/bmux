@@ -185,3 +185,19 @@ export let repairClientSelections = (model: Model) => {
     if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
   }
 }
+
+export let removeSession = (model: Model, session: WorkspaceSession) => {
+  let index = model.sessions.indexOf(session)
+  if (index < 0) throw new Error(`Session '${session.id}' not found`)
+  let next = model.sessions.length === 1 ? newSession('main', session.defaultProfileId) : model.sessions[(index + 1) % model.sessions.length]
+  model.sessions = model.sessions.filter(item => item !== session)
+  if (!model.sessions.length) model.sessions.push(next)
+  for (let client of model.clients.filter(client => client.sessionId === session.id)) {
+    client.sessionId = next.id
+    client.windowId = next.windows[0].id
+    client.paneId = next.windows[0].panes[0]?.id ?? null
+    client.zoomedPaneId = null
+  }
+  repairClientSelections(model)
+  return next
+}
