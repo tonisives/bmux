@@ -448,7 +448,10 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('did-stop-loading', () => { delete loading[tabId]; publish() })
     contents.on('page-title-updated', update)
     contents.on('before-mouse-event', (_event, mouse) => {
-      if (mouse.type === 'mouseDown') { let owner = [...clients.values()].find(client => client.window === live.parent); if (owner) owner.popupFocused = false }
+      if (mouse.type === 'mouseDown') {
+        let owner = [...clients.values()].find(client => client.window === live.parent)
+        if (owner) { owner.popupFocused = false; owner.chrome.webContents.send('focus-control', 'dismiss') }
+      }
     })
     contents.on('focus', () => {
       let client = model.clients.find(client => client.id === focusedClientId)

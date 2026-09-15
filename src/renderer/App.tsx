@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } from 'react'
 import type { Bookmark, Bridge, Download, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
+import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
@@ -434,7 +435,7 @@ let PluginList = () => {
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
-  return <><ToolStatus /><h2>Installed plugins</h2><label>Find plugin action<input className={css.pluginInput} value={query} onChange={change} autoFocus /></label>
+  return <><ToolStatus /><h2>Installed plugins</h2><SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus />
     {!state.plugins?.length && <p>No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.</p>}
     {state.plugins?.map(plugin => <div key={plugin.id}><label><input type="checkbox" data-id={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.row} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
@@ -468,7 +469,7 @@ let PluginDialog = () => {
     event.preventDefault(); setIndex(index => Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1))))
   }
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
-    <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.kind !== 'pick' && request.required} /></label>
+    {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
     {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.row} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
     {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
   </form>}</>
@@ -478,6 +479,10 @@ let usePickerNavigation = () => {
   let ref = useRef<HTMLDivElement>(null)
   let input = useRef<HTMLInputElement>(null)
   useEffect(() => { (ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]') ?? input.current)?.focus() }, [])
+  useEffect(() => {
+    let rows = ref.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')
+    rows?.forEach((row, index) => { row.dataset.searchSelected = String(!!query && index === 0) })
+  }, [query])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey) return
@@ -492,8 +497,11 @@ let usePickerNavigation = () => {
     event.preventDefault()
     let index = rows.findIndex(row => row === document.activeElement)
     let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
-    let row = rows[Math.max(0, Math.min(rows.length - 1, next))]
+    let nextIndex = Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+    let panel = ref.current?.closest<HTMLElement>('[role="dialog"]')
+    if (event.key === 'ArrowUp' && nextIndex === 0 && panel) panel.scrollTop = 0
+    if (event.key === 'ArrowDown' && nextIndex === rows.length - 1 && panel) panel.scrollTop = panel.scrollHeight
   }
   return { ref, keys, input, query, change }
 }
@@ -513,7 +521,7 @@ let SessionPicker = () => {
     setBusy(true)
     if (await run('new-session', { name: sessionName, client: state.clientId }) === undefined) setBusy(false)
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><label>Search sessions<input ref={input} className={css.pluginInput} value={query} onChange={change} autoComplete="off" spellCheck={false} /></label><p>Type or / to search. Up/Down to move, Enter to attach. Escape clears search, then closes.</p>{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={css.row} data-picker-action onClick={begin}>New session</button>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={css.row} data-picker-action onClick={begin}>New session</button>}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
@@ -526,7 +534,7 @@ let TabPicker = () => {
   let { pane, profile } = selection(state)
   let { ref, keys, input, query, change } = usePickerNavigation()
   let tabs = pane?.tabs.map((tab, index) => ({ tab, index })).filter(({ tab }) => fuzzyMatch(query, `${tab.title} ${tab.url}`)) ?? []
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose tab"><p>Profile: {profile?.name}</p><label>Search tabs<input ref={input} className={css.pluginInput} value={query} onChange={change} placeholder="Title or URL" autoComplete="off" spellCheck={false} /></label><p>Type or / to search. Up/Down to move, Enter to select. Escape clears search, then closes.</p>{tabs.map(({ tab, index }) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane!.activeTabId} />)}{!tabs.length && <p role="status">No matching tabs.</p>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose tab"><p>Profile: {profile?.name}</p><SearchInput ref={input} aria-label="Search tabs" value={query} onChange={change} />{tabs.map(({ tab, index }) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane!.activeTabId} />)}{!tabs.length && <p role="status">No matching tabs.</p>}</div>
 }
 let TabRow = ({ id, label, url, active }: { id: string; label: string; url: string; active: boolean }) => {
   let { run, dismiss } = useUI()
@@ -539,7 +547,7 @@ let BookmarkPicker = () => {
   let { profile } = selection(state)
   let { ref, keys, input, query, change } = usePickerNavigation()
   let bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><p>Profile: {profile?.name ?? 'No selected pane'}</p><label>Search bookmarks<input ref={input} className={css.pluginInput} value={query} onChange={change} placeholder="Title, URL, or folder" autoComplete="off" spellCheck={false} /></label><p>Up/Down to move, Enter to open. Escape clears search, then closes.</p>{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><p>Profile: {profile?.name ?? 'No selected pane'}</p><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
 }
 let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
   let { state, run } = useUI()
@@ -599,7 +607,7 @@ let HelpContent = () => {
   let entries = commandEntries(keyboard, state.plugins)
   let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])].map(([key, action]) => ({ key, action, description: entries.find(entry => entry.action === action)?.description ?? '' })).filter(binding => fuzzyMatch(query, `${binding.key} ${binding.action} ${binding.description}`))
   let commands = searchCommands(entries, query), notes = HELP_NOTES.filter(note => fuzzyMatch(query, note))
-  let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setQuery(event.target.value); setSearching(true) }
   useEffect(() => {
     let keys = (event: globalThis.KeyboardEvent) => {
       if (event.isComposing) return
@@ -611,7 +619,7 @@ let HelpContent = () => {
     return () => document.removeEventListener('keydown', keys, true)
   }, [searching])
   return <div ref={root} tabIndex={-1} className={css.helpContent}>
-    <div className={css.helpSearch}>{searching ? <label>Search help<input ref={input} className={css.pluginInput} aria-label="Search help" value={query} onChange={change} autoComplete="off" spellCheck={false} placeholder="Commands, keys, or descriptions" /></label> : <p>Press / to search commands and shortcuts.</p>}<span role="status">{query ? `${bindings.length + commands.length + notes.length} matches · Esc clears search` : 'Esc closes help'}</span></div>
+    <div className={css.helpSearch}><SearchInput ref={input} aria-label="Search help" value={query} onChange={change} /><span role="status">{query ? `${bindings.length + commands.length + notes.length} matches · Esc clears search` : 'Esc closes help'}</span></div>
     {!!bindings.length && <><h2>Shortcuts</h2><dl>{bindings.map(binding => <HelpRow key={binding.key} label={binding.key} description={binding.action} query={query} />)}</dl></>}
     {!!commands.length && <><h2>Commands</h2><dl className={css.helpCommands}>{commands.map(entry => <HelpRow key={entry.command} label={entry.usage ?? entry.command} description={entry.description} query={query} />)}</dl></>}
     {notes.map(note => <p key={note}>{note}</p>)}

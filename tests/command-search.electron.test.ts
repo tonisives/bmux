@@ -151,7 +151,7 @@ test('slash searches help commands and active shortcuts; Escape clears before cl
   await chrome.screenshot({ path: path.resolve('artifacts/help-search.png') })
   await search.fill('Ctrl X'); await expect(help.getByText('Ctrl+X then ?', { exact: true })).toBeVisible()
   await search.fill('zzzzunmatched'); await expect(help.getByText('No matching help entries.', { exact: true })).toBeVisible()
-  await search.press('Escape'); await expect(help).toBeVisible(); await expect(search).toHaveCount(0)
+  await search.press('Escape'); await expect(help).toBeVisible(); await expect(search).toHaveValue('')
   await chrome.keyboard.press('/'); await expect(search).toBeFocused(); await expect(search).toHaveValue('')
   await search.press('Escape'); await chrome.keyboard.press('Escape'); await expect(help).toHaveCount(0)
   await activate(); await expect.poll(nativeVisible).toBe(true)

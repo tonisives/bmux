@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { Bridge, PasswordSuggestions } from '../shared/types'
 import css from './PasswordPopup.module.css'
+import { SearchInput } from './SearchInput'
 
 export let PasswordPopup = () => {
   let [suggestion, setSuggestion] = useState<PasswordSuggestions>()
@@ -55,7 +56,7 @@ let PasswordChoices = ({ suggestion }: { suggestion: PasswordSuggestions }) => {
   }
   return <section className={css.popup} role="group" aria-label="Bitwarden logins">
     <header><strong>Bitwarden</strong><span title={suggestion.origin}>{suggestion.origin}</span><button aria-label="Close password suggestions" onClick={close}>×</button></header>
-    {!suggestion.locked && !busy && !!suggestion.items.length && <input className={css.search} aria-label="Search accounts" ref={search} type="search" value={query} onChange={change} onKeyDown={navigate} placeholder="Search accounts" autoComplete="off" spellCheck={false} />}
+    {!suggestion.locked && !busy && !!suggestion.items.length && <SearchInput aria-label="Search accounts" ref={search} type="search" value={query} onChange={change} onKeyDown={navigate} />}
     <div className={css.content}>
       {suggestion.locked && !suggestion.expanded && <button className={css.unlock} onClick={unlock}>Unlock Bitwarden</button>}
       {suggestion.locked && suggestion.expanded && <form onSubmit={submit}>
