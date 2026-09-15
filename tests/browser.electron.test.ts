@@ -667,16 +667,24 @@ test('pane address bars navigate independently and leave window switching availa
   await address.fill('edited-second-pane')
   await address.press('ArrowRight')
   await expect(address).toHaveValue(`${url}/edited-second-pane`)
-  let page = application.context().pages().find(page => page.url() === `${url}/edited-second-pane`)!
-  await page.locator('header').click()
+  await address.press('Backspace')
+  await expect(secondPane.locator('[data-address-hint]')).toContainText(`${url}/edited-second-pane`)
+  await application.evaluate(({ webContents }) => {
+    let chrome = webContents.getFocusedWebContents()!
+    chrome.sendInputEvent({ type: 'keyDown', keyCode: 'l', modifiers: ['meta'] })
+    chrome.sendInputEvent({ type: 'keyUp', keyCode: 'l', modifiers: ['meta'] })
+  })
+  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd, length: input.value.length } })).toEqual({ start: 0, end: `${url}/edited-second-pan`.length, length: `${url}/edited-second-pan`.length })
+  await address.press('Enter')
   await expect(address).toHaveCount(0)
+  await expect.poll(async () => (await cli('tab.list', { pane: second.id })).find((tab: { id: string }) => tab.id === second.activeTabId)?.url).toBe(`${url}/edited-second-pan`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill(`${url}/unsaved`)
   await status.getByRole('button', { name: '2:other', exact: true }).click()
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(other.id)
   await expect(chrome.getByRole('textbox', { name: 'URL or search', exact: true })).toHaveCount(0)
   await status.getByRole('button', { name: '1:127.0.0.1', exact: true }).click()
-  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
+  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pan`)
   await cli('detach-client', { client: client.id })
 })
 
