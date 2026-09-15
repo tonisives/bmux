@@ -6,12 +6,13 @@ import { createExtensionSessionStorage } from './extension-session-storage'
 type ExtensionEvent = { extension: Extension; sender: { getURL?: () => string; scriptURL?: string } }
 type Internals = { ctx: {
   router: { apiHandler: () => (name: string, callback: (event: ExtensionEvent, ...args: any[]) => unknown, options: { permission: string }) => void; sendEvent: (id: string, name: string, ...args: unknown[]) => void }
-  store: { tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; setActiveTab: (contents: WebContents) => void }
+  store: { tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; windowDetailsCache: Map<number, unknown>; setActiveTab: (contents: WebContents) => void }
 } }
 
 // Adapter for the pinned 4.9.0 package. The preload patch registers these API calls.
 export let createExtensionCompatibility = (session: Session, options: Omit<ChromeExtensionOptions, 'license' | 'session'>) => {
-  let api = new ElectronChromeExtensions({ ...options, session, license: 'GPL-3.0' })
+  let syncing = false
+  let api = new ElectronChromeExtensions({ ...options, selectTab: (tab, window) => { if (!syncing) options.selectTab?.(tab, window) }, session, license: 'GPL-3.0' })
   let { ctx } = api as unknown as Internals
   let storage = createExtensionSessionStorage()
   let handle = ctx.router.apiHandler()
@@ -32,15 +33,20 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
   register('setAccessLevel', (_id, details) => { if (details?.accessLevel !== 'TRUSTED_CONTEXTS') throw new Error('Only TRUSTED_CONTEXTS session storage is supported') })
   session.extensions.on('extension-unloaded', (_event, extension) => storage.unload(extension.id))
   let track = (contents: WebContents, parent: BaseWindow, selected = false) => {
-    let oldParent = ctx.store.tabToWindow.get(contents)
-    if (!oldParent) api.addTab(contents, parent)
-    else if (oldParent !== parent) {
-      if (ctx.store.windowToActiveTab.get(oldParent) === contents) ctx.store.windowToActiveTab.delete(oldParent)
-      ctx.store.tabToWindow.set(contents, parent)
-      ctx.store.addWindow(parent)
-      ctx.store.tabDetailsCache.delete(contents.id)
-    }
-    if (selected) ctx.store.setActiveTab(contents)
+    syncing = true
+    try {
+      let oldParent = ctx.store.tabToWindow.get(contents)
+      if (!oldParent) api.addTab(contents, parent)
+      else if (oldParent !== parent) {
+        if (ctx.store.windowToActiveTab.get(oldParent) === contents) ctx.store.windowToActiveTab.delete(oldParent)
+        ctx.store.windowDetailsCache.delete(oldParent.id)
+        ctx.store.tabToWindow.set(contents, parent)
+        ctx.store.addWindow(parent)
+        ctx.store.tabDetailsCache.delete(contents.id)
+      }
+      if (selected) ctx.store.setActiveTab(contents)
+      ctx.store.windowDetailsCache.delete(parent.id)
+    } finally { syncing = false }
   }
   return { api, track }
 }

@@ -22,6 +22,7 @@ content scripts. Bitwarden provides the passkey UI; this does not add Chrome's
 phone QR chooser to Electron. Vault authentication and passkey signing require
 a manual check with your account; the automated smoke test stops at Bitwarden's
 email login screen and does not access a real vault.
+Bitwarden registers its passkey scripts only after an account is signed in.
 
 For other unpacked extensions, use `extension load /absolute/path`. The directory
 must contain `manifest.json` and remain at that path between launches. Packaged

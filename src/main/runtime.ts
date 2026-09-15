@@ -57,7 +57,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === focusedClientId)
       let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
       if (!pane || pane.profileId !== profileId) throw new Error('Select a pane in the extension profile first')
-      let tab = await execute({ method: 'tab.create', args: { pane: pane.id, url: details.url ?? 'about:blank', background: details.active === false } }) as { id: string }
+      let tab = await execute({ method: 'tab.create', args: { pane: pane.id, url: details.url ?? 'about:blank', ...(details.active !== false ? { client: client!.id } : {}) } }) as { id: string }
       let live = tabs.get(tab.id)!
       return [live.view.webContents, live.parent]
     },
