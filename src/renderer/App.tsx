@@ -11,11 +11,12 @@ import { windowCloseBehavior } from '../shared/window-close'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
-type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { state: PublicState; control: Control | null; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
+  let [addressFocusVersion, setAddressFocusVersion] = useState(0)
   let [message, setMessage] = useState('')
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
@@ -48,7 +49,7 @@ export let App = () => {
       }
       accept(current)
     }
-    if (control === 'address') void run('focus-ui')
+    if (control === 'address') { void run('focus-ui'); setAddressFocusVersion(version => version + 1) }
     setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
@@ -88,7 +89,7 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
-  let context = { state, control, message, onMessage: setMessage, run, show, dismiss, acknowledgeDownload, acknowledgedDownloads }
+  let context = { state, control, addressFocusVersion, message, onMessage: setMessage, run, show, dismiss, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -273,8 +274,10 @@ let CommandPrompt = () => {
     </section></>
 }
 
+let isUrlInput = (value: string) => /^[a-z][a-z\d+.-]*:/i.test(value) || /^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value) || (!/\s/.test(value) && value.includes('.'))
+
 let AddressPrompt = () => {
-  let { state, run, dismiss, message, onMessage } = useUI()
+  let { state, run, dismiss, message, onMessage, addressFocusVersion } = useUI()
   let { client, pane, tab, profile } = selection(state)
   let [index, setIndex] = useState(0)
   let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
@@ -283,7 +286,7 @@ let AddressPrompt = () => {
   let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
+  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [addressFocusVersion])
   let results = hasInput ? (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 6) : []
   let suggestion = results[index]?.url
   let hint = suggestion && suggestion !== text ? (suggestion.toLowerCase().startsWith(text.toLowerCase()) ? suggestion.slice(text.length) : ` → ${suggestion}`) : ''
@@ -308,7 +311,7 @@ let AddressPrompt = () => {
     dismiss()
     void run('focus-page', { client: client!.id })
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(suggestion ?? text) }
+  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(isUrlInput(text) ? text : suggestion ?? text) }
   let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.url!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
