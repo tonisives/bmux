@@ -165,12 +165,14 @@ export let createFrameCosmetics = (options: Options) => {
     close: () => {
       if (closed) return
       closed = true; clearTimeout(timer)
-      options.contents.debugger.off('message', message); options.contents.debugger.off('detach', detached)
-      options.contents.off('did-frame-finish-load', schedule); options.contents.off('did-frame-navigate', schedule)
+      if (!options.contents.isDestroyed()) {
+        options.contents.debugger.off('message', message); options.contents.debugger.off('detach', detached)
+        options.contents.off('did-frame-finish-load', schedule); options.contents.off('did-frame-navigate', schedule)
+        // This owner is disposed only when its tab closes. Release the whole debugger
+        // once; detaching an already-removed child inside its event can reenter CDP.
+        if (options.contents.debugger.isAttached()) options.contents.debugger.detach()
+      }
       sessions.clear()
-      // This owner is disposed only when its tab closes. Release the whole debugger
-      // once; detaching an already-removed child inside its event can reenter CDP.
-      if (options.contents.debugger.isAttached()) options.contents.debugger.detach()
     },
   }
 }

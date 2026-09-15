@@ -24,7 +24,7 @@ import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-too
 import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
 
-type LiveTab = { view: WebContentsView; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
+type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -81,7 +81,7 @@ export let createRuntime = (dataDirectory: string) => {
     defaults: { adblock: browserSettings().adblock, darkMode: browserSettings().darkMode },
     filters: filters.status(), scripts: pageTools?.list() ?? [],
     tabs: Object.fromEntries([...tabs].map(([tabId, live]) => {
-      let url = live.view.webContents.isDestroyed() ? '' : live.view.webContents.getURL()
+      let url = live.contents.isDestroyed() ? '' : live.contents.getURL()
       let { pane } = tabById(model, tabId)
       return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), ...siteSettings(browserSettings(), pane.profileId, url), ...filters!.counts(tabId) }]
     })),
@@ -93,7 +93,7 @@ export let createRuntime = (dataDirectory: string) => {
     let tabId = target.tabId ?? (client?.paneId ? paneById(model, client.paneId).pane.activeTabId : undefined)
     if (!tabId) return { clientId: client?.id }
     let { tab, pane, window, session } = tabById(model, tabId)
-    let contents = tabs.get(tabId)?.view.webContents
+    let contents = tabs.get(tabId)?.contents
     return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, tabId: tab.id, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
   }
   let pluginSelected = (context: PluginContext) => {
@@ -118,12 +118,12 @@ export let createRuntime = (dataDirectory: string) => {
     let suggestion = !overlays.has(clientId) ? current.passwordSuggestions : undefined
     let tab = suggestion ? tabs.get(suggestion.tabId) : undefined
     let page = suggestion ? live.bounds.find(bounds => bounds.tabId === suggestion.tabId) : undefined
-    if (!suggestion || !page || !tab || tab.view.webContents.isDestroyed()) {
+    if (!suggestion || !page || !tab || tab.contents.isDestroyed()) {
       if (live.popup.webContents.isFocused() && live.window.isFocused()) live.chrome.webContents.focus()
       live.popup.setVisible(false)
       return
     }
-    live.popup.setBounds(passwordPopupBounds(page, suggestion, tab.view.webContents.getZoomFactor()))
+    live.popup.setBounds(passwordPopupBounds(page, suggestion, tab.contents.getZoomFactor()))
     if (live.window.contentView.children.at(-1) !== live.popup) live.window.contentView.addChildView(live.popup)
     live.popup.setVisible(true)
   }
@@ -136,7 +136,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.permissionPopup.webContents.isFocused() && live.window.isFocused()) {
         let client = model.clients.find(client => client.id === clientId)
         let tab = client?.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
-        if (tab?.parent === live.window && !overlays.has(clientId)) tab.view.webContents.focus()
+        if (tab?.parent === live.window && !overlays.has(clientId)) tab.contents.focus()
         else live.chrome.webContents.focus()
       }
       live.permissionPopup.setVisible(false)
@@ -211,7 +211,7 @@ export let createRuntime = (dataDirectory: string) => {
       let key = `${profileId}|${origin}|${permission}`
       let known = permissionGrants.get(key)
       if (known !== undefined) { reply(known); return }
-      let tabId = [...tabs].find(([, live]) => live.view.webContents.id === contents.id)?.[0] ?? ''
+      let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''
       let request = { id: id('permission'), profileId, origin, permission, tabId, reply }
       permissions.set(request.id, request)
       publish()
@@ -240,8 +240,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
     let live = tabs.get(tabId)
-    if (!live || live.view.webContents.isDestroyed()) throw new Error(`Tab ${tabId} is closed`)
-    let debuggerApi = live.view.webContents.debugger
+    if (!live || live.contents.isDestroyed()) throw new Error(`Tab ${tabId} is closed`)
+    let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     return debuggerApi.sendCommand(method, params, sessionId)
   }
@@ -312,7 +312,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (automatedContents.has(contents.id)) { contents.setIgnoreMenuShortcuts(true); return }
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
-      if (!focused || (focused.chrome.webContents !== contents && focused.popup.webContents !== contents && focused.permissionPopup.webContents !== contents && ![...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === focused.window))) return
+      if (!focused || (focused.chrome.webContents !== contents && focused.popup.webContents !== contents && focused.permissionPopup.webContents !== contents && ![...tabs.values()].some(tab => tab.contents === contents && tab.parent === focused.window))) return
       if (input.key === 'Escape' && contents !== focused.chrome.webContents && bitwarden?.suggestions(focusedClientId)) {
         event.preventDefault(); bitwarden.dismiss(); void execute({ method: 'focus-page', args: { client: focusedClientId } }).catch(reportError); return
       }
@@ -344,9 +344,9 @@ export let createRuntime = (dataDirectory: string) => {
       // Electron emits back/forward here, although its input types only list three buttons.
       let button = String(mouse.button)
       if (!['back', 'forward'].includes(button) || automatedContents.has(contents.id)) return
-      let owner = [...clients.values()].find(client => client.window.isFocused() && (client.chrome.webContents === contents || [...tabs.values()].some(tab => tab.view.webContents === contents && tab.parent === client.window)))
+      let owner = [...clients.values()].find(client => client.window.isFocused() && (client.chrome.webContents === contents || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === client.window)))
       if (!owner) return
-      let tabId = [...tabs].find(([, tab]) => tab.view.webContents === contents)?.[0]
+      let tabId = [...tabs].find(([, tab]) => tab.contents === contents)?.[0]
       if (!tabId) {
         let client = model.clients.find(client => clients.get(client.id) === owner)
         tabId = client?.paneId ? paneById(model, client.paneId).pane.activeTabId : undefined
@@ -365,9 +365,9 @@ export let createRuntime = (dataDirectory: string) => {
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
-    let live: LiveTab = { view, parent, disposed: false }
-    tabs.set(tabId, live)
     let contents = view.webContents
+    let live: LiveTab = { view, contents, parent, disposed: false }
+    tabs.set(tabId, live)
     let bootstrapping = !popupOptions
     let ready = (pageTools?.attach(tabId, pane.profileId, contents, !popupOptions) ?? Promise.resolve()).finally(() => { bootstrapping = false })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
@@ -386,6 +386,12 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('did-navigate-in-page', (_event, url, mainFrame) => { if (mainFrame) bitwarden?.navigation(tabId, url, true) })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
+    contents.once('destroyed', () => {
+      if (live.disposed || shuttingDown || tabs.get(tabId) !== live) return
+      let { tab, pane, window } = tabById(model, tabId)
+      if (tab.openerTabId && pane.tabs.length === 1 && window.panes.length === 1) void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError)
+      else void execute({ method: 'tab.close', args: { tab: tab.id } }).catch(reportError)
+    })
     contents.on('render-process-gone', () => { bitwarden?.cancel(tabId); invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
@@ -431,9 +437,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
       if (!options) { changed(); return undefined }
       let popup = createLiveTab(added.id, false, options)
-      if (!options.webContents) void popup.view.webContents.loadURL(url, loadOptions).catch(reportError)
+      if (!options.webContents) void popup.contents.loadURL(url, loadOptions).catch(reportError)
       changed()
-      return popup.view.webContents
+      return popup.contents
     }
     contents.setWindowOpenHandler(details => ({
       action: 'allow', outlivesOpener: true,
@@ -480,7 +486,7 @@ export let createRuntime = (dataDirectory: string) => {
     return live
   }
   let keepClientFocus = (live: LiveTab) => {
-    if (!live.parent.isDestroyed() && live.parent.isFocused() && !live.view.webContents.isDestroyed() && live.view.webContents.isFocused()) {
+    if (!live.parent.isDestroyed() && live.parent.isFocused() && !live.contents.isDestroyed() && live.contents.isFocused()) {
       let client = [...clients.values()].find(client => client.window === live.parent)
       client?.chrome.webContents.focus()
     }
@@ -494,8 +500,9 @@ export let createRuntime = (dataDirectory: string) => {
     if (live) {
       keepClientFocus(live)
       live.disposed = true
-      if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
-      if (!live.view.webContents.isDestroyed()) live.view.webContents.close({ waitForBeforeUnload: false })
+      let destroyed = live.contents.isDestroyed()
+      if (!destroyed && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
+      if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
     }
     for (let [requestId, request] of permissions) if (request.tabId === tabId) { request.reply(false); permissions.delete(requestId) }
@@ -518,12 +525,12 @@ export let createRuntime = (dataDirectory: string) => {
     // Preview work must never hold up detaching or attaching native views.
     if (loading[tabId] || tabQueues.has(tabId) || snapshotPending.has(tabId)) return
     snapshotPending.add(tabId)
-    let url = live.view.webContents.getURL()
+    let url = live.contents.getURL()
     void Promise.race([
       cdp(tabId, 'Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false }),
       sleep(800).then(() => { throw new Error('Preview capture timed out') }),
     ]).then(result => {
-      if (result.data && tabs.get(tabId) === live && !live.view.webContents.isDestroyed() && live.view.webContents.getURL() === url) {
+      if (result.data && tabs.get(tabId) === live && !live.contents.isDestroyed() && live.contents.getURL() === url) {
         snapshots[tabId] = { image: `data:image/jpeg;base64,${result.data}`, capturedAt: Date.now() }; publish()
       }
     }).catch(() => undefined).finally(() => snapshotPending.delete(tabId))
@@ -572,7 +579,7 @@ export let createRuntime = (dataDirectory: string) => {
         if (bounds && bounds.width > 0 && bounds.height > 0) {
           pointerTarget = undefined
           let live = tabs.get(pane.activeTabId)
-          if (live?.parent === owner.window) live.view.webContents.focus()
+          if (live?.parent === owner.window) live.contents.focus()
           let content = owner.window.getContentBounds()
           try { movePointer({ x: Math.round(content.x + bounds.x + bounds.width / 2), y: Math.round(content.y + bounds.y + bounds.height / 2) }) }
           catch (error) { reportError(error) }
@@ -625,7 +632,7 @@ export let createRuntime = (dataDirectory: string) => {
         if (owner.popupFocused && bitwarden?.suggestions(client.id)) { popup.webContents.focus(); return }
         if (webContents.getFocusedWebContents()) return
         let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
-        if (owner.pageFocused && live?.parent === window) live.view.webContents.focus()
+        if (owner.pageFocused && live?.parent === window) live.contents.focus()
         else chrome.webContents.focus()
       }).catch(reportError)
     })
@@ -716,7 +723,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'browser.set') {
       if (!configuration) throw new Error('Configuration is not ready')
       let tabId = required(args, 'tab'), { pane } = tabById(model, tabId)
-      let url = tabs.get(tabId)?.view.webContents.getURL() ?? '', origin = pageOrigin(url)
+      let url = tabs.get(tabId)?.contents.getURL() ?? '', origin = pageOrigin(url)
       let setting = required(args, 'setting'), scope = args.scope ?? 'site'
       if (!['adblock', 'darkMode'].includes(setting) || !['site', 'profile', 'global'].includes(String(scope))) throw new Error('Use adblock or darkMode with site, profile, or global scope')
       if (scope === 'site' && !origin) throw new Error('Open an http(s) page first')
@@ -770,7 +777,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (client.id === focusedClientId) {
         let owner = clients.get(client.id)!
         owner.popupFocused = false
-        if (live?.parent === owner.window) live.view.webContents.focus()
+        if (live?.parent === owner.window) live.contents.focus()
         else owner.chrome.webContents.focus()
       }
       return null
@@ -901,7 +908,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {
         let pane = paneById(model, client.paneId).pane
         let live = tabs.get(pane.activeTabId), owner = clients.get(client.id)!
-        if (live?.parent === owner.window) live.view.webContents.focus()
+        if (live?.parent === owner.window) live.contents.focus()
         else owner.chrome.webContents.focus()
         if (args.movePointer === true && client.paneId !== previousPaneId) pointerTarget = { clientId: client.id, paneId: client.paneId, expires: Date.now() + 1000, origin: screen.getCursorScreenPoint() }
       }
@@ -1042,7 +1049,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'quit') { setTimeout(() => app.quit(), 100); return { quitting: true } }
     if (method === 'find') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = tabs.get(tabId)?.view.webContents
+      let contents = tabs.get(tabId)?.contents
       if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
       let text = String(args.text ?? '')
       if (!text) { contents.stopFindInPage('clearSelection'); delete findResults[tabId]; publish(); return { text } }
@@ -1054,7 +1061,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = tabs.get(tabId)?.view.webContents
+      let contents = tabs.get(tabId)?.contents
       if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
       delete crashes[tabId]
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
@@ -1086,7 +1093,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.view.webContents.loadURL(url) }).catch(() => undefined).finally(() => {
+      void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.contents.loadURL(url) }).catch(() => undefined).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (!live.disposed) void scheduleVisuals()
@@ -1100,7 +1107,7 @@ export let createRuntime = (dataDirectory: string) => {
     return serializeTab(tabId, async () => {
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane } = tabById(model, tabId)
-      let contents = tabs.get(tabId)!.view.webContents
+      let contents = tabs.get(tabId)!.contents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
       contents.setBackgroundThrottling(false)
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
@@ -1180,10 +1187,10 @@ export let createRuntime = (dataDirectory: string) => {
     await settingsReady
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
-      let entry = [...tabs].find(([, live]) => live.view.webContents.id === contentsId)
-      return entry ? { tabId: entry[0], url: entry[1].view.webContents.getURL() } : undefined
+      let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
+      return entry && !entry[1].contents.isDestroyed() ? { tabId: entry[0], url: entry[1].contents.getURL() } : undefined
     } })
-    pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => live.view.webContents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
+    pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     bitwarden = createBitwarden({ context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, changed: publish, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     powerMonitor.on('lock-screen', lockVault)
@@ -1196,7 +1203,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!focusedClientId) return
       if (overlays.has(focusedClientId)) { bitwarden?.clearSuggestions(); return }
       let context = pluginContext({ clientId: focusedClientId })
-      let contents = context.tabId ? tabs.get(context.tabId)?.view.webContents : undefined
+      let contents = context.tabId ? tabs.get(context.tabId)?.contents : undefined
       let owner = clients.get(focusedClientId)
       if (owner?.popup.webContents.isFocused()) return
       if (contents && !contents.isDestroyed() && owner?.pageFocused) void bitwarden?.suggest(context)
