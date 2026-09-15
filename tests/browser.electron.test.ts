@@ -189,6 +189,43 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(await cli('eval', { tab: botTab.id, expression: 'localStorage.getItem("profile")' })).toBe('bot')
 })
 
+test('a renderer-closed popup does not crash background page polling', async () => {
+  let reportedErrors: string[] = []
+  let stderr = application.process().stderr
+  let report = (chunk: Buffer) => reportedErrors.push(String(chunk))
+  stderr?.on('data', report)
+  await application.evaluate(() => {
+    let runtime = globalThis as any
+    runtime.fixtureUncaughtErrors = []
+    runtime.fixtureUncaughtMonitor = (error: Error) => runtime.fixtureUncaughtErrors.push(error.stack ?? error.message)
+    process.on('uncaughtExceptionMonitor', runtime.fixtureUncaughtMonitor)
+  })
+  try {
+    let session = await cli('new-session', { name: 'renderer-close' })
+    let opener = session.windows[0].panes[0].tabs[0]
+    await cli('navigate', { tab: opener.id, url })
+    let before = await cli('list-windows', { session: session.id })
+    await cli('eval', { tab: opener.id, expression: `window.open(${JSON.stringify(`${url}/popup`)}, '_blank'); true` })
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
+    let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
+    let popup = popupWindow.panes[0].tabs[0]
+    await cli('wait', { tab: popup.id, selector: '#text' })
+    await cli('eval', { tab: popup.id, expression: 'setTimeout(() => window.close(), 0); true' })
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length)
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    expect(await application.evaluate(() => (globalThis as any).fixtureUncaughtErrors)).toEqual([])
+    expect(reportedErrors.join('')).not.toContain('bmux:')
+  } finally {
+    stderr?.off('data', report)
+    await application.evaluate(() => {
+      let runtime = globalThis as any
+      process.off('uncaughtExceptionMonitor', runtime.fixtureUncaughtMonitor)
+      delete runtime.fixtureUncaughtMonitor
+      delete runtime.fixtureUncaughtErrors
+    })
+  }
+})
+
 test('automatic window names follow the active pane and tab and stop after an explicit rename', async () => {
   let session = await cli('new-session', { name: 'automatic-window-names' })
   let window = session.windows[0], tab = window.panes[0].tabs[0]
