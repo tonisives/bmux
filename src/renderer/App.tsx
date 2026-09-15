@@ -243,7 +243,7 @@ let CommandPrompt = () => {
 let AddressPrompt = () => {
   let { state, run, dismiss, message, onMessage } = useUI()
   let { client, pane, tab, profile } = selection(state)
-  let [index, setIndex] = useState(-1)
+  let [index, setIndex] = useState(0)
   let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
@@ -251,7 +251,14 @@ let AddressPrompt = () => {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
   let results = (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 6)
-  let change = (event: ChangeEvent<HTMLInputElement>) => { setText(event.target.value); setIndex(-1) }
+  let suggestion = results[index]?.url
+  let hint = suggestion && suggestion !== text ? (suggestion.toLowerCase().startsWith(text.toLowerCase()) ? suggestion.slice(text.length) : ` → ${suggestion}`) : ''
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setText(event.target.value); setIndex(0) }
+  let complete = () => {
+    if (!suggestion || suggestion === text) return false
+    setText(suggestion); setIndex(-1)
+    return true
+  }
   let navigate = async (url: string) => {
     if (!url.trim() || busy) return
     setBusy(true)
@@ -267,17 +274,20 @@ let AddressPrompt = () => {
     dismiss()
     void run('focus-page', { client: client!.id })
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(results[index]?.url ?? text) }
+  let submit = (event: FormEvent) => { event.preventDefault(); if (!complete()) void navigate(text) }
   let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.url!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
+    if (event.key === 'ArrowRight' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === text.length && event.currentTarget.selectionEnd === text.length && complete()) {
+      event.preventDefault(); return
+    }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       setIndex(current => Math.max(-1, Math.min(results.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1))))
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); void run('focus-page', { client: client!.id }) }
   }
-  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="list" aria-controls="url-history" aria-activedescendant={results[index] ? `url-history-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><div className={css.addressHint} data-address-hint aria-hidden="true"><span>{text}</span>{hint}</div><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-controls="url-history" aria-activedescendant={results[index] ? `url-history-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : hint ? '→/Enter fill · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && <div id="url-history" role="listbox" aria-label="URL history" className={css.urlHistory}>{results.map((entry, position) => <button key={entry.url} id={`url-history-${position}`} type="button" role="option" aria-selected={position === index} data-url={entry.url} onClick={choose} disabled={busy}><strong>{entry.title}</strong><span>{entry.url}</span></button>)}</div>}
   </div>
 }
