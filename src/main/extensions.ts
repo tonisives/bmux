@@ -4,6 +4,7 @@ import type { ChromeExtensionOptions } from 'electron-chrome-extensions'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createExtensionCompatibility } from './extension-compatibility'
+import { findExtension } from './extension-lookup'
 
 type Entry = { profile: string; path: string; id?: string; error?: string }
 
@@ -109,7 +110,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
   let open = async (profile: string, id: string, activate: boolean) => {
     let session = await getSession(profile)
     let all = session.extensions.getAllExtensions()
-    let extension = all.find(item => item.id === id || item.name.toLowerCase() === id.toLowerCase())
+    let extension = findExtension(all, id)
     if (!extension) throw new Error('Extension is not installed in this profile')
     let manifest = extension.manifest as { action?: { default_popup?: string }; browser_action?: { default_popup?: string } }
     let popupPath = manifest.action?.default_popup ?? manifest.browser_action?.default_popup
