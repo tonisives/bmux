@@ -656,6 +656,7 @@ test('pane address bars navigate independently and leave window switching availa
   await address.press('Escape')
   await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
+  await expect(secondPane.getByRole('listbox', { name: 'URL history' })).toHaveCount(0)
   await address.fill('edited-second-pane')
   await expect(secondPane.getByRole('listbox', { name: 'URL history' })).toBeVisible()
   await expect(secondPane.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
@@ -957,7 +958,7 @@ test('permission corner popup leaves the native page interactive and reopens for
   await cli('detach-client', { client: client.id })
 })
 
-test('new panes focus URL entry and suggest persistent profile history', async () => {
+test('URL history appears only after input and remains scoped to the pane profile', async () => {
   let session = await cli('new-session', { name: 'History suggestions' })
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
@@ -967,9 +968,9 @@ test('new panes focus URL entry and suggest persistent profile history', async (
   let created = await cli('split-window', { pane: pane.id, client: client.id })
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
-  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
+  await expect(chrome.getByRole('listbox', { name: 'URL history' })).toHaveCount(0)
   await address.fill('history-suggestion')
-  await expect(chrome.getByRole('option')).toHaveCount(1)
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await cli('focus-page', { client: client.id })
   await application.evaluate(({ webContents }) => {
     let page = webContents.getFocusedWebContents()!
@@ -978,6 +979,8 @@ test('new panes focus URL entry and suggest persistent profile history', async (
   })
   await expect(address).toHaveCount(0)
   await chrome.locator(`[data-pane-id="${created.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+  await expect(address).toHaveValue('')
+  await expect(chrome.getByRole('listbox', { name: 'URL history' })).toHaveCount(0)
   await address.fill('history-suggestion')
   await expect(chrome.getByRole('option')).toHaveCount(1)
   await address.press('ArrowDown')

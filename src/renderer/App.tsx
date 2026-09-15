@@ -278,15 +278,16 @@ let AddressPrompt = () => {
   let { client, pane, tab, profile } = selection(state)
   let [index, setIndex] = useState(0)
   let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
+  let [hasInput, setHasInput] = useState(false)
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
-  let results = (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 6)
+  let results = hasInput ? (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 6) : []
   let suggestion = results[index]?.url
   let hint = suggestion && suggestion !== text ? (suggestion.toLowerCase().startsWith(text.toLowerCase()) ? suggestion.slice(text.length) : ` → ${suggestion}`) : ''
-  let change = (event: ChangeEvent<HTMLInputElement>) => { setText(event.target.value); setIndex(0) }
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setText(event.target.value); setHasInput(!!event.target.value.trim()); setIndex(0) }
   let complete = () => {
     if (!suggestion || suggestion === text) return false
     setText(suggestion); setIndex(-1)
