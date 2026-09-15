@@ -54,9 +54,9 @@ and result logging. Session storage is memory-only, scoped to each extension
 and profile, restricted to extension pages/workers, and cleared on unload or
 exit. It is never substituted with disk-backed `storage.local`.
 
-The GPL license in this branch is part of the proposed browser change. The
-private website repository is outside this change. The previous MIT copyright
-and permission notice is retained in `LICENSE-MIT`.
+The browser is distributed under GPL-3.0-only. The private website repository is
+outside this change. The previous MIT copyright and permission notice is retained
+in `LICENSE-MIT`.
 
 References: [Electron extension support](https://www.electronjs.org/docs/latest/api/extensions),
 [compatibility library](https://github.com/samuelmaddock/electron-browser-shell/tree/master/packages/electron-chrome-extensions),
