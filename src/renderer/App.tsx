@@ -297,7 +297,7 @@ let AddressPrompt = () => {
     dismiss()
     void run('focus-page', { client: client!.id })
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); if (!complete()) void navigate(text) }
+  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(suggestion ?? text) }
   let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.url!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
