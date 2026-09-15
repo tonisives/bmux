@@ -242,6 +242,7 @@ contain metadata or counts, never stored values. Calls bypass automation queues.
 Bundled plugins use bmux's embedded Node runtime, with no separate Node install.
 Local plugins remain OS processes with user privileges; see [Plugin authoring](plugins.md).
 Local plugins cannot shadow bundled IDs. Neither system loads Chrome Web Store
-extensions.
+extensions. The separate [experimental browser extension host](extensions.md)
+can install the official Bitwarden browser extension.
 
 Open `plugins`, `settings`, or `browser-tools` from the command prompt to see Tools status for the selected page: effective blocking, requests blocked since navigation, filter readiness, dark mode, and enabled script/plugin counts and errors. Choose Configure browser tools for site/profile/global controls and timestamped blocked-request history, or Manage plugins for plugin toggles and actions. Disabling blocking allows new requests; reload to retry resources already blocked.

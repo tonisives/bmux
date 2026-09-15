@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor, clipboard } from 'electron'
+import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, powerMonitor, clipboard } from 'electron'
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -23,6 +23,8 @@ import { passwordPopupBounds } from './password-popup'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
+import { createExtensions } from './extensions'
+import { installBitwardenExtension } from './bitwarden-extension'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
@@ -49,6 +51,46 @@ export let createRuntime = (dataDirectory: string) => {
   let tabs = new Map<string, LiveTab>()
   let hosts = new Map<string, BaseWindow>()
   let configuredProfiles = new Set<string>()
+  let extensionWindows = new Set<BrowserWindow>()
+  let extensions = createExtensions(dataDirectory, profileId => ({
+    createTab: async details => {
+      let client = model.clients.find(client => client.id === focusedClientId)
+      let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
+      if (!pane || pane.profileId !== profileId) throw new Error('Select a pane in the extension profile first')
+      let tab = await execute({ method: 'tab.create', args: { pane: pane.id, url: details.url ?? 'about:blank', ...(details.active !== false ? { client: client!.id } : {}) } }) as { id: string }
+      let live = tabs.get(tab.id)!
+      return [live.contents, live.parent]
+    },
+    selectTab: contents => {
+      let target = [...tabs].find(([, live]) => live.contents === contents)
+      if (target) { let { pane } = tabById(model, target[0]); if (pane.activeTabId !== target[0]) void execute({ method: 'tab.select', args: { tab: target[0] } }).catch(() => undefined) }
+    },
+    removeTab: contents => {
+      let target = [...tabs].find(([, live]) => live.contents === contents)
+      if (target && !contents.isDestroyed()) void execute({ method: 'tab.close', args: { tab: target[0] } }).catch(() => undefined)
+      if (!target) { let window = [...extensionWindows].find(window => !window.isDestroyed() && window.webContents === contents); window?.close() }
+    },
+    createWindow: async details => {
+      let url = Array.isArray(details.url) ? details.url[0] : details.url
+      if (!url) throw new Error('Extension window URL is required')
+      let parsed = new URL(url)
+      let session = browserSession(profileId)
+      if (parsed.protocol !== 'chrome-extension:' || !session.extensions.getExtension(parsed.hostname)) throw new Error('Only installed extension pages can open extension windows')
+      let window = new BrowserWindow({ show: false, width: Math.max(320, Math.min(1200, details.width ?? 420)), height: Math.max(240, Math.min(1000, details.height ?? 640)), webPreferences: { session, sandbox: true, contextIsolation: true, nodeIntegration: false } })
+      extensionWindows.add(window)
+      window.on('closed', () => extensionWindows.delete(window))
+      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      window.webContents.on('will-navigate', (event, target) => { let next = new URL(target); if (next.protocol !== parsed.protocol || next.hostname !== parsed.hostname) event.preventDefault() })
+      extensions.track(profileId, window.webContents, window, true)
+      try { await window.loadURL(url) } catch (error) { window.destroy(); throw error }
+      let client = model.clients.find(client => client.id === focusedClientId)
+      let active = client?.paneId && paneById(model, client.paneId).pane.profileId === profileId && clients.get(client.id)?.window.isFocused()
+      if (active && details.focused !== false) window.show(); else window.showInactive()
+      return window
+    },
+    removeWindow: window => { if (extensionWindows.has(window as BrowserWindow)) window.close() },
+    requestPermissions: async () => false,
+  }))
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
@@ -204,6 +246,7 @@ export let createRuntime = (dataDirectory: string) => {
     let session = electronSession.fromPartition(`persist:${profile.id}`)
     if (configuredProfiles.has(profileId)) return session
     configuredProfiles.add(profileId)
+    void extensions.attach(profileId, session).catch(() => undefined)
     filters?.attach(session, profileId)
     session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${profileId}|${origin}|${permission}`) === true)
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
@@ -368,8 +411,9 @@ export let createRuntime = (dataDirectory: string) => {
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false }
     tabs.set(tabId, live)
+    extensions.track(pane.profileId, contents, parent)
     let bootstrapping = !popupOptions
-    let ready = (pageTools?.attach(tabId, pane.profileId, contents, !popupOptions) ?? Promise.resolve()).finally(() => { bootstrapping = false })
+    let ready = Promise.all([extensions.attach(pane.profileId, contents.session), pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)]).finally(() => { bootstrapping = false })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { filters?.reset(tabId); delete findResults[tabId]; publish() } })
     contents.on('found-in-page', (_event, result) => {
@@ -567,6 +611,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
+      extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.activeTabId === tabId)
       if (target === viewer?.live.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
     }
     if (pointerTarget) {
@@ -682,6 +727,17 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method.startsWith('extension.')) {
+      let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined
+      let profile = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
+      browserSession(profile.id)
+      if (method === 'extension.list') return extensions.list(profile.id)
+      if (method === 'extension.load') return extensions.load(profile.id, required(args, 'path'))
+      if (method === 'extension.install-bitwarden') return extensions.load(profile.id, await installBitwardenExtension(dataDirectory))
+      if (method === 'extension.remove') return extensions.remove(profile.id, required(args, 'id'))
+      if (method === 'extension.open') return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId)
+      throw new Error('Unknown extension command')
+    }
     if (['bitwarden.select', 'bitwarden.prepare', 'bitwarden.unlock', 'bitwarden.refresh', 'bitwarden.dismiss'].includes(method)) {
       if (!sourceClientId || !bitwarden || !plugins || !configuration?.plugins['bmux.bitwarden']?.enabled) throw new Error('Trusted password UI required')
       let context = pluginContext({ clientId: sourceClientId })
@@ -1224,6 +1280,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    extensions.close()
+    for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
     pageTools?.close()
     filters?.close()
     plugins?.close()

@@ -41,6 +41,8 @@ Other:    permission list | permission respond ID [--allow]
 Plugins:  plugin list | plugin run ID/ACTION [-t TAB] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
+Extensions: extension list|load PATH|open ID|remove ID --profile PROFILE
+            extension install-bitwarden --profile PROFILE
 Advanced: rpc METHOD JSON_ARGS
 
 CLI browser actions never activate macOS windows. attach-session and activate-client do.
@@ -57,7 +59,7 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 
 let parse = () => {
   let command = argv.shift()
-  let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings', 'download'].includes(command) ? argv.shift() : null
+  let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings', 'download', 'extension'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next'])
@@ -85,6 +87,8 @@ let parse = () => {
   if (command === 'reload-scripts') return { method: 'browser.reload-scripts' }
   if (command === 'rpc') return { method: positional[0], args: JSON.parse(positional[1] ?? '{}') }
   let method = subcommand ? `${command}.${subcommand === 'new' ? 'create' : subcommand}` : command
+  if (method === 'extension.load') { if (!positional[0]) throw new Error('Extension path is required'); args.path = path.resolve(positional[0]) }
+  if (method === 'extension.open' || method === 'extension.remove') args.id = positional[0]
   let targetKeys = {
     'rename-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
     'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window',
