@@ -192,9 +192,7 @@ let CommandPrompt = () => {
       let behavior = windowCloseBehavior(session, window)
       if (behavior === 'confirm') { show(exact.control); return }
       setBusy(true)
-      let result = behavior === 'close-client'
-        ? await run('detach-client', { client: state.clientId })
-        : await run('kill-window', { client: state.clientId, window: window.id, confirm: true })
+      let result = await run('kill-window', { client: state.clientId, window: window.id, confirm: true })
       if (!mounted.current) return
       setBusy(false)
       if (result !== undefined) finish()
@@ -521,13 +519,22 @@ let SessionPicker = () => {
     setBusy(true)
     if (await run('new-session', { name: sessionName, client: state.clientId }) === undefined) setBusy(false)
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={css.row} data-picker-action onClick={begin}>New session</button>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={`${css.row} ${css.newSession}`} onClick={begin}>new session</button>}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
+  let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let active = selection(state).client?.sessionId === id
   let select = async () => { if (await run('switch-client', { client: state.clientId, session: id }) && active) dismiss() }
-  return <button className={css.row} onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button>
+  let ask = () => setConfirming(true)
+  let cancel = () => setConfirming(false)
+  let close = async () => {
+    if (busy) return
+    setBusy(true)
+    if (await run('kill-session', { session: id, confirm: true }) === undefined) setBusy(false)
+  }
+  if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  return <div className={css.sessionRow}><button className={css.row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 let TabPicker = () => {
   let { state } = useUI()

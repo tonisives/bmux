@@ -3,7 +3,7 @@ import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -305,7 +305,6 @@ export let createRuntime = (dataDirectory: string) => {
       let session = model.sessions.find(session => session.id === client.sessionId)!
       let window = session.windows.find(window => window.id === client.windowId)!
       let behavior = windowCloseBehavior(session, window)
-      if (behavior === 'close-client') { focused.window.close(); return }
       if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
     }
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
@@ -890,6 +889,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.sessions.some(item => item.id !== session.id && item.name === name)) throw new Error('Session name already exists')
       session.name = name; save(); return session
     }
+    if (method === 'kill-session') {
+      let session = resolve(model.sessions, args.session, 'Session')
+      if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
+      let next = removeSession(model, session)
+      changed(); await visualQueue; return { closed: session.id, selected: next.id }
+    }
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
     if (method === 'detach-client') { let client = resolve(model.clients, args.client, 'Client'); clients.get(client.id)?.window.close(); return { detached: client.id } }
     if (method === 'activate-client') {
@@ -1015,7 +1020,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (window.panes.reduce((count, pane) => count + pane.tabs.length, 0) > 1 && args.confirm !== true) throw new Error('Window contains multiple tabs; pass --confirm')
       let session = model.sessions.find(session => session.windows.includes(window))!
       session.windows = session.windows.filter(item => item !== window)
-      if (!session.windows.length) session.windows.push(newWindow('main', session.defaultProfileId, true))
+      if (!session.windows.length) removeSession(model, session)
       changed(); await visualQueue; return { closed: window.id }
     }
     if (method === 'save-layout') {
