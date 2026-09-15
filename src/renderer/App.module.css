@@ -41,7 +41,6 @@
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; padding: 20px; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .panel header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .panel header strong { font-weight: 500; color: #eceef2; }
-.panelActions { display: flex; gap: 16px; }
 .panel button { border: 0; background: transparent; }
 .panel p { color: #8e98a4; }
 .panel input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; }
@@ -52,6 +51,7 @@
 .row { display: block; padding: 7px 0; width: 100%; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .row[data-active="true"] { color: #d6dfcf; }
 .row[data-search-selected="true"] { background: #303b49; }
+.sessionBack { color: #bdc9b4; }
 .newSession { color: #87a9c4; }
 .sessionRow { display: flex; align-items: stretch; }
 .sessionRow > .row { flex: 1; min-width: 0; }

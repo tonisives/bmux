@@ -404,15 +404,12 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 }
 
 let Panel = ({ type }: { type: Control }) => {
-  let { state, run, dismiss } = useUI()
+  let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!['help', 'sessions', 'tabs', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
-  let client = selection(state).client
-  let previous = type === 'sessions' ? state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId)) : undefined
-  let back = () => { if (client && previous) void run('switch-client', { client: client.id, session: previous.id }) }
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
-    <header><strong>{title}</strong><div className={css.panelActions}>{type === 'sessions' && <button onClick={back} disabled={!previous} title={previous ? `Return to ${previous.name}` : 'No previous session'}>go back</button>}<button onClick={dismiss}>Close</button></div></header>
+    <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
     {type === 'help' && <HelpContent />}
     {type === 'plugins' && <PluginList />}
     {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
@@ -507,7 +504,11 @@ let SessionPicker = () => {
   let { state, run } = useUI()
   let [creating, setCreating] = useState(false), [name, setName] = useState(''), [busy, setBusy] = useState(false)
   let { ref, keys, input, query, change } = usePickerNavigation()
+  let client = selection(state).client
+  let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
+  let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
+  let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
   let begin = () => setCreating(true)
   let cancel = () => { setCreating(false); setName('') }
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
@@ -519,7 +520,7 @@ let SessionPicker = () => {
     setBusy(true)
     if (await run('new-session', { name: sessionName, client: state.clientId }) === undefined) setBusy(false)
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={`${css.row} ${css.newSession}`} onClick={begin}>new session</button>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.row} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={`${css.row} ${css.newSession}`} onClick={begin}>new session</button>}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
