@@ -11,11 +11,13 @@
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
 .statusIcon { width: 17px; height: 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .status .downloadButton { position: relative; overflow: visible; }
-.downloadProgress { animation: download-spin .9s linear infinite; }
-.downloadProgress circle { stroke-dasharray: 30 14; }
+.downloadProgressTrack { opacity: .3; }
+.downloadProgressValue { transform: rotate(-90deg); transform-origin: center; }
+.downloadProgressIndeterminate { animation: download-spin .9s linear infinite; }
+.downloadProgressIndeterminate .downloadProgressValue { stroke-dasharray: 30 70; }
 .downloadCount { position: absolute; top: -3px; right: -5px; min-width: 11px; padding: 0 2px; border-radius: 6px; background: #9ca3ad; color: #1b1f24; font: 8px/11px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 @keyframes download-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .downloadProgress { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
 .windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; }
 .windows::-webkit-scrollbar { display: none; }
 .windows button { flex-shrink: 0; }

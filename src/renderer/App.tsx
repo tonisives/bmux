@@ -113,8 +113,12 @@ let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
   </svg>
 }
 
-let DownloadStatusIcon = ({ progressing }: { progressing: boolean }) => progressing
-  ? <svg className={`${css.statusIcon} ${css.downloadProgress}`} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="progressing"><circle cx="10" cy="10" r="7" /></svg>
+let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; progress?: number }) => progressing
+  ? <svg className={`${css.statusIcon} ${progress === undefined ? css.downloadProgressIndeterminate : ''}`} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="progressing" data-download-progress={progress}>
+    <circle className={css.downloadProgressTrack} cx="10" cy="10" r="7" pathLength="100" />
+    <circle className={css.downloadProgressValue} cx="10" cy="10" r="7" pathLength="100" strokeDasharray={progress === undefined ? undefined : `${progress} ${100 - progress}`} />
+    <path d="M10 5v6m-2-2 2 2 2-2" />
+  </svg>
   : <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="idle"><path d="M10 2v10m-4-4 4 4 4-4M4 17h12" /></svg>
 
 let bridge = (window as unknown as { bmux: Bridge }).bmux
@@ -141,8 +145,14 @@ let Status = ({ message }: { message: string }) => {
   let activity = () => show('activity')
   let downloads = () => show('downloads')
   let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
-  let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused).length
-  let downloadTitle = progressingDownloads ? `${progressingDownloads} download${progressingDownloads === 1 ? '' : 's'} in progress` : 'Downloads'
+  let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused)
+  let progressTotal = progressingDownloads.reduce((total, item) => total + item.total, 0)
+  let downloadProgress = progressingDownloads.length > 0 && progressingDownloads.every(item => item.total > 0)
+    ? Math.min(100, Math.floor(progressingDownloads.reduce((received, item) => received + item.received, 0) / progressTotal * 100))
+    : undefined
+  let downloadTitle = progressingDownloads.length
+    ? `${progressingDownloads.length} download${progressingDownloads.length === 1 ? '' : 's'} in progress${downloadProgress === undefined ? '' : ` · ${downloadProgress}%`}`
+    : 'Downloads'
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
@@ -161,7 +171,7 @@ let Status = ({ message }: { message: string }) => {
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
     <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs" className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}<span>{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</span></button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
-    {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads > 0} />{progressingDownloads > 1 && <span className={css.downloadCount}>{progressingDownloads}</span>}</button>}
+    {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
