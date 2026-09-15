@@ -102,7 +102,11 @@
 
 .addressEditor { width: 100%; min-width: 0; }
 .addressEditor .prompt { min-height: 28px; }
-.addressEditor input { min-width: 0; }
+.addressInput { display: grid; flex: 1; min-width: 0; }
+.addressInput input, .addressHint { grid-area: 1 / 1; min-width: 0; }
+.addressInput input { width: 100%; z-index: 1; }
+.addressHint { overflow: hidden; color: #68717d; pointer-events: none; white-space: nowrap; }
+.addressHint span { visibility: hidden; }
 .urlHistory { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; padding-bottom: 4px; }
 .urlHistory button { display: flex; gap: 12px; padding: 5px 0; text-align: left; border: 0; border-radius: 0; background: transparent; }
 .urlHistory button:hover, .urlHistory button[aria-selected="true"] { background: #303844; }
