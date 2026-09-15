@@ -107,6 +107,21 @@ it('returns each client to its most recently visited surviving window after clos
   expect(client.windowHistory).toEqual([first.id])
 })
 
+it('keeps each client session history ordered by most recent selection', () => {
+  let model = initialModel(), first = model.sessions[0], second = newSession('second', first.defaultProfileId)
+  model.sessions.push(second)
+  let client = { id: 'client', sessionId: first.id, windowId: first.windows[0].id, paneId: first.windows[0].panes[0].id, width: 800, height: 600 }
+  model.clients.push(client)
+  repairClientSelections(model)
+  expect(model.clients[0].sessionHistory).toEqual([first.id])
+  client.sessionId = second.id
+  repairClientSelections(model)
+  expect(model.clients[0].sessionHistory).toEqual([second.id, first.id])
+  client.sessionId = first.id
+  repairClientSelections(model)
+  expect(model.clients[0].sessionHistory).toEqual([first.id, second.id])
+})
+
 it('removes a session and advances its clients to the next session', () => {
   let model = initialModel(), first = model.sessions[0], second = newSession('second', first.defaultProfileId), third = newSession('third', first.defaultProfileId)
   model.sessions.push(second, third)

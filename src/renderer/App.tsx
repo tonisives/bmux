@@ -407,12 +407,15 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 }
 
 let Panel = ({ type }: { type: Control }) => {
-  let { state, dismiss } = useUI()
+  let { state, run, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!['help', 'sessions', 'tabs', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
+  let client = selection(state).client
+  let previous = type === 'sessions' ? state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId)) : undefined
+  let back = () => { if (client && previous) void run('switch-client', { client: client.id, session: previous.id }) }
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
-    <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
+    <header><strong>{title}</strong><div className={css.panelActions}>{type === 'sessions' && <button onClick={back} disabled={!previous} title={previous ? `Return to ${previous.name}` : 'No previous session'}>go back</button>}<button onClick={dismiss}>Close</button></div></header>
     {type === 'help' && <HelpContent />}
     {type === 'plugins' && <PluginList />}
     {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}

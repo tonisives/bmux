@@ -117,6 +117,19 @@ test('session picker creates and attaches a named session', async () => {
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('Fresh workspace')
 })
 
+test('session picker goes back to the previously selected session', async () => {
+  let client = (await state()).clientId, previous = model.sessions[1]
+  await rpc('switch-client', { client, session: previous.id })
+  await rpc('switch-client', { client, session: session.id })
+  await open('sessions')
+  let panel = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+  let back = panel.getByRole('button', { name: 'go back', exact: true })
+  await expect(back).toHaveAttribute('title', `Return to ${previous.name}`)
+  await back.click()
+  await expect(panel).toHaveCount(0)
+  expect((await state()).model.clients.find((item: { id: string }) => item.id === client).sessionId).toBe(previous.id)
+})
+
 test('session picker reaches creation by keyboard and confirms session closing', async () => {
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
