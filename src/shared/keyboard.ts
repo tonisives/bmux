@@ -7,7 +7,7 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
     'Cmd+1': 'select-window-1', 'Cmd+2': 'select-window-2', 'Cmd+3': 'select-window-3',
     'Cmd+4': 'select-window-4', 'Cmd+5': 'select-window-5', 'Cmd+6': 'select-window-6',
     'Cmd+7': 'select-window-7', 'Cmd+8': 'select-window-8', 'Cmd+9': 'select-window-9',
-    'Cmd+F': 'find', 'Cmd+Ctrl+Alt+Shift+W': 'sessions', 'Cmd+[': 'back', 'Cmd+]': 'forward',
+    'CmdOrCtrl+F': 'find', 'Cmd+Ctrl+Alt+Shift+W': 'sessions', 'Cmd+[': 'back', 'Cmd+]': 'forward',
     'Cmd+Shift+[': 'previous-window', 'Cmd+Shift+]': 'next-window',
     'Ctrl+Tab': 'next-window', 'Ctrl+Shift+Tab': 'previous-window',
     'Cmd+=': 'zoom-in', 'Cmd+Shift+=': 'zoom-in', 'Cmd+-': 'zoom-out', 'Cmd+0': 'zoom-reset',
@@ -18,11 +18,12 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
 export let KEY_ACTIONS = new Set(['browser-tools', 'toggle-dark', 'toggle-adblock', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-window', 'close-pane', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'zoom-in', 'zoom-out', 'zoom-reset'])
 type KeyInput = { key: string; code?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean }
 let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ' }
-export let parseBinding = (binding: string) => {
+export let parseBinding = (binding: string, platform = process.platform) => {
   let parts = binding.toLowerCase().split('+'), key = parts.pop() ?? ''
   let modifiers = { meta: false, control: false, alt: false, shift: false }
   for (let modifier of parts) {
-    if (['cmd', 'command', 'meta', 'cmdorctrl', 'commandorcontrol'].includes(modifier)) modifiers.meta = true
+    if (['cmd', 'command', 'meta'].includes(modifier)) modifiers.meta = true
+    else if (['cmdorctrl', 'commandorcontrol'].includes(modifier)) modifiers[platform === 'darwin' ? 'meta' : 'control'] = true
     else if (['ctrl', 'control'].includes(modifier)) modifiers.control = true
     else if (['alt', 'option'].includes(modifier)) modifiers.alt = true
     else if (modifier === 'shift') modifiers.shift = true
@@ -32,8 +33,8 @@ export let parseBinding = (binding: string) => {
   if (!key || (key.length > 1 && !/^(escape|enter|tab|backspace|delete|left|right|up|down|home|end|pageup|pagedown|f(?:[1-9]|1\d|2[0-4]))$/.test(key))) throw new Error(`Invalid key binding: ${binding}`)
   return { ...modifiers, key }
 }
-export let matchesBinding = (binding: string, input: KeyInput) => {
-  let expected = parseBinding(binding)
+export let matchesBinding = (binding: string, input: KeyInput, platform = process.platform) => {
+  let expected = parseBinding(binding, platform)
   let physical: Record<string, string> = { BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '-', Comma: ',' }
   let key = physical[input.code ?? ''] ?? input.key.toLowerCase().replace(/^arrow/, '')
   return expected.key === key && expected.meta === !!input.meta && expected.control === !!input.control && expected.alt === !!input.alt && expected.shift === !!input.shift

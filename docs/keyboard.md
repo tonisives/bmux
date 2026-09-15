@@ -30,7 +30,7 @@ Common direct shortcuts:
 | Command+T / Command+W | New / close internal window; closing a session's last window removes the session |
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
 | Command+R | Reload |
-| Command+F | Find in page |
+| Command+F (macOS) / Control+F (Linux and Windows) | Find in page |
 | Hyper+W (Command+Control+Option+Shift+W) | Show sessions |
 | Command+Shift+W | Detach the client |
 | Command+, | Open settings |
@@ -80,7 +80,7 @@ keyboard:
     Cmd+T: new-window
     Cmd+W: close-window
     Cmd+Shift+W: detach
-    Cmd+F: find
+    CmdOrCtrl+F: find
     Cmd+Ctrl+Alt+Shift+W: sessions
     Cmd+,: settings
     Escape: stop
