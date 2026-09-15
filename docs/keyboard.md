@@ -100,4 +100,6 @@ Configured shortcuts take precedence over website shortcuts and native menu defa
 
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. Split actions are `split-right` and `split-down`. Assign any of them under `keyboard.shortcuts` or `keyboard.prefixBindings`.
 
+Window reordering actions are `move-window-left` and `move-window-right`. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; for example, `Cmd+ShiftLeft`. They run when the Shift key is released and are canceled if another key is pressed while it is held.
+
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.

@@ -15,9 +15,9 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
   },
   prefixBindings: { '1': 'select-window-1', '2': 'select-window-2', '3': 'select-window-3', '4': 'select-window-4', '5': 'select-window-5', '6': 'select-window-6', '7': 'select-window-7', '8': 'select-window-8', '9': 'select-window-9', ':': 'command', '?': 'help', c: 'new-window', n: 'next-window', p: 'previous-window', '%': 'split-right', '"': 'split-down', o: 'next-pane', z: 'toggle-pane-zoom', s: 'sessions', d: 'detach', ',': 'rename-window', r: 'rename-window', x: 'close-pane', '&': 'close-window', '$': 'rename-session', '(': 'previous-session', ')': 'next-session' },
 }
-export let KEY_ACTIONS = new Set(['browser-tools', 'toggle-dark', 'toggle-adblock', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-window', 'close-pane', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'zoom-in', 'zoom-out', 'zoom-reset'])
+export let KEY_ACTIONS = new Set(['browser-tools', 'toggle-dark', 'toggle-adblock', 'address', 'command', 'find', 'help', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-window', 'close-pane', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'move-window-left', 'move-window-right', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'zoom-in', 'zoom-out', 'zoom-reset'])
 type KeyInput = { key: string; code?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean }
-let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ' }
+let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ', leftshift: 'shiftleft', rightshift: 'shiftright' }
 export let parseBinding = (binding: string, platform = process.platform) => {
   let parts = binding.toLowerCase().split('+'), key = parts.pop() ?? ''
   let modifiers = { meta: false, control: false, alt: false, shift: false }
@@ -30,14 +30,16 @@ export let parseBinding = (binding: string, platform = process.platform) => {
     else throw new Error(`Unknown keyboard modifier: ${modifier}`)
   }
   key = named[key] ?? key
-  if (!key || (key.length > 1 && !/^(escape|enter|tab|backspace|delete|left|right|up|down|home|end|pageup|pagedown|f(?:[1-9]|1\d|2[0-4]))$/.test(key))) throw new Error(`Invalid key binding: ${binding}`)
+  if (!key || (key.length > 1 && !/^(escape|enter|tab|backspace|delete|left|right|up|down|home|end|pageup|pagedown|shiftleft|shiftright|f(?:[1-9]|1\d|2[0-4]))$/.test(key))) throw new Error(`Invalid key binding: ${binding}`)
   return { ...modifiers, key }
 }
+export let isModifierKeyBinding = (binding: string, platform = process.platform) => ['shiftleft', 'shiftright'].includes(parseBinding(binding, platform).key)
 export let matchesBinding = (binding: string, input: KeyInput, platform = process.platform) => {
   let expected = parseBinding(binding, platform)
-  let physical: Record<string, string> = { BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '-', Comma: ',' }
+  let physical: Record<string, string> = { BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '-', Comma: ',', ShiftLeft: 'shiftleft', ShiftRight: 'shiftright' }
   let key = physical[input.code ?? ''] ?? input.key.toLowerCase().replace(/^arrow/, '')
-  return expected.key === key && expected.meta === !!input.meta && expected.control === !!input.control && expected.alt === !!input.alt && expected.shift === !!input.shift
+  let shift = ['shiftleft', 'shiftright'].includes(key) ? false : !!input.shift
+  return expected.key === key && expected.meta === !!input.meta && expected.control === !!input.control && expected.alt === !!input.alt && expected.shift === shift
 }
 
 // Keep older config files working without exposing superseded tab actions.

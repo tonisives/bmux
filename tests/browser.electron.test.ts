@@ -835,7 +835,7 @@ test('window management shortcuts and keyboard session selection', async () => {
 
 test('accessibility preferences and custom window and pane shortcuts reload and survive restart', async () => {
   let config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    Cmd+ShiftLeft: move-window-left\n    Cmd+ShiftRight: move-window-right\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
   await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+2')
   await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
   await application.close(); await launch()
@@ -848,6 +848,23 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
     await cli('focus-page', { client: client.id })
     await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
+  let modifierKey = async (code: 'ShiftLeft' | 'ShiftRight', cancel = false) => {
+    await cli('activate-client', { client: client.id })
+    await cli('focus-page', { client: client.id })
+    await application.evaluate(({ webContents }, { code, cancel }) => {
+      let contents = webContents.getFocusedWebContents()!
+      let emit = (input: Record<string, unknown>) => (contents as any).emit('before-input-event', { preventDefault: () => undefined }, input)
+      emit({ type: 'keyDown', key: 'Shift', code, meta: true, control: false, alt: false, shift: true })
+      if (cancel) emit({ type: 'keyDown', key: 'x', code: 'KeyX', meta: true, control: false, alt: false, shift: true })
+      emit({ type: 'keyUp', key: 'Shift', code, meta: true, control: false, alt: false, shift: false })
+    }, { code, cancel })
+  }
+  await modifierKey('ShiftRight')
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([second.id, session.windows[0].id])
+  await modifierKey('ShiftLeft', true)
+  expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([second.id, session.windows[0].id])
+  await modifierKey('ShiftLeft')
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([session.windows[0].id, second.id])
   let historyTabs = [session.windows[0].panes[0].activeTabId, second.panes[0].activeTabId]
   for (let tab of historyTabs) {
     await cli('navigate', { tab, url: `${url}/shortcut-history-one` })

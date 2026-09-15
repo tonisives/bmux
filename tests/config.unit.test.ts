@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { configPath, createConfig, defaultConfigText, parseConfig } from '../src/main/config'
-import { matchesBinding } from '../src/shared/keyboard'
+import { isModifierKeyBinding, matchesBinding } from '../src/shared/keyboard'
 
 it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaultConfig = parseConfig(defaultConfigText())
@@ -33,6 +33,10 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(matchesBinding('Cmd+Shift+\\', { key: '|', code: 'Backslash', meta: true, shift: true })).toBe(true)
   expect(matchesBinding('Cmd+Ctrl+Alt+Shift+W', { key: 'w', meta: true, control: true, alt: true, shift: true })).toBe(true)
   expect(matchesBinding('Cmd+R', { key: 'r', meta: true, shift: true })).toBe(false)
+  expect(isModifierKeyBinding('Cmd+ShiftLeft')).toBe(true)
+  expect(matchesBinding('Cmd+ShiftLeft', { key: 'Shift', code: 'ShiftLeft', meta: true, shift: true })).toBe(true)
+  expect(matchesBinding('Cmd+ShiftLeft', { key: 'Shift', code: 'ShiftRight', meta: true, shift: true })).toBe(false)
+  expect(matchesBinding('Cmd+ShiftRight', { key: 'Shift', code: 'ShiftRight', meta: true, shift: true })).toBe(true)
   expect(matchesBinding('CmdOrCtrl+F', { key: 'f', meta: true }, 'darwin')).toBe(true)
   expect(matchesBinding('CmdOrCtrl+F', { key: 'f', control: true }, 'linux')).toBe(true)
   expect(matchesBinding('CmdOrCtrl+F', { key: 'f', control: true }, 'win32')).toBe(true)

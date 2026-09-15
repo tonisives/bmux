@@ -81,6 +81,12 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'new-session') return { method: name, args: { ...current, ...options, name: options.name ?? positional[0] } }
   if (name === 'switch-client' || name === 'attach-session') return { method: name, args: { ...current, ...options, session: target ?? positional[0] ?? client.sessionId } }
   if (name === 'new-window') return { method: name, args: { ...current, session: client.sessionId, ...options, ...(positional.length ? { name: positional[0] } : {}) } }
+  if (name === 'move-window-left' || name === 'move-window-right') return { method: 'swap-window', args: { ...current, direction: name === 'move-window-left' ? -1 : 1 } }
+  if (name === 'swap-window') {
+    let destination = String(target ?? positional[0] ?? '')
+    if (!['-1', '+1'].includes(destination)) throw new Error('Use swap-window -t -1 or swap-window -t +1')
+    return { method: name, args: { ...current, direction: destination === '-1' ? -1 : 1 } }
+  }
   if (['select-window', 'kill-window', 'rename-window', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget, name: options.name ?? positional[0] } }
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
   if (['split-window', 'select-pane', 'kill-pane', 'move-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
