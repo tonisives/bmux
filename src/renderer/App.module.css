@@ -6,6 +6,16 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { color: #bdc9b4; flex-shrink: 0; }
+.status .profileButton, .status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
+.status .profileButton { gap: 5px; }
+.profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
+.statusIcon { width: 17px; height: 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.status .downloadButton { position: relative; overflow: visible; }
+.downloadProgress { animation: download-spin .9s linear infinite; }
+.downloadProgress circle { stroke-dasharray: 30 14; }
+.downloadCount { position: absolute; top: -3px; right: -5px; min-width: 11px; padding: 0 2px; border-radius: 6px; background: #9ca3ad; color: #1b1f24; font: 8px/11px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+@keyframes download-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .downloadProgress { animation: none; } }
 .windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; }
 .windows::-webkit-scrollbar { display: none; }
 .windows button { flex-shrink: 0; }
@@ -52,6 +62,7 @@
 .row { display: block; padding: 7px 0; width: 100%; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .row[data-active="true"] { color: #d6dfcf; }
 .row[data-search-selected="true"] { background: #303b49; }
+.profileRow { display: flex; align-items: center; gap: 9px; }
 .newSession { color: #87a9c4; }
 .sessionRow { display: flex; align-items: stretch; }
 .sessionRow > .row { flex: 1; min-width: 0; }

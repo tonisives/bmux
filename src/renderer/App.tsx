@@ -96,6 +96,25 @@ export let App = () => {
   </div></Context.Provider>
 }
 
+const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
+
+let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
+
+let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
+  let hash = profileHash(id), background = AVATAR_COLORS[hash % AVATAR_COLORS.length], foreground = AVATAR_COLORS[(hash >>> 5) % AVATAR_COLORS.length]
+  let left = 3 + (hash % 5), top = 3 + ((hash >>> 3) % 5), radius = 4 + ((hash >>> 6) % 3)
+  return <svg className={css.profileAvatar} viewBox="0 0 20 20" aria-hidden="true" data-profile-avatar={id}>
+    <rect width="20" height="20" fill={background} />
+    <circle cx={left} cy={top} r={radius} fill={foreground} opacity=".9" />
+    <path d={`M0 ${12 + (hash % 4)} Q${8 + (hash % 5)} ${5 + ((hash >>> 8) % 5)} 20 ${11 + ((hash >>> 11) % 5)} V20 H0Z`} fill="#17202a" opacity=".45" />
+    <text x="10" y="14" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="700" fontFamily="ui-monospace, monospace">{name.trim().charAt(0).toUpperCase()}</text>
+  </svg>
+}
+
+let DownloadStatusIcon = ({ progressing }: { progressing: boolean }) => progressing
+  ? <svg className={`${css.statusIcon} ${css.downloadProgress}`} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="progressing"><circle cx="10" cy="10" r="7" /></svg>
+  : <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="idle"><path d="M10 2v10m-4-4 4 4 4-4M4 17h12" /></svg>
+
 let bridge = (window as unknown as { bmux: Bridge }).bmux
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
@@ -119,7 +138,8 @@ let Status = ({ message }: { message: string }) => {
   let commands = () => show('command')
   let activity = () => show('activity')
   let downloads = () => show('downloads')
-  let activeDownloads = state.downloads.filter(item => item.profileId === profile?.id && item.active).length
+  let progressingDownloads = state.downloads.filter(item => item.profileId === profile?.id && item.active && item.state === 'progressing' && !item.paused).length
+  let downloadTitle = progressingDownloads ? `${progressingDownloads} download${progressingDownloads === 1 ? '' : 's'} in progress` : 'Downloads'
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
@@ -136,9 +156,9 @@ let Status = ({ message }: { message: string }) => {
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index + 1}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
-    <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs">profile:{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</button>
+    <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs" className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}<span>{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</span></button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
-    {activeDownloads > 0 && <button onClick={downloads} aria-label="Downloads">downloads:{activeDownloads}</button>}
+    <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads > 0} />{progressingDownloads > 1 && <span className={css.downloadCount}>{progressingDownloads}</span>}</button>
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -420,7 +440,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && <SessionPicker />}
     {type === 'tabs' && <TabPicker />}
-    {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={css.row}>{profile.name}{profile.background ? ' (background)' : ''}</div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
+    {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={`${css.row} ${css.profileRow}`}><ProfileAvatar id={profile.id} name={profile.name} /><span>{profile.name}{profile.background ? ' (background)' : ''}</span></div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
     {type === 'bookmarks' && <BookmarkPicker />}
     {type === 'downloads' && <DownloadManager />}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
