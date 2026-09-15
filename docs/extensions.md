@@ -23,6 +23,8 @@ phone QR chooser to Electron. Vault authentication and passkey signing require
 a manual check with your account; the automated smoke test stops at Bitwarden's
 email login screen and does not access a real vault.
 Bitwarden registers its passkey scripts only after an account is signed in.
+For the first manual check, sign in with email and master password, unlock the
+vault, reload the website, and choose that website's passkey sign-in option.
 
 For other unpacked extensions, use `extension load /absolute/path`. The directory
 must contain `manifest.json` and remain at that path between launches. Packaged
