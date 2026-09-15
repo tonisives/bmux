@@ -617,6 +617,12 @@ test('pane address bars navigate independently and leave window switching availa
   await address.press('Escape')
   await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
+  await address.fill('edited-second-pane')
+  await expect(secondPane.getByRole('listbox', { name: 'URL history' })).toBeVisible()
+  let page = application.context().pages().find(page => page.url() === `${url}/edited-second-pane`)!
+  await page.locator('header').click()
+  await expect(address).toHaveCount(0)
+  await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill(`${url}/unsaved`)
   await status.getByRole('button', { name: '2:other', exact: true }).click()
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(other.id)
