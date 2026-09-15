@@ -10,6 +10,7 @@ let root = process.cwd()
 let tartHome = process.env.TART_HOME ?? '/Volumes/sam/tart'
 let binary = process.env.BMUX_TART_BIN ?? '/Volumes/sam/apps/tart/tart.app/Contents/MacOS/tart'
 let vm = process.env.BMUX_TART_VM ?? 'bmux-tests'
+let cpus = process.env.BMUX_TART_CPUS ?? '2'
 let env = { ...process.env, TART_HOME: tartHome, COPYFILE_DISABLE: '1' }
 let stateDirectory = path.join(tartHome, 'bmux-runner')
 let [mode = 'status', ...args] = process.argv.slice(2)
@@ -81,6 +82,8 @@ let start = async () => {
   let current = await status()
   if (!current) throw new Error(`VM ${vm} is missing. Follow docs/tart-tests.md to install it.`)
   if (!current.Running) {
+    if (!/^\d+$/.test(cpus) || Number(cpus) < 1) throw new Error('BMUX_TART_CPUS must be a positive integer.')
+    await tart(['set', vm, '--cpu', cpus])
     await fs.mkdir(stateDirectory, { recursive: true })
     let log = await fs.open(path.join(stateDirectory, `${vm}.log`), 'a', 0o600)
     let child = spawn(binary, ['run', vm, '--no-audio', '--no-clipboard', ...(process.env.BMUX_TART_HEADLESS === '1' ? ['--no-graphics'] : [])], { cwd: tartHome, detached: true, env, stdio: ['ignore', log.fd, log.fd] })
@@ -164,6 +167,6 @@ try {
   } else if (mode === 'start') await lock(start)
   else if (mode === 'stop') await lock(() => tart(['stop', vm]))
   else if (mode === 'status') console.log(JSON.stringify(await status(), null, 2))
-  else if (mode === 'exec') { if (!args.length) throw new Error('Usage: pnpm vm:exec COMMAND [ARGUMENTS]'); await guest(args) }
+  else if (mode === 'exec') { if (!args.length) throw new Error('Usage: pnpm vm:exec COMMAND [ARGUMENTS]'); await lock(() => guest(args)) }
   else throw new Error(`Unknown Tart action: ${mode}`)
 } catch (error) { console.error(error.message); process.exitCode = 1 }
