@@ -30,7 +30,9 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 let directory = process.env.BMUX_RUNNER_FIXTURE
 let args = process.argv.slice(2)
-if (args[0] === 'list') console.log(JSON.stringify([{ Name: 'bmux-tests', Running: true }]))
+if (args[0] === 'list') console.log(JSON.stringify([{ Name: 'bmux-tests', Running: process.env.BMUX_RUNNER_STOPPED !== '1' || fs.existsSync(path.join(directory, 'running')) }]))
+else if (args[0] === 'set') fs.appendFileSync(path.join(directory, 'settings'), args.slice(2).join(' ') + '\\n')
+else if (args[0] === 'run') fs.writeFileSync(path.join(directory, 'running'), '')
 else if (args.includes('/usr/bin/id')) console.log('admin')
 else if (args.includes('/usr/bin/tar')) {
   let result = spawnSync('/usr/bin/tar', ['-cf', '-', '-C', path.join(directory, 'results'), 'artifacts', 'test-results'], { stdio: ['ignore', 'inherit', 'inherit'] })
@@ -42,7 +44,7 @@ else if (args.includes('/usr/bin/tar')) {
     for await (let chunk of process.stdin) chunks.push(chunk)
     fs.writeFileSync(path.join(directory, 'snapshot.tar'), Buffer.concat(chunks))
   }
-  if (script.includes('pnpm install')) {
+  if (script.includes('pnpm install') || script === 'hold') {
     fs.appendFileSync(path.join(directory, 'events'), 'start\\n')
     await new Promise(resolve => setTimeout(resolve, 400))
     fs.appendFileSync(path.join(directory, 'events'), 'end\\n')
@@ -50,8 +52,8 @@ else if (args.includes('/usr/bin/tar')) {
   }
 }
 `, { mode: 0o755 })
-  let run = (code = 0) => new Promise<{ code: number | null; output: string }>((resolve, reject) => {
-    let child = spawn(process.execPath, [runner, 'electron'], { cwd: source, env: { ...process.env, TART_HOME: path.join(directory, 'tart'), BMUX_TART_BIN: binary, BMUX_TART_VM: 'bmux-tests', BMUX_TEST_NATIVE: '0', GITHUB_ACTIONS: 'false', BMUX_RUNNER_FIXTURE: directory, BMUX_RUNNER_EXIT: String(code) } })
+  let run = (code = 0, action = ['electron'], extraEnv = {}) => new Promise<{ code: number | null; output: string }>((resolve, reject) => {
+    let child = spawn(process.execPath, [runner, ...action], { cwd: source, env: { ...process.env, TART_HOME: path.join(directory, 'tart'), BMUX_TART_BIN: binary, BMUX_TART_VM: 'bmux-tests', BMUX_TEST_NATIVE: '0', GITHUB_ACTIONS: 'false', BMUX_RUNNER_FIXTURE: directory, BMUX_RUNNER_EXIT: String(code), ...extraEnv } })
     let output = ''
     child.stdout.on('data', chunk => { output += chunk }); child.stderr.on('data', chunk => { output += chunk })
     child.once('error', reject)
@@ -85,5 +87,24 @@ it('serializes simultaneous GUI runs and releases the queue after a failure', as
     expect(results.map(result => result.code)).toEqual([9, 0])
     expect(await fs.readFile(path.join(current.directory, 'events'), 'utf8')).toBe('start\nend\nstart\nend\n')
     expect(results.some(result => result.output.includes('Waiting for the other'))).toBe(true)
+  } finally { await current.cleanup() }
+}, 15000)
+
+it('uses the GUI lock for ad hoc guest commands', async () => {
+  let current = await fixture()
+  try {
+    let results = await Promise.all([current.run(), current.run(0, ['exec', 'hold'])])
+    expect(results.map(result => result.code)).toEqual([0, 0])
+    expect(await fs.readFile(path.join(current.directory, 'events'), 'utf8')).toBe('start\nend\nstart\nend\n')
+    expect(results.some(result => result.output.includes('Waiting for the other'))).toBe(true)
+  } finally { await current.cleanup() }
+}, 15000)
+
+it('sets the CPU limit before starting a stopped VM', async () => {
+  let current = await fixture()
+  try {
+    let result = await current.run(0, ['start'], { BMUX_RUNNER_STOPPED: '1' })
+    expect(result.code, result.output).toBe(0)
+    expect(await fs.readFile(path.join(current.directory, 'settings'), 'utf8')).toBe('--cpu 2\n')
   } finally { await current.cleanup() }
 }, 15000)

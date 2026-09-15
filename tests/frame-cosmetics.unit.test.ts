@@ -6,7 +6,7 @@ import { createFrameCosmetics } from '../src/main/frame-cosmetics'
 let fixture = () => {
   let events = Object.assign(new EventEmitter(), { isAttached: () => true, detach: vi.fn() }), enabled = true, sheets = new Map<string, string>(), sequence = 0
   let frame = { id: 'child', parentId: 'main', loaderId: 'first', url: 'https://frame.example.test/' }
-  let contents = Object.assign(new EventEmitter(), { debugger: events, isDestroyed: () => false, getURL: () => 'https://page.example.test/' }) as unknown as WebContents
+  let contents = Object.assign(new EventEmitter(), { debugger: events, isDestroyed: vi.fn(() => false), getURL: () => 'https://page.example.test/' }) as unknown as WebContents
   let send = vi.fn(async (method: string, params: Record<string, any> = {}): Promise<any> => {
     if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', loaderId: 'main', url: contents.getURL() }, childFrames: [{ frame: { ...frame } }] } }
     if (method === 'Target.getTargetInfo') return { targetInfo: { targetId: 'main' } }
@@ -18,7 +18,7 @@ let fixture = () => {
     return {}
   })
   let tools = createFrameCosmetics({ contents, send, enabled: () => enabled, styles: url => `${url.includes('frame.') ? '.frame-ad' : '.parent-ad'}{display:none!important}` })
-  return { events, sheets, send, tools, frame, disable: () => { enabled = false } }
+  return { contents, events, sheets, send, tools, frame, disable: () => { enabled = false } }
 }
 
 test('clears the existing sheet after same-document navigation and transient context failure', async () => {
@@ -89,4 +89,11 @@ test('disposal releases the debugger and its child sessions together', async () 
   tools.close()
   expect(events.detach).toHaveBeenCalledOnce()
   expect(send.mock.calls.some(([method]) => method === 'Target.detachFromTarget')).toBe(false)
+})
+
+test('disposal skips protocol cleanup after web contents destruction', () => {
+  let { contents, events, tools } = fixture()
+  vi.mocked(contents.isDestroyed).mockReturnValue(true)
+  tools.close()
+  expect(events.detach).not.toHaveBeenCalled()
 })

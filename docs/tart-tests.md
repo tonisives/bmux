@@ -2,7 +2,8 @@
 
 Local GUI tests run in the `bmux-tests` macOS VM. Its viewer is assigned to
 AeroSpace workspace `bot`. Focus and pointer changes happen inside the guest.
-The guest uses four CPUs, 8 GB of memory, and a fixed 1440 by 1000 display.
+The guest uses two CPUs, 8 GB of memory, and a fixed 1440 by 1000 display. The
+CPU count limits how much host CPU the VM can consume while it is busy.
 
 Tart is installed at `/Volumes/sam/apps/tart/tart.app`. Its VM disks, image cache,
 and runner state live in `/Volumes/sam/tart`. The source repository stays here.
@@ -43,7 +44,9 @@ including uncommitted source edits, install locked dependencies in the guest,
 and run the tests there. Git-ignored files, environment files, host dependencies,
 and browser profiles are excluded. Each worktree has its own guest checkout;
 the runner serializes GUI tests across worktrees so they cannot steal each
-other's focus. Tests continue to use temporary browser data and configuration.
+other's focus. Ad hoc `vm:exec`, start, and stop operations use the same lock,
+so they also wait for the active test. Tests continue to use temporary browser
+data and configuration.
 
 Test output, screenshots, and Playwright results are saved to `artifacts/tart/<run-time>/`.
 Browser and plugin failures also save `native-focus.json` under `test-results/`,
@@ -70,8 +73,10 @@ in `/Volumes/sam/tart/bmux-runner/bmux-tests.log`. The VM persists between runs.
 Do not interact with the guest desktop during tests that check keyboard focus.
 
 `TART_HOME`, `BMUX_TART_BIN`, and `BMUX_TART_VM` override the storage location,
-executable, and VM name. `BMUX_TART_IMAGE` selects the initial image during setup.
-The defaults keep this machine's installation on `/Volumes/sam`.
+executable, and VM name. `BMUX_TART_CPUS` overrides the two-CPU limit and
+`BMUX_TART_IMAGE` selects the initial image during setup. CPU changes take effect
+the next time the runner starts a stopped VM. The defaults keep this machine's
+installation on `/Volumes/sam`.
 
 GitHub Actions runs the native tests directly on its disposable macOS runner.
 For a deliberately foreground test on another disposable Mac, set

@@ -10,6 +10,7 @@ let installDirectory = '/Volumes/sam/apps/tart'
 let tartHome = process.env.TART_HOME ?? '/Volumes/sam/tart'
 let binary = process.env.BMUX_TART_BIN ?? path.join(installDirectory, 'tart.app/Contents/MacOS/tart')
 let vm = process.env.BMUX_TART_VM ?? 'bmux-tests'
+let cpus = process.env.BMUX_TART_CPUS ?? '2'
 let image = process.env.BMUX_TART_IMAGE ?? 'ghcr.io/cirruslabs/macos-tahoe-base:latest'
 let env = { ...process.env, TART_HOME: tartHome }
 let run = (command, args, capture = false) => {
@@ -21,6 +22,7 @@ let run = (command, args, capture = false) => {
 
 try {
   if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('This setup requires an Apple Silicon Mac.')
+  if (!/^\d+$/.test(cpus) || Number(cpus) < 1) throw new Error('BMUX_TART_CPUS must be a positive integer.')
   await fs.access('/Volumes/sam')
   await fs.mkdir(tartHome, { recursive: true })
   try { await fs.access(binary, fs.constants.X_OK) } catch {
@@ -51,7 +53,7 @@ try {
   if (!current) run(binary, ['clone', image, vm])
   if (!current?.Running) {
     let settings = JSON.parse(run(binary, ['get', vm, '--format', 'json'], true))
-    run(binary, ['set', vm, '--cpu', '4', '--memory', '8192', '--display', '1440x1000', '--no-display-refit', ...(settings.Disk < 80 ? ['--disk-size', '80'] : [])])
+    run(binary, ['set', vm, '--cpu', cpus, '--memory', '8192', '--display', '1440x1000', '--no-display-refit', ...(settings.Disk < 80 ? ['--disk-size', '80'] : [])])
   }
   console.log(`VM ${vm} is ready in ${tartHome}. Run pnpm vm:start, then pnpm test:electron.`)
 } catch (error) { console.error(error.message); process.exitCode = 1 }
