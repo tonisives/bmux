@@ -12,8 +12,10 @@ extension install-bitwarden
 extension open Bitwarden
 ```
 
-The installer downloads the official Bitwarden 2026.8.0 Chrome release from
-GitHub and verifies its pinned SHA-256 checksum before extraction. Sign in using
+The installer downloads the official Bitwarden 2026.6.1 Chrome release from
+GitHub and verifies its pinned SHA-256 checksum before extraction. This is the
+last known-good release before a Bitwarden 2026.7–2026.8 WASM decryption
+regression that can leave a successfully synced vault empty. Sign in using
 Bitwarden's own popup. The CLI password integration and this extension use
 separate vault sessions. Extension updates are manual in this prototype.
 
@@ -60,4 +62,4 @@ in `LICENSE-MIT`.
 
 References: [Electron extension support](https://www.electronjs.org/docs/latest/api/extensions),
 [compatibility library](https://github.com/samuelmaddock/electron-browser-shell/tree/master/packages/electron-chrome-extensions),
-[Bitwarden release](https://github.com/bitwarden/clients/releases/tag/browser-v2026.8.0).
+[Bitwarden release](https://github.com/bitwarden/clients/releases/tag/browser-v2026.6.1).

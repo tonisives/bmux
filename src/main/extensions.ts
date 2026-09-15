@@ -118,6 +118,11 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     let origin = `chrome-extension://${extension.id}`
     let url = new URL(popupPath, `${origin}/`)
     if (url.protocol !== 'chrome-extension:' || url.hostname !== extension.id) throw new Error('Invalid extension popup URL')
+    let skipBitwardenIntro = extension.name === 'Bitwarden Password Manager' && extension.version === '2026.6.1'
+    // Bitwarden 2026.6.1's introductory carousel waits forever when Electron
+    // closes its background state-write message port. The login route works,
+    // and its auth guard sends returning users to their vault.
+    if (skipBitwardenIntro) url.hash = '/login'
     let key = `${profile}:${extension.id}`
     let window = popups.get(key)
     if (!window || window.isDestroyed()) {
@@ -129,7 +134,13 @@ export let createExtensions = (directory: string, options: (profile: string) => 
         let parsed = new URL(target)
         if (parsed.protocol !== 'chrome-extension:' || parsed.hostname !== extension.id) event.preventDefault()
       })
-      try { await window.loadURL(url.href) } catch (error) { window.destroy(); throw error }
+      try {
+        await window.loadURL(url.href)
+        if (skipBitwardenIntro) {
+          await window.webContents.executeJavaScript("chrome.storage.local.set({ global_vaultBrowserIntroCarousel_introCarouselDismissed: true })")
+          await window.loadURL(url.href)
+        }
+      } catch (error) { window.destroy(); throw error }
     }
     if (activate) { window.show(); window.focus() } else window.showInactive()
     return { opened: extension.id }
