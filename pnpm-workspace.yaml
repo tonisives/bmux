@@ -2,3 +2,5 @@ allowBuilds:
   electron: true
   esbuild: true
   electron-winstaller: false
+patchedDependencies:
+  electron-chrome-extensions@4.9.0: patches/electron-chrome-extensions@4.9.0.patch

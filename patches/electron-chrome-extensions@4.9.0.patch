@@ -1,0 +1,121 @@
+diff --git a/dist/chrome-extension-api.preload.js b/dist/chrome-extension-api.preload.js
+index 67d3be4b5026069ec4ae73c1fc6e661f8a19098e..aebb82ca171ad10111316c976b499bdb6227ff8b 100644
+--- a/dist/chrome-extension-api.preload.js
++++ b/dist/chrome-extension-api.preload.js
+@@ -14,18 +14,21 @@
+   var import_electron = __require("electron");
+   var formatIpcName = (name) => `crx-${name}`;
+   var listenerMap = /* @__PURE__ */ new Map();
++  var callbackListeners = new WeakMap();
+   var addExtensionListener = (extensionId, name, callback) => {
+     const listenerCount = listenerMap.get(name) || 0;
+     if (listenerCount === 0) {
+       import_electron.ipcRenderer.send("crx-add-listener", extensionId, name);
+     }
+     listenerMap.set(name, listenerCount + 1);
+-    import_electron.ipcRenderer.addListener(formatIpcName(name), function(event, ...args) {
+-      if (true) {
++    const listener = function(event, ...args) {
++      if (false) {
+         console.log(name, "(result)", ...args);
+       }
+       callback(...args);
+-    });
++    };
++    callbackListeners.set(callback, listener);
++    import_electron.ipcRenderer.addListener(formatIpcName(name), listener);
+   };
+   var removeExtensionListener = (extensionId, name, callback) => {
+     if (listenerMap.has(name)) {
+@@ -37,14 +40,16 @@
+         listenerMap.set(name, listenerCount - 1);
+       }
+     }
+-    import_electron.ipcRenderer.removeListener(formatIpcName(name), callback);
++    const listener = callbackListeners.get(callback);
++    if (listener) import_electron.ipcRenderer.removeListener(formatIpcName(name), listener);
++    callbackListeners.delete(callback);
+   };
+ 
+   // src/renderer/index.ts
+   var injectExtensionAPIs = () => {
+     const invokeExtension = async function(extensionId, fnName, options = {}, ...args) {
+       const callback = typeof args[args.length - 1] === "function" ? args.pop() : void 0;
+-      if (true) {
++      if (false) {
+         console.log(fnName, args);
+       }
+       if (options.noop) {
+@@ -62,7 +67,7 @@
+         console.error(e);
+         result = void 0;
+       }
+-      if (true) {
++      if (false) {
+         console.log(fnName, "(result)", result);
+       }
+       if (callback) {
+@@ -450,8 +455,37 @@
+         storage: {
+           factory: (base) => {
+             const local = base && base.local;
++            const session = {
++              get: invokeExtension2("storage.session.get"),
++              set: invokeExtension2("storage.session.set"),
++              remove: invokeExtension2("storage.session.remove"),
++              clear: invokeExtension2("storage.session.clear"),
++              getKeys: invokeExtension2("storage.session.getKeys"),
++              getBytesInUse: invokeExtension2("storage.session.getBytesInUse"),
++              setAccessLevel: invokeExtension2("storage.session.setAccessLevel"),
++              onChanged: new ExtensionEvent("storage.session.onChanged"),
++              QUOTA_BYTES: 10485760
++            };
++            const listeners = new Map();
++            const changed = base.onChanged;
++            const add = changed.addListener.bind(changed);
++            const remove = changed.removeListener.bind(changed);
++            changed.addListener = (callback) => {
++              if (listeners.has(callback)) return;
++              const listener = (changes) => callback(changes, "session");
++              listeners.set(callback, listener);
++              session.onChanged.addListener(listener);
++              add(callback);
++            };
++            changed.removeListener = (callback) => {
++              const listener = listeners.get(callback);
++              if (listener) session.onChanged.removeListener(listener);
++              listeners.delete(callback);
++              remove(callback);
++            };
+             return {
+               ...base,
++              session,
+               // TODO: provide a backend for browsers to opt-in to
+               managed: local,
+               sync: local
+diff --git a/dist/cjs/index.js b/dist/cjs/index.js
+index b4242b0b847d33d8544832bfb2d8723a884a3072..9a4891df4cd41b68be81a7619b09e743870ae436 100644
+--- a/dist/cjs/index.js
++++ b/dist/cjs/index.js
+@@ -2473,7 +2473,7 @@ var ExtensionRouter = class {
+     }
+     const extEvent = event.type === "frame" ? { type: event.type, sender: event.sender, extension } : { type: event.type, sender: event.serviceWorker, extension };
+     const result = await handler.callback(extEvent, ...args);
+-    d8(`${handlerName} result: %r`, result);
++    // Do not log extension API results: they can contain vault data.
+     return result;
+   }
+   handle(name, callback, opts) {
+diff --git a/dist/esm/index.mjs b/dist/esm/index.mjs
+index dc598ce8f74c1e813c4014ecf8fc6ca5809f4ba5..c553afc44ae1714cc8bb06beaa17c398723b6b41 100644
+--- a/dist/esm/index.mjs
++++ b/dist/esm/index.mjs
+@@ -2436,7 +2436,7 @@ var ExtensionRouter = class {
+     }
+     const extEvent = event.type === "frame" ? { type: event.type, sender: event.sender, extension } : { type: event.type, sender: event.serviceWorker, extension };
+     const result = await handler.callback(extEvent, ...args);
+-    d8(`${handlerName} result: %r`, result);
++    // Do not log extension API results: they can contain vault data.
+     return result;
+   }
+   handle(name, callback, opts) {

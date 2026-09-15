@@ -23,7 +23,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden CLI filling, and local userscripts. See [Browser tools](docs/browser-tools.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](docs/plugins.md).
 
-bmux is an early preview, free under the [MIT license](LICENSE). Release builds are unsigned. It does not require tmux.
+bmux is an early preview, free under the [GNU GPL version 3](LICENSE). The [original MIT notice](LICENSE-MIT) is retained for code previously distributed under MIT. Release builds are unsigned. It does not require tmux.
 
 ### Switch sessions
 

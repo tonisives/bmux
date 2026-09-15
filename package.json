@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "A Chromium browser with tmux-style sessions and isolated profiles",
   "author": "bmux contributors",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -37,6 +37,7 @@
   "dependencies": {
     "@ghostery/adblocker": "2.18.2",
     "darkreader": "^4.9.130",
+    "electron-chrome-extensions": "4.9.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tldts": "7.4.12",
@@ -68,6 +69,8 @@
     "files": [
       "out/**/*",
       "package.json",
+      "LICENSE",
+      "LICENSE-MIT",
       "bin/**/*",
       "resources/**/*"
     ],
