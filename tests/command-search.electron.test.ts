@@ -84,7 +84,7 @@ test('primary platform shortcut opens find in the current page', async () => {
   let find = chrome.getByRole('textbox', { name: 'Find in page', exact: true })
   await expect(find).toBeFocused()
   await find.fill('visible native page')
-  await expect(chrome.getByRole('status', { name: 'Find results', exact: true })).toHaveText('1 / 1')
+  await expect(chrome.getByRole('status', { name: 'Find results', exact: true })).toHaveText('1 / 1', { timeout: 1000 })
   await find.press('Escape')
   await expect(find).toHaveCount(0)
   await expect.poll(nativeVisible).toBe(true)

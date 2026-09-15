@@ -291,19 +291,16 @@ let FindPrompt = () => {
   let current = result?.text === text ? result : undefined
   let searching = !!current
   let ref = useRef<HTMLInputElement>(null)
-  let timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
   useEffect(() => {
     if (!tab || loading || searching) return
-    timer.current = setTimeout(() => { void run('find', { tab: tab.id, text }) }, text ? 120 : 0)
-    return () => clearTimeout(timer.current)
+    void run('find', { tab: tab.id, text })
   }, [text, tab?.id, loading, searching, run])
   useEffect(() => () => {
     if (tab) void bridge.command({ method: 'find', args: { tab: tab.id, text: '' } }).catch(() => undefined)
   }, [tab?.id])
   let change = (event: ChangeEvent<HTMLInputElement>) => { onMessage(''); setText(event.target.value) }
   let search = (forward = true) => {
-    clearTimeout(timer.current)
     if (tab && text) void run('find', { tab: tab.id, text, next: current !== undefined, forward })
     ref.current?.focus()
   }
@@ -314,7 +311,7 @@ let FindPrompt = () => {
     if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); search(false) }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss() }
   }
-  let summary = !text ? 'Enter next · Shift+Enter previous · Esc close' : !current?.finalUpdate ? 'Searching…' : current.matches ? `${current.activeMatchOrdinal} / ${current.matches}` : 'No matches'
+  let summary = !text ? 'Enter next · Shift+Enter previous · Esc close' : current?.matches ? `${current.activeMatchOrdinal || 1} / ${current.matches}${current.finalUpdate ? '' : '…'}` : current?.finalUpdate ? 'No matches' : 'Searching…'
   return <form className={css.prompt} onSubmit={submit}><label htmlFor="find">/</label><input id="find" ref={ref} aria-label="Find in page" value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} /><span className={message ? css.error : undefined} role="status" aria-label="Find results">{message || summary}</span><button type="button" onClick={previous} disabled={!text} aria-label="Previous match">Previous</button><button type="button" onClick={next} disabled={!text} aria-label="Next match">Next</button></form>
 }
 
