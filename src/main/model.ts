@@ -170,11 +170,14 @@ export let validateModel = (value: unknown): Model => {
 }
 
 export let repairClientSelections = (model: Model) => {
+  let existingSessions = new Set(model.sessions.map(session => session.id))
   let existingWindows = new Set(model.sessions.flatMap(session => session.windows.map(window => window.id)))
   for (let client of model.clients) {
     let session = model.sessions.find(session => session.id === client.sessionId) ?? model.sessions[0]
     if (!session) continue
     client.sessionId = session.id
+    let sessionHistory = (client.sessionHistory ?? []).filter(id => existingSessions.has(id))
+    client.sessionHistory = [session.id, ...sessionHistory.filter(id => id !== session.id)]
     let history = (client.windowHistory ?? []).filter(id => existingWindows.has(id))
     let previous = history.find(id => session.windows.some(window => window.id === id))
     let window = session.windows.find(window => window.id === client.windowId)
