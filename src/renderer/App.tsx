@@ -11,12 +11,13 @@ import { windowCloseBehavior } from '../shared/window-close'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
-type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void }
+type UIContext = { state: PublicState; control: Control | null; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
   let [message, setMessage] = useState('')
+  let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
   let previousControl = useRef<Control | null>(null)
@@ -54,6 +55,7 @@ export let App = () => {
     if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
     setControl(null); setMessage('')
   }, [state?.pluginPrompt])
+  let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
@@ -86,7 +88,7 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
-  let context = { state, control, message, onMessage: setMessage, run, show, dismiss }
+  let context = { state, control, message, onMessage: setMessage, run, show, dismiss, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -129,7 +131,7 @@ let selection = (state: PublicState) => {
 }
 
 let Status = ({ message }: { message: string }) => {
-  let { state, show } = useUI()
+  let { state, show, acknowledgedDownloads } = useUI()
   let { client, session, pane, tab, profile } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let sessions = () => show('sessions')
@@ -138,7 +140,8 @@ let Status = ({ message }: { message: string }) => {
   let commands = () => show('command')
   let activity = () => show('activity')
   let downloads = () => show('downloads')
-  let progressingDownloads = state.downloads.filter(item => item.profileId === profile?.id && item.active && item.state === 'progressing' && !item.paused).length
+  let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
+  let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused).length
   let downloadTitle = progressingDownloads ? `${progressingDownloads} download${progressingDownloads === 1 ? '' : 's'} in progress` : 'Downloads'
   useLayoutEffect(() => {
     let list = windows.current
@@ -158,7 +161,7 @@ let Status = ({ message }: { message: string }) => {
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
     <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs" className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}<span>{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</span></button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
-    <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads > 0} />{progressingDownloads > 1 && <span className={css.downloadCount}>{progressingDownloads}</span>}</button>
+    {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads > 0} />{progressingDownloads > 1 && <span className={css.downloadCount}>{progressingDownloads}</span>}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -612,10 +615,11 @@ let DownloadManager = () => {
   </section>
 }
 let DownloadRow = ({ download }: { download: Download }) => {
-  let { run } = useUI()
+  let { run, acknowledgeDownload } = useUI()
   let [busy, setBusy] = useState(false)
   let action = async (event: MouseEvent<HTMLButtonElement>) => {
     let method = event.currentTarget.dataset.method!
+    if (method === 'cancel' || method === 'reveal') acknowledgeDownload(download.id)
     setBusy(true)
     try { await run(`download.${method}`, { id: download.id, profile: download.profileId }) }
     finally { setBusy(false) }
