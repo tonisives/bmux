@@ -99,6 +99,7 @@ export let createRuntime = (dataDirectory: string) => {
   let permissionGrants = new Map<string, boolean>()
   let downloads: Download[] = []
   let downloadItems = new Map<string, DownloadItem>()
+  let downloadPaths = new Set<string>()
   let focusedClientId: string | null = null
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let overlays = new Set<string>()
@@ -260,11 +261,16 @@ export let createRuntime = (dataDirectory: string) => {
       publish()
     })
     session.on('will-download', (_event, item) => {
-      let record: Download = { id: id('download'), profileId, name: item.getFilename(), path: '', state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
+      let requestedName = path.basename(item.getFilename())
+      let extension = path.extname(requestedName)
+      let stem = requestedName.slice(0, requestedName.length - extension.length)
+      let directory = app.getPath('downloads')
+      let target = path.join(directory, requestedName)
+      for (let index = 1; fsSync.existsSync(target) || downloadPaths.has(target); index++) target = path.join(directory, `${stem} (${index})${extension}`)
+      let record: Download = { id: id('download'), profileId, name: path.basename(target), path: target, state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
       // Avoid a Save As dialog activating the application during bot work.
-      let target = path.join(app.getPath('downloads'), `${record.id}-${path.basename(record.name)}`)
       item.setSavePath(target)
-      record.path = target
+      downloadPaths.add(target)
       downloads.unshift(record)
       downloadItems.set(record.id, item)
       downloads = downloads.filter((entry, index) => entry.active || index < 100)
@@ -275,7 +281,7 @@ export let createRuntime = (dataDirectory: string) => {
       item.on('updated', (_event, status) => { record.state = status; update(); publish() })
       item.once('done', (_event, status) => {
         record.state = status; record.active = false; update()
-        downloadItems.delete(record.id); publish()
+        downloadItems.delete(record.id); downloadPaths.delete(target); publish()
       })
       publish()
     })
