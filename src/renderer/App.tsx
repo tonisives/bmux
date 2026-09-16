@@ -27,7 +27,7 @@ export let App = () => {
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
     if (previous.current && previous.current !== target) { setControl(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (client?.paneId && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank') {
+    if (client?.paneId && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerTabId) {
       setControl('address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
