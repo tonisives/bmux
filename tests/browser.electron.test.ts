@@ -659,6 +659,14 @@ test('pane address bars navigate independently and leave window switching availa
   await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await expect(secondPane.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
+  await address.fill('one two three')
+  await application.evaluate(({ webContents }) => {
+    let chrome = webContents.getFocusedWebContents()!
+    chrome.sendInputEvent({ type: 'keyDown', keyCode: 'w', modifiers: ['control'] })
+    chrome.sendInputEvent({ type: 'keyDown', keyCode: 'w', modifiers: ['control', 'isautorepeat'] })
+    chrome.sendInputEvent({ type: 'keyUp', keyCode: 'w', modifiers: ['control'] })
+  })
+  await expect(address).toHaveValue('one ')
   await address.fill('edited-second-pane')
   await expect(secondPane.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
   await expect(secondPane.getByRole('option').first()).toHaveAttribute('aria-selected', 'false')
