@@ -9,6 +9,7 @@ import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
+import { deleteWordBackward } from '../shared/text-edit'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -289,6 +290,7 @@ let AddressPrompt = () => {
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let deleting = useRef(false)
+  let pendingCursor = useRef<number | undefined>(undefined)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [addressFocusVersion])
@@ -312,6 +314,11 @@ let AddressPrompt = () => {
   }, [query])
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useLayoutEffect(() => {
+    if (pendingCursor.current !== undefined && ref.current) {
+      ref.current.setSelectionRange(pendingCursor.current, pendingCursor.current)
+      pendingCursor.current = undefined
+      return
+    }
     if (!inlineUrl || !ref.current) return
     ref.current.setSelectionRange(query.length, inlineUrl.value.length)
   }, [inlineUrl, query])
@@ -341,6 +348,14 @@ let AddressPrompt = () => {
   let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.value!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
+    if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
+      event.preventDefault()
+      let input = event.currentTarget
+      let deletion = deleteWordBackward(input.value, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length)
+      pendingCursor.current = deletion.cursor
+      setQuery(deletion.value); setIndex(-1); setInlineUrl(undefined); setText(deletion.value)
+      return
+    }
     if (event.key === 'Backspace' || event.key === 'Delete') deleting.current = true
     if (event.key === 'ArrowRight' && inlineUrl && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === query.length && event.currentTarget.selectionEnd === text.length) {
       event.preventDefault(); setQuery(text); setInlineUrl(undefined); requestAnimationFrame(() => ref.current?.setSelectionRange(text.length, text.length)); return
