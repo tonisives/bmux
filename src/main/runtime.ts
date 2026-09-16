@@ -95,6 +95,8 @@ export let createRuntime = (dataDirectory: string) => {
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
+  let favicons: Record<string, string> = {}
+  let faviconRevisions = new Map<string, number>()
   let findResults: Record<string, FindResult> = {}
   let permissions = new Map<string, PendingPermission>()
   let permissionGrants = new Map<string, boolean>()
@@ -154,7 +156,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -412,11 +414,12 @@ export let createRuntime = (dataDirectory: string) => {
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false }
     tabs.set(tabId, live)
+    faviconRevisions.set(tabId, 0)
     extensions.track(pane.profileId, contents, parent)
     let bootstrapping = !popupOptions
     let ready = Promise.all([extensions.attach(pane.profileId, contents.session), pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)]).finally(() => { bootstrapping = false })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
-    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { filters?.reset(tabId); delete findResults[tabId]; publish() } })
+    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -450,6 +453,38 @@ export let createRuntime = (dataDirectory: string) => {
     }
     contents.on('did-start-loading', () => { loading[tabId] = true; publish() })
     contents.on('did-stop-loading', () => { delete loading[tabId]; publish() })
+    contents.on('page-favicon-updated', (_event, urls) => {
+      let iconUrl = urls.find(url => /^https?:\/\//i.test(url) || /^data:image\//i.test(url))
+      if (!iconUrl) return
+      let revision = faviconRevisions.get(tabId)
+      void (async () => {
+        let icon: string
+        if (iconUrl.startsWith('data:')) {
+          if (iconUrl.length > 180000) return
+          icon = iconUrl
+        } else {
+          let response = await contents.session.fetch(iconUrl)
+          let mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
+          if (!response.ok || !mime || !/^image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)$/.test(mime)) return
+          if (Number(response.headers.get('content-length') ?? 0) > 128 * 1024) return
+          let reader = response.body?.getReader()
+          if (!reader) return
+          let chunks: Buffer[] = [], size = 0
+          while (true) {
+            let part = await reader.read()
+            if (part.done) break
+            size += part.value.byteLength
+            if (size > 128 * 1024) { await reader.cancel(); return }
+            chunks.push(Buffer.from(part.value))
+          }
+          if (!size) return
+          icon = `data:${mime};base64,${Buffer.concat(chunks).toString('base64')}`
+        }
+        if (live.disposed || faviconRevisions.get(tabId) !== revision) return
+        favicons[tabId] = icon
+        publish()
+      })().catch(() => undefined)
+    })
     contents.on('page-title-updated', update)
     contents.on('before-mouse-event', (_event, mouse) => {
       if (mouse.type === 'mouseDown') {
@@ -550,6 +585,8 @@ export let createRuntime = (dataDirectory: string) => {
     delete snapshots[tabId]
     delete crashes[tabId]
     delete loading[tabId]
+    delete favicons[tabId]
+    faviconRevisions.delete(tabId)
     delete findResults[tabId]
   }
   let visiblePaneIds = (client: Client) => model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []

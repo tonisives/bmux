@@ -20,7 +20,17 @@
 @media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
 .windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; }
 .windows::-webkit-scrollbar { display: none; }
-.windows button { flex-shrink: 0; }
+.windowTab { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 260px; }
+.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 238px; }
+.windowLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabFavicon, .tabSpinner { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
+.tabFavicon { object-fit: contain; }
+.tabSpinner { border: 1.5px solid #64707e; border-top-color: #d6dcd2; border-radius: 50%; animation: tab-spin .8s linear infinite; }
+.status .windowClose { display: grid; place-items: center; width: 14px; height: 18px; flex: 0 0 14px; color: #77818d; }
+.status .windowClose:hover { color: #e6a69c; }
+.windowClose svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+@keyframes tab-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tabSpinner { animation: none; } }
 .drag { flex: 1; min-width: 24px; align-self: stretch; }
 .status .error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status .error, .prompt .error { color: #e6a69c; }

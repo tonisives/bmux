@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } from 'react'
-import type { Bookmark, Bridge, Download, HistoryEntry, Layout, Permission, PublicState } from '../shared/types'
+import type { Bookmark, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
@@ -171,7 +171,7 @@ let Status = ({ message }: { message: string }) => {
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows.length])
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
-    <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index + 1}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
+    <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} />)}</div>
     <span className={css.drag} />{(message || state.configError) && <span className={css.error} title={message || state.configError || undefined}>{message || state.configError}</span>}
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profile ? `Profile: ${profile.name}` : 'Profile'} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
@@ -179,10 +179,21 @@ let Status = ({ message }: { message: string }) => {
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
-let StatusWindow = ({ id, label, active }: { id: string; label: string; active: boolean }) => {
+let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: number; active: boolean }) => {
   let { state, run } = useUI()
-  let select = () => { void run('select-window', { client: state.clientId, window: id }) }
-  return <button onClick={select} data-active={active}>{label}</button>
+  let client = state.model.clients.find(client => client.id === state.clientId)
+  let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
+  let tabId = pane?.activeTabId
+  let label = `${index}:${window.name}${active ? '*' : ''}`
+  let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
+  let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
+  return <span className={css.windowTab} data-active={active} data-window-id={window.id}>
+    <button onClick={select} className={css.windowSelect} data-active={active} title={window.name}>
+      {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : null)}
+      <span className={css.windowLabel}>{label}</span>
+    </button>
+    <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>
+  </span>
 }
 
 let commandHistory: string[] = []

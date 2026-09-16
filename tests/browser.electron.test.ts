@@ -19,6 +19,7 @@ let url: string
 let server: http.Server
 let heldResponses = new Set<http.ServerResponse>()
 let heldRequests = 0
+let pendingPages = new Set<http.ServerResponse>()
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
   let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
@@ -51,6 +52,8 @@ let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-electron-'))
   server = http.createServer((request, response) => {
+    if (request.url === '/pending-tab') { pendingPages.add(response); response.on('close', () => pendingPages.delete(response)); return }
+    if (request.url === '/tab-icon.svg') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#588e73"/></svg>'); return }
     if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js"></script>'); return }
     if (request.url === '/held.js') { heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
     if (request.url === '/download') { response.writeHead(200, { 'Content-Disposition': 'attachment; filename="fixture.txt"', 'Content-Type': 'text/plain' }); response.end('download fixture'); return }
@@ -67,6 +70,7 @@ test.afterEach(async ({}, info) => {
 })
 test.afterAll(async () => {
   for (let response of heldResponses) response.end()
+  for (let response of pendingPages) response.end()
   await application?.close().catch(() => undefined)
   await new Promise<void>(resolve => server?.close(() => resolve()))
   await fs.rm(directory, { recursive: true, force: true })
@@ -1046,6 +1050,30 @@ test('status window list uses available room and hides its native scrollbar', as
     let active = element.querySelector('[data-active="true"]')!.getBoundingClientRect(), bounds = element.getBoundingClientRect()
     return { scrollbar: (element as HTMLElement).offsetHeight - element.clientHeight, activeVisible: active.left >= bounds.left && active.right <= bounds.right }
   })).toEqual({ scrollbar: 0, activeVisible: true })
+  await cli('detach-client', { client: client.id })
+})
+
+test('status tabs show loading, favicon, and close control', async () => {
+  let session = await cli('new-session', { name: 'status-tab-controls' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().filter(page => page.url().endsWith('index.html')).at(-1)!
+  let tab = chrome.locator(`[data-window-id="${session.windows[0].id}"]`)
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search' })
+  await address.fill(`${url}/pending-tab`)
+  await address.press('Enter')
+  await expect.poll(() => pendingPages.size).toBe(1)
+  await expect(tab.locator('[data-tab-loading]')).toBeVisible()
+  await expect(tab.locator('img')).toHaveCount(0)
+  for (let response of pendingPages) {
+    response.writeHead(200, { 'Content-Type': 'text/html' })
+    response.end('<!doctype html><html><head><title>Tab icon</title><link rel="icon" href="/tab-icon.svg" type="image/svg+xml"></head><body>Ready</body></html>')
+  }
+  await expect(tab.locator('img')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
+  await expect(tab.locator('[data-tab-loading]')).toHaveCount(0)
+  let keep = await cli('new-window', { session: session.id, client: client.id, name: 'keep' })
+  await tab.locator('button[aria-label^="Close "]').click()
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([keep.id])
   await cli('detach-client', { client: client.id })
 })
 
