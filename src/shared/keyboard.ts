@@ -1,4 +1,9 @@
-export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcuts: Record<string, string>; prefixBindings: Record<string, string> }
+export type Shortcut = string | { action: string; when?: 'always' | 'pane-not-editing' }
+export let shortcutAction = (binding: Shortcut) => typeof binding === 'string' ? binding : binding.action
+export let shortcutWhen = (binding: Shortcut) => typeof binding === 'string' ? 'always' : binding.when ?? 'always'
+export let shortcutMatchesContext = (binding: Shortcut, paneFocused: boolean, editing: boolean | undefined) => shortcutWhen(binding) === 'always' || (paneFocused && editing === false)
+export let shortcutLabel = (key: string, binding: Shortcut) => shortcutWhen(binding) === 'always' ? key : `${key} (pane, outside text fields)`
+export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcuts: Record<string, Shortcut>; prefixBindings: Record<string, string> }
 export let DEFAULT_KEYBOARD: KeyboardConfig = {
   prefix: 'Ctrl+B', prefixTimeoutMs: 1600,
   shortcuts: {

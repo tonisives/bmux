@@ -3,7 +3,7 @@ import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } 
 import type { Bookmark, Bridge, Download, HistoryEntry, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
-import { DEFAULT_KEYBOARD } from '../shared/keyboard'
+import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks, searchHistory } from '../shared/picker-search'
@@ -796,7 +796,7 @@ let HelpContent = () => {
   useEffect(() => { if (searching) input.current?.focus() }, [searching])
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let entries = commandEntries(keyboard, state.plugins)
-  let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])].map(([key, action]) => ({ key, action, description: entries.find(entry => entry.action === action)?.description ?? '' })).filter(binding => fuzzyMatch(query, `${binding.key} ${binding.action} ${binding.description}`))
+  let bindings = [...Object.entries(keyboard.shortcuts).map(([key, binding]) => [shortcutLabel(key, binding), shortcutAction(binding)]), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])].map(([key, action]) => ({ key, action, description: entries.find(entry => entry.action === action)?.description ?? '' })).filter(binding => fuzzyMatch(query, `${binding.key} ${binding.action} ${binding.description}`))
   let commands = searchCommands(entries, query), notes = HELP_NOTES.filter(note => fuzzyMatch(query, note))
   let change = (event: ChangeEvent<HTMLInputElement>) => { setQuery(event.target.value); setSearching(true) }
   useEffect(() => {
@@ -885,5 +885,5 @@ let KeyboardSettings = () => {
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><ToolStatus /><button onClick={makeDefault}>Make bmux the default browser</button><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  return <><ToolStatus /><button onClick={makeDefault}>Make bmux the default browser</button><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration. Use an action and <code>when: pane-not-editing</code> to limit a shortcut to page content outside text fields.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
 }

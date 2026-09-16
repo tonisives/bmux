@@ -34,3 +34,9 @@ test('typed command arguments and URL navigation remain literal', () => {
   for (let value of ['new-window -n "two words"', 'open https://example.test/path', 'dark off --scope profile', 'https://example.test/', 'example.test', 'split --profile bot']) expect(literalCommand(value)).toBe(true)
   for (let value of ['brtls', 'browser tools', 'dark mode', 'tracker blocking', 'zzzzunmatched']) expect(literalCommand(value)).toBe(false)
 })
+
+test('command search describes conditional shortcut contexts', () => {
+  let keyboard = structuredClone(DEFAULT_KEYBOARD)
+  keyboard.shortcuts['Cmd+Z'] = { action: 'toggle-pane-zoom', when: 'pane-not-editing' }
+  expect(commandEntries(keyboard).find(entry => entry.action === 'toggle-pane-zoom')?.shortcuts).toContain('Cmd+Z (pane, outside text fields)')
+})

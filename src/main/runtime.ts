@@ -9,7 +9,8 @@ import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
 import { createConfig, configPath } from './config'
-import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding } from '../shared/keyboard'
+import type { Shortcut } from '../shared/keyboard'
+import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
 import { movePointer } from './pointer'
@@ -112,7 +113,7 @@ export let createRuntime = (dataDirectory: string) => {
   let publishTimer: ReturnType<typeof setTimeout> | undefined
   let shuttingDown = false
   let prefixUntil = 0
-  let pendingModifierShortcut: { action: string; clientId: string; code: string; contentsId: number } | undefined
+  let pendingModifierShortcut: { binding: Shortcut; clientId: string; code: string; contentsId: number } | undefined
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
   let filters: ReturnType<typeof createRequestFilters> | undefined
@@ -335,12 +336,12 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
-    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([accelerator, action]) => ({ label: action, accelerator, click: () => dispatchShortcut(action) }))
+    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { label: 'Browser', submenu: [...nativeWindowItems, { label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
-      // Configured accelerators take precedence over native menu defaults.
+      // Only unconditional accelerators take precedence over native menu defaults.
       { role: 'editMenu' },
       { role: 'windowMenu' },
     ]))
@@ -357,6 +358,14 @@ export let createRuntime = (dataDirectory: string) => {
     }
     publish()
   }
+  let matchesContext = (binding: Shortcut, contents: WebContents) => {
+    let client = model.clients.find(client => client.id === focusedClientId)
+    let owner = client ? clients.get(client.id) : undefined
+    let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
+    let live = pane?.activeTabId ? tabs.get(pane.activeTabId) : undefined
+    let paneFocused = !!owner?.window.isFocused() && contents.isFocused() && live?.contents === contents && live?.parent === owner.window && !overlays.has(client!.id) && !owner.popupFocused
+    return shortcutMatchesContext(binding, paneFocused, paneFocused ? pageTools?.editing(pane!.activeTabId!) : undefined)
+  }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
       if (!focusedClientId) return
@@ -369,13 +378,13 @@ export let createRuntime = (dataDirectory: string) => {
       let modifierKey = ['ShiftLeft', 'ShiftRight'].includes(input.code)
       if (modifierKey && input.type === 'keyDown') {
         let entry = Object.entries(keyboard.shortcuts).find(([key]) => isModifierKeyBinding(key) && matchesBinding(key, input))
-        pendingModifierShortcut = entry ? { action: entry[1], clientId: focusedClientId, code: input.code, contentsId: contents.id } : undefined
+        pendingModifierShortcut = entry && matchesContext(entry[1], contents) ? { binding: entry[1], clientId: focusedClientId, code: input.code, contentsId: contents.id } : undefined
         return
       }
       if (modifierKey && input.type === 'keyUp') {
-        let action = pendingModifierShortcut?.code === input.code ? pendingModifierShortcut.action : undefined
+        let binding = pendingModifierShortcut?.code === input.code ? pendingModifierShortcut.binding : undefined
         pendingModifierShortcut = undefined
-        if (action) dispatchShortcut(action)
+        if (binding && matchesContext(binding, contents)) dispatchShortcut(shortcutAction(binding))
         return
       }
       if (pendingModifierShortcut && input.type === 'keyDown') pendingModifierShortcut = undefined
@@ -400,10 +409,10 @@ export let createRuntime = (dataDirectory: string) => {
         event.preventDefault(); return
       }
       let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
-      if (!entry || (entry[1] === 'stop' && contents === focused.chrome.webContents)) return
+      if (!entry || !matchesContext(entry[1], contents) || (shortcutAction(entry[1]) === 'stop' && contents === focused.chrome.webContents)) return
       // Escape must also reach websites so they can dismiss dialogs and overlays.
-      if (input.key !== 'Escape' || entry[1] !== 'stop') event.preventDefault()
-      dispatchShortcut(entry[1])
+      if (input.key !== 'Escape' || shortcutAction(entry[1]) !== 'stop') event.preventDefault()
+      dispatchShortcut(shortcutAction(entry[1]))
     })
     contents.on('before-mouse-event', (event, mouse) => {
       if (!automatedContents.has(contents.id) && mouse.type === 'mouseDown') pointerTarget = undefined

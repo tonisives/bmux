@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { configPath, createConfig, defaultConfigText, parseConfig } from '../src/main/config'
-import { isModifierKeyBinding, matchesBinding } from '../src/shared/keyboard'
+import { isModifierKeyBinding, matchesBinding, shortcutMatchesContext } from '../src/shared/keyboard'
 
 it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaultConfig = parseConfig(defaultConfigText())
@@ -123,4 +123,21 @@ it('merges legacy tab actions into window actions and overrides history defaults
   expect(config.shortcuts['Cmd+W']).toBe('close-window')
   expect(config.prefixBindings.p).toBe('previous-window')
   expect(defaultConfigText()).not.toMatch(/(?:new|close|next|previous)-tab/)
+})
+
+it('accepts conditional shortcuts while preserving legacy bindings and validating contexts', () => {
+  let config = parseConfig('keyboard:\n  shortcuts:\n    Command+R: { action: new-tab, when: pane-not-editing }\n    Cmd+Z: { action: toggle-pane-zoom }\n    Cmd+T: null\n').keyboard
+  expect(config.shortcuts['Cmd+R']).toBeUndefined()
+  expect(config.shortcuts['Command+R']).toEqual({ action: 'new-window', when: 'pane-not-editing' })
+  expect(config.shortcuts['Cmd+Z']).toEqual({ action: 'toggle-pane-zoom' })
+  expect(config.shortcuts['Cmd+T']).toBeUndefined()
+  expect(config.shortcuts['Cmd+W']).toBe('close-window')
+  for (let binding of ['{ action: reload, when: typo }', '{ action: reload, when: null }', '{ action: typo }', '{ when: always }', '{ action: reload, extra: true }', '[]']) expect(() => parseConfig(`keyboard:\n  shortcuts:\n    Cmd+Z: ${binding}\n`)).toThrow()
+  expect(() => parseConfig('keyboard:\n  prefixBindings:\n    z: { action: toggle-pane-zoom, when: pane-not-editing }\n')).toThrow()
+  let binding = config.shortcuts['Command+R']
+  expect(shortcutMatchesContext(binding, true, false)).toBe(true)
+  for (let editing of [true, undefined]) expect(shortcutMatchesContext(binding, true, editing)).toBe(false)
+  expect(shortcutMatchesContext(binding, false, false)).toBe(false)
+  expect(shortcutMatchesContext('reload', false, undefined)).toBe(true)
+  expect(shortcutMatchesContext({ action: 'reload', when: 'always' }, false, true)).toBe(true)
 })

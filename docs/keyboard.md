@@ -108,3 +108,26 @@ Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`.
 Window reordering actions are `move-window-left` and `move-window-right`. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; for example, `Cmd+ShiftLeft`. They run when the Shift key is released and are canceled if another key is pressed while it is held.
 
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
+
+### Conditional shortcuts
+
+A shortcut can specify an action and a context. For example, use Command+Z to
+zoom the active pane while retaining Undo in text fields:
+
+```yaml
+keyboard:
+  shortcuts:
+    Cmd+Z:
+      action: toggle-pane-zoom
+      when: pane-not-editing
+```
+
+`pane-not-editing` requires page focus in the active pane, outside text fields.
+The URL bar, browser prompts, website inputs, and editable page content retain
+their normal keyboard behavior. If focus cannot be determined, the shortcut is
+not intercepted. This includes unknown focusable controls and closed shadow
+roots. Selecting ordinary page text does not count as focusing a text field.
+
+`when: always` (or omitting `when`) preserves global shortcut behavior. Existing
+string values remain valid, and `null` disables a binding. Prefix bindings keep
+their existing behavior. Contexts appear alongside bindings in shortcut help.

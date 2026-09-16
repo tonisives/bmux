@@ -5,10 +5,11 @@ import { createRequire } from 'node:module'
 import type { WebContents } from 'electron'
 import { matchesUrl, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserSettings, BrowserToolsState, UserScript } from '../shared/browser-tools'
+import { createKeyboardFocus } from './keyboard-focus'
 import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
 
 type Script = UserScript & { source: string; error?: string }
-type Target = { contents: WebContents; profileId: string; registrations: string[]; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
+type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
 type Options = { directory: string; settings: () => BrowserSettings; changed: () => void; visible: (contentsId: number) => boolean; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
@@ -89,7 +90,7 @@ export let createPageTools = (options: Options) => {
     return send(target, 'Runtime.evaluate', { contextId: executionContextId, expression, returnByValue: true, timeout: 1000 })
   }
   let cosmetics = async (target: Target) => {
-    void target.frames?.refresh()
+    void target.frames?.refresh().then(target.focus.identify)
     let url = target.contents.getURL(), version = target.version
     if (!pageOrigin(url)) return
     let enabled = siteSettings(options.settings(), target.profileId, url).adblock
@@ -104,6 +105,7 @@ export let createPageTools = (options: Options) => {
     await send(target, 'Page.enable')
     await target.frames?.start()
     for (let identifier of target.registrations.splice(0)) await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier })
+    target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: target.focus.source, worldName: 'bmux:keyboard-focus' })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: appearance, worldName: world })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: users })).identifier)
     target.error = undefined
@@ -141,10 +143,11 @@ export let createPageTools = (options: Options) => {
   return {
     reload,
     list: (): BrowserToolsState['scripts'] => scripts.map(({ id, name, enabled, error }) => ({ id, name, enabled, error })),
+    editing: (tabId: string) => targets.get(tabId)?.focus.editing(),
     error: (tabId: string) => targets.get(tabId)?.error,
     attach: (tabId: string, profileId: string, contents: WebContents, bootstrap = true) => {
-      let target: Target = { contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }
-      target.frames = createFrameCosmetics({ contents, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && siteSettings(options.settings(), profileId, contents.getURL()).adblock, styles: options.styles })
+      let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }
+      target.frames = createFrameCosmetics({ contents, focusSource: target.focus.source, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && siteSettings(options.settings(), profileId, contents.getURL()).adblock, styles: options.styles })
       targets.set(tabId, target)
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.

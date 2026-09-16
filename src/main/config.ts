@@ -55,10 +55,14 @@ export let parseConfig = (text: string): Settings => {
         for (let prior of Object.keys(result.shortcuts)) if (JSON.stringify(parseBinding(prior)) === canonical) delete result.shortcuts[prior]
       }
       else if (key.length !== 1) throw new Error('Prefix bindings must be single characters')
-      if (typeof action === 'string') action = normalizeKeyAction(action)
-      if (action === null) delete result[field][key]
-      else if (typeof action !== 'string' || (!KEY_ACTIONS.has(action) && action !== 'plugins' && !pluginBinding(action))) throw new Error(`Unknown keyboard action for ${key}`)
-      else result[field][key] = action
+      if (action === null) { delete result[field][key]; continue }
+      let object = field === 'shortcuts' && typeof action === 'object' && !Array.isArray(action) ? action as Record<string, unknown> : undefined
+      if (object && (Object.keys(object).some(key => !['action', 'when'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid shortcut context for ${key}`)
+      let name = object ? object.action : action
+      if (typeof name === 'string') name = normalizeKeyAction(name)
+      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
+      if (field === 'shortcuts' && object) result.shortcuts[key] = { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined }
+      else result[field][key] = name
     }
   }
   let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false }, 'bmux.bitwarden': { enabled: false, hooks: false } }

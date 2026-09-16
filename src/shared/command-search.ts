@@ -1,3 +1,4 @@
+import { shortcutAction, shortcutLabel } from './keyboard'
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
@@ -83,7 +84,7 @@ export let COMMANDS: CommandEntry[] = [
 ]
 
 export let commandEntries = (keyboard: KeyboardConfig, plugins: PluginInfo[] = []): CommandEntry[] => {
-  let bindings = [...Object.entries(keyboard.shortcuts), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
+  let bindings = [...Object.entries(keyboard.shortcuts).map(([key, binding]) => [shortcutLabel(key, binding), shortcutAction(binding)]), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
   let entries = [...COMMANDS, ...plugins.filter(plugin => plugin.enabled).flatMap(plugin => plugin.actions.map(action => ({ command: `plugin run ${plugin.id}/${action.id}`, description: `${plugin.name}: ${action.title}${action.description ? ` — ${action.description}` : ''}`, action: `plugin:${plugin.id}/${action.id}` })))]
   return entries.map(entry => ({ ...entry, shortcuts: bindings.filter(([, action]) => entry.action && action === entry.action).map(([key]) => key) }))
 }

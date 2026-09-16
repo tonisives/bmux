@@ -7,6 +7,7 @@ type Session = { id?: string; parent?: string; targetId?: string; frames: Map<st
 type TargetInfo = { targetId: string; parentId?: string; parentFrameId?: string; url: string }
 type Options = {
   contents: WebContents
+  focusSource?: string
   send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<any>
   enabled: () => boolean
   styles: (url: string, ids: string[], classes: string[]) => string
@@ -64,6 +65,12 @@ export let createFrameCosmetics = (options: Options) => {
   }
   let apply = async (session: Session, tree: FrameTree, inheritedUrl: string, main: boolean) => {
     let { id, loaderId, url } = tree.frame
+    if (options.focusSource && current(session)) {
+      try {
+        let { executionContextId } = await options.send('Page.createIsolatedWorld', { frameId: id, worldName: 'bmux:keyboard-focus' }, session.id)
+        await options.send('Runtime.evaluate', { contextId: executionContextId, expression: options.focusSource, timeout: 1000 }, session.id)
+      } catch { /* Unknown focus never enables a conditional shortcut. */ }
+    }
     let effectiveUrl = pageOrigin(url) ? url : /^about:(blank|srcdoc)(?:[?#]|$)/.test(url) ? inheritedUrl : ''
     if (!main && current(session)) {
       let frame = session.frames.get(id)
