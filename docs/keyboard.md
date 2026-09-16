@@ -55,7 +55,7 @@ save-layout development
 restore-layout development --confirm
 bookmarks
 sessions
-tabs
+profiles
 activity
 help
 ```

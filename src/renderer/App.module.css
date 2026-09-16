@@ -7,7 +7,7 @@
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { color: #bdc9b4; flex-shrink: 0; }
 .status .profileButton, .status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
-.status .profileButton { gap: 5px; }
+.status .profileButton { width: 18px; height: 18px; }
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
 .statusIcon { width: 17px; height: 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .status .downloadButton { position: relative; overflow: visible; }
@@ -63,7 +63,9 @@
 .row { display: block; padding: 7px 0; width: 100%; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .row[data-active="true"] { color: #d6dfcf; }
 .row[data-search-selected="true"] { background: #303b49; }
-.profileRow { display: flex; align-items: center; gap: 9px; }
+.profileHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #eceef2; }
+.profileHeading .profileAvatar { width: 28px; height: 28px; flex-basis: 28px; }
+.profileInfo dl > div { padding: 5px 0; }
 .sessionBack { color: #bdc9b4; }
 .newSession { color: #87a9c4; }
 .sessionRow { display: flex; align-items: stretch; }

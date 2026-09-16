@@ -99,12 +99,6 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'next-pane') return { method: 'cycle-pane', args: current }
   if (name === 'toggle-pane-zoom') return { method: name, args: current }
   if (['pane-left', 'pane-right', 'pane-up', 'pane-down'].includes(name)) return { method: 'select-pane-direction', args: { ...current, direction: name.slice(5) } }
-  if (name === 'tab') {
-    let action = positional.shift()
-    if (action === 'new') return { method: 'tab.create', args: { ...current, pane: pane?.id, url: positional[0], ...options } }
-    if (action === 'close' || action === 'select') return { method: `tab.${action}`, args: { tab: tabTarget } }
-    throw new Error('Use tab new URL, tab close, or tab select -t INDEX')
-  }
   if (name === 'profile') {
     let action = positional.shift()
     if (action === 'create') return { method: 'profile.create', args: { ...options, name: positional[0] } }

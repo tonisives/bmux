@@ -30,7 +30,7 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(() => parseCommandLine('swap-window -t 2', current)).toThrow('Use swap-window')
   expect(parseCommandLine('close-system-window', current)).toEqual({ method: 'detach-client', args: { client: 'client' } })
   expect(parseCommandLine('restore-layout "my layout" --confirm', current)).toMatchObject({ args: { name: 'my layout', confirm: true, window: window.id } })
-  expect(parseCommandLine('tab select -t 0', current)).toMatchObject({ args: { tab: window.panes[0].activeTabId } })
+  expect(() => parseCommandLine('tab select -t 0', current)).toThrow('Unknown command')
   expect(() => parseCommandLine('select-window -t', current)).toThrow('Missing value')
   expect(() => parseCommandLine('not-a-command', current)).toThrow('Unknown command')
 })

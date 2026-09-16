@@ -279,7 +279,7 @@ test('Bitwarden waits without blocking shortcuts and resumes when its original t
   await rpc('navigate', { tab: tabId, url: `${url}/vault-user-dom` })
   await chooseVaultLogin(true); await expect(page.locator('#vault-user')).toHaveValue('vault@example.test')
   let before = await state()
-  await command('tabs'); await expect(chrome.getByRole('dialog', { name: 'Tabs', exact: true })).toBeVisible()
+  await command('profiles'); await expect(chrome.getByRole('dialog', { name: 'Profile', exact: true })).toBeVisible()
   await chrome.keyboard.press('Escape')
   let other = await rpc('tab.create', { pane: before.model.clients.find((client: any) => client.id === before.clientId).paneId, url: `${url}/vault-password` })
   await rpc('tab.select', { client: before.clientId, tab: other.id })

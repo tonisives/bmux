@@ -12,23 +12,19 @@ accessible and use the existing address bars and transient panels.
   for a verified encrypted connection, with distinct states for HTTP, certificate
   errors, mixed content, loading/unknown, and local/internal pages. Derive the
   state from Chromium's connection information, not just the URL scheme; clear
-  stale state on navigation and keep it scoped to the correct tab.
+  stale state on navigation and keep it scoped to the correct pane.
 - [ ] Open a site-information panel from the connection indicator or a command.
   Show the current origin, connection status, certificate subject, issuer, and
   validity dates when available. Explain that encryption does not establish
   website trustworthiness. Keep certificate failures blocked by default. Verify
   valid, expired, self-signed, and hostname-mismatched certificates with local
-  fixtures in Tart, including redirects and switching tabs.
+  fixtures in Tart, including redirects and switching panes.
 - [ ] Review and reset saved site permissions in the site-information panel.
   Show existing allow/deny decisions for the current origin and profile, and
   let users return a decision to ask-on-next-request.
 - [ ] Clear the current site's cookies and storage without clearing the whole
   profile. Explain the sign-out effect, confirm the affected site/profile, and
   offer a reload after completion.
-- [ ] Reopen recently closed tabs with Command+Shift+T and a command. Restore
-  their URL and profile in the appropriate pane, retain a bounded list, and
-  handle removed panes/profiles without mixing identities. Do not promise to
-  recover unsaved form state.
 - [ ] Add a searchable history panel using the existing per-profile visit data.
   Search titles and URLs, open results with the keyboard, and support deleting
   individual entries or clearing that profile's history.
@@ -38,10 +34,8 @@ accessible and use the existing address bars and transient panels.
 
 ## After that
 
-- [ ] Indicate audible tabs in the tab picker and add mute/unmute commands that
-  work without selecting or focusing the target tab.
 - [ ] Remember page zoom per site and profile, with a visible reset action and
-  consistent behavior for newly opened tabs at the same site.
+  consistent behavior for newly opened panes at the same site.
 - [ ] Offer temporary profiles for short browsing sessions. Keep their cookies,
   history, permissions, and saved forms out of persistent profiles; define when
   data is discarded and explain that downloaded files remain on disk.
@@ -88,16 +82,13 @@ explains why the lock must describe connection security rather than site trust.
   background-automation assertions retained.
 - [x] Extend cosmetic ad hiding into nested, cross-origin, and sandboxed frames,
   with live scope changes, navigation cleanup, and page policies preserved.
-- [x] Add title/URL search to the tab picker and name search to the session picker.
+- [x] Add name search to the session picker.
 - [x] Add bookmark search while preserving profile scope and folder context.
 - [x] Show find-in-page match counts and support previous matches in the prompt,
   independently of pending agent waits.
 - [x] Add CLI selector waits for attached, detached, visible, and hidden states,
   with validation and background-tab coverage.
 - [x] Refresh `verification.md` and document browser-tool and command-search coverage.
-- [x] Add keyboard navigation to the tab picker, including initial active-tab focus,
-  arrow keys, Home/End, PageUp/PageDown, Enter selection, Escape cancellation, and
-  keyboard focus restoration after the selected page attaches.
 - [x] Add fuzzy command search and slash search in help.
 - [x] Add ad blocking, Dark Reader, saved forms, Bitwarden CLI filling, and userscripts.
 - [x] Add local script plugins and page hooks.

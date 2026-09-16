@@ -10,7 +10,7 @@ import { searchBookmarks } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'tabs' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -71,10 +71,10 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = ['tabs', 'sessions', 'bookmarks', 'find', 'downloads', 'activity'].includes(previousControl.current ?? '')
+    let restoreFocus = ['sessions', 'bookmarks', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
     previousControl.current = control
     let cancelled = false
-    // Child layout effects publish the selected tab's bounds before it receives focus.
+    // Child layout effects publish the selected page's bounds before it receives focus.
     void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' }).then(() => {
       if (!cancelled && !control && restoreFocus) void run('focus-page', { client: state.clientId })
     })
@@ -137,10 +137,10 @@ let selection = (state: PublicState) => {
 
 let Status = ({ message }: { message: string }) => {
   let { state, show, acknowledgedDownloads } = useUI()
-  let { client, session, pane, tab, profile } = selection(state)
+  let { client, session, profile } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let sessions = () => show('sessions')
-  let tabs = () => show('tabs')
+  let profiles = () => show('profiles')
   let help = () => show('help')
   let commands = () => show('command')
   let activity = () => show('activity')
@@ -158,10 +158,11 @@ let Status = ({ message }: { message: string }) => {
     let list = windows.current
     if (!list) return
     let reveal = () => {
-      let active = list.querySelector('[data-active="true"]')?.getBoundingClientRect(), bounds = list.getBoundingClientRect()
+      let active = list.querySelector<HTMLElement>('[data-active="true"]')
       if (!active) return
-      if (active.left < bounds.left) list.scrollLeft -= bounds.left - active.left
-      else if (active.right > bounds.right) list.scrollLeft += active.right - bounds.right
+      let left = active.offsetLeft - list.offsetLeft, right = left + active.offsetWidth
+      if (left < list.scrollLeft) list.scrollLeft = Math.max(0, left - 1)
+      else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 1
     }
     let observer = new ResizeObserver(reveal)
     observer.observe(list); reveal()
@@ -170,7 +171,7 @@ let Status = ({ message }: { message: string }) => {
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index + 1}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
     <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
-    <button onClick={tabs} aria-label="Tabs" title="Active browser profile and tabs" className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}<span>{profile?.name}{pane && pane.tabs.length > 1 ? ` ${pane.tabs.findIndex(item => item.id === tab?.id) + 1}/${pane.tabs.length}` : ''}</span></button>
+    <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profile ? `Profile: ${profile.name}` : 'Profile'} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
@@ -387,7 +388,7 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
     if (event.key === 'Escape' || (closing && event.key.toLowerCase() === 'n')) { event.preventDefault(); finish(); return }
     if (closing && event.key.toLowerCase() === 'y') { event.preventDefault(); void apply() }
   }
-  let label = closingPane ? `Close pane with ${pane?.tabs.length ?? 0} tab${pane?.tabs.length === 1 ? '' : 's'}? (y/n)` : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : 'Rename window'
+  let label = closingPane ? 'Close pane? (y/n)' : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : 'Rename window'
   return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><input id="manage" ref={ref} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || 'esc'}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
@@ -453,8 +454,8 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'tabs', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
-  let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type.charAt(0).toUpperCase() + type.slice(1)
+  useEffect(() => { if (!['help', 'sessions', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
     {type === 'help' && <HelpContent />}
@@ -463,8 +464,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'browser-tools' && <BrowserTools />}
     {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && <SessionPicker />}
-    {type === 'tabs' && <TabPicker />}
-    {type === 'profiles' && <>{state.model.profiles.map(profile => <div key={profile.id} className={`${css.row} ${css.profileRow}`}><ProfileAvatar id={profile.id} name={profile.name} /><span>{profile.name}{profile.background ? ' (background)' : ''}</span></div>)}<p>Use <code>new-session -s NAME --profile PROFILE</code> or <code>split-window --profile PROFILE</code>.</p></>}
+    {type === 'profiles' && <ProfileInfo />}
     {type === 'bookmarks' && <BookmarkPicker />}
     {type === 'downloads' && <DownloadManager />}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
@@ -584,18 +584,20 @@ let SessionRow = ({ id, name }: { id: string; name: string }) => {
   if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow}><button className={css.row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
-let TabPicker = () => {
+let ProfileInfo = () => {
   let { state } = useUI()
-  let { pane, profile } = selection(state)
-  let { ref, keys, input, query, change } = usePickerNavigation()
-  let tabs = pane?.tabs.map((tab, index) => ({ tab, index })).filter(({ tab }) => fuzzyMatch(query, `${tab.title} ${tab.url}`)) ?? []
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose tab"><p>Profile: {profile?.name}</p><SearchInput ref={input} aria-label="Search tabs" value={query} onChange={change} />{tabs.map(({ tab, index }) => <TabRow key={tab.id} id={tab.id} label={`${index}: ${tab.title}`} url={tab.url} active={tab.id === pane!.activeTabId} />)}{!tabs.length && <p role="status">No matching tabs.</p>}</div>
-}
-let TabRow = ({ id, label, url, active }: { id: string; label: string; url: string; active: boolean }) => {
-  let { run, dismiss } = useUI()
-  // A changed selection closes the picker when App receives the new state and bounds.
-  let select = async () => { if (await run('tab.select', { tab: id }) && active) dismiss() }
-  return <button className={css.row} onClick={select} title={url} data-active={active} aria-current={active ? 'true' : undefined}>{label}{active ? ' *' : ''}<span className={css.pluginDescription}>{url}</span></button>
+  let { session, window, pane, profile } = selection(state)
+  if (!profile) return <p>No profile is selected.</p>
+  return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
+    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
+    <dl>
+      <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
+      <div><dt>Session</dt><dd>{session?.name}</dd></div>
+      <div><dt>Window</dt><dd>{window?.name}</dd></div>
+      <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
+    </dl>
+    <p>Cookies, site storage, cache, permissions, bookmarks, and history are isolated to this profile.</p>
+  </section>
 }
 let BookmarkPicker = () => {
   let { state } = useUI()
@@ -605,10 +607,12 @@ let BookmarkPicker = () => {
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><p>Profile: {profile?.name ?? 'No selected pane'}</p><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
 }
 let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
-  let { state, run } = useUI()
-  let { client } = selection(state)
+  let { state, run, dismiss } = useUI()
+  let { client, tab } = selection(state)
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
-  let activate = () => { if (supported && client?.paneId) void run('tab.create', { pane: client.paneId, url: bookmark.url, client: client.id }) }
+  let activate = async () => {
+    if (supported && client?.paneId && tab && await run('navigate', { tab: tab.id, url: bookmark.url }) !== undefined) dismiss()
+  }
   if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} />)}</div></details>
   return <button className={css.row} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
 }

@@ -173,56 +173,19 @@ test('slash searches help commands and active shortcuts; Escape clears before cl
   await activate(); await expect.poll(nativeVisible).toBe(true)
 })
 
-test('tab picker focuses the active tab, navigates without switching, and selects on Enter', async () => {
-  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
-  let original = pane.activeTabId, created: string[] = []
-  let picker = chrome.getByRole('group', { name: 'Choose tab', exact: true }), rows = picker.getByRole('button')
-  let activeTab = async () => (await state()).model.sessions[0].windows[0].panes[0].activeTabId
-  let tabs = [original]
-  try {
-    for (let index = 1; index <= 12; index++) {
-      let tab = await rpc('tab.create', { pane: pane.id, url: `${url}?tab=${index}` })
-      created.push(tab.id); tabs.push(tab.id)
-    }
-    await rpc('tab.select', { tab: tabs[6] })
-    await open(); await prompt().fill('tabs'); await prompt().press('Enter')
-    await expect(rows).toHaveCount(13)
-    await expect(rows.nth(6)).toBeFocused()
-    await expect(rows.nth(6)).toHaveAttribute('aria-current', 'true')
-    for (let [key, index] of [['ArrowDown', 7], ['ArrowUp', 6], ['Home', 0], ['ArrowUp', 0], ['End', 12], ['ArrowDown', 12], ['PageUp', 2], ['PageDown', 12]] as const) {
-      await chrome.keyboard.press(key)
-      await expect(rows.nth(index)).toBeFocused()
-      expect(await activeTab()).toBe(tabs[6])
-    }
-    await chrome.screenshot({ path: path.resolve('artifacts/tab-picker.png') })
-    await chrome.keyboard.press('Escape')
-    await expect(picker).toHaveCount(0)
-    expect(await activeTab()).toBe(tabs[6])
-    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}?tab=6`)
-    await activate(); await chrome.getByRole('button', { name: 'Tabs', exact: true }).click()
-    await expect(rows.nth(6)).toBeFocused()
-    // Background list updates must preserve focus and the active tab.
-    await rpc('tab.close', { tab: tabs[1] }); created = created.filter(id => id !== tabs[1])
-    await expect(rows).toHaveCount(12)
-    await expect(rows.nth(5)).toBeFocused()
-    expect(await activeTab()).toBe(tabs[6])
-    await chrome.keyboard.press('End'); await chrome.keyboard.press('Enter')
-    await expect(picker).toHaveCount(0)
-    await expect.poll(activeTab).toBe(tabs[12])
-    await expect.poll(() => application.evaluate(({ BaseWindow, webContents }, target) => {
-      let attached = BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as any).webContents.getURL() === target && view.getBounds().height > 300))
-      return { attached, focusedUrl: webContents.getFocusedWebContents()?.getURL() }
-    }, `${url}?tab=12`)).toEqual({ attached: true, focusedUrl: `${url}?tab=12` })
-  } finally {
-    await chrome.keyboard.press('Escape')
-    await rpc('tab.select', { tab: original })
-    for (let tab of created) await rpc('tab.close', { tab })
-  }
-  // A single-tab pane uses the same picker and keeps its native page on selection.
-  await activate(); await chrome.getByRole('button', { name: 'Tabs', exact: true }).click()
-  await expect(rows).toHaveCount(1); await expect(rows.first()).toBeFocused()
-  await chrome.keyboard.press('PageDown'); await chrome.keyboard.press('Enter')
-  await expect(picker).toHaveCount(0); expect(await activeTab()).toBe(original)
-  await expect.poll(nativeVisible).toBe(true)
-  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+test('profile icon has no visible label and opens details for the selected pane', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
+  let window = session.windows.find((item: { id: string }) => item.id === client.windowId)!
+  let pane = window.panes.find((item: { id: string }) => item.id === client.paneId)!
+  let profile = current.model.profiles.find((item: { id: string }) => item.id === pane.profileId)!
+  let button = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
+  await expect(button.locator('span')).toHaveCount(0)
+  await button.click()
+  let panel = chrome.getByRole('dialog', { name: 'Profile', exact: true })
+  await expect(panel).toBeVisible()
+  await expect(panel.getByRole('region', { name: `${profile.name} profile details`, exact: true })).toContainText(`Background pages${profile.background ? 'Keep running' : 'Throttle when inactive'}`)
+  await expect(panel).toContainText(`Session${session.name}`)
+  await expect(panel).toContainText(`Window${window.name}`)
+  await expect(panel).toContainText(`Pane${pane.id}`)
 })

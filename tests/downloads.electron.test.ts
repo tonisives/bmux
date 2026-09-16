@@ -57,7 +57,7 @@ test.afterAll(async () => {
 
 test('download manager controls real transfers and isolates profiles', async () => {
   let downloadButton = chrome.getByRole('button', { name: 'Downloads', exact: true })
-  await expect(chrome.getByRole('button', { name: 'Tabs', exact: true }).locator(`[data-profile-avatar="${model.profiles[0].id}"]`)).toBeVisible()
+  await expect(chrome.getByRole('button', { name: `Profile: ${model.profiles[0].name}`, exact: true }).locator(`[data-profile-avatar="${model.profiles[0].id}"]`)).toBeVisible()
   await expect(downloadButton).toHaveCount(0)
   await open(); await expect(chrome.getByText('No downloads in this profile.')).toBeVisible()
   await start('slow')

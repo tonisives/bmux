@@ -69,7 +69,7 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 | Profile | Persistent cookies, site storage, cache, and permission choices |
 | Session | Named collection of internal windows |
 | Window | Named layout of browser panes |
-| Pane | One profile, with its own browser tab |
+| Pane | One browser page with a fixed profile |
 | Client | A desktop window attached to a session |
 
 Clients choose their current internal window independently. Visible clients keep their live browser views when the app loses focus. If multiple clients display the same page, focusing one transfers that page to it; the others show captured previews. Clients displaying different pages can render them simultaneously. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
@@ -164,4 +164,4 @@ Do not expect Electron to provide every Chrome feature: DRM media, platform auth
 To make bmux your default browser, open Settings with `Cmd+,` in the installed
 app and choose **Make bmux the default browser**. Confirm the macOS prompt if
 shown. You can also select bmux in System Settings > Desktop & Dock > Default
-web browser. Links from other apps open in a new tab in the active bmux pane.
+web browser. Links from other apps open in a new internal window in the active bmux session.
