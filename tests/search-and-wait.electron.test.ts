@@ -181,19 +181,26 @@ test('history search stays profile scoped and opens a result in the selected pan
   await rpc('navigate', { tab: original, url: `${url}/fixture` })
 })
 
-test('bookmark command chooses a folder and Command+D updates and moves the same URL', async () => {
+test('bookmark command searches and creates folders while Command+D updates and moves the same URL', async () => {
   await open('bookmark')
   let editor = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
-  let title = editor.getByRole('textbox', { name: 'Title', exact: true }), folder = editor.getByRole('combobox', { name: 'Bookmark folder', exact: true })
+  let title = editor.getByRole('textbox', { name: 'Title', exact: true }), folders = editor.getByRole('group', { name: 'Choose bookmark folder', exact: true }), folderSearch = folders.getByRole('textbox', { name: 'Search bookmark folders', exact: true })
   await expect(title).toBeFocused(); await expect(title).toHaveValue('Search fixture')
-  await expect(folder.getByRole('option')).toHaveText(['Profile root', 'Work', 'Work / Guides'])
-  await title.fill('Saved fixture'); await folder.selectOption('docs')
+  await expect(folders.locator('button[data-bookmark-folder]')).toHaveText(['Profile root', 'Work', 'Work / Guides'])
+  await chrome.keyboard.press('/')
+  await expect(folderSearch).toBeFocused(); await folderSearch.fill('guides'); await folderSearch.press('Enter')
+  await expect(folders.getByRole('status')).toContainText('Selected folder: Work / Guides')
+  await folders.getByRole('button', { name: 'New folder inside Work / Guides', exact: true }).click()
+  let folderName = folders.getByRole('textbox', { name: 'New folder name', exact: true })
+  await expect(folderName).toBeFocused(); await folderName.fill('Reading'); await folderName.press('Enter')
+  await expect.poll(async () => folders.getByRole('status').textContent()).toContain('Selected folder: Work / Guides / Reading')
+  await title.fill('Saved fixture')
   await chrome.screenshot({ path: path.resolve('artifacts/bookmark-editor.png') })
   await editor.getByRole('button', { name: 'Save bookmark', exact: true }).click()
   await expect(editor).toHaveCount(0)
   let bookmarks = (await state()).model.profiles[0].bookmarks
   expect(flattenBookmarks(bookmarks).filter(bookmark => bookmark.url === `${url}/fixture`)).toEqual([expect.objectContaining({ title: 'Saved fixture' })])
-  expect(bookmarks[0].children[0].children.at(-1).title).toBe('Saved fixture')
+  expect(bookmarks[0].children[0].children.at(-1)).toMatchObject({ title: 'Reading', children: [expect.objectContaining({ title: 'Saved fixture' })] })
 
   await activate(); await rpc('focus-page', { client: (await state()).clientId })
   await application.evaluate(({ webContents }) => {
@@ -201,8 +208,8 @@ test('bookmark command chooses a folder and Command+D updates and moves the same
     contents.sendInputEvent({ type: 'keyDown', keyCode: 'd', modifiers: ['meta'] })
     contents.sendInputEvent({ type: 'keyUp', keyCode: 'd', modifiers: ['meta'] })
   })
-  await expect(editor).toBeVisible(); await expect(folder).toHaveValue('docs')
-  await title.fill('Updated fixture'); await folder.selectOption('')
+  await expect(editor).toBeVisible(); await expect(editor.getByRole('status')).toContainText('Selected folder: Work / Guides / Reading')
+  await title.fill('Updated fixture'); await editor.getByRole('button', { name: 'Profile root', exact: true }).click()
   await editor.getByRole('button', { name: 'Save bookmark', exact: true }).click()
   bookmarks = (await state()).model.profiles[0].bookmarks
   expect(flattenBookmarks(bookmarks).filter(bookmark => bookmark.url === `${url}/fixture`)).toEqual([expect.objectContaining({ title: 'Updated fixture' })])

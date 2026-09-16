@@ -29,3 +29,15 @@ export let saveBookmark = (profile: Profile, values: { url: string; title: strin
   profile.bookmarks = bookmarks
   return { bookmark, created: matches.length === 0 }
 }
+
+export let createBookmarkFolder = (profile: Profile, values: { title: string; parentId?: string }, createId: () => string) => {
+  let bookmarks = profile.bookmarks ?? []
+  let destination = values.parentId ? findFolder(bookmarks, values.parentId)?.children : bookmarks
+  if (!destination) throw new Error('Parent bookmark folder not found')
+  let existing = destination.find(bookmark => bookmark.children && bookmark.title.localeCompare(values.title, undefined, { sensitivity: 'accent' }) === 0)
+  if (existing) return { folder: existing, created: false }
+  let folder: Bookmark = { id: createId(), title: values.title, children: [] }
+  destination.push(folder)
+  profile.bookmarks = bookmarks
+  return { folder, created: true }
+}

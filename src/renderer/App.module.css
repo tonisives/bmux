@@ -113,9 +113,15 @@
 
 .bookmarkEditor { display: flex; flex-direction: column; gap: 14px; }
 .bookmarkEditor label { display: flex; flex-direction: column; gap: 6px; }
-.bookmarkEditor input, .bookmarkEditor select { width: 100%; }
+.bookmarkEditor input { width: 100%; }
 .bookmarkEditor button { align-self: flex-start; }
 .bookmarkUrl { color: #8e98a4; overflow-wrap: anywhere; }
+.bookmarkFolders { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #363c45; }
+.bookmarkFolderRows { max-height: 210px; overflow-y: auto; }
+.bookmarkFolderRows .row[aria-pressed="true"] { color: #d6dfcf; background: #28312b; }
+.pickerHint { color: #8e98a4; }
+.newBookmarkFolder { padding-top: 10px; border-top: 1px solid #363c45; }
+.newBookmarkFolder > div { display: flex; gap: 12px; margin-top: 8px; }
 
 .addressEditor { width: 100%; min-width: 0; }
 .addressEditor .prompt { min-height: 28px; }

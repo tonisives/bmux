@@ -588,7 +588,7 @@ let usePickerNavigation = () => {
     if (event.key === 'ArrowUp' && nextIndex === 0 && panel) panel.scrollTop = 0
     if (event.key === 'ArrowDown' && nextIndex === rows.length - 1 && panel) panel.scrollTop = panel.scrollHeight
   }
-  return { ref, keys, input, query, change }
+  return { ref, keys, input, query, setQuery, change }
 }
 let SessionPicker = () => {
   let { state, run } = useUI()
@@ -663,12 +663,39 @@ let BookmarkEditor = () => {
   let { tab, profile } = selection(state)
   let folders = bookmarkFolderOptions(profile?.bookmarks ?? [])
   let [title, setTitle] = useState(tab?.title && tab.title !== 'about:blank' ? tab.title : ''), [folder, setFolder] = useState(() => bookmarkFolderForUrl(profile?.bookmarks ?? [], tab?.url ?? '') ?? '')
-  let [busy, setBusy] = useState(false)
+  let [busy, setBusy] = useState(false), [creatingFolder, setCreatingFolder] = useState(false), [folderName, setFolderName] = useState(''), [folderBusy, setFolderBusy] = useState(false)
   let input = useRef<HTMLInputElement>(null)
+  let folderNameInput = useRef<HTMLInputElement>(null)
+  let { ref: folderPicker, keys: folderKeys, input: folderSearch, query: folderQuery, setQuery: setFolderQuery, change: changeFolderQuery } = usePickerNavigation()
+  let folderOptions = [{ id: '', label: 'Profile root' }, ...folders]
+  let matchingFolders = folderOptions.filter(option => fuzzyMatch(folderQuery, option.label))
+  let selectedFolder = folderOptions.find(option => option.id === folder)?.label ?? 'Profile root'
   let supported = !!tab && /^(https?:|file:)/i.test(tab.url)
   useEffect(() => { input.current?.focus(); input.current?.select() }, [])
+  useEffect(() => { if (creatingFolder) folderNameInput.current?.focus() }, [creatingFolder])
   let changeTitle = (event: ChangeEvent<HTMLInputElement>) => setTitle(event.target.value)
-  let changeFolder = (event: ChangeEvent<HTMLSelectElement>) => setFolder(event.target.value)
+  let chooseFolder = (event: MouseEvent<HTMLButtonElement>) => setFolder(event.currentTarget.dataset.id ?? '')
+  let beginFolder = () => { setFolderName(''); setCreatingFolder(true) }
+  let cancelFolder = () => { setFolderName(''); setCreatingFolder(false); folderSearch.current?.focus() }
+  let changeFolderName = (event: ChangeEvent<HTMLInputElement>) => setFolderName(event.target.value)
+  let createFolder = async () => {
+    if (!tab || !folderName.trim() || folderBusy) return
+    setFolderBusy(true)
+    let result = await run('bookmark.folder.add', { tab: tab.id, title: folderName, parent: folder }) as { folder: Bookmark } | undefined
+    setFolderBusy(false)
+    if (!result) return
+    setFolder(result.folder.id); setFolderQuery(''); setFolderName(''); setCreatingFolder(false)
+  }
+  let folderNameKeys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') { event.preventDefault(); void createFolder() }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelFolder() }
+  }
+  let editorKeys = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== '/' || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
+    let titleSelected = event.target === input.current && input.current?.selectionStart === 0 && input.current.selectionEnd === title.length
+    if (!titleSelected && event.target instanceof HTMLInputElement) return
+    event.preventDefault(); folderSearch.current?.focus(); folderSearch.current?.select()
+  }
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!tab || !supported || !title.trim() || busy) return
@@ -678,10 +705,17 @@ let BookmarkEditor = () => {
     if (result !== undefined) dismiss()
   }
   if (!profile || !tab) return <p>No page is selected.</p>
-  return <form className={css.bookmarkEditor} onSubmit={submit}>
+  return <form className={css.bookmarkEditor} onSubmit={submit} onKeyDown={editorKeys}>
     <p>Profile: {profile.name}</p>
     <label>Title<input ref={input} value={title} onChange={changeTitle} autoComplete="off" spellCheck={false} required /></label>
-    <label>Folder<select aria-label="Bookmark folder" value={folder} onChange={changeFolder}><option value="">Profile root</option>{folders.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+    <div ref={folderPicker} className={css.bookmarkFolders} onKeyDown={folderKeys} role="group" aria-label="Choose bookmark folder">
+      <label>Folder search<SearchInput ref={folderSearch} aria-label="Search bookmark folders" value={folderQuery} onChange={changeFolderQuery} /></label>
+      <span className={css.pickerHint}>Press / to search · ↑/↓ to move · Enter to select</span>
+      <div className={css.bookmarkFolderRows}>{matchingFolders.map(option => <button key={option.id || 'root'} type="button" className={css.row} data-bookmark-folder data-id={option.id} data-active={folder === option.id} aria-pressed={folder === option.id} onClick={chooseFolder}>{option.label}</button>)}</div>
+      {!matchingFolders.length && <p role="status">No matching folders.</p>}
+      <p role="status">Selected folder: {selectedFolder}</p>
+      {creatingFolder ? <div className={css.newBookmarkFolder}><label>New folder name<input ref={folderNameInput} value={folderName} onChange={changeFolderName} onKeyDown={folderNameKeys} autoComplete="off" spellCheck={false} /></label><div><button type="button" data-picker-action onClick={createFolder} disabled={!folderName.trim() || folderBusy}>{folderBusy ? 'Creating…' : 'Create folder'}</button><button type="button" data-picker-action onClick={cancelFolder} disabled={folderBusy}>Cancel</button></div></div> : <button type="button" data-picker-action onClick={beginFolder}>New folder inside {selectedFolder}</button>}
+    </div>
     <p className={css.bookmarkUrl}>{tab.url}</p>
     {!supported && <p role="alert">Open an HTTP, HTTPS, or file page before bookmarking it.</p>}
     <button type="submit" disabled={!supported || !title.trim() || busy}>{busy ? 'Saving…' : 'Save bookmark'}</button>

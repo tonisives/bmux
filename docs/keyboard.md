@@ -40,6 +40,8 @@ Common direct shortcuts:
 
 Pickers support typing to search, Up/Down to select, Enter to confirm, and Escape to clear or close. Open `?` or press F1 to see active shortcuts and commands.
 
+In the bookmark editor, press `/` from a folder row to search folders, use Up/Down and Enter to select one, or create a new folder inside the selected folder.
+
 ## Command prompt
 
 Press Control+B, then `:`, or click `:` in the status bar. Type a command or part of its name. Tab completes the selected result and Enter runs it.

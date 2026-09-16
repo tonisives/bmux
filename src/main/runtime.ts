@@ -26,7 +26,7 @@ import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
 import { parseSearchSuggestions } from '../shared/address-suggestions'
-import { saveBookmark } from './bookmarks'
+import { createBookmarkFolder, saveBookmark } from './bookmarks'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
@@ -824,6 +824,15 @@ export let createRuntime = (dataDirectory: string) => {
       if (!/^(https?:|file:)/i.test(url)) throw new Error('Open a web page before bookmarking it')
       let title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : tabs.get(tab.id)?.contents.getTitle().trim() || tab.title || url
       let result = saveBookmark(profile, { url, title, folderId: typeof args.folder === 'string' && args.folder ? args.folder : undefined }, () => id('bookmark'))
+      save()
+      return result
+    }
+    if (method === 'bookmark.folder.add') {
+      let { pane } = tabById(model, required(args, 'tab'))
+      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let title = required(args, 'title').trim()
+      if (!title || title.length > 200) throw new Error('Folder name must be between 1 and 200 characters')
+      let result = createBookmarkFolder(profile, { title, parentId: typeof args.parent === 'string' && args.parent ? args.parent : undefined }, () => id('bookmark-folder'))
       save()
       return result
     }
