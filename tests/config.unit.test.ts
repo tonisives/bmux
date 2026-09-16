@@ -9,6 +9,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaultConfig = parseConfig(defaultConfigText())
   let defaults = defaultConfig.keyboard
   expect(defaultConfig.statusBar).toBe('top')
+  expect(defaultConfig.showTabCloseButtons).toBe(false)
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
   expect(defaults.shortcuts['Cmd+Ctrl+Alt+Shift+W']).toBe('sessions')
   expect(defaults.shortcuts['Cmd+T']).toBe('new-window')
@@ -46,6 +47,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(() => parseConfig('keyboard:\n  prefixTimeoutMs: 0')).toThrow('prefixTimeoutMs')
   expect(parseConfig('statusBar: bottom\nkeyboard: {}\n').statusBar).toBe('bottom')
   expect(() => parseConfig('statusBar: left\nkeyboard: {}\n')).toThrow('statusBar must be top or bottom')
+  expect(parseConfig('showTabCloseButtons: true\nkeyboard: {}\n').showTabCloseButtons).toBe(true)
+  expect(() => parseConfig('showTabCloseButtons: yes\nkeyboard: {}\n')).toThrow('showTabCloseButtons must be true or false')
 })
 it('preserves existing files and the last valid configuration when an edit is invalid', () => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-config-'))

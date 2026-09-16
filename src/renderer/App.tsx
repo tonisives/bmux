@@ -187,12 +187,12 @@ let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: 
   let label = `${index}:${window.name}${active ? '*' : ''}`
   let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
-  return <span className={css.windowTab} data-active={active} data-window-id={window.id}>
+  return <span className={css.windowTab} data-window-id={window.id}>
     <button onClick={select} className={css.windowSelect} data-active={active} title={window.name}>
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : null)}
       <span className={css.windowLabel}>{label}</span>
     </button>
-    <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>
+    {state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
 
@@ -896,5 +896,5 @@ let KeyboardSettings = () => {
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><ToolStatus /><button onClick={makeDefault}>Make bmux the default browser</button><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration. Use an action and <code>when: pane-not-editing</code> to limit a shortcut to page content outside text fields.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  return <><ToolStatus /><button onClick={makeDefault}>Make bmux the default browser</button><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration. Use an action and <code>when: pane-not-editing</code> to limit a shortcut to page content outside text fields.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Tab close buttons: {state.showTabCloseButtons ? 'enabled' : 'hidden'}. Set <code>showTabCloseButtons: true</code> to show them.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nshowTabCloseButtons: false\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
 }

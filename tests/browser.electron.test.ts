@@ -1053,11 +1053,12 @@ test('status window list uses available room and hides its native scrollbar', as
   await cli('detach-client', { client: client.id })
 })
 
-test('status tabs show loading, favicon, and close control', async () => {
+test('status tabs show loading and favicon, with optional close control', async () => {
   let session = await cli('new-session', { name: 'status-tab-controls' })
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.context().pages().filter(page => page.url().endsWith('index.html')).at(-1)!
   let tab = chrome.locator(`[data-window-id="${session.windows[0].id}"]`)
+  await expect(tab.locator('button[aria-label^="Close "]')).toHaveCount(0)
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search' })
   await address.fill(`${url}/pending-tab`)
@@ -1071,6 +1072,9 @@ test('status tabs show loading, favicon, and close control', async () => {
   }
   await expect(tab.locator('img')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
   await expect(tab.locator('[data-tab-loading]')).toHaveCount(0)
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: true\nkeyboard: {}\n')
+  await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(true)
+  await expect(tab.locator('button[aria-label^="Close "]')).toBeVisible()
   let keep = await cli('new-window', { session: session.id, client: client.id, name: 'keep' })
   await tab.locator('button[aria-label^="Close "]').click()
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([keep.id])

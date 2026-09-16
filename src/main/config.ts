@@ -11,7 +11,7 @@ import { parseBrowserSettings } from './browser-config'
 import { DEFAULT_BROWSER } from '../shared/browser-tools'
 import type { BrowserSettings } from '../shared/browser-tools'
 
-type Settings = { keyboard: KeyboardConfig; accessibility: boolean; statusBar: StatusBarPosition; browser: BrowserSettings; plugins: PluginSettings }
+type Settings = { keyboard: KeyboardConfig; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -26,7 +26,7 @@ export let configPath = (dataDirectory: string) => {
   }
   return current
 }
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status tabs.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
 export let parseConfig = (text: string): Settings => {
   let document = parseDocument(text)
   if (document.errors.length) throw new Error('Invalid YAML in keyboard configuration')
@@ -34,6 +34,7 @@ export let parseConfig = (text: string): Settings => {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !value.keyboard || typeof value.keyboard !== 'object' || Array.isArray(value.keyboard)) throw new Error('Configuration must contain a keyboard mapping')
   if (value.accessibility !== undefined && typeof value.accessibility !== 'boolean') throw new Error('accessibility must be true or false')
   if (value.statusBar !== undefined && value.statusBar !== 'top' && value.statusBar !== 'bottom') throw new Error('statusBar must be top or bottom')
+  if (value.showTabCloseButtons !== undefined && typeof value.showTabCloseButtons !== 'boolean') throw new Error('showTabCloseButtons must be true or false')
   let keyboard = value.keyboard
   for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
   let result = structuredClone(DEFAULT_KEYBOARD)
@@ -75,10 +76,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { keyboard: result, accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', plugins, browser: parseBrowserSettings(value.browser) }
+  return { keyboard: result, accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, plugins, browser: parseBrowserSettings(value.browser) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false, statusBar: 'top', plugins: {}, browser: structuredClone(DEFAULT_BROWSER) }, error: string | null = null
+  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false, statusBar: 'top', showTabCloseButtons: false, plugins: {}, browser: structuredClone(DEFAULT_BROWSER) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -100,7 +101,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
   return {
     get plugins() { return settings.plugins },
     get browser() { return settings.browser }, update,
-    get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get error() { return error }, path: file, reload,
+    get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get showTabCloseButtons() { return settings.showTabCloseButtons }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {
       parseBinding(prefix)
       let document = parseDocument(fs.readFileSync(file, 'utf8'))

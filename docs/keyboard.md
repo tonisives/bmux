@@ -73,6 +73,7 @@ Edit `~/.config/bmux/config.yaml`, or press Command+,. Changes reload automatica
 
 ```yaml
 statusBar: top
+showTabCloseButtons: false
 keyboard:
   prefix: Ctrl+B
   prefixTimeoutMs: 1600
@@ -100,6 +101,8 @@ keyboard:
     "(": previous-session
     ")": next-session
 ```
+
+Set `showTabCloseButtons: true` when you want close buttons on the status tabs.
 
 Configured shortcuts take precedence over website shortcuts and native menu defaults. Multiple shortcuts can use the same action.
 
