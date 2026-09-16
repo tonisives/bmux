@@ -221,6 +221,25 @@ test('bookmark command searches and creates folders while Command+D updates and 
   expect(bookmarks.at(-1)).toMatchObject({ title: 'Updated fixture', url: `${url}/fixture` })
 })
 
+test('bookmark folders and sessions use the same full-row selection style', async () => {
+  await open('bookmark')
+  let bookmark = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
+  let folder = bookmark.locator('button[data-bookmark-folder][aria-pressed="true"]')
+  let selectedStyle = await folder.evaluate(element => {
+    let style = getComputedStyle(element)
+    return { background: style.backgroundColor, shadow: style.boxShadow, weight: style.fontWeight }
+  })
+  expect(selectedStyle.background).not.toBe('rgba(0, 0, 0, 0)')
+  expect(selectedStyle.shadow).toBe('none')
+  await bookmark.getByRole('button', { name: 'Close', exact: true }).click()
+  await open('sessions')
+  let session = chrome.getByRole('dialog', { name: 'Sessions', exact: true }).locator('button[data-session-row][data-active="true"]')
+  expect(await session.evaluate(element => {
+    let style = getComputedStyle(element)
+    return { background: style.backgroundColor, shadow: style.boxShadow, weight: style.fontWeight }
+  })).toEqual(selectedStyle)
+})
+
 test('find reports counts, moves in both directions, and stays responsive during an agent wait', async () => {
   await page.evaluate(() => { (window as any).waitReady = false; (window as any).waitPolls = 0 })
   let pending = cli('wait', '-t', original, '--expression', '(window.waitPolls++, window.waitReady)', '--timeout', '10000')

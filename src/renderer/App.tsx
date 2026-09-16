@@ -519,7 +519,7 @@ let PluginList = () => {
   return <><ToolStatus /><h2>Installed plugins</h2><SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus />
     {!state.plugins?.length && <p>No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.</p>}
     {state.plugins?.map(plugin => <div key={plugin.id}><label><input type="checkbox" data-id={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>
-      {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.row} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
+      {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
     <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p><button onClick={reload}>Reload plugins</button></>
 }
 let PluginActivity = () => {
@@ -551,7 +551,7 @@ let PluginDialog = () => {
   }
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
     {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
-    {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.row} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
+    {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.listRow} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
     {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
   </form>}</>
 }
@@ -606,7 +606,7 @@ let SessionPicker = () => {
     setBusy(true)
     if (await run('new-session', { name: sessionName, client: state.clientId }) === undefined) setBusy(false)
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.row} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={`${css.row} ${css.newSession}`} onClick={begin}>new session</button>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={`${css.listRow} ${css.newSession}`} onClick={begin}>new session</button>}</div>
 }
 let SessionRow = ({ id, name }: { id: string; name: string }) => {
   let { state, run, dismiss } = useUI()
@@ -621,7 +621,7 @@ let SessionRow = ({ id, name }: { id: string; name: string }) => {
     if (await run('kill-session', { session: id, confirm: true }) === undefined) setBusy(false)
   }
   if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow}><button className={css.row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  return <div className={css.sessionRow}><button className={css.listRow} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 let ProfileInfo = () => {
   let { state } = useUI()
@@ -706,7 +706,7 @@ let BookmarkEditor = () => {
     <label>Title<input ref={input} value={title} onChange={changeTitle} autoComplete="off" spellCheck={false} required /></label>
     <div ref={folderPicker} className={css.bookmarkFolders} onKeyDown={folderKeys} role="group" aria-label="Choose bookmark folder">
       <label>Folder search<SearchInput ref={folderSearch} aria-label="Search bookmark folders" value={folderQuery} onChange={changeFolderQuery} /></label>
-      <div className={css.bookmarkFolderRows}>{matchingFolders.map(option => <button key={option.id || 'root'} type="button" className={css.row} data-bookmark-folder data-id={option.id} data-active={folder === option.id} aria-pressed={folder === option.id} onClick={chooseFolder}>{option.label}</button>)}</div>
+      <div className={css.bookmarkFolderRows}>{matchingFolders.map(option => <button key={option.id || 'root'} type="button" className={css.listRow} data-bookmark-folder data-id={option.id} data-active={folder === option.id} aria-pressed={folder === option.id} onClick={chooseFolder}>{option.label}</button>)}</div>
       {!matchingFolders.length && <p role="status">No matching folders.</p>}
       {creatingFolder ? <div className={css.newBookmarkFolder}><label>New folder name<input ref={folderNameInput} value={folderName} onChange={changeFolderName} onKeyDown={folderNameKeys} autoComplete="off" spellCheck={false} /></label><div><button type="button" data-picker-action onClick={createFolder} disabled={!folderName.trim() || folderBusy}>{folderBusy ? 'Creating…' : 'Create folder'}</button><button type="button" data-picker-action onClick={cancelFolder} disabled={folderBusy}>Cancel</button></div></div> : <button type="button" data-picker-action onClick={beginFolder}>New folder inside {selectedFolder}</button>}
     </div>
@@ -729,7 +729,7 @@ let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
     if (supported && client?.paneId && tab && await run('navigate', { tab: tab.id, url: bookmark.url }) !== undefined) dismiss()
   }
   if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} />)}</div></details>
-  return <button className={css.row} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+  return <button className={css.listRow} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
 }
 let HistoryPicker = () => {
   let { state } = useUI()
@@ -745,7 +745,7 @@ let HistoryRow = ({ entry }: { entry: HistoryEntry }) => {
     if (tab && await run('navigate', { tab: tab.id, url: entry.url }) !== undefined) dismiss()
   }
   let visited = new Date(entry.visitedAt)
-  return <button className={`${css.row} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button>
+  return <button className={`${css.listRow} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button>
 }
 let PermissionRow = ({ permission }: { permission: Permission }) => {
   let { run } = useUI()
