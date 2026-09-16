@@ -52,6 +52,8 @@ test.beforeAll(async () => {
     { id: 'api', title: 'API reference', url: `${url}/docs` }, { id: 'unsupported', title: 'Disabled bookmarklet', url: 'javascript:void(0)' },
   ] }, { id: 'notes', title: 'Research notes', url: `${url}/notes` }] }]
   model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
+  model.profiles[0].history = [{ title: 'Research notes', url: `${url}/notes`, visitedAt: Date.parse('2026-01-02T03:04:00Z') }]
+  model.profiles[1].history = [{ title: 'Bot-only visit', url: `${url}/bot`, visitedAt: Date.parse('2026-01-01T03:04:00Z') }]
   model.sessions.push(newSession('Project planning', model.profiles[1].id))
   for (let index = 0; index < 24; index++) model.sessions.push(newSession(`Scroll fixture ${index + 1}`, model.profiles[0].id))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
@@ -164,6 +166,19 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await chrome.keyboard.press('Enter'); await expect(group).toHaveCount(0)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
   expect((await state()).model.sessions[0].windows[0].panes[0].profileId).toBe('profile_default')
+})
+
+test('history search stays profile scoped and opens a result in the selected pane', async () => {
+  await open('history')
+  let group = chrome.getByRole('group', { name: 'Choose history entry', exact: true }), search = group.getByRole('textbox', { name: 'Search history', exact: true })
+  await expect(search).toBeFocused(); await search.fill('research notes')
+  await expect(group.getByRole('button')).toHaveCount(1)
+  await search.fill('bot-only'); await expect(group.getByRole('status')).toHaveText('No matching history.')
+  await search.press('Escape'); await expect(search).toHaveValue('')
+  await search.fill('research notes'); await search.press('Enter')
+  await expect(group).toHaveCount(0)
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/notes`)
+  await rpc('navigate', { tab: original, url: `${url}/fixture` })
 })
 
 test('bookmark command chooses a folder and Command+D updates and moves the same URL', async () => {

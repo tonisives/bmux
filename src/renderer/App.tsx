@@ -1,17 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } from 'react'
-import type { Bookmark, Bridge, Download, Layout, Permission, PublicState } from '../shared/types'
+import type { Bookmark, Bridge, Download, HistoryEntry, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
-import { searchBookmarks } from '../shared/picker-search'
+import { searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -72,7 +72,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = ['sessions', 'bookmark', 'bookmarks', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
+    let restoreFocus = ['sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
     previousControl.current = control
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
@@ -480,7 +480,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
@@ -493,6 +493,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'profiles' && <ProfileInfo />}
     {type === 'bookmark' && <BookmarkEditor />}
     {type === 'bookmarks' && <BookmarkPicker />}
+    {type === 'history' && <HistoryPicker />}
     {type === 'downloads' && <DownloadManager />}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
   </div></div>
@@ -687,6 +688,22 @@ let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
   }
   if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} />)}</div></details>
   return <button className={css.row} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+}
+let HistoryPicker = () => {
+  let { state } = useUI()
+  let { profile } = selection(state)
+  let { ref, keys, input, query, change } = usePickerNavigation()
+  let history = searchHistory(profile?.history ?? [], query)
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose history entry"><p>Profile: {profile?.name ?? 'No selected pane'}</p><SearchInput ref={input} aria-label="Search history" value={query} onChange={change} />{history.map(entry => <HistoryRow key={`${entry.url}:${entry.visitedAt}`} entry={entry} />)}{!history.length && <p role="status">{query ? 'No matching history.' : 'No history in this profile.'}</p>}</div>
+}
+let HistoryRow = ({ entry }: { entry: HistoryEntry }) => {
+  let { state, run, dismiss } = useUI()
+  let { tab } = selection(state)
+  let activate = async () => {
+    if (tab && await run('navigate', { tab: tab.id, url: entry.url }) !== undefined) dismiss()
+  }
+  let visited = new Date(entry.visitedAt)
+  return <button className={`${css.row} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button>
 }
 let PermissionRow = ({ permission }: { permission: Permission }) => {
   let { run } = useUI()

@@ -1,7 +1,7 @@
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
-export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'activity', 'downloads', 'profiles'] as const
+export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles'] as const
 export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
@@ -13,6 +13,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'downloads', description: 'Manage downloads in this profile', action: 'downloads' },
   { command: 'bookmark', description: 'Save this page to a bookmark folder', action: 'bookmark' },
   { command: 'bookmarks', description: 'Browse bookmarks in this profile', action: 'bookmarks' },
+  { command: 'history', description: 'Search browsing history in this profile', action: 'history' },
   { command: 'activity', description: 'Downloads, permissions, and running plugins', action: 'activity' },
   { command: 'profiles', description: 'Show the selected browser profile', action: 'profiles' },
   { command: 'open ', usage: 'open URL', description: 'Open a URL or search in the current pane', complete: true, action: 'address' },
@@ -130,6 +131,7 @@ export let HELP_NOTES = [
   'In the command finder: type to fuzzy search, Up/Down or Ctrl+P/N selects, Tab completes, and Enter opens or runs. Ctrl+R/S recalls command history. Shift+Enter runs the typed command exactly.',
   'In the session picker: type or press / to search names. Up/Down moves, Home/End jumps, PageUp/PageDown moves ten rows, and Enter selects. Escape clears search first, then closes without switching.',
   'Bookmarks search titles, URLs, and folder names in the selected pane’s profile. Folder context stays visible. Up/Down moves and Enter opens the bookmark in that pane; Escape clears search first, then closes.',
+  'History searches page titles and URLs in the selected pane’s profile. Up/Down moves and Enter opens the page in that pane; Escape clears search first, then closes.',
   'Find in page shows the current match and total count. Enter or Next moves forward, Shift+Enter or Previous moves backward, and Escape clears highlights and returns to the page.',
   'Closing an internal window asks for y/n. Closing a native client leaves its session running.',
   'Drag the blank area of the status bar to move this macOS window.',

@@ -56,6 +56,7 @@ save-layout development
 restore-layout development --confirm
 bookmark
 bookmarks
+history
 sessions
 profiles
 activity

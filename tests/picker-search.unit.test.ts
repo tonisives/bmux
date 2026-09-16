@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { searchBookmarks } from '../src/shared/picker-search'
+import { searchBookmarks, searchHistory } from '../src/shared/picker-search'
 import { waitOptions } from '../src/main/wait'
 import type { Bookmark } from '../src/shared/types'
 
@@ -16,6 +16,18 @@ test('bookmark search preserves folder context without including unrelated sibli
   expect(searchBookmarks(bookmarks, 'zzzz')).toEqual([])
   expect(searchBookmarks(bookmarks, '   ')).toBe(bookmarks)
   expect(bookmarks).toEqual(before)
+})
+
+test('history search matches titles and URLs without changing recency order', () => {
+  let history = [
+    { title: 'API reference', url: 'https://example.test/docs/api', visitedAt: 3 },
+    { title: 'Project notes', url: 'https://notes.test/project', visitedAt: 2 },
+    { title: 'Recipes', url: 'https://food.test/', visitedAt: 1 },
+  ]
+  expect(searchHistory(history, 'proj note')).toEqual([history[1]])
+  expect(searchHistory(history, 'example api')).toEqual([history[0]])
+  expect(searchHistory(history, 'zzzz')).toEqual([])
+  expect(searchHistory(history, '   ')).toBe(history)
 })
 
 test('wait requests validate exclusive modes and reject invalid durations and states', () => {
