@@ -968,7 +968,7 @@ test('permission corner popup leaves the native page interactive and reopens for
   await cli('detach-client', { client: client.id })
 })
 
-test('URL history appears only after input and remains scoped to the pane profile', async () => {
+test('address suggestions complete URLs and keep history scoped to the pane profile', async () => {
   let session = await cli('new-session', { name: 'History suggestions' })
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
@@ -978,7 +978,12 @@ test('URL history appears only after input and remains scoped to the pane profil
   let created = await cli('split-window', { pane: pane.id, client: client.id })
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
-  await expect(chrome.getByRole('listbox', { name: 'URL history' })).toHaveCount(0)
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
+  await address.fill('127')
+  await expect(address).toHaveValue(url.replace(/^http:\/\//, '') + '/history-suggestion')
+  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length + '/history-suggestion'.length })
+  await address.press('Backspace')
+  await expect(address).toHaveValue('127')
   await address.fill('history-suggestion')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await cli('focus-page', { client: client.id })
@@ -990,9 +995,9 @@ test('URL history appears only after input and remains scoped to the pane profil
   await expect(address).toHaveCount(0)
   await chrome.locator(`[data-pane-id="${created.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
   await expect(address).toHaveValue('')
-  await expect(chrome.getByRole('listbox', { name: 'URL history' })).toHaveCount(0)
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
   await address.fill('history-suggestion')
-  await expect(chrome.getByRole('option')).toHaveCount(1)
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(1)
   await address.press('ArrowDown')
   await address.press('Enter')
   await expect(address).toHaveCount(0)
@@ -1004,7 +1009,7 @@ test('URL history appears only after input and remains scoped to the pane profil
   let isolated = await cli('split-window', { pane: created.id, profile: 'bot', client: client.id })
   await expect(address).toBeFocused()
   await address.fill('history-suggestion')
-  await expect(chrome.getByRole('option')).toHaveCount(0)
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(0)
   await address.fill(`${url}/typed-history-url`)
   await address.press('Enter')
   await expect.poll(async () => (await cli('tab.list', { pane: isolated.id }))[0].url).toBe(`${url}/typed-history-url`)
