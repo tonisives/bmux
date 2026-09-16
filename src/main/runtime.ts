@@ -25,6 +25,7 @@ import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
+import { parseSearchSuggestions } from '../shared/address-suggestions'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
@@ -748,6 +749,16 @@ export let createRuntime = (dataDirectory: string) => {
   }
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'search-suggestions') {
+      let query = required(args, 'query').slice(0, 200)
+      try {
+        let response = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(2500) })
+        if (!response.ok) return []
+        return parseSearchSuggestions(await response.json(), query)
+      } catch {
+        return []
+      }
+    }
     if (method.startsWith('extension.')) {
       let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined
       let profile = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')

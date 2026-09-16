@@ -8,6 +8,7 @@ import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS,
 import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarks } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
+import { inlineUrlCompletion } from '../shared/address-suggestions'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -280,22 +281,46 @@ let isUrlInput = (value: string) => /^[a-z][a-z\d+.-]*:/i.test(value) || /^local
 let AddressPrompt = () => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion } = useUI()
   let { client, pane, tab, profile } = selection(state)
-  let [index, setIndex] = useState(0)
+  let [index, setIndex] = useState(-1)
   let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
-  let [hasInput, setHasInput] = useState(false)
+  let [query, setQuery] = useState('')
+  let [searchTerms, setSearchTerms] = useState<string[]>([])
+  let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
+  let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [addressFocusVersion])
-  let results = hasInput ? (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(text.trim().toLowerCase())).slice(0, 6) : []
-  let suggestion = results[index]?.url
-  let hint = suggestion && suggestion !== text ? (suggestion.toLowerCase().startsWith(text.toLowerCase()) ? suggestion.slice(text.length) : ` → ${suggestion}`) : ''
-  let change = (event: ChangeEvent<HTMLInputElement>) => { setText(event.target.value); setHasInput(!!event.target.value.trim()); setIndex(0) }
-  let complete = () => {
-    if (!suggestion || suggestion === text) return false
-    setText(suggestion); setIndex(-1)
-    return true
+  let normalized = query.trim().toLowerCase()
+  let history = normalized ? (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(normalized)).slice(0, 4) : []
+  let results = [
+    ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
+    ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
+  ]
+  useEffect(() => {
+    let value = query.trim()
+    if (!value || value.length > 200 || isUrlInput(value)) { setSearchTerms([]); return }
+    let cancelled = false
+    setSearchTerms([])
+    let timer = setTimeout(() => {
+      void bridge.command({ method: 'search-suggestions', args: { query: value } }).then(result => {
+        if (!cancelled) setSearchTerms(Array.isArray(result) ? result.filter((term): term is string => typeof term === 'string') : [])
+      }).catch(() => { if (!cancelled) setSearchTerms([]) })
+    }, 120)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [query])
+  useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
+  useLayoutEffect(() => {
+    if (!inlineUrl || !ref.current) return
+    ref.current.setSelectionRange(query.length, inlineUrl.value.length)
+  }, [inlineUrl, query])
+  let change = (event: ChangeEvent<HTMLInputElement>) => {
+    let value = event.target.value
+    let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
+    deleting.current = false
+    let completion = deletion ? undefined : (profile?.history ?? []).map(entry => inlineUrlCompletion(value, entry.url)).find(Boolean)
+    setQuery(value); setIndex(-1); setInlineUrl(completion); setText(completion?.value ?? value)
   }
   let navigate = async (url: string) => {
     if (!url.trim() || busy) return
@@ -312,12 +337,13 @@ let AddressPrompt = () => {
     dismiss()
     void run('focus-page', { client: client!.id })
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(isUrlInput(text) ? text : suggestion ?? text) }
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.url!) }
+  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(inlineUrl?.url ?? results[index]?.value ?? text) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.value!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
-    if (event.key === 'ArrowRight' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === text.length && event.currentTarget.selectionEnd === text.length && complete()) {
-      event.preventDefault(); return
+    if (event.key === 'Backspace' || event.key === 'Delete') deleting.current = true
+    if (event.key === 'ArrowRight' && inlineUrl && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === query.length && event.currentTarget.selectionEnd === text.length) {
+      event.preventDefault(); setQuery(text); setInlineUrl(undefined); requestAnimationFrame(() => ref.current?.setSelectionRange(text.length, text.length)); return
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
@@ -325,8 +351,8 @@ let AddressPrompt = () => {
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); void run('focus-page', { client: client!.id }) }
   }
-  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><div className={css.addressHint} data-address-hint aria-hidden="true"><span>{text}</span>{hint}</div><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-controls="url-history" aria-activedescendant={results[index] ? `url-history-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : hint ? '→/Enter fill · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && <div id="url-history" role="listbox" aria-label="URL history" className={css.urlHistory}>{results.map((entry, position) => <button key={entry.url} id={`url-history-${position}`} type="button" role="option" aria-selected={position === index} data-url={entry.url} onClick={choose} disabled={busy}><strong>{entry.title}</strong><span>{entry.url}</span></button>)}</div>}
+  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={results[index] ? `address-suggestion-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    {!!results.length && <div id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-value={entry.value} onClick={choose} disabled={busy}><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>}
   </div>
 }
 
