@@ -38,7 +38,7 @@ Stalled-load coverage holds a script response indefinitely and verifies prefix c
 
 Keyboard management coverage includes native prefix shortcuts for window/session renaming, close cancellation and confirmation, last-window session removal, session-picker focus and arrow movement, Enter/Escape selection behavior, direct session cycling, and Command+Shift+W detaching while retaining the session.
 
-Command and picker coverage includes fuzzy command selection, completion, history, enabled plugin actions, slash search in help, title/URL tab search, session-name search, and profile-scoped bookmark search with folder context and unsupported URL handling. Selection tests check the focused native page after Enter and verify that filtering alone does not switch it. Screenshots include `tab-search.png` and `bookmark-search.png`.
+Command and picker coverage includes fuzzy command selection, completion, history, enabled plugin actions, slash search in help, session-name search, selected-profile details, and profile-scoped bookmark search with folder context and unsupported URL handling. Selection tests check the focused native page after Enter and verify that filtering alone does not switch it. Screenshots include `bookmark-search.png`.
 
 Find coverage checks match counts, forward/backward wrapping, no matches, clearing highlights, tab isolation, and refresh after navigation. A pending CLI wait runs on the same tab while the test exercises native Command+F and the prompt; `find-counts.png` records its appearance. Public CLI tests distinguish attached, detached, visible, and hidden elements in background tabs, including offscreen content, quoted selectors, invalid requests, and unchanged client selections.
 

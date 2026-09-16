@@ -69,7 +69,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
   await rpc('switch-client', { client: (await state()).clientId, session: session.id })
-  await rpc('tab.select', { tab: original }); await activate()
+  await rpc('tab.select', { tab: original }); await rpc('navigate', { tab: original, url: `${url}/fixture` }); await activate()
 })
 test.afterAll(async () => {
   await application?.close()
@@ -77,22 +77,7 @@ test.afterAll(async () => {
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 
-test('tab and session searches filter by title, URL, and name without changing selection', async () => {
-  await open('tabs')
-  let group = chrome.getByRole('group', { name: 'Choose tab', exact: true }), search = group.getByRole('textbox', { name: 'Search tabs', exact: true })
-  await expect(group.locator('[aria-current="true"]')).toBeFocused()
-  await chrome.keyboard.press('/'); await expect(search).toBeFocused()
-  await search.fill('rsh nts'); await expect(group.getByRole('button')).toHaveCount(1)
-  await expect(group.getByRole('button')).toContainText('Research notes')
-  expect((await state()).model.sessions[0].windows[0].panes[0].activeTabId).toBe(original)
-  await search.fill('/docs'); await expect(group.getByRole('button')).toHaveCount(1)
-  await search.fill('zzzz'); await expect(group.getByRole('status')).toHaveText('No matching tabs.')
-  await search.press('Enter'); expect((await state()).model.sessions[0].windows[0].panes[0].activeTabId).toBe(original)
-  await search.press('Escape'); await expect(search).toHaveValue(''); await expect(group.getByRole('button')).toHaveCount(3)
-  await search.fill('/docs'); await search.press('ArrowDown'); await expect(group.getByRole('button')).toBeFocused()
-  await chrome.screenshot({ path: path.resolve('artifacts/tab-search.png') })
-  await chrome.keyboard.press('Enter'); await expect(group).toHaveCount(0)
-  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
+test('session search filters by name without changing selection until confirmed', async () => {
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true }), sessionSearch = sessions.getByRole('textbox', { name: 'Search sessions', exact: true })
   let sessionRows = sessions.locator('button[data-session-row]')

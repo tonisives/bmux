@@ -1,7 +1,7 @@
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
-export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'tabs', 'bookmarks', 'activity', 'downloads', 'profiles'] as const
+export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmarks', 'activity', 'downloads', 'profiles'] as const
 export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
@@ -10,12 +10,11 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'settings', description: 'Browser settings and keyboard configuration', action: 'settings' },
   { command: 'plugins', description: 'Tool status, plugin configuration, and plugin actions', action: 'plugins' },
   { command: 'sessions', description: 'Choose a persistent browser session', action: 'sessions' },
-  { command: 'tabs', description: 'Choose a tab in this pane', action: 'tabs' },
   { command: 'downloads', description: 'Manage downloads in this profile', action: 'downloads' },
   { command: 'bookmarks', description: 'Browse bookmarks in this profile', action: 'bookmarks' },
   { command: 'activity', description: 'Downloads, permissions, and running plugins', action: 'activity' },
-  { command: 'profiles', description: 'List isolated browser profiles', action: 'profiles' },
-  { command: 'open ', usage: 'open URL', description: 'Open a URL or search in the current tab', complete: true, action: 'address' },
+  { command: 'profiles', description: 'Show the selected browser profile', action: 'profiles' },
+  { command: 'open ', usage: 'open URL', description: 'Open a URL or search in the current pane', complete: true, action: 'address' },
   { command: 'dark', usage: 'dark [on|off|system|inherit] [--scope site|profile|global]', description: 'Toggle dark mode for this site', action: 'toggle-dark' },
   { command: 'dark on', description: 'Enable Dark Reader for this site' },
   { command: 'dark off', description: 'Disable website recoloring for this site' },
@@ -36,7 +35,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'fill', description: 'Choose and fill a saved form for this site' },
   { command: 'passwords', description: 'Choose a Bitwarden login using the bw CLI' },
   { command: 'passwords lock', description: 'Lock Bitwarden in bmux and cancel pending fills' },
-  { command: 'passwords cancel', description: 'Cancel the pending password fill in this tab' },
+  { command: 'passwords cancel', description: 'Cancel the pending password fill in this pane' },
   { command: 'new-window', usage: 'new-window [-n NAME]', description: 'Create a window in the current session', action: 'new-window' },
   { command: 'rename-window', usage: 'rename-window -n NAME', description: 'Rename the current window', action: 'rename-window', control: 'rename-window' },
   { command: 'close-window', description: 'Close the current internal window', action: 'close-window', control: 'close-window' },
@@ -62,11 +61,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'select-pane -t ', usage: 'select-pane -t PANE_ID', description: 'Select a pane by ID', complete: true },
   { command: 'move-pane --window ', usage: 'move-pane --window WINDOW_ID', description: 'Move this pane into another window', complete: true },
   { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', action: 'close-pane', complete: true },
-  { command: 'tab new', usage: 'tab new [URL]', description: 'Create a tab in this pane' },
-  { command: 'tab close', description: 'Close the selected tab' },
-  { command: 'tab select -t ', usage: 'tab select -t INDEX', description: 'Select a tab by index or ID', complete: true },
   ...['back', 'forward', 'reload', 'hard-reload', 'stop'].map(command => ({ command, description: ({ back: 'Go back in page history', forward: 'Go forward in page history', reload: 'Reload the page', 'hard-reload': 'Reload without cached resources', stop: 'Stop loading this page' })[command]!, action: command })),
-  { command: 'devtools', description: 'Open Chromium developer tools for this tab' },
+  { command: 'devtools', description: 'Open Chromium developer tools for this pane' },
   { command: 'zoom ', usage: 'zoom PERCENT', description: 'Set the page zoom percentage', complete: true },
   { command: 'save-layout ', usage: 'save-layout NAME', description: 'Save the current pane layout', complete: true },
   { command: 'restore-layout ', usage: 'restore-layout NAME --confirm', description: 'Restore a saved pane layout', complete: true },
@@ -123,16 +119,16 @@ export let searchCommands = (entries: CommandEntry[], query: string, history: st
 let commandNames = new Set([...COMMANDS.map(entry => entry.command.trim().split(' ')[0]), 'navigate', 'split', 'switch-client', 'attach-session', 'detach-client', 'kill-window'])
 export let literalCommand = (line: string) => {
   let [name, argument] = line.trim().replace(/^:/, '').split(/\s+/)
-  let choices: Record<string, string[]> = { dark: ['on', 'off', 'system', 'inherit'], adblock: ['on', 'off', 'inherit'], tab: ['new', 'close', 'select'], profile: ['create', 'rename'], plugin: ['list', 'run', 'runs', 'cancel', 'reload'] }
+  let choices: Record<string, string[]> = { dark: ['on', 'off', 'system', 'inherit'], adblock: ['on', 'off', 'inherit'], profile: ['create', 'rename'], plugin: ['list', 'run', 'runs', 'cancel', 'reload'] }
   if (choices[name] && argument && !argument.startsWith('-') && !choices[name].includes(argument)) return false
   return commandNames.has(name) || /^(https?:\/\/|localhost[:/])/.test(name) || name.includes('.')
 }
 
 export let HELP_NOTES = [
-  'Commands use the current session, window, pane, and tab unless you provide a target. Quote names containing spaces. Window indices start at 1; tab indices start at 0.',
+  'Commands use the current session, window, and pane unless you provide a target. Quote names containing spaces. Window indices start at 1.',
   'In the command finder: type to fuzzy search, Up/Down or Ctrl+P/N selects, Tab completes, and Enter opens or runs. Ctrl+R/S recalls command history. Shift+Enter runs the typed command exactly.',
-  'In the session and tab pickers: type or press / to search names, tab titles, and URLs. Up/Down moves, Home/End jumps, PageUp/PageDown moves ten rows, and Enter selects. Escape clears search first, then closes without switching.',
-  'Bookmarks search titles, URLs, and folder names in the selected pane’s profile. Folder context stays visible. Up/Down moves and Enter opens a new tab; Escape clears search first, then closes.',
+  'In the session picker: type or press / to search names. Up/Down moves, Home/End jumps, PageUp/PageDown moves ten rows, and Enter selects. Escape clears search first, then closes without switching.',
+  'Bookmarks search titles, URLs, and folder names in the selected pane’s profile. Folder context stays visible. Up/Down moves and Enter opens the bookmark in that pane; Escape clears search first, then closes.',
   'Find in page shows the current match and total count. Enter or Next moves forward, Shift+Enter or Previous moves backward, and Escape clears highlights and returns to the page.',
   'Closing an internal window asks for y/n. Closing a native client leaves its session running.',
   'Drag the blank area of the status bar to move this macOS window.',
