@@ -290,7 +290,6 @@ let AddressPrompt = () => {
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let deleting = useRef(false)
-  let pendingCursor = useRef<number | undefined>(undefined)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [addressFocusVersion])
@@ -314,11 +313,6 @@ let AddressPrompt = () => {
   }, [query])
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useLayoutEffect(() => {
-    if (pendingCursor.current !== undefined && ref.current) {
-      ref.current.setSelectionRange(pendingCursor.current, pendingCursor.current)
-      pendingCursor.current = undefined
-      return
-    }
     if (!inlineUrl || !ref.current) return
     ref.current.setSelectionRange(query.length, inlineUrl.value.length)
   }, [inlineUrl, query])
@@ -352,8 +346,9 @@ let AddressPrompt = () => {
       event.preventDefault()
       let input = event.currentTarget
       let deletion = deleteWordBackward(input.value, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length)
-      pendingCursor.current = deletion.cursor
-      setQuery(deletion.value); setIndex(-1); setInlineUrl(undefined); setText(deletion.value)
+      deleting.current = true
+      input.setSelectionRange(deletion.cursor, input.selectionEnd ?? input.value.length)
+      document.execCommand('delete')
       return
     }
     if (event.key === 'Backspace' || event.key === 'Delete') deleting.current = true

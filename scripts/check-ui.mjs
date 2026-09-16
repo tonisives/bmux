@@ -40,10 +40,10 @@ try {
   let prompt = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await prompt.pressSequentially(target)
   await expect(prompt).toHaveValue(target)
-  await expect(status.getByRole('button', { name: '0:main*', exact: true })).toBeVisible()
+  await expect(status.getByRole('button', { name: '1:main*', exact: true })).toBeVisible()
   await prompt.press('Enter')
   await expect(prompt).toHaveCount(0, { timeout: 45000 })
-  await expect(status.getByRole('button', { name: `0:${targetWindowName}*`, exact: true })).toBeVisible()
+  await expect(status.getByRole('button', { name: `1:${targetWindowName}*`, exact: true })).toBeVisible()
   await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toContainText(new URL(target).hostname, { timeout: 45000 })
   if (selector) {
     await expect.poll(() => application.context().pages().some(page => page.url().startsWith(target)), { timeout: 30000 }).toBe(true)
@@ -70,7 +70,7 @@ try {
     await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
     let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
     await command.fill('new-window -n comparison'); await command.press('Enter')
-    await expect(chrome.getByRole('button', { name: '1:comparison*', exact: true })).toBeVisible()
+    await expect(chrome.getByRole('button', { name: '2:comparison*', exact: true })).toBeVisible()
     await activate()
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await prompt.fill(secondUrl); await prompt.press('Enter')
@@ -78,7 +78,7 @@ try {
     let urls = await chrome.evaluate(async () => (await window.bmux.state()).model.sessions[0].windows.map(window => window.panes[0].tabs[0].url))
     if (urls[0] !== target || urls[1] !== secondUrl) throw new Error('Internal windows did not preserve their own URLs')
     await activate()
-    await chrome.getByRole('button', { name: `0:${targetWindowName}`, exact: true }).click()
+    await chrome.getByRole('button', { name: `1:${targetWindowName}`, exact: true }).click()
     await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && view.webContents.getURL() === target)), target)).toBe(true)
     console.log(JSON.stringify({ passed: 'Two internal windows kept distinct URLs and switching restored the correct native view', urls }))
   }
@@ -112,7 +112,10 @@ try {
   let diagnostics = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused(), children: window.contentView.children.filter(view => 'webContents' in view).map(view => ({ url: view.webContents.getURL(), bounds: view.getBounds() })) })))
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))
   let selection = await chrome?.evaluate(async () => { let state = await window.bmux.state(); return { focusedClientId: state.focusedClientId, clients: state.model.clients, windows: state.model.sessions[0].windows.map(window => ({ id: window.id, panes: window.panes.map(pane => ({ id: pane.id, tab: pane.activeTabId })) })) } })
-  console.error('FOCUS', { expectedPid: application.process().pid, frontmost: execFileSync('/usr/bin/osascript', ['-e', 'tell application "System Events" to get {name, unix id} of first application process whose frontmost is true'], { encoding: 'utf8' }).trim() })
+  let frontmost
+  try { frontmost = execFileSync('/usr/bin/osascript', ['-e', 'tell application "System Events" to get {name, unix id} of first application process whose frontmost is true'], { encoding: 'utf8' }).trim() }
+  catch { frontmost = 'unavailable' }
+  console.error('FOCUS', { expectedPid: application.process().pid, frontmost })
   console.error(JSON.stringify({ failedRequests, pageErrors, diagnostics, selection }))
   throw error
 } finally {
