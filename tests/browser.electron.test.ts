@@ -46,7 +46,7 @@ let launch = async () => {
   await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
-let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
+let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank" rel="noopener">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-electron-'))
@@ -305,6 +305,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
   try {
     await cli('activate-client', { client: client.id })
     let website = application.context().pages().find(page => page.url() === `${url}/link-behavior`)!
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let preview = application.context().pages().find(page => page.url().endsWith('#link-preview'))!
     await website.locator('#popup').hover()
     await expect(preview.locator('#root > div')).toHaveText(`${url}/popup`)
@@ -351,6 +352,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
     let windowsBeforePopup = await cli('list-windows', { session: session.id })
     await website.locator('#popup').click()
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
+    await expect(chrome.getByRole('textbox', { name: 'URL or search', exact: true })).toHaveCount(0)
     createdWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
     let openedTab = (await cli('tab.list')).find((candidate: { windowId: string }) => candidate.windowId === createdWindow!.id)
     await cli('wait', { tab: openedTab.id, selector: '#text' })
