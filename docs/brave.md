@@ -6,7 +6,7 @@ Import Brave profile names and bookmark folders into bmux:
 bmux import-brave
 ```
 
-The import creates separate bmux profiles and sessions. It preserves bookmark folders and leaves Brave unchanged. Run `bookmarks` in the bmux command prompt to browse imported bookmarks.
+The import creates separate bmux profiles and sessions. It preserves bookmark folders and leaves Brave unchanged. Run `bookmarks` in the bmux command prompt to browse imported bookmarks. Run `bookmark` or press Command+D to save the current page to the profile root or any imported folder. Saving the same URL again updates its title and folder instead of creating a duplicate.
 
 Run the import again to update bookmarks without duplicating profiles or sessions. Name collisions create a separate name such as `bot (Brave)`. bmux backs up an existing state file before import.
 

@@ -1,0 +1,31 @@
+import type { Bookmark, Profile } from '../shared/types'
+
+type BookmarkLocation = { bookmark: Bookmark; parent: Bookmark[] }
+
+let findFolder = (bookmarks: Bookmark[], folderId: string): Bookmark | undefined => {
+  for (let bookmark of bookmarks) {
+    if (bookmark.id === folderId && bookmark.children) return bookmark
+    let nested = bookmark.children && findFolder(bookmark.children, folderId)
+    if (nested) return nested
+  }
+  return undefined
+}
+
+let findByUrl = (bookmarks: Bookmark[], url: string): BookmarkLocation[] => bookmarks.flatMap(bookmark => [
+  ...(bookmark.url === url ? [{ bookmark, parent: bookmarks }] : []),
+  ...(bookmark.children ? findByUrl(bookmark.children, url) : []),
+])
+
+export let saveBookmark = (profile: Profile, values: { url: string; title: string; folderId?: string }, createId: () => string) => {
+  let bookmarks = profile.bookmarks ?? []
+  let destination = values.folderId ? findFolder(bookmarks, values.folderId)?.children : bookmarks
+  if (!destination) throw new Error('Bookmark folder not found')
+  let matches = findByUrl(bookmarks, values.url)
+  let bookmark = matches[0]?.bookmark ?? { id: createId(), title: values.title, url: values.url }
+  for (let match of matches) match.parent.splice(match.parent.indexOf(match.bookmark), 1)
+  bookmark.title = values.title
+  bookmark.url = values.url
+  destination.push(bookmark)
+  profile.bookmarks = bookmarks
+  return { bookmark, created: matches.length === 0 }
+}

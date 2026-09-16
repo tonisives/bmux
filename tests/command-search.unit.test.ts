@@ -21,6 +21,7 @@ test('finder includes active shortcuts, enabled plugin actions, and deduplicated
     { id: 'off', name: 'Disabled', version: '1', enabled: false, hooks: false, actions: [{ id: 'title', title: 'Hidden action' }] },
   ])
   expect(entries.find(entry => entry.command === 'browser-tools')?.shortcuts).toContain('Cmd+Alt+D')
+  expect(entries.find(entry => entry.command === 'bookmark')?.shortcuts).toContain('Cmd+D')
   expect(entries.find(entry => entry.command === 'help')?.shortcuts).toContain('Ctrl+X then ?')
   expect(searchCommands(entries, 'page heading')[0].command).toBe('plugin run on/title')
   expect(entries.some(entry => entry.command === 'plugin run off/title')).toBe(false)

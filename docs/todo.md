@@ -28,9 +28,9 @@ accessible and use the existing address bars and transient panels.
 - [ ] Add a searchable history panel using the existing per-profile visit data.
   Search titles and URLs, open results with the keyboard, and support deleting
   individual entries or clearing that profile's history.
-- [ ] Create, edit, and delete bookmarks from bmux, including Command+D for the
-  current page, folder selection, and duplicate handling within a profile.
-  Preserve imported folder structure.
+- [x] Create and update bookmarks from bmux with Command+D, folder selection,
+  duplicate handling within a profile, and preserved imported folder structure.
+- [ ] Delete bookmarks from bmux.
 
 ## After that
 

@@ -11,7 +11,7 @@ import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type UIContext = { state: PublicState; control: Control | null; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -72,7 +72,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = ['sessions', 'bookmarks', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
+    let restoreFocus = ['sessions', 'bookmark', 'bookmarks', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
     previousControl.current = control
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
@@ -480,7 +480,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
+  useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type.charAt(0).toUpperCase() + type.slice(1)
   return <div className={css.overlay}><div className={css.panel} role="dialog" aria-label={title} tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><button onClick={dismiss}>Close</button></header>
@@ -491,6 +491,7 @@ let Panel = ({ type }: { type: Control }) => {
     {type === 'settings' && <KeyboardSettings />}
     {type === 'sessions' && <SessionPicker />}
     {type === 'profiles' && <ProfileInfo />}
+    {type === 'bookmark' && <BookmarkEditor />}
     {type === 'bookmarks' && <BookmarkPicker />}
     {type === 'downloads' && <DownloadManager />}
     {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
@@ -624,6 +625,51 @@ let ProfileInfo = () => {
     </dl>
     <p>Cookies, site storage, cache, permissions, bookmarks, and history are isolated to this profile.</p>
   </section>
+}
+type BookmarkFolderOption = { id: string; label: string }
+let bookmarkFolderOptions = (bookmarks: Bookmark[], ancestors: string[] = []): BookmarkFolderOption[] => bookmarks.flatMap(bookmark => {
+  if (!bookmark.children) return []
+  let path = [...ancestors, bookmark.title || 'Untitled folder']
+  return [{ id: bookmark.id, label: path.join(' / ') }, ...bookmarkFolderOptions(bookmark.children, path)]
+})
+let bookmarkFolderForUrl = (bookmarks: Bookmark[], url: string, folderId = ''): string | undefined => {
+  for (let bookmark of bookmarks) {
+    if (bookmark.url === url) return folderId
+    if (bookmark.children) {
+      let nested = bookmarkFolderForUrl(bookmark.children, url, bookmark.id)
+      if (nested !== undefined) return nested
+    }
+  }
+  return undefined
+}
+let BookmarkEditor = () => {
+  let { state, run, dismiss } = useUI()
+  let { tab, profile } = selection(state)
+  let folders = bookmarkFolderOptions(profile?.bookmarks ?? [])
+  let [title, setTitle] = useState(tab?.title && tab.title !== 'about:blank' ? tab.title : ''), [folder, setFolder] = useState(() => bookmarkFolderForUrl(profile?.bookmarks ?? [], tab?.url ?? '') ?? '')
+  let [busy, setBusy] = useState(false)
+  let input = useRef<HTMLInputElement>(null)
+  let supported = !!tab && /^(https?:|file:)/i.test(tab.url)
+  useEffect(() => { input.current?.focus(); input.current?.select() }, [])
+  let changeTitle = (event: ChangeEvent<HTMLInputElement>) => setTitle(event.target.value)
+  let changeFolder = (event: ChangeEvent<HTMLSelectElement>) => setFolder(event.target.value)
+  let submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!tab || !supported || !title.trim() || busy) return
+    setBusy(true)
+    let result = await run('bookmark.add', { tab: tab.id, title, folder })
+    setBusy(false)
+    if (result !== undefined) dismiss()
+  }
+  if (!profile || !tab) return <p>No page is selected.</p>
+  return <form className={css.bookmarkEditor} onSubmit={submit}>
+    <p>Profile: {profile.name}</p>
+    <label>Title<input ref={input} value={title} onChange={changeTitle} autoComplete="off" spellCheck={false} required /></label>
+    <label>Folder<select aria-label="Bookmark folder" value={folder} onChange={changeFolder}><option value="">Profile root</option>{folders.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+    <p className={css.bookmarkUrl}>{tab.url}</p>
+    {!supported && <p role="alert">Open an HTTP, HTTPS, or file page before bookmarking it.</p>}
+    <button type="submit" disabled={!supported || !title.trim() || busy}>{busy ? 'Saving…' : 'Save bookmark'}</button>
+  </form>
 }
 let BookmarkPicker = () => {
   let { state } = useUI()

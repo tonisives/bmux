@@ -18,7 +18,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Keyboard control** — A tmux-style prefix, command prompt, and desktop shortcuts. See [Keyboard](docs/keyboard.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
-- **Bring your bookmarks** — Import Brave profile names and bookmark folders. See [Import from Brave](docs/brave.md).
+- **Save and bring your bookmarks** — Bookmark pages into profile folders or import Brave profile names and bookmark folders. See [Keyboard](docs/keyboard.md) and [Import from Brave](docs/brave.md).
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
 - **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden CLI filling, and local userscripts. See [Browser tools](docs/browser-tools.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](docs/plugins.md).

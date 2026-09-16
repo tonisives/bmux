@@ -37,6 +37,7 @@ let openFind = async () => {
   })
   await expect(chrome.getByRole('textbox', { name: 'Find in page', exact: true })).toBeFocused()
 }
+let flattenBookmarks = (bookmarks: any[]): any[] => bookmarks.flatMap(bookmark => [bookmark, ...flattenBookmarks(bookmark.children ?? [])])
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-search-wait-'))
@@ -163,6 +164,34 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await chrome.keyboard.press('Enter'); await expect(group).toHaveCount(0)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
   expect((await state()).model.sessions[0].windows[0].panes[0].profileId).toBe('profile_default')
+})
+
+test('bookmark command chooses a folder and Command+D updates and moves the same URL', async () => {
+  await open('bookmark')
+  let editor = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
+  let title = editor.getByRole('textbox', { name: 'Title', exact: true }), folder = editor.getByRole('combobox', { name: 'Bookmark folder', exact: true })
+  await expect(title).toBeFocused(); await expect(title).toHaveValue('Search fixture')
+  await expect(folder.getByRole('option')).toHaveText(['Profile root', 'Work', 'Work / Guides'])
+  await title.fill('Saved fixture'); await folder.selectOption('docs')
+  await chrome.screenshot({ path: path.resolve('artifacts/bookmark-editor.png') })
+  await editor.getByRole('button', { name: 'Save bookmark', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  let bookmarks = (await state()).model.profiles[0].bookmarks
+  expect(flattenBookmarks(bookmarks).filter(bookmark => bookmark.url === `${url}/fixture`)).toEqual([expect.objectContaining({ title: 'Saved fixture' })])
+  expect(bookmarks[0].children[0].children.at(-1).title).toBe('Saved fixture')
+
+  await activate(); await rpc('focus-page', { client: (await state()).clientId })
+  await application.evaluate(({ webContents }) => {
+    let contents = webContents.getFocusedWebContents()!
+    contents.sendInputEvent({ type: 'keyDown', keyCode: 'd', modifiers: ['meta'] })
+    contents.sendInputEvent({ type: 'keyUp', keyCode: 'd', modifiers: ['meta'] })
+  })
+  await expect(editor).toBeVisible(); await expect(folder).toHaveValue('docs')
+  await title.fill('Updated fixture'); await folder.selectOption('')
+  await editor.getByRole('button', { name: 'Save bookmark', exact: true }).click()
+  bookmarks = (await state()).model.profiles[0].bookmarks
+  expect(flattenBookmarks(bookmarks).filter(bookmark => bookmark.url === `${url}/fixture`)).toEqual([expect.objectContaining({ title: 'Updated fixture' })])
+  expect(bookmarks.at(-1)).toMatchObject({ title: 'Updated fixture', url: `${url}/fixture` })
 })
 
 test('find reports counts, moves in both directions, and stays responsive during an agent wait', async () => {

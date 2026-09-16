@@ -26,6 +26,7 @@ import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
 import { parseSearchSuggestions } from '../shared/address-suggestions'
+import { saveBookmark } from './bookmarks'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
@@ -315,7 +316,7 @@ export let createRuntime = (dataDirectory: string) => {
       let behavior = windowCloseBehavior(session, window)
       if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
     }
-    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
+    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
     if (action.startsWith('zoom-') && tab) {
@@ -811,6 +812,16 @@ export let createRuntime = (dataDirectory: string) => {
       configuration.update(['plugins', id, 'enabled'], args.enabled); return plugins.list()
     }
     if (method === 'browser.status') return toolsState()
+    if (method === 'bookmark.add') {
+      let { tab, pane } = tabById(model, required(args, 'tab'))
+      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let url = tabs.get(tab.id)?.contents.getURL() || tab.url
+      if (!/^(https?:|file:)/i.test(url)) throw new Error('Open a web page before bookmarking it')
+      let title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : tabs.get(tab.id)?.contents.getTitle().trim() || tab.title || url
+      let result = saveBookmark(profile, { url, title, folderId: typeof args.folder === 'string' && args.folder ? args.folder : undefined }, () => id('bookmark'))
+      save()
+      return result
+    }
     if (method === 'browser.update-filters') { void filters?.update(); return { updating: true } }
     if (method === 'browser.reload-scripts') { pageTools?.reload(); return pageTools?.list() }
     if (method === 'browser.set') {

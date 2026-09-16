@@ -33,6 +33,7 @@ Common direct shortcuts:
 | Command+F (macOS) / Control+F (Linux and Windows) | Find in page |
 | Hyper+W (Command+Control+Option+Shift+W) | Show sessions |
 | Command+Shift+W | Detach the client |
+| Command+D | Bookmark the current page and choose its folder |
 | Command+, | Open settings |
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
@@ -53,6 +54,7 @@ split-window -h --profile bot
 pane-left
 save-layout development
 restore-layout development --confirm
+bookmark
 bookmarks
 sessions
 profiles

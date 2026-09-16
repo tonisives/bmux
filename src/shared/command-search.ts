@@ -1,7 +1,7 @@
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
-export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmarks', 'activity', 'downloads', 'profiles'] as const
+export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'activity', 'downloads', 'profiles'] as const
 export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
@@ -11,6 +11,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'plugins', description: 'Tool status, plugin configuration, and plugin actions', action: 'plugins' },
   { command: 'sessions', description: 'Choose a persistent browser session', action: 'sessions' },
   { command: 'downloads', description: 'Manage downloads in this profile', action: 'downloads' },
+  { command: 'bookmark', description: 'Save this page to a bookmark folder', action: 'bookmark' },
   { command: 'bookmarks', description: 'Browse bookmarks in this profile', action: 'bookmarks' },
   { command: 'activity', description: 'Downloads, permissions, and running plugins', action: 'activity' },
   { command: 'profiles', description: 'Show the selected browser profile', action: 'profiles' },
