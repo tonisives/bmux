@@ -443,10 +443,11 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let { client, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let url = tab ? state.pendingUrls[tab.id] ?? tab.url : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
   let open = () => show('address', paneId)
   return <div className={css.addressBar} role="group" aria-label="Pane address">
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={tab?.url}>{tab?.url && tab.url !== 'about:blank' ? tab.url : 'Cmd+L to open a URL'}</button>}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={url}>{url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'}</button>}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
   </div>
 }

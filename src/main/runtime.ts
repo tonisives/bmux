@@ -28,7 +28,7 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { parseSearchSuggestions } from '../shared/address-suggestions'
 import { createBookmarkFolder, saveBookmark } from './bookmarks'
 
-type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol }
+type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; popup: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean; popupFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -159,7 +159,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, passwordSuggestions: bitwarden?.suggestions(clientId), bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, passwordSuggestions: bitwarden?.suggestions(clientId), bitwardenMessage: bitwarden?.message(clientId), browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let updatePasswordPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     let suggestion = !overlays.has(clientId) ? current.passwordSuggestions : undefined
     let tab = suggestion ? tabs.get(suggestion.tabId) : undefined
@@ -1224,6 +1224,7 @@ export let createRuntime = (dataDirectory: string) => {
       let live = tabs.get(tabId) ?? createLiveTab(tabId, false)
       let navigation = Symbol()
       live.pendingNavigation = navigation
+      live.pendingUrl = url
       delete crashes[tabId]; delete snapshots[tabId]; loading[tabId] = true
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
@@ -1231,6 +1232,8 @@ export let createRuntime = (dataDirectory: string) => {
       void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.contents.loadURL(url) }).catch(() => undefined).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
+        live.pendingUrl = undefined
+        publish()
         if (!live.disposed) void scheduleVisuals()
       })
       return { id: tabId, url, loading: true }

@@ -710,6 +710,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(`${url}/slow`); await address.press('Enter')
   await expect(address).toHaveCount(0, { timeout: 1500 })
+  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/slow`)
   await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(true)
   let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
     await cli('activate-client', { client: client.id })
