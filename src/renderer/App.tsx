@@ -702,17 +702,14 @@ let BookmarkEditor = () => {
   }
   if (!profile || !tab) return <p>No page is selected.</p>
   return <form className={css.bookmarkEditor} onSubmit={submit} onKeyDown={editorKeys}>
-    <p>Profile: {profile.name}</p>
+    <p className={css.bookmarkUrl}>{tab.url}</p>
     <label>Title<input ref={input} value={title} onChange={changeTitle} autoComplete="off" spellCheck={false} required /></label>
     <div ref={folderPicker} className={css.bookmarkFolders} onKeyDown={folderKeys} role="group" aria-label="Choose bookmark folder">
       <label>Folder search<SearchInput ref={folderSearch} aria-label="Search bookmark folders" value={folderQuery} onChange={changeFolderQuery} /></label>
-      <span className={css.pickerHint}>Press / to search · ↑/↓ to move · Enter to select</span>
       <div className={css.bookmarkFolderRows}>{matchingFolders.map(option => <button key={option.id || 'root'} type="button" className={css.row} data-bookmark-folder data-id={option.id} data-active={folder === option.id} aria-pressed={folder === option.id} onClick={chooseFolder}>{option.label}</button>)}</div>
       {!matchingFolders.length && <p role="status">No matching folders.</p>}
-      <p role="status">Selected folder: {selectedFolder}</p>
       {creatingFolder ? <div className={css.newBookmarkFolder}><label>New folder name<input ref={folderNameInput} value={folderName} onChange={changeFolderName} onKeyDown={folderNameKeys} autoComplete="off" spellCheck={false} /></label><div><button type="button" data-picker-action onClick={createFolder} disabled={!folderName.trim() || folderBusy}>{folderBusy ? 'Creating…' : 'Create folder'}</button><button type="button" data-picker-action onClick={cancelFolder} disabled={folderBusy}>Cancel</button></div></div> : <button type="button" data-picker-action onClick={beginFolder}>New folder inside {selectedFolder}</button>}
     </div>
-    <p className={css.bookmarkUrl}>{tab.url}</p>
     {!supported && <p role="alert">Open an HTTP, HTTPS, or file page before bookmarking it.</p>}
     <button type="submit" disabled={!supported || !title.trim() || busy}>{busy ? 'Saving…' : 'Save bookmark'}</button>
   </form>

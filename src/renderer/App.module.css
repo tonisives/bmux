@@ -118,8 +118,7 @@
 .bookmarkUrl { color: #8e98a4; overflow-wrap: anywhere; }
 .bookmarkFolders { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #363c45; }
 .bookmarkFolderRows { max-height: 210px; overflow-y: auto; }
-.bookmarkFolderRows .row[aria-pressed="true"] { color: #d6dfcf; background: #28312b; }
-.pickerHint { color: #8e98a4; }
+.bookmarkFolderRows .row[aria-pressed="true"] { color: #e8f4df; background: #344738; box-shadow: inset 3px 0 #a7c491; font-weight: 600; }
 .newBookmarkFolder { padding-top: 10px; border-top: 1px solid #363c45; }
 .newBookmarkFolder > div { display: flex; gap: 12px; margin-top: 8px; }
 
