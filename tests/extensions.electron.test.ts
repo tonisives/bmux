@@ -9,9 +9,10 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-'))
   let extensionPath = path.join(directory, 'extension')
   await fs.mkdir(extensionPath)
-  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 2, name: 'Fixture extension', version: '1.0', permissions: ['storage'], browser_action: { default_popup: 'popup.html' }, content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
+  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 2, name: 'Fixture extension', version: '1.0', permissions: ['storage', 'tabs'], browser_action: { default_popup: 'popup.html' }, content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
   await fs.writeFile(path.join(extensionPath, 'content.js'), 'document.documentElement.dataset.extensionFixture = "loaded"')
-  await fs.writeFile(path.join(extensionPath, 'popup.html'), '<!doctype html><h1>Extension fixture</h1>')
+  await fs.writeFile(path.join(extensionPath, 'popup.html'), '<!doctype html><h1>Extension fixture</h1><p id="active-tab"></p><script src="popup.js"></script>')
+  await fs.writeFile(path.join(extensionPath, 'popup.js'), 'chrome.tabs.query({ active: true, currentWindow: true }, tabs => { document.querySelector("#active-tab").textContent = tabs[0]?.url || "missing" })')
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><h1>Local extension test</h1>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/fixture`
@@ -42,6 +43,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => application!.context().pages().some(page => page.url().startsWith('chrome-extension://'))).toBe(true)
     let popup = application!.context().pages().find(page => page.url().startsWith('chrome-extension://'))!
     await expect(popup.locator('h1')).toHaveText('Extension fixture')
+    await expect(popup.locator('#active-tab')).toHaveText(url)
     expect(await application!.evaluate(({ BrowserWindow }, url) => {
       let window = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.getURL() === url)
       return window && { contentSize: window.getContentSize(), resizable: window.isResizable(), maximizable: window.isMaximizable(), fullscreenable: window.isFullScreenable() }
@@ -49,6 +51,12 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect(await popup.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])
     await popup.evaluate(async () => { let chrome = (window as any).chrome; await chrome.storage.session.set({ fixture: 'memory only' }) })
     expect(await popup.evaluate(() => (window as any).chrome.storage.session.get('fixture'))).toEqual({ fixture: 'memory only' })
+    await popup.bringToFront()
+    await application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'W', modifiers: ['meta'] }), popup.url())
+    await expect.poll(() => popup.isClosed()).toBe(true)
+    await rpc('extension.open', { profile, id: installed.id })
+    popup = application!.context().pages().find(page => page.url().startsWith(`chrome-extension://${installed.id}/`))!
+    await expect(popup.locator('#active-tab')).toHaveText(url)
     let anotherPath = path.join(directory, 'another-extension')
     await fs.cp(extensionPath, anotherPath, { recursive: true })
     let another = await rpc('extension.load', { profile, path: anotherPath })

@@ -773,7 +773,12 @@ export let createRuntime = (dataDirectory: string) => {
         return installed
       }
       if (method === 'extension.remove') return extensions.remove(profile.id, required(args, 'id'))
-      if (method === 'extension.open') return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId)
+      if (method === 'extension.open') {
+        let client = sourceClientId ? model.clients.find(client => client.id === sourceClientId) : undefined
+        let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
+        let activeTab = pane?.profileId === profile.id ? tabs.get(pane.activeTabId) : undefined
+        return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent })
+      }
       throw new Error('Unknown extension command')
     }
     if (['bitwarden.select', 'bitwarden.prepare', 'bitwarden.unlock', 'bitwarden.refresh', 'bitwarden.dismiss'].includes(method)) {

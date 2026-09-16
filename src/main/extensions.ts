@@ -7,6 +7,7 @@ import { createExtensionCompatibility } from './extension-compatibility'
 import { findExtension } from './extension-lookup'
 
 type Entry = { profile: string; path: string; id?: string; error?: string }
+type ActiveTab = { contents: WebContents; parent: BaseWindow }
 
 export let createExtensions = (directory: string, options: (profile: string) => Omit<ChromeExtensionOptions, 'license' | 'session'>) => {
   let file = path.join(directory, 'extensions.json')
@@ -107,7 +108,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (entry.id) session.extensions.removeExtension(entry.id)
     return { removed: id }
   })
-  let open = async (profile: string, id: string, activate: boolean) => {
+  let open = async (profile: string, id: string, activate: boolean, activeTab?: ActiveTab) => {
     let session = await getSession(profile)
     let all = session.extensions.getAllExtensions()
     let extension = findExtension(all, id)
@@ -121,14 +122,20 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     let skipBitwardenIntro = extension.name === 'Bitwarden Password Manager' && extension.version === '2026.6.1'
     // Bitwarden 2026.6.1's introductory carousel waits forever when Electron
     // closes its background state-write message port. The login route works,
-    // and its auth guard sends returning users to their vault.
+    // then its auth guard preserves the requested current-tab destination.
     if (skipBitwardenIntro) url.hash = '/login'
+    if (activeTab && !activeTab.contents.isDestroyed()) track(profile, activeTab.contents, activeTab.parent, true)
     let key = `${profile}:${extension.id}`
     let window = popups.get(key)
     if (!window || window.isDestroyed()) {
       window = new BrowserWindow({ width: 420, height: 640, useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, show: false, title: extension.name, webPreferences: { session, nodeIntegration: false, contextIsolation: true, sandbox: true } })
       popups.set(key, window)
       window.on('closed', () => popups.delete(key))
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown' || input.key.toLowerCase() !== 'w' || (!input.meta && !input.control) || input.alt || input.shift) return
+        event.preventDefault()
+        window?.close()
+      })
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       window.webContents.on('will-navigate', (event, target) => {
         let parsed = new URL(target)
@@ -138,6 +145,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
         await window.loadURL(url.href)
         if (skipBitwardenIntro) {
           await window.webContents.executeJavaScript("chrome.storage.local.set({ global_vaultBrowserIntroCarousel_introCarouselDismissed: true })")
+          url.hash = '/tabs/current'
           await window.loadURL(url.href)
         }
       } catch (error) { window.destroy(); throw error }
