@@ -6,7 +6,7 @@ import { createExtensionSessionStorage } from './extension-session-storage'
 type ExtensionEvent = { extension: Extension; sender: { getURL?: () => string; scriptURL?: string } }
 type Internals = { ctx: {
   router: { apiHandler: () => (name: string, callback: (event: ExtensionEvent, ...args: any[]) => unknown, options: { permission: string }) => void; sendEvent: (id: string, name: string, ...args: unknown[]) => void }
-  store: { tabs: Set<WebContents>; tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; lastFocusedWindowId?: number; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; windowDetailsCache: Map<number, unknown>; setActiveTab: (contents: WebContents) => void }
+  store: { tabs: Set<WebContents>; tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; lastFocusedWindowId?: number; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; windowDetailsCache: Map<number, unknown> }
 } }
 
 // Adapter for the pinned 4.9.0 package. The preload patch registers these API calls.
@@ -45,9 +45,8 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
         ctx.store.tabDetailsCache.delete(contents.id)
       }
       if (selected) {
-        for (let tab of ctx.store.tabs) if (ctx.store.tabToWindow.get(tab) === parent) ctx.store.tabDetailsCache.delete(tab.id)
-        ctx.store.setActiveTab(contents)
         ctx.store.lastFocusedWindowId = parent.id
+        api.selectTab(contents)
       }
       ctx.store.windowDetailsCache.delete(parent.id)
     } finally { syncing = false }

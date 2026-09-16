@@ -141,15 +141,15 @@ export let createExtensions = (directory: string, options: (profile: string) => 
         let parsed = new URL(target)
         if (parsed.protocol !== 'chrome-extension:' || parsed.hostname !== extension.id) event.preventDefault()
       })
-      try {
-        await window.loadURL(url.href)
-        if (skipBitwardenIntro) {
-          await window.webContents.executeJavaScript("chrome.storage.local.set({ global_vaultBrowserIntroCarousel_introCarouselDismissed: true })")
-          url.hash = '/tabs/current'
-          await window.loadURL(url.href)
-        }
-      } catch (error) { window.destroy(); throw error }
     }
+    try {
+      await window.loadURL(url.href)
+      if (skipBitwardenIntro) {
+        await window.webContents.executeJavaScript("chrome.storage.local.set({ global_vaultBrowserIntroCarousel_introCarouselDismissed: true })")
+        url.hash = '/tabs/current'
+        await window.loadURL(url.href)
+      }
+    } catch (error) { window.destroy(); throw error }
     if (activate) { window.show(); window.focus() } else window.showInactive()
     return { opened: extension.id }
   }
