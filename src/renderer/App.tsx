@@ -172,7 +172,7 @@ let Status = ({ message }: { message: string }) => {
   }, [client?.windowId, session?.windows.length])
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} id={window.id} label={`${index + 1}:${window.name}${window.id === client!.windowId ? '*' : ''}`} active={window.id === client!.windowId} />)}</div>
-    <span className={css.drag} />{(message || state.configError || state.bitwardenMessage) && <span className={message || state.configError ? css.error : css.notice} title={message || state.configError || state.bitwardenMessage || undefined}>{message || state.configError || state.bitwardenMessage}</span>}
+    <span className={css.drag} />{(message || state.configError) && <span className={css.error} title={message || state.configError || undefined}>{message || state.configError}</span>}
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profile ? `Profile: ${profile.name}` : 'Profile'} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
@@ -874,7 +874,7 @@ let BrowserTools = () => {
     <p>Userscripts and styles</p>
     {tools?.scripts.length ? tools.scripts.map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : <p>Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.</p>}
     <button onClick={reload}>Reload scripts</button><button onClick={edit}>Edit config</button>
-    <p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it, and <code>passwords</code> for Bitwarden.</p><button onClick={plugins}>Form fills and plugins</button>
+    <p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button>
   </>
 }
 

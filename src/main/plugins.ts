@@ -7,10 +7,9 @@ import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
-import type { VaultInteraction } from './bitwarden'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { selectedLogin?: string; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   settings: () => PluginSettings
@@ -20,7 +19,6 @@ type Options = {
   selected?: (context: PluginContext) => boolean
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
-  bitwarden?: (context: PluginContext, signal: AbortSignal, interaction: VaultInteraction, selectedLogin?: string) => Promise<unknown>
 }
 let live = (run: Run) => ['queued', 'running'].includes(run.public.status)
 let record = (value: unknown): Record<string, unknown> => {
@@ -112,13 +110,6 @@ export let createPlugins = (options: Options) => {
     }
     if (method === 'result') { if (JSON.stringify(args).length > 65536) throw new Error('Result too large'); run.public.result = args; options.changed(); return null }
     if (method === 'ui') { if (!run.action.capabilities.includes('ui')) throw new Error('Capability ui required'); return requestUI(run, args) }
-    if (method === 'bitwarden.fill') {
-      if (!run.definition.bundled || run.public.pluginId !== 'bmux.bitwarden' || run.public.actionId !== 'fill' || !run.interactive || !run.action.capabilities.includes('ui') || !run.action.capabilities.includes('browser.write') || !options.bitwarden) throw new Error('Bundled Bitwarden action required')
-      return options.bitwarden({ ...run.context }, run.controller.signal, {
-        ui: args => requestUI(run, args),
-        progress: message => { run.public.progress = { percent: 100, message }; options.changed() },
-      }, run.selectedLogin)
-    }
     let capability = methods[method]
     if (!capability || !run.action.capabilities.includes(capability)) throw new Error('Browser capability required or unknown method')
     if (method === 'wait' && args.expression !== undefined && !run.action.capabilities.includes('browser.write')) throw new Error('JavaScript waits require browser.write')
@@ -183,21 +174,21 @@ export let createPlugins = (options: Options) => {
       void launch(run); options.changed()
     }
   }
-  let enqueue = (definition: Definition, action: PluginAction, context: PluginContext, parameters: Record<string, unknown>, hook: boolean, interactive: boolean, selectedLogin?: string) => {
+  let enqueue = (definition: Definition, action: PluginAction, context: PluginContext, parameters: Record<string, unknown>, hook: boolean, interactive: boolean) => {
     if (closed) throw new Error('Plugin host is closed')
     if (hook) for (let prior of runs.values()) if (prior.public.hook && prior.public.status === 'queued' && prior.public.pluginId === definition.manifest.id && prior.public.actionId === action.id && prior.context.tabId === context.tabId) finish(prior, 'cancelled')
     if ([...runs.values()].filter(run => live(run)).length >= 256) throw new Error('Plugin queue is full')
     for (let [id, run] of runs) if (!live(run) && runs.size >= 200) runs.delete(id)
     let id = randomUUID()
-    let run: Run = { selectedLogin, public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context, parameters: { ...parameters }, interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
+    let run: Run = { public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context, parameters: { ...parameters }, interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
     runs.set(id, run); options.changed(); pump(); return { id }
   }
-  let runAction = (target: string, context: PluginContext, parameters: Record<string, unknown> = {}, interactive = false, selectedLogin?: string) => {
+  let runAction = (target: string, context: PluginContext, parameters: Record<string, unknown> = {}, interactive = false) => {
     let [pluginId, actionId, extra] = target.split('/'), definition = definitions.get(pluginId)
     let action = definition?.manifest.actions.find(action => action.id === actionId)
     if (extra || !definition || !action || !settings[pluginId]?.enabled) throw new Error('Plugin action unavailable; check plugin configuration')
     if (Object.keys(parameters).some(key => !action.parameters.some(parameter => parameter.name === key))) throw new Error('Unknown plugin parameter')
-    return enqueue(definition, action, options.context(context), parameters, false, interactive, selectedLogin)
+    return enqueue(definition, action, options.context(context), parameters, false, interactive)
   }
   let hook = (event: PluginHook['event'], context: PluginContext, onlyPlugin?: string) => {
     for (let definition of definitions.values()) {

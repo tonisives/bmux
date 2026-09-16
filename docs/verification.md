@@ -42,7 +42,10 @@ Command and picker coverage includes fuzzy command selection, completion, histor
 
 Find coverage checks match counts, forward/backward wrapping, no matches, clearing highlights, tab isolation, and refresh after navigation. A pending CLI wait runs on the same tab while the test exercises native Command+F and the prompt; `find-counts.png` records its appearance. Public CLI tests distinguish attached, detached, visible, and hidden elements in background tabs, including offscreen content, quoted selectors, invalid requests, and unchanged client selections.
 
-Browser-tool coverage uses local filter lists, userscripts/styles, form fixtures, and fake Bitwarden CLI responses. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, password suggestions, unlock/session expiry, cancellation, and profile/tab isolation.
+Browser-tool coverage uses local filter lists, userscripts/styles, and form fixtures. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, and profile/tab isolation.
+
+Historical CLI and password-popup checks below describe the former integration,
+which has been removed in favor of the browser extension.
 
 The separate live desktop check passed with Bitwarden 2026.8.0 and a disposable
 Vaultwarden 1.37.2 account in Tart. It verifies explicit pairing, unlocked and

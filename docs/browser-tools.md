@@ -157,81 +157,8 @@ to its website and trusted local automation, as manually entered text is.
 
 ## Bitwarden
 
-The bundled **Bitwarden CLI** plugin uses the documented `bw` CLI and is disabled
-by default. Install the CLI, run `bw login` once in a terminal, and enable the
-plugin in bmux's `plugins` panel. Then run `passwords` or its fill action.
-If bmux has no active CLI session, the unlock prompt opens immediately; session
-status is verified after the password is submitted.
-
-Unlock once in bmux and choose a matching login. The main process keeps the session
-key in memory until bmux quits, the device locks or sleeps, or you disable the plugin.
-You do not need to save the key, export it in your shell, or add it to config.
-Temporary CLI lookup failures retain the session; the next action checks whether
-it is still valid instead of discarding it and requiring another unlock.
-An inherited `BW_SESSION` is consumed once at startup and excluded from plugin
-subprocesses. Passwords and keys never enter command arguments, config, clipboard,
-plugin results, or browser state. The CLI receives secrets through its private
-subprocess environment. The master password is not retained.
-
-Run `passwords lock` to forget the session and cancel all pending fills in bmux.
-This does not run `bw lock` or invalidate other CLI clients. A session invalidated
-outside bmux requires unlocking again on the next `passwords` action.
-Items with Bitwarden's master-password reprompt enabled require a fresh check for
-each selection; unlocking during that selection satisfies the check.
-That prompt says `Verify master password for this login` to distinguish it from
-unlocking the vault.
-
-Focusing a recognized username or password field opens a small Bitwarden popup
-beside that field. It follows the field when you scroll and stays within its pane,
-including zoomed pages. The page keeps keyboard focus until you click the popup.
-The popup is a separate trusted view; websites receive no privileged preload or
-password-manager controls.
-
-When locked, click `Unlock Bitwarden` and enter your master password in the popup.
-The CLI session is verified in a fresh process, then matching accounts appear
-immediately in the same popup. Loading, failed unlocks, lookup errors, and an empty
-match list each have a visible result. Lookup errors retain a valid session and
-provide a retry button. Clicking back into the field keeps using that unlock.
-CLI output preferences inherited from a shell cannot change the session-key format
-or disguise a failed command as a successful unlock.
-
-Click a username to fill it without running `passwords` or opening another picker.
-The account list has a search field for usernames and item names. Press `/` while
-the suggestion popup is visible to focus that search field without entering the
-slash in the website.
-Only account labels enter the UI; bmux rereads the selected login and checks the
-page and focused field before filling. Suggestions disappear when you leave the
-login field, change tabs or pages, or press Escape. They use the same URI matching
-rules below. A fresh unlock in the popup satisfies a selected entry's master
-password reprompt; later independent selections require verification again.
-
-Only results of the CLI's URL lookup that also pass bmux's local URI check are
-offered. The default and base-domain modes include subdomains on the same
-registrable domain, including country-code suffixes such as `.co.uk`. Host,
-starts-with, exact, regular-expression, and never-match entries retain their
-explicit behavior. Deleted items are excluded. Bitwarden equivalent-domain
-groups are not reproduced by the local check. Username-only, password-only, and
-combined login forms are supported.
-After filling a username, click Next yourself: bmux watches for the password step
-for two minutes, including same-origin page navigation. It fills once in that
-same tab and browser profile, without another picker or unlock prompt. Waiting
-pauses while that tab is inactive and never changes focus or blocks shortcuts.
-Run `passwords cancel` to stop waiting in the current tab.
-
-Continuation ends on completion, expiry, cross-origin navigation (including
-redirects), tab closure, renderer failure, cancellation, or vault locking. A new
-selection replaces the previous continuation. Ambiguous forms and already-filled
-password fields are left alone. It does not submit, fill iframes or registration
-password fields, save vault entries, handle passkeys, or fill TOTP. HTTP fills
-require one confirmation covering both steps of that selected login.
-
-`BMUX_BITWARDEN_CLI` selects a custom executable. Otherwise bmux checks
-`/opt/homebrew/bin/bw`, then PATH. Bitwarden's `BITWARDENCLI_APPDATA_DIR` can select
-an account directory. Tests use a mock CLI and disposable credentials; real-account
-login is a user setup step.
-
-The [desktop pairing experiment](../examples/plugins/experimental.bitwarden/README.md)
-remains separate. This CLI provider does not use or replace its pairing key.
+Install the official [Bitwarden browser extension](extensions.md) to unlock your
+vault and fill logins. The former bundled CLI integration has been removed.
 
 ## Plugin host additions
 

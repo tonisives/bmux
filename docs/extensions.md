@@ -16,8 +16,7 @@ The installer downloads the official Bitwarden 2026.6.1 Chrome release from
 GitHub and verifies its pinned SHA-256 checksum before extraction. This is the
 last known-good release before a Bitwarden 2026.7–2026.8 WASM decryption
 regression that can leave a successfully synced vault empty. Sign in using
-Bitwarden's own popup. The CLI password integration and this extension use
-separate vault sessions. Extension updates are manual in this prototype.
+Bitwarden's own popup. The extension manages its own vault session. Extension updates are manual in this prototype.
 
 After installation, reload existing login pages so the extension can inject its
 content scripts. Bitwarden provides the passkey UI; this does not add Chrome's

@@ -59,11 +59,6 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     throw new Error('Use extension install-bitwarden, list, load /absolute/path, open ID, or remove ID')
   }
   if (name === 'fill' || name === 'save-fill') return { method: 'plugin.run', args: { action: `bmux.forms/${name === 'fill' ? 'fill' : 'save'}`, tab: tabTarget } }
-  if (name === 'passwords') {
-    if (positional.length === 1 && ['lock', 'cancel'].includes(positional[0])) return { method: `bitwarden.${positional[0]}`, args: { tab: tabTarget } }
-    if (positional.length) throw new Error('Use passwords, passwords lock, or passwords cancel')
-    return { method: 'plugin.run', args: { action: 'bmux.bitwarden/fill', tab: tabTarget } }
-  }
   if (name === 'open' || name === 'navigate') return { method: 'navigate', args: { tab: tabTarget, url: positional.join(' ') } }
   if (name === 'plugin') {
     let action = positional.shift()

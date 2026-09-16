@@ -180,7 +180,7 @@ diagnostics; raw command output is intentionally not surfaced by bmux.
 
 ## Bundled browser tools
 
-Saved forms and the Bitwarden CLI provider are bundled actions. The `browser.forms`
+Saved forms are bundled actions. The `browser.forms`
 capability and browser userscript settings are described in [Browser tools](browser-tools.md).
 Use the plugin panel to enable or disable individual plugins; hooks remain a
 separate opt-in in config. Bundled IDs take precedence over local plugin folders.

@@ -1,8 +1,7 @@
-import { test, expect, vi } from 'vitest'
+import { test, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import * as vaultModule from '../src/main/bitwarden-cli'
 import { createConfig } from '../src/main/config'
 import { parseBrowserSettings } from '../src/main/browser-config'
 import { DEFAULT_BROWSER, matchesUrl, siteSettings } from '../src/shared/browser-tools'
@@ -57,43 +56,4 @@ test('offline filter fallback, custom exceptions, and profile isolation use one 
     listener({ url: 'https://ads.example.test/script.js', referrer: '', resourceType: 'script', webContentsId: 1 }, (value: any) => response = value)
     expect(response.cancel).not.toBe(true)
   } finally { filters.close(); fs.rmSync(directory, { recursive: true, force: true }) }
-})
-
-test('Bitwarden filtering follows base-domain and explicit URI match modes', () => {
-  let item = (uri: string, match?: number) => ({ id: 'fixture', type: 1, login: { password: '', uris: [{ uri, match }] } })
-  expect(vaultModule.matchesLoginUrl(item('https://apple.com'), 'https://account.apple.com/sign-in')).toBe(true)
-  expect(vaultModule.matchesLoginUrl(item('https://example.co.uk'), 'https://login.example.co.uk/account')).toBe(true)
-  for (let uri of ['https://apple.net', 'https://apple.com.evil.test', 'invalid']) expect(vaultModule.matchesLoginUrl(item(uri), 'https://account.apple.com/sign-in')).toBe(false)
-  expect(vaultModule.matchesLoginUrl(item('https://first.github.io'), 'https://second.github.io/sign-in')).toBe(false)
-  expect(vaultModule.matchesLoginUrl(item('http://127.0.0.1:4000/login'), 'http://127.0.0.1:4000/account')).toBe(true)
-  expect(vaultModule.matchesLoginUrl(item('http://127.0.0.1:4000/login', 0), 'http://127.0.0.1:4000/account')).toBe(false)
-  expect(vaultModule.matchesLoginUrl(item('http://account.apple.com:4000', 1), 'https://account.apple.com:4000/sign-in')).toBe(true)
-  expect(vaultModule.matchesLoginUrl(item('https://apple.com', 1), 'https://account.apple.com/sign-in')).toBe(false)
-  expect(vaultModule.matchesLoginUrl(item('https://account.apple.com/sign-', 2), 'https://account.apple.com/sign-in')).toBe(true)
-  expect(vaultModule.matchesLoginUrl(item('https://account.apple.com/sign-in', 3), 'https://account.apple.com/sign-in')).toBe(true)
-  expect(vaultModule.matchesLoginUrl(item('^https://account\\.apple\\.com/', 4), 'https://account.apple.com/sign-in')).toBe(true)
-  expect(vaultModule.matchesLoginUrl(item('https://account.apple.com', 5), 'https://account.apple.com/sign-in')).toBe(false)
-})
-
-test('Bitwarden uses private environment input, noninteractive commands, and sanitized failures', async () => {
-  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-vault-cli-')), executable = path.join(directory, 'bw-fixture')
-  fs.writeFileSync(executable, `#!${process.execPath}
-let args = process.argv.slice(2), session = Buffer.alloc(64, 7).toString('base64');
-if (['BW_RAW','BW_RESPONSE','BW_PRETTY','BW_QUIET','BW_CLEANEXIT'].some(key => process.env[key])) process.exit(2);
-if (!args.includes('--nointeraction') || args.includes('fixture-master') || args.includes('fixture-session') || process.env.BMUX_PLUGIN_TOKEN) process.exit(2);
-if (args[0] === 'status') process.stdout.write(JSON.stringify({ status: process.env.BW_SESSION ? 'unlocked' : 'locked' }));
-else if (args[0] === 'unlock') { if (process.env.BMUX_VAULT_PASSWORD !== 'fixture-master' || !args.includes('--passwordenv')) process.exit(2); process.stdout.write(session); }
-else if (args[0] === 'list') { if (process.env.BW_SESSION !== session) { process.stderr.write('private-failure'); process.exit(2) }; process.stdout.write(JSON.stringify([{type:1,id:'fixture',login:{password:'fixture-secret',uris:[{uri:'https://example.test/login'}]}}])); }
-`, { mode: 0o700 })
-  vi.stubEnv('BW_SESSION', ''); vi.stubEnv('BMUX_PLUGIN_TOKEN', 'invocation-private'); vi.stubEnv('BITWARDENCLI_APPDATA_DIR', directory)
-  for (let key of ['BW_RAW', 'BW_RESPONSE', 'BW_PRETTY', 'BW_QUIET', 'BW_CLEANEXIT']) vi.stubEnv(key, 'true')
-  let vault = vaultModule.createVault({ executable })
-  try {
-    expect((await vault.status()).status).toBe('locked')
-    await expect(vault.logins('https://example.test')).rejects.toThrow('Bitwarden CLI request failed')
-    await vault.unlock('fixture-master')
-    expect((await vault.status()).status).toBe('unlocked')
-    expect((await vault.logins('https://example.test')).map((item: any) => item.id)).toEqual(['fixture'])
-    expect(await vault.logins('https://other.test')).toEqual([])
-  } finally { vault.close(); vi.unstubAllEnvs(); fs.rmSync(directory, { recursive: true, force: true }) }
 })

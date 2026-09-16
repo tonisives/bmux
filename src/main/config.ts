@@ -65,7 +65,7 @@ export let parseConfig = (text: string): Settings => {
       else result[field][key] = name
     }
   }
-  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false }, 'bmux.bitwarden': { enabled: false, hooks: false } }
+  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false } }
   if (value.plugins !== undefined) {
     if (!value.plugins || typeof value.plugins !== 'object' || Array.isArray(value.plugins)) throw new Error('plugins must be a mapping')
     for (let [id, raw] of Object.entries(value.plugins)) {
