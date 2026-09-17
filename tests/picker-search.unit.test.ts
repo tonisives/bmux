@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { searchBookmarks, searchHistory } from '../src/shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory } from '../src/shared/picker-search'
 import { waitOptions } from '../src/main/wait'
 import type { Bookmark } from '../src/shared/types'
 
@@ -10,12 +10,24 @@ let bookmarks: Bookmark[] = [{ id: 'work', title: 'Work', children: [
 
 test('bookmark search preserves folder context without including unrelated siblings', () => {
   let before = structuredClone(bookmarks)
-  expect(searchBookmarks(bookmarks, 'api work')).toEqual([{ ...bookmarks[0], children: [bookmarks[0].children![0]] }])
+  expect(searchBookmarks(bookmarks, 'api reference')).toEqual([{ ...bookmarks[0], children: [bookmarks[0].children![0]] }])
   expect(searchBookmarks(bookmarks, 'EXAMPLE /notes')[0].children?.map(item => item.id)).toEqual(['notes'])
-  expect(searchBookmarks(bookmarks, 'work')).toEqual([bookmarks[0]])
+  expect(searchBookmarks(bookmarks, 'work')).toEqual([{ ...bookmarks[0], children: [] }])
   expect(searchBookmarks(bookmarks, 'zzzz')).toEqual([])
   expect(searchBookmarks(bookmarks, '   ')).toBe(bookmarks)
   expect(bookmarks).toEqual(before)
+})
+
+test('bookmark search finds page names without carrying a matching folder into every result', () => {
+  let personal: Bookmark[] = [{ id: 'personal', title: 'Personal', children: [
+    { id: 'sessions', title: 'Sessions', url: 'https://example.test/sessions' },
+    { id: 'purchase', title: 'Purchase screen', url: 'https://example.test/purchase' },
+    { id: 'other', title: 'Other page', url: 'https://example.test/other' },
+  ] }]
+  expect(searchBookmarks(personal, 'sessions')[0].children?.map(item => item.id)).toEqual(['sessions'])
+  expect(searchBookmarks(personal, 'purchase screen')[0].children?.map(item => item.id)).toEqual(['purchase'])
+  expect(searchBookmarkPages(personal, 'purchase screen').map(item => item.id)).toEqual(['purchase'])
+  expect(searchBookmarkPages(personal, 'personal')).toEqual([])
 })
 
 test('history search matches titles and URLs without changing recency order', () => {

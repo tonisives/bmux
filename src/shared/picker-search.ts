@@ -1,14 +1,20 @@
 import type { Bookmark, HistoryEntry } from './types'
 import { fuzzyMatch } from './command-search'
 
-export let searchBookmarks = (bookmarks: Bookmark[], query: string, ancestors = ''): Bookmark[] => {
+export let searchBookmarks = (bookmarks: Bookmark[], query: string): Bookmark[] => {
   if (!query.trim()) return bookmarks
   return bookmarks.flatMap(bookmark => {
-    let title = `${ancestors} ${bookmark.title}`
-    if (!bookmark.children) return fuzzyMatch(query, `${title} ${bookmark.url ?? ''}`) ? [bookmark] : []
-    let children = searchBookmarks(bookmark.children, query, title)
-    return children.length ? [{ ...bookmark, children }] : []
+    if (!bookmark.children) return fuzzyMatch(query, `${bookmark.title} ${bookmark.url ?? ''}`) ? [bookmark] : []
+    let children = searchBookmarks(bookmark.children, query)
+    return children.length || fuzzyMatch(query, bookmark.title) ? [{ ...bookmark, children }] : []
   })
+}
+
+export let searchBookmarkPages = (bookmarks: Bookmark[], query: string): Bookmark[] => {
+  if (!query.trim()) return []
+  return bookmarks.flatMap(bookmark => bookmark.children
+    ? searchBookmarkPages(bookmark.children, query)
+    : bookmark.url && /^(https?:|file:)/i.test(bookmark.url) && fuzzyMatch(query, bookmark.title) ? [bookmark] : [])
 }
 
 export let searchHistory = (history: HistoryEntry[], query: string): HistoryEntry[] => {

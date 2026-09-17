@@ -6,7 +6,7 @@ import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
-import { searchBookmarks, searchHistory } from '../shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
@@ -305,10 +305,13 @@ let AddressPrompt = () => {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { ref.current?.focus(); ref.current?.select() }, [addressFocusVersion])
   let normalized = query.trim().toLowerCase()
-  let history = normalized ? (profile?.history ?? []).filter(entry => `${entry.title} ${entry.url}`.toLowerCase().includes(normalized)).slice(0, 4) : []
+  let bookmarks = searchBookmarkPages(profile?.bookmarks ?? [], query).slice(0, 8)
+  let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
+  let history = normalized ? (profile?.history ?? []).filter(entry => !bookmarkUrls.has(entry.url) && `${entry.title} ${entry.url}`.toLowerCase().includes(normalized)).slice(0, Math.min(4, 8 - bookmarks.length)) : []
   let results = [
+    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: bookmark.url!, title: bookmark.title, detail: `Bookmark · ${bookmark.url}` })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
-    ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
+    ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - bookmarks.length - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
   ]
   useEffect(() => {
     let value = query.trim()
@@ -730,7 +733,7 @@ let BookmarkPicker = () => {
   let { profile } = selection(state)
   let { ref, keys, input, query, change } = usePickerNavigation()
   let bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><p>Profile: {profile?.name ?? 'No selected pane'}</p><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
 }
 let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
   let { state, run, dismiss } = useUI()
