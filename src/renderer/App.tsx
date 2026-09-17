@@ -810,7 +810,7 @@ let HelpContent = () => {
   useEffect(() => { if (searching) input.current?.focus() }, [searching])
   let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
   let entries = commandEntries(keyboard, state.plugins)
-  let bindings = [...Object.entries(keyboard.shortcuts).map(([key, binding]) => [shortcutLabel(key, binding), shortcutAction(binding)]), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])].map(([key, action]) => ({ key, action, description: entries.find(entry => entry.action === action)?.description ?? '' })).filter(binding => fuzzyMatch(query, `${binding.key} ${binding.action} ${binding.description}`))
+  let bindings = [...Object.entries(keyboard.shortcuts).map(([key, binding]) => [shortcutLabel(key, binding), shortcutAction(binding)]), ...Object.entries(keyboard.sequences).map(([key, binding]) => [shortcutLabel(key.split('').join(' '), binding), shortcutAction(binding)]), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])].map(([key, action]) => ({ key, action, description: entries.find(entry => entry.action === action)?.description ?? '' })).filter(binding => fuzzyMatch(query, `${binding.key} ${binding.action} ${binding.description}`))
   let commands = searchCommands(entries, query), notes = HELP_NOTES.filter(note => fuzzyMatch(query, note))
   let change = (event: ChangeEvent<HTMLInputElement>) => { setQuery(event.target.value); setSearching(true) }
   useEffect(() => {

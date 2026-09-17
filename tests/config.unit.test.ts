@@ -146,3 +146,13 @@ it('accepts conditional shortcuts while preserving legacy bindings and validatin
   expect(shortcutMatchesContext('reload', false, undefined)).toBe(true)
   expect(shortcutMatchesContext({ action: 'reload', when: 'always' }, false, true)).toBe(true)
 })
+
+it('parses page scrolling actions and two letter sequences', () => {
+  let keyboard = parseConfig('keyboard:\n  shortcuts:\n    j: { action: scroll-down, when: pane-not-editing }\n    Shift+G: { action: scroll-bottom, when: pane-not-editing }\n  sequences:\n    gg: { action: scroll-top, when: pane-not-editing }\n').keyboard
+  expect(keyboard.shortcuts.j).toEqual({ action: 'scroll-down', when: 'pane-not-editing' })
+  expect(keyboard.shortcuts['Shift+G']).toEqual({ action: 'scroll-bottom', when: 'pane-not-editing' })
+  expect(keyboard.sequences.gg).toEqual({ action: 'scroll-top', when: 'pane-not-editing' })
+  expect(() => parseConfig('keyboard:\n  sequences:\n    g: scroll-top\n')).toThrow('Invalid key sequence')
+  expect(() => parseConfig('keyboard:\n  sequences:\n    ggg: scroll-top\n')).toThrow('Invalid key sequence')
+  expect(() => parseConfig('keyboard:\n  sequences:\n    gg: typo\n')).toThrow('Unknown keyboard action')
+})

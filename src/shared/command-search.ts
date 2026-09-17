@@ -64,6 +64,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'move-pane --window ', usage: 'move-pane --window WINDOW_ID', description: 'Move this pane into another window', complete: true },
   { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', action: 'close-pane', complete: true },
   ...['back', 'forward', 'reload', 'hard-reload', 'stop'].map(command => ({ command, description: ({ back: 'Go back in page history', forward: 'Go forward in page history', reload: 'Reload the page', 'hard-reload': 'Reload without cached resources', stop: 'Stop loading this page' })[command]!, action: command })),
+  ...['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].map(command => ({ command, description: ({ 'scroll-up': 'Scroll up', 'scroll-down': 'Scroll down', 'scroll-half-up': 'Scroll half a page up', 'scroll-half-down': 'Scroll half a page down', 'scroll-top': 'Scroll to the top', 'scroll-bottom': 'Scroll to the bottom' })[command]!, action: command })),
   { command: 'devtools', description: 'Open Chromium developer tools for this pane' },
   { command: 'zoom ', usage: 'zoom PERCENT', description: 'Set the page zoom percentage', complete: true },
   { command: 'save-layout ', usage: 'save-layout NAME', description: 'Save the current pane layout', complete: true },
@@ -83,7 +84,7 @@ export let COMMANDS: CommandEntry[] = [
 ]
 
 export let commandEntries = (keyboard: KeyboardConfig, plugins: PluginInfo[] = []): CommandEntry[] => {
-  let bindings = [...Object.entries(keyboard.shortcuts).map(([key, binding]) => [shortcutLabel(key, binding), shortcutAction(binding)]), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
+  let bindings = [...Object.entries(keyboard.shortcuts).map(([key, binding]) => [shortcutLabel(key, binding), shortcutAction(binding)]), ...Object.entries(keyboard.sequences).map(([key, binding]) => [shortcutLabel(key.split('').join(' '), binding), shortcutAction(binding)]), ...Object.entries(keyboard.prefixBindings).map(([key, action]) => [`${keyboard.prefix} then ${key}`, action])]
   let entries = [...COMMANDS, ...plugins.filter(plugin => plugin.enabled).flatMap(plugin => plugin.actions.map(action => ({ command: `plugin run ${plugin.id}/${action.id}`, description: `${plugin.name}: ${action.title}${action.description ? ` — ${action.description}` : ''}`, action: `plugin:${plugin.id}/${action.id}` })))]
   return entries.map(entry => ({ ...entry, shortcuts: bindings.filter(([, action]) => entry.action && action === entry.action).map(([key]) => key) }))
 }

@@ -113,6 +113,7 @@ export let createRuntime = (dataDirectory: string) => {
   let publishTimer: ReturnType<typeof setTimeout> | undefined
   let shuttingDown = false
   let prefixUntil = 0
+  let pendingSequence: { key: string; clientId: string; contentsId: number; expires: number } | undefined
   let pendingModifierShortcut: { binding: Shortcut; clientId: string; code: string; contentsId: number } | undefined
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
@@ -279,6 +280,21 @@ export let createRuntime = (dataDirectory: string) => {
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     return debuggerApi.sendCommand(method, params, sessionId)
   }
+  let scrollTab = (tabId: string, action: string) => {
+    if (!['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].includes(action)) throw new Error(`Unknown scroll action: ${action}`)
+    let live = tabs.get(tabId)
+    if (!live || live.contents.isDestroyed()) return
+    if (action === 'scroll-top' || action === 'scroll-bottom') {
+      let keyCode = action === 'scroll-top' ? 'Home' : 'End'
+      live.contents.sendInputEvent({ type: 'keyDown', keyCode })
+      live.contents.sendInputEvent({ type: 'keyUp', keyCode })
+    } else {
+      let bounds = live.view.getBounds()
+      let amount = action.includes('half') ? Math.round(bounds.height / 2) : 100
+      let deltaY = action.endsWith('down') ? -amount : amount
+      live.contents.sendInputEvent({ type: 'mouseWheel', x: Math.round(bounds.width / 2), y: Math.round(bounds.height / 2), deltaY, hasPreciseScrollingDeltas: true, canScroll: true })
+    }
+  }
   let dispatchShortcut = (action: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
@@ -301,6 +317,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window'].includes(action)) { control(action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
+    if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
     if (action.startsWith('zoom-') && tab) {
       let current = tabById(model, tab).tab.zoom
       void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
@@ -328,6 +345,7 @@ export let createRuntime = (dataDirectory: string) => {
     ]))
   }
   let refreshSettings = () => {
+    pendingSequence = undefined
     filters?.refresh()
     pageTools?.reload()
     plugins?.reload()
@@ -377,6 +395,19 @@ export let createRuntime = (dataDirectory: string) => {
         prefixUntil = 0
         let action = keyboard.prefixBindings[input.key]
         if (action) dispatchShortcut(action)
+        event.preventDefault(); return
+      }
+      let sequenceKey = !input.meta && !input.control && !input.alt && !input.shift && /^[a-z]$/i.test(input.key) ? input.key.toLowerCase() : ''
+      if (pendingSequence) {
+        let pending = pendingSequence
+        pendingSequence = undefined
+        if (pending.clientId === focusedClientId && pending.contentsId === contents.id && pending.expires > Date.now()) {
+          let binding = keyboard.sequences[pending.key + sequenceKey]
+          if (binding && matchesContext(binding, contents)) { event.preventDefault(); dispatchShortcut(shortcutAction(binding)); return }
+        }
+      }
+      if (sequenceKey && Object.entries(keyboard.sequences).some(([key, binding]) => key.startsWith(sequenceKey) && matchesContext(binding, contents))) {
+        pendingSequence = { key: sequenceKey, clientId: focusedClientId, contentsId: contents.id, expires: Date.now() + keyboard.prefixTimeoutMs }
         event.preventDefault(); return
       }
       let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
@@ -857,6 +888,7 @@ export let createRuntime = (dataDirectory: string) => {
       return { requested: true }
     }
     if (method === 'settings.reload') { configuration?.reload(); if (configuration?.error) throw new Error(configuration.error); return { path: configuration?.path } }
+    if (method === 'scroll') { let tabId = required(args, 'tab'); tabById(model, tabId); scrollTab(tabId, required(args, 'action')); return { tab: tabId } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')

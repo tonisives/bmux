@@ -102,6 +102,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     throw new Error('Use profile create NAME or profile rename OLD NEW')
   }
   if (['back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools'].includes(name)) return { method: name, args: { tab: tabTarget } }
+  if (['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].includes(name)) return { method: 'scroll', args: { tab: tabTarget, action: name } }
   if (name === 'zoom') return { method: 'zoom', args: { tab: tabTarget, factor: Number(positional[0]) / 100 } }
   if (name === 'reload-config') return { method: 'settings.reload' }
   if (name === 'edit-config') return { method: 'settings.open' }

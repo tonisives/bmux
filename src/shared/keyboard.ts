@@ -3,7 +3,7 @@ export let shortcutAction = (binding: Shortcut) => typeof binding === 'string' ?
 export let shortcutWhen = (binding: Shortcut) => typeof binding === 'string' ? 'always' : binding.when ?? 'always'
 export let shortcutMatchesContext = (binding: Shortcut, paneFocused: boolean, editing: boolean | undefined) => shortcutWhen(binding) === 'always' || (paneFocused && editing === false)
 export let shortcutLabel = (key: string, binding: Shortcut) => shortcutWhen(binding) === 'always' ? key : `${key} (pane, outside text fields)`
-export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcuts: Record<string, Shortcut>; prefixBindings: Record<string, string> }
+export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcuts: Record<string, Shortcut>; sequences: Record<string, Shortcut>; prefixBindings: Record<string, string> }
 export let DEFAULT_KEYBOARD: KeyboardConfig = {
   prefix: 'Ctrl+B', prefixTimeoutMs: 1600,
   shortcuts: {
@@ -19,9 +19,10 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
     'Cmd+=': 'zoom-in', 'Cmd+Shift+=': 'zoom-in', 'Cmd+-': 'zoom-out', 'Cmd+0': 'zoom-reset',
     'Cmd+Shift+D': 'toggle-dark', 'Cmd+,': 'settings', F1: 'help', Escape: 'stop',
   },
+  sequences: {},
   prefixBindings: { '1': 'select-window-1', '2': 'select-window-2', '3': 'select-window-3', '4': 'select-window-4', '5': 'select-window-5', '6': 'select-window-6', '7': 'select-window-7', '8': 'select-window-8', '9': 'select-window-9', ':': 'command', '?': 'help', c: 'new-window', n: 'next-window', p: 'previous-window', '%': 'split-right', '"': 'split-down', o: 'next-pane', z: 'toggle-pane-zoom', s: 'sessions', d: 'detach', ',': 'rename-window', r: 'rename-window', x: 'close-pane', '&': 'close-window', '$': 'rename-session', '(': 'previous-session', ')': 'next-session' },
 }
-export let KEY_ACTIONS = new Set(['browser-tools', 'toggle-dark', 'toggle-adblock', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-window', 'close-pane', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'move-window-left', 'move-window-right', 'move-window-first', 'move-window-last', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'zoom-in', 'zoom-out', 'zoom-reset'])
+export let KEY_ACTIONS = new Set(['browser-tools', 'toggle-dark', 'toggle-adblock', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-window', 'close-pane', 'close-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'move-window-left', 'move-window-right', 'move-window-first', 'move-window-last', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'detach', 'back', 'forward', 'scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom', 'zoom-in', 'zoom-out', 'zoom-reset'])
 type KeyInput = { key: string; code?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean }
 let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ', leftshift: 'shiftleft', rightshift: 'shiftright' }
 export let parseBinding = (binding: string, platform = process.platform) => {
