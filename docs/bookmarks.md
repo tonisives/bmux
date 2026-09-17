@@ -1,6 +1,6 @@
 # Bookmarks
 
-Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Press Enter to open a selected bookmark in the current tab, or Command+Enter to open it in a new tab. Each profile has its own bookmarks.
+Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark in the current tab, or Command+Enter to open it in a new tab. Each profile has its own bookmarks.
 
 Bookmarks are stored in `~/.config/bmux/bookmarks.yaml`, beside the keyboard settings in `config.yaml`. bmux creates the file automatically. Existing bookmarks in `state.json` move to YAML when you first start this version; subsequent state saves omit them.
 
