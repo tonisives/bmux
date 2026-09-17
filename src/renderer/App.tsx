@@ -309,7 +309,7 @@ let AddressPrompt = () => {
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
   let history = normalized ? (profile?.history ?? []).filter(entry => !bookmarkUrls.has(entry.url) && `${entry.title} ${entry.url}`.toLowerCase().includes(normalized)).slice(0, Math.min(4, 8 - bookmarks.length)) : []
   let results = [
-    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: bookmark.url!, title: bookmark.title, detail: `Bookmark · ${bookmark.url}` })),
+    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: bookmark.url!, title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - bookmarks.length - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
   ]
@@ -376,9 +376,13 @@ let AddressPrompt = () => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); void run('focus-page', { client: client!.id }) }
   }
   return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={results[index] ? `address-suggestion-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && <div id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-value={entry.value} onClick={choose} disabled={busy}><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>}
+    {!!results.length && <div id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>}
   </div>
 }
+
+let AddressSuggestionIcon = ({ kind }: { kind: string }) => <svg className={css.addressSuggestionIcon} viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  {kind === 'bookmark' ? <path d="M4 2.5h8v11l-4-2.7-4 2.7z" /> : kind === 'history' ? <><circle cx="8" cy="8" r="5.5" /><path d="M8 4.5V8l2.5 1.5" /></> : <><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></>}
+</svg>
 
 let FindPrompt = () => {
   let { state, run, message, onMessage, dismiss } = useUI()

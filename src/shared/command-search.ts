@@ -131,7 +131,7 @@ export let HELP_NOTES = [
   'Commands use the current session, window, and pane unless you provide a target. Quote names containing spaces. Window indices start at 1.',
   'In the command finder: type to fuzzy search, Up/Down or Ctrl+P/N selects, Tab completes, and Enter opens or runs. Ctrl+R/S recalls command history. Shift+Enter runs the typed command exactly.',
   'In the session picker: type or press / to search names. Up/Down moves, Home/End jumps, PageUp/PageDown moves ten rows, and Enter selects. Escape clears search first, then closes without switching.',
-  'Bookmarks search titles, URLs, and folder names in the selected pane’s profile. Folder context stays visible. Up/Down moves and Enter opens the bookmark in that pane; Escape clears search first, then closes.',
+  'Bookmarks search titles and folder names in the selected pane’s profile. Folder context stays visible. Up/Down moves and Enter opens the bookmark in that pane; Escape clears search first, then closes.',
   'History searches page titles and URLs in the selected pane’s profile. Up/Down moves and Enter opens the page in that pane; Escape clears search first, then closes.',
   'Find in page shows the current match and total count. Enter or Next moves forward, Shift+Enter or Previous moves backward, and Escape clears highlights and returns to the page.',
   'Closing an internal window asks for y/n. Closing a native client leaves its session running.',

@@ -50,7 +50,10 @@ test.beforeAll(async () => {
   pane.tabs.push(newTab(`${url}/docs`), newTab(`${url}/notes`))
   model.profiles[0].bookmarks = [{ id: 'work', title: 'Work', children: [{ id: 'docs', title: 'Guides', children: [
     { id: 'api', title: 'API reference', url: `${url}/docs` }, { id: 'unsupported', title: 'Disabled bookmarklet', url: 'javascript:void(0)' },
-  ] }, { id: 'notes', title: 'Research notes', url: `${url}/notes` }] }]
+  ] }, { id: 'notes', title: 'Research notes', url: `${url}/notes` },
+  { id: 'sessions', title: 'Sessions', url: `${url}/sessions` },
+  { id: 'suggestions', title: 'Search suggestions', url: `${url}/suggestions` },
+  { id: 'url-only', title: 'Other page', url: `${url}/sessions/other` }] }]
   model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
   model.profiles[0].history = [{ title: 'Research notes', url: `${url}/notes`, visitedAt: Date.parse('2026-01-02T03:04:00Z') }]
   model.profiles[1].history = [{ title: 'Bot-only visit', url: `${url}/bot`, visitedAt: Date.parse('2026-01-01T03:04:00Z') }]
@@ -158,11 +161,13 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await expect(search).toBeFocused(); await search.fill('api reference')
   await expect(group.locator('summary')).toHaveText(['Work', 'Guides'])
   await expect(group.getByRole('button')).toHaveText(['API reference'])
+  await search.fill('sessions'); await expect(group.getByRole('button')).toHaveText(['Sessions'])
   await search.fill('bot-only'); await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
   await search.fill('bookmarklet'); await expect(group.getByRole('button')).toBeDisabled()
   await search.press('Enter'); await expect(group).toBeVisible()
   await search.press('Escape'); await expect(group).toBeVisible(); await expect(search).toHaveValue('')
-  await search.fill('reference'); await expect(group.getByRole('button')).toHaveCount(1)
+  await search.fill('guides'); await expect(group.locator('summary')).toHaveText(['Work', 'Guides']); await expect(group.getByRole('button')).toHaveCount(0)
+  await search.fill('API reference')
   await chrome.screenshot({ path: path.resolve('artifacts/bookmark-search.png') })
   await search.press('ArrowDown'); await expect(group.getByRole('button', { name: 'API reference', exact: true })).toBeFocused()
   await chrome.keyboard.press('Enter'); await expect(group).toHaveCount(0)

@@ -11,7 +11,7 @@ let bookmarks: Bookmark[] = [{ id: 'work', title: 'Work', children: [
 test('bookmark search preserves folder context without including unrelated siblings', () => {
   let before = structuredClone(bookmarks)
   expect(searchBookmarks(bookmarks, 'api reference')).toEqual([{ ...bookmarks[0], children: [bookmarks[0].children![0]] }])
-  expect(searchBookmarks(bookmarks, 'EXAMPLE /notes')[0].children?.map(item => item.id)).toEqual(['notes'])
+  expect(searchBookmarks(bookmarks, 'NOTES')[0].children?.map(item => item.id)).toEqual(['notes'])
   expect(searchBookmarks(bookmarks, 'work')).toEqual([{ ...bookmarks[0], children: [] }])
   expect(searchBookmarks(bookmarks, 'zzzz')).toEqual([])
   expect(searchBookmarks(bookmarks, '   ')).toBe(bookmarks)
@@ -21,11 +21,14 @@ test('bookmark search preserves folder context without including unrelated sibli
 test('bookmark search finds page names without carrying a matching folder into every result', () => {
   let personal: Bookmark[] = [{ id: 'personal', title: 'Personal', children: [
     { id: 'sessions', title: 'Sessions', url: 'https://example.test/sessions' },
+    { id: 'suggestions', title: 'Search suggestions', url: 'https://example.test/suggestions' },
+    { id: 'url-only', title: 'Other page', url: 'https://example.test/sessions/other' },
     { id: 'purchase', title: 'Purchase screen', url: 'https://example.test/purchase' },
-    { id: 'other', title: 'Other page', url: 'https://example.test/other' },
   ] }]
   expect(searchBookmarks(personal, 'sessions')[0].children?.map(item => item.id)).toEqual(['sessions'])
+  expect(searchBookmarks(personal, 'SeSsIoNs')[0].children?.map(item => item.id)).toEqual(['sessions'])
   expect(searchBookmarks(personal, 'purchase screen')[0].children?.map(item => item.id)).toEqual(['purchase'])
+  expect(searchBookmarkPages(personal, 'sessions').map(item => item.id)).toEqual(['sessions'])
   expect(searchBookmarkPages(personal, 'purchase screen').map(item => item.id)).toEqual(['purchase'])
   expect(searchBookmarkPages(personal, 'personal')).toEqual([])
 })

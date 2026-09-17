@@ -140,6 +140,7 @@
 .urlHistory { display: flex; flex-direction: column; max-height: 180px; overflow-y: auto; padding-bottom: 4px; }
 .urlHistory button { display: flex; gap: 12px; padding: 5px 0; text-align: left; border: 0; border-radius: 0; background: transparent; }
 .urlHistory button:hover, .urlHistory button[aria-selected="true"] { background: #303844; }
+.addressSuggestionIcon { width: 16px; height: 16px; flex: 0 0 16px; color: #8e98a4; }
 .urlHistory strong, .urlHistory span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .urlHistory strong { flex: 0 1 35%; font-weight: 400; }
 .urlHistory span { flex: 1; color: #8e98a4; }
