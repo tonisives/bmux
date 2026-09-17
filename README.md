@@ -18,7 +18,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Keyboard control** — A tmux-style prefix, command prompt, and desktop shortcuts. See [Keyboard](docs/keyboard.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
-- **Find pages again** — Search profile-scoped browsing history, save pages into bookmark folders, or import Brave profile names and bookmarks. See [Keyboard](docs/keyboard.md) and [Import from Brave](docs/brave.md).
+- **Find pages again** — Search profile-scoped browsing history, save pages into bookmark folders stored in `~/.config/bmux/bookmarks.yaml`, or import Brave profile names and bookmarks. See [Bookmarks](docs/bookmarks.md) and [Import from Brave](docs/brave.md).
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
 - **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden browser extension, and local userscripts. See [Browser tools](docs/browser-tools.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](docs/plugins.md).
@@ -134,6 +134,7 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 ## Guides
 
 - [Keyboard shortcuts and configuration](docs/keyboard.md)
+- [Bookmarks and YAML storage](docs/bookmarks.md)
 - [Import profiles and bookmarks from Brave](docs/brave.md)
 - [Downloads](docs/downloads.md)
 - [Browser tools](docs/browser-tools.md)
@@ -146,6 +147,8 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 ## Data and permissions
 
 Application state and profile partitions use the platform's application-data directory. Set `BMUX_DATA_DIR` to an absolute path to run an isolated instance. Tests use disposable directories and never use your real profiles.
+
+Bookmarks live in `~/.config/bmux/bookmarks.yaml`, alongside keyboard settings. See [Bookmarks](docs/bookmarks.md) for the format and migration details.
 
 Layouts, profiles, open URLs, zoom, and client selections are persisted. Relaunching reopens pages; it does not reconstruct arbitrary JavaScript memory or unsaved forms. Named layout restoration replaces a window's pages and requires confirmation.
 

@@ -62,6 +62,8 @@ test.beforeAll(async () => {
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   expect((await state()).configError).toBeNull()
+  expect((await state()).model.profiles[0].bookmarks).toEqual(model.profiles[0].bookmarks)
+  expect(await fs.readFile(path.join(directory, 'bookmarks.yaml'), 'utf8')).toContain('API reference')
   await activate(); await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true }); await address.fill(`${url}/fixture`); await address.press('Enter')
   await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/fixture`)).toBe(true)

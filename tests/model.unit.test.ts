@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { parse as parseYaml } from 'yaml'
 import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { readModel, writeModel } from '../src/main/store'
 
@@ -75,6 +76,44 @@ describe('session layouts and persistence', () => {
       fs.writeFileSync(path.join(directory, 'state.json'), '{broken')
       expect(() => readModel(directory)).toThrow()
       expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).toBe('{broken')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('stores bookmarks beside config and migrates embedded state bookmarks', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-bookmarks-unit-'))
+    let bookmarkFile = path.join(directory, 'config', 'bookmarks.yaml')
+    try {
+      let model = initialModel()
+      let bookmarks = [{ id: 'folder', title: 'Work', children: [{ id: 'page', title: 'Example', url: 'https://example.test' }] }]
+      model.profiles[0].bookmarks = bookmarks
+      fs.writeFileSync(path.join(directory, 'state.json'), JSON.stringify(model))
+      expect(readModel(directory, bookmarkFile).profiles[0].bookmarks).toEqual(bookmarks)
+      expect(parseYaml(fs.readFileSync(bookmarkFile, 'utf8')).profiles.profile_default).toEqual(bookmarks)
+      let restored = readModel(directory, bookmarkFile)
+      restored.profiles[0].bookmarks = [{ id: 'new', title: 'Updated', url: 'https://updated.test' }]
+      writeModel(directory, restored, bookmarkFile)
+      expect(JSON.parse(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).profiles[0]).not.toHaveProperty('bookmarks')
+      expect(readModel(directory, bookmarkFile).profiles[0].bookmarks).toEqual(restored.profiles[0].bookmarks)
+      let annotated = `# My bookmark list\n${fs.readFileSync(bookmarkFile, 'utf8')}`
+      fs.writeFileSync(bookmarkFile, annotated)
+      writeModel(directory, restored, bookmarkFile)
+      expect(fs.readFileSync(bookmarkFile, 'utf8')).toBe(annotated)
+      expect(fs.existsSync(`${bookmarkFile}.tmp`)).toBe(false)
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('uses edited YAML over old state and leaves invalid YAML untouched', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-bookmarks-unit-'))
+    let bookmarkFile = path.join(directory, 'bookmarks.yaml')
+    try {
+      let model = initialModel()
+      model.profiles[0].bookmarks = [{ id: 'old', title: 'Old', url: 'https://old.test' }]
+      fs.writeFileSync(path.join(directory, 'state.json'), JSON.stringify(model))
+      let edited = 'profiles:\n  profile_default:\n    - id: edited\n      title: Edited\n      url: https://edited.test\n'
+      fs.writeFileSync(bookmarkFile, edited)
+      expect(readModel(directory).profiles[0].bookmarks?.[0].id).toBe('edited')
+      fs.writeFileSync(bookmarkFile, 'profiles: [broken')
+      expect(() => readModel(directory)).toThrow('Invalid YAML in bookmarks file')
+      expect(fs.readFileSync(bookmarkFile, 'utf8')).toBe('profiles: [broken')
+      expect(JSON.parse(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).profiles[0].bookmarks[0].id).toBe('old')
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
   it('rejects a layout that points to the wrong pane', () => {

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
-import { readModel, writeModel } from './store'
+import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
@@ -47,7 +47,8 @@ export let normalizeUrl = (value: string) => {
 }
 
 export let createRuntime = (dataDirectory: string) => {
-  let model: Model = readModel(dataDirectory)
+  let bookmarkFile = bookmarksPath(configPath(dataDirectory))
+  let model: Model = readModel(dataDirectory, bookmarkFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
   let hosts = new Map<string, BaseWindow>()
@@ -211,7 +212,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     plugins?.reconcile()
     clearTimeout(persistTimer)
-    persistTimer = setTimeout(() => { if (!shuttingDown) writeModel(dataDirectory, model) }, 150)
+    persistTimer = setTimeout(() => { if (!shuttingDown) writeModel(dataDirectory, model, bookmarkFile) }, 150)
     publish()
   }
   let serializeTab = <T>(tabId: string, operation: () => Promise<T>): Promise<T> => {
@@ -920,7 +921,8 @@ export let createRuntime = (dataDirectory: string) => {
       let imported = importBrave(model, args.source ? required(args, 'source') : braveDirectory())
       let stateFile = path.join(dataDirectory, 'state.json')
       if (fsSync.existsSync(stateFile)) fsSync.copyFileSync(stateFile, path.join(dataDirectory, `state.before-brave-${Date.now()}.json`), fsSync.constants.COPYFILE_EXCL)
-      writeModel(dataDirectory, imported.model)
+      if (fsSync.existsSync(bookmarkFile)) fsSync.copyFileSync(bookmarkFile, path.join(path.dirname(bookmarkFile), `bookmarks.before-brave-${Date.now()}.yaml`), fsSync.constants.COPYFILE_EXCL)
+      writeModel(dataDirectory, imported.model, bookmarkFile)
       // Live WebContents callbacks retain these objects. Preserve their identity.
       for (let importedProfile of imported.model.profiles) {
         let existing = model.profiles.find(profile => profile.id === importedProfile.id)
@@ -1370,7 +1372,7 @@ export let createRuntime = (dataDirectory: string) => {
     plugins?.close()
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
-    writeModel(dataDirectory, model)
+    writeModel(dataDirectory, model, bookmarkFile)
     for (let tabId of tabs.keys()) disposeTab(tabId)
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
   }
