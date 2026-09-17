@@ -18,19 +18,28 @@ test('bookmark search preserves folder context without including unrelated sibli
   expect(bookmarks).toEqual(before)
 })
 
-test('bookmark search finds page names without carrying a matching folder into every result', () => {
+test('bookmark search finds page names and URLs without carrying a matching folder into every result', () => {
   let personal: Bookmark[] = [{ id: 'personal', title: 'Personal', children: [
     { id: 'sessions', title: 'Sessions', url: 'https://example.test/sessions' },
     { id: 'suggestions', title: 'Search suggestions', url: 'https://example.test/suggestions' },
     { id: 'url-only', title: 'Other page', url: 'https://example.test/sessions/other' },
     { id: 'purchase', title: 'Purchase screen', url: 'https://example.test/purchase' },
   ] }]
-  expect(searchBookmarks(personal, 'sessions')[0].children?.map(item => item.id)).toEqual(['sessions'])
-  expect(searchBookmarks(personal, 'SeSsIoNs')[0].children?.map(item => item.id)).toEqual(['sessions'])
+  expect(searchBookmarks(personal, 'sessions')[0].children?.map(item => item.id)).toEqual(['sessions', 'url-only'])
+  expect(searchBookmarks(personal, 'SeSsIoNs')[0].children?.map(item => item.id)).toEqual(['sessions', 'url-only'])
   expect(searchBookmarks(personal, 'purchase screen')[0].children?.map(item => item.id)).toEqual(['purchase'])
-  expect(searchBookmarkPages(personal, 'sessions').map(item => item.id)).toEqual(['sessions'])
+  expect(searchBookmarkPages(personal, 'sessions').map(item => item.id)).toEqual(['sessions', 'url-only'])
   expect(searchBookmarkPages(personal, 'purchase screen').map(item => item.id)).toEqual(['purchase'])
   expect(searchBookmarkPages(personal, 'personal')).toEqual([])
+})
+
+test('bookmark search ranks titles before folders and URLs', () => {
+  let ranked: Bookmark[] = [
+    { id: 'url', title: 'Social home', url: 'https://x.com' },
+    { id: 'folder', title: 'x.com', children: [] },
+    { id: 'title', title: 'X.com guide', url: 'https://example.test/guide' },
+  ]
+  expect(searchBookmarks(ranked, 'x.com').map(bookmark => bookmark.id)).toEqual(['title', 'folder', 'url'])
 })
 
 test('history search matches titles and URLs without changing recency order', () => {
