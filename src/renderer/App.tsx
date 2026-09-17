@@ -13,21 +13,24 @@ import { deleteWordBackward } from '../shared/text-edit'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
-type UIContext = { state: PublicState; control: Control | null; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
+type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
+  let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0)
   let [message, setMessage] = useState('')
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
   let previousControl = useRef<Control | null>(null)
+  let previousHistoryPopup = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
-    if (previous.current && previous.current !== target) { setControl(null); setMessage('') }
+    if (previous.current && previous.current !== target) { setControl(null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
     if (client?.paneId && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerTabId) {
       setControl('address')
@@ -43,6 +46,7 @@ export let App = () => {
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return undefined }
   }, [])
   let show = useCallback(async (control: Control, paneId?: string) => {
+    setHistoryPopup(null)
     if (paneId) {
       let current = await bridge.state()
       if (selection(current).pane?.id !== paneId) {
@@ -56,7 +60,7 @@ export let App = () => {
   }, [accept, run])
   let dismiss = useCallback(() => {
     if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
-    setControl(null); setMessage('')
+    setControl(null); setHistoryPopup(null); setMessage('')
   }, [state?.pluginPrompt])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
@@ -73,15 +77,16 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = ['sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
+    let restoreFocus = previousHistoryPopup.current || ['sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'activity', 'profiles'].includes(previousControl.current ?? '')
     previousControl.current = control
+    previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' }).then(() => {
+    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' || !!historyPopup }).then(() => {
       if (!cancelled && !control && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, state?.clientId, run])
+  }, [panel, control, historyPopup, state?.clientId, run])
   useEffect(() => {
     let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
     document.addEventListener('keydown', escape)
@@ -91,7 +96,7 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
-  let context = { state, control, addressFocusVersion, message, onMessage: setMessage, run, show, dismiss, acknowledgeDownload, acknowledgedDownloads }
+  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, message, onMessage: setMessage, run, show, dismiss, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -451,15 +456,57 @@ let EmptyPane = ({ paneId }: { paneId?: string }) => {
   let open = () => show('address', paneId)
   return <div className={css.empty}><button onClick={open}>Cmd+L to open a URL</button></div>
 }
+let NavigationButton = ({ direction, tabId, enabled, hasHistory, open }: { direction: 'back' | 'forward'; tabId: string; enabled: boolean; hasHistory: boolean; open: () => void }) => {
+  let { run } = useUI()
+  let timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  let held = useRef(false)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  let cancelHold = () => { clearTimeout(timer.current); timer.current = undefined }
+  let press = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !hasHistory) return
+    held.current = false
+    timer.current = setTimeout(() => { held.current = true; open() }, 450)
+  }
+  let click = () => { if (held.current) { held.current = false; return }; void run(direction, { tab: tabId }) }
+  let contextMenu = (event: MouseEvent<HTMLButtonElement>) => { if (!hasHistory) return; event.preventDefault(); cancelHold(); held.current = true; open() }
+  return <button type="button" className={css.navigationButton} aria-label={direction === 'back' ? 'Back' : 'Forward'} title={direction === 'back' ? 'Back (hold for history)' : 'Forward (hold for history)'} disabled={!enabled} onPointerDown={press} onPointerUp={cancelHold} onPointerCancel={cancelHold} onPointerLeave={cancelHold} onClick={click} onContextMenu={contextMenu}><svg viewBox="0 0 16 16" aria-hidden="true"><path d={direction === 'back' ? 'M10.5 3.5 6 8l4.5 4.5' : 'M5.5 3.5 10 8l-4.5 4.5'} /></svg></button>
+}
+let NavigationMenuItem = ({ entry, select }: { entry: { index: number; title: string; url: string }; select: (index: number) => void }) => {
+  let click = () => select(entry.index)
+  return <button type="button" role="menuitem" onClick={click} title={entry.url}><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></button>
+}
 let PaneAddress = ({ paneId }: { paneId?: string }) => {
-  let { state, control, show } = useUI()
+  let { state, control, show, run, historyPopup, setHistoryPopup } = useUI()
   let { client, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
   let url = tab ? state.pendingUrls[tab.id] ?? tab.url : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
   let open = () => show('address', paneId)
+  let navigation = tab ? state.navigation[tab.id] : undefined
+  let activeIndex = navigation?.activeIndex ?? 0
+  let entries = navigation?.entries ?? []
+  let back = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index < activeIndex).reverse()
+  let forward = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index > activeIndex)
+  let popup = historyPopup?.tabId === tab?.id ? historyPopup : null
+  let menu = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!popup) return
+    let outside = (event: globalThis.PointerEvent) => { if (!menu.current?.contains(event.target as Node)) setHistoryPopup(null) }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [popup, setHistoryPopup])
+  let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
+  let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
   return <div className={css.addressBar} role="group" aria-label="Pane address">
+    {tab && <div className={css.navigationControls}>
+      <NavigationButton direction="back" tabId={tab.id} enabled={back.length > 0 || !!tab.openerTabId && !!pane?.tabs.some(candidate => candidate.id === tab.openerTabId)} hasHistory={back.length > 0} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
+      <NavigationButton direction="forward" tabId={tab.id} enabled={forward.length > 0} hasHistory={forward.length > 0} open={() => setHistoryPopup({ tabId: tab.id, direction: 'forward' })} />
+      <button type="button" className={css.navigationButton} aria-label="Refresh" title="Refresh" onClick={refresh}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
+      {popup && <div ref={menu} className={css.navigationMenu} role="menu" aria-label={`${popup.direction === 'back' ? 'Back' : 'Forward'} history`}>
+        {(popup.direction === 'back' ? back : forward).map(entry => <NavigationMenuItem key={entry.index} entry={entry} select={selectHistory} />)}
+      </div>}
+    </div>}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={url}>{url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'}</button>}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
   </div>

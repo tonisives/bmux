@@ -6,7 +6,7 @@ import type { PublicState } from '../src/shared/types'
 let state = (): PublicState => {
   let model = initialModel(), session = model.sessions[0], window = session.windows[0], pane = window.panes[0]
   model.clients.push({ id: 'client', sessionId: session.id, windowId: window.id, paneId: pane.id, width: 1280, height: 850 })
-  return { model, clientId: 'client', focusedClientId: 'client', snapshots: {}, crashes: {}, loading: {}, favicons: {}, pendingUrls: {}, permissions: [], downloads: [] }
+  return { model, clientId: 'client', focusedClientId: 'client', snapshots: {}, crashes: {}, loading: {}, favicons: {}, pendingUrls: {}, navigation: {}, permissions: [], downloads: [] }
 }
 it('parses quoted names and URL arguments without shell interpretation', () => {
   expect(tokenize(':new-session -s "work space" --profile professional')).toEqual(['new-session', '-s', 'work space', '--profile', 'professional'])

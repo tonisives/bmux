@@ -49,8 +49,20 @@
 .branch[data-axis="vertical"] > .gutter { width: auto; height: 3px; cursor: row-resize; }
 .pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; }
 .addressBar { display: flex; align-items: center; flex: 0 0 auto; min-height: 28px; min-width: 0; gap: 10px; padding: 0 8px; background: #191d23; border-bottom: 1px solid #343b45; color: #8e98a4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.addressBar:has(.navigationMenu) { z-index: 10; }
 .pane[data-focused-pane="true"] { border-color: #83917b; }
 .pane[data-focused-pane="true"] > .addressBar { color: #c2ceb9; }
+.navigationControls { position: relative; display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
+.navigationButton { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: inherit; }
+.navigationButton:hover:not(:disabled) { background: #303844; color: #f0f2f5; }
+.navigationButton:disabled { opacity: .35; cursor: default; }
+.navigationButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.navigationMenu { position: absolute; z-index: 20; top: 27px; left: 0; display: flex; flex-direction: column; width: min(360px, calc(100vw - 24px)); max-height: min(360px, 65vh); overflow-y: auto; padding: 4px; border: 1px solid #444b59; background: #191d23; box-shadow: 0 8px 22px #0008; }
+.navigationMenu button { display: flex; flex-direction: column; min-width: 0; gap: 2px; padding: 6px 8px; border: 0; background: transparent; color: #d6dcd2; text-align: left; }
+.navigationMenu button:hover, .navigationMenu button:focus-visible { background: #303844; outline: none; }
+.navigationMenu strong, .navigationMenu span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navigationMenu strong { font-weight: 500; }
+.navigationMenu span { color: #8e98a4; }
 .location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .location:hover { background: transparent; color: #f0f2f5; }
 .loading { flex-shrink: 0; color: #7d8590; }

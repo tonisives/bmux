@@ -369,6 +369,57 @@ test('links show their target, offer browser actions, and open popups in bmux wi
   }
 })
 
+test('address controls navigate, refresh, and open the per-tab history on hold', async () => {
+  let session = await cli('new-session', { name: 'address-navigation' })
+  let pane = session.windows[0].panes[0]
+  let tabId = pane.activeTabId
+  await cli('navigate', { tab: tabId, url: `${url}/address-one` })
+  await cli('navigate', { tab: tabId, url: `${url}/address-two` })
+  await cli('navigate', { tab: tabId, url: `${url}/address-three` })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let address = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('group', { name: 'Pane address' })
+  let back = address.getByRole('button', { name: 'Back', exact: true })
+  let forward = address.getByRole('button', { name: 'Forward', exact: true })
+  try {
+    await expect(back).toBeEnabled()
+    await expect(forward).toBeDisabled()
+    await back.click()
+    await expect.poll(() => cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-two')
+    await forward.click()
+    await expect.poll(() => cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-three')
+
+    let box = await back.boundingBox()
+    expect(box).toBeTruthy()
+    await chrome.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await chrome.mouse.down()
+    await expect(address.getByRole('menu', { name: 'Back history' })).toBeVisible({ timeout: 3000 })
+    await chrome.mouse.up()
+    let menu = address.getByRole('menu', { name: 'Back history' })
+    await expect(menu.getByRole('menuitem').first()).toContainText('/address-two')
+    await menu.getByRole('menuitem').filter({ hasText: '/address-one' }).click()
+    await expect.poll(() => cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-one')
+
+    box = await forward.boundingBox()
+    expect(box).toBeTruthy()
+    await chrome.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await chrome.mouse.down()
+    await expect(address.getByRole('menu', { name: 'Forward history' })).toBeVisible({ timeout: 3000 })
+    await chrome.mouse.up()
+    await address.getByRole('menu', { name: 'Forward history' }).getByRole('menuitem').filter({ hasText: '/address-three' }).click()
+    await expect.poll(() => cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-three')
+
+    let identity = await cli('eval', { tab: tabId, expression: 'window.identity' })
+    await address.getByRole('button', { name: 'Refresh' }).click()
+    await expect.poll(async () => {
+      let next = await cli('eval', { tab: tabId, expression: 'window.identity' }).catch(() => undefined)
+      return typeof next === 'number' && next !== identity
+    }).toBe(true)
+  } finally {
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('mouse history buttons target their pane and pane shortcuts keep native keyboard focus', async () => {
   let config = path.join(directory, 'config.yaml')
   let original = await fs.readFile(config, 'utf8')
