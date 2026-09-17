@@ -489,6 +489,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let entries = navigation?.entries ?? []
   let back = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index < activeIndex).reverse()
   let forward = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index > activeIndex)
+  let backHasPage = back.length > 0 && back[0].url !== 'about:blank'
+  let backEnabled = back.length > 0 ? backHasPage : !!tab?.openerTabId && !!pane?.tabs.some(candidate => candidate.id === tab.openerTabId)
   let popup = historyPopup?.tabId === tab?.id ? historyPopup : null
   let menu = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -501,7 +503,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
-      <NavigationButton direction="back" tabId={tab.id} enabled={back.length > 0 || !!tab.openerTabId && !!pane?.tabs.some(candidate => candidate.id === tab.openerTabId)} hasHistory={back.length > 0} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
+      <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
       <NavigationButton direction="forward" tabId={tab.id} enabled={forward.length > 0} hasHistory={forward.length > 0} open={() => setHistoryPopup({ tabId: tab.id, direction: 'forward' })} />
       <button type="button" className={css.navigationButton} aria-label="Refresh" title="Refresh" onClick={refresh}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
       {popup && <div ref={menu} className={css.navigationMenu} role="menu" aria-label={`${popup.direction === 'back' ? 'Back' : 'Forward'} history`}>

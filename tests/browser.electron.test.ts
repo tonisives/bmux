@@ -399,6 +399,9 @@ test('address controls navigate, refresh, and open the per-tab history on hold',
     await expect(menu.getByRole('menuitem').first()).toContainText('/address-two')
     await menu.getByRole('menuitem').filter({ hasText: '/address-one' }).click()
     await expect.poll(() => cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-one')
+    let stack = (await cli('state')).navigation[tabId]
+    expect(stack.entries[stack.activeIndex - 1]?.url).toBe('about:blank')
+    await expect(back).toBeDisabled()
 
     box = await forward.boundingBox()
     expect(box).toBeTruthy()
