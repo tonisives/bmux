@@ -170,20 +170,24 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await search.fill('API reference')
   await chrome.screenshot({ path: path.resolve('artifacts/bookmark-search.png') })
   await search.press('ArrowDown'); await expect(group.getByRole('button', { name: 'API reference', exact: true })).toBeFocused()
+  let before = (await state()).model.sessions[0].windows[0].panes[0]
   await chrome.keyboard.press('Enter'); await expect(group).toHaveCount(0)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
+  let after = (await state()).model.sessions[0].windows[0].panes[0]
+  expect(after.tabs).toHaveLength(before.tabs.length + 1)
+  expect(after.activeTabId).not.toBe(before.activeTabId)
   expect((await state()).model.sessions[0].windows[0].panes[0].profileId).toBe('profile_default')
 
   await open('bookmarks')
   let newGroup = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), newSearch = newGroup.getByRole('textbox', { name: 'Search bookmarks', exact: true })
   await newSearch.fill('API reference')
-  let before = (await state()).model.sessions[0].windows[0].panes[0]
+  let beforeMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
   await newSearch.press('Meta+Enter')
   await expect(newGroup).toHaveCount(0)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
-  let after = (await state()).model.sessions[0].windows[0].panes[0]
-  expect(after.tabs).toHaveLength(before.tabs.length + 1)
-  expect(after.activeTabId).not.toBe(before.activeTabId)
+  let afterMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
+  expect(afterMetaEnter.tabs).toHaveLength(beforeMetaEnter.tabs.length + 1)
+  expect(afterMetaEnter.activeTabId).not.toBe(beforeMetaEnter.activeTabId)
 })
 
 test('history search stays profile scoped and opens a result in the selected pane', async () => {
