@@ -27,7 +27,7 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { parseSearchSuggestions } from '../shared/address-suggestions'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
-import { queryParameters } from '../shared/bookmark-parameters'
+import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -860,10 +860,11 @@ export let createRuntime = (dataDirectory: string) => {
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let bookmark = bookmarkById(profile.bookmarks ?? [], required(args, 'bookmark'))
       if (!bookmark?.url) throw new Error('Bookmark not found')
-      let keys = new Set(queryParameters(bookmark.url).map(([key]) => key))
       let values = args.values, hidden = args.hidden
       if (!values || typeof values !== 'object' || Array.isArray(values) || !Array.isArray(hidden)
-        || Object.entries(values).some(([key, value]) => !keys.has(key) || typeof value !== 'string' || value.length > 2048)
+        || Object.values(values).some(value => typeof value !== 'string' || value.length > 2048)) throw new Error('Invalid bookmark parameters')
+      let keys = new Set(editableBookmarkParameters(bookmark.url, { values: values as Record<string, string>, hidden: [] }).map(([key]) => key))
+      if (Object.entries(values).some(([key, value]) => !keys.has(key) || (key.startsWith('x:') && !/^\d+$/.test(value as string)))
         || hidden.some(key => typeof key !== 'string' || !keys.has(key))) throw new Error('Invalid bookmark parameters')
       let next = { ...bookmarkParameters, [profile.id]: { ...bookmarkParameters[profile.id], [bookmark.id]: { values: values as Record<string, string>, hidden: hidden as string[] } } }
       writeBookmarkParameters(parameterFile, next)

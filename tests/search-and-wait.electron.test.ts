@@ -54,6 +54,7 @@ test.beforeAll(async () => {
   { id: 'sessions', title: 'Sessions', url: `${url}/sessions` },
   { id: 'suggestions', title: 'Search suggestions', url: `${url}/suggestions` },
   { id: 'parameterized', title: 'Parameterized search', url: `${url}/search?q=original&limit=10&tracking=1` },
+  { id: 'x-ideas', title: 'X ideas', url: 'https://x.com/search?q=startup&f=live' },
   { id: 'url-only', title: 'Other page', url: `${url}/sessions/other` }] }]
   model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
   model.profiles[0].history = [{ title: 'Research notes', url: `${url}/notes`, visitedAt: Date.parse('2026-01-02T03:04:00Z') }]
@@ -62,6 +63,7 @@ test.beforeAll(async () => {
   for (let index = 0; index < 24; index++) model.sessions.push(newSession(`Scroll fixture ${index + 1}`, model.profiles[0].id))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1 min_views:100' }, hidden: [] } } } }))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -212,6 +214,22 @@ test('bookmark parameter controls customize the opened URL and persist removed k
   await group.getByRole('button', { name: 'Customize Parameterized search' }).click()
   await expect(group.getByRole('textbox', { name: 'q', exact: true })).toHaveValue('new words')
   await expect(group.getByRole('button', { name: 'Remove tracking parameter' })).toHaveCount(0)
+})
+
+test('X search minimum operators have separate numeric bookmark controls', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('X ideas')
+  await group.getByRole('button', { name: 'Customize X ideas' }).click()
+  await expect(group.getByRole('spinbutton', { name: 'Min likes' })).toHaveValue('1')
+  await expect(group.getByRole('spinbutton', { name: 'Min replies' })).toHaveValue('1')
+  await expect(group.getByRole('spinbutton', { name: 'Min views' })).toHaveValue('100')
+  await group.getByRole('spinbutton', { name: 'Min likes' }).fill('25')
+  await group.getByRole('spinbutton', { name: 'Min replies' }).focus()
+  await expect.poll(async () => (await state()).bookmarkParameters.profile_default['x-ideas'].values['x:min_faves']).toBe('25')
+  await group.getByRole('button', { name: 'Remove Min views parameter' }).click()
+  await expect(group.getByRole('spinbutton', { name: 'Min views' })).toHaveCount(0)
+  await expect.poll(async () => (await state()).bookmarkParameters.profile_default['x-ideas'].hidden).toContain('x:min_views')
 })
 
 test('history search stays profile scoped and opens a result in the selected pane', async () => {
