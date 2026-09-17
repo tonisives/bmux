@@ -14,7 +14,7 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
     'Cmd+7': 'select-window-7', 'Cmd+8': 'select-window-8', 'Cmd+9': 'select-window-9',
     'CmdOrCtrl+F': 'find', 'Cmd+Ctrl+Alt+Shift+W': 'sessions', 'Cmd+[': 'back', 'Cmd+]': 'forward',
     'Cmd+Shift+[': 'previous-window', 'Cmd+Shift+]': 'next-window',
-    'Cmd+ShiftLeft': 'move-window-first', 'Cmd+ShiftRight': 'move-window-last',
+    'Cmd+ShiftRight': 'move-window-first', 'Cmd+ShiftLeft': 'move-window-last',
     'Ctrl+Tab': 'next-window', 'Ctrl+Shift+Tab': 'previous-window',
     'Cmd+=': 'zoom-in', 'Cmd+Shift+=': 'zoom-in', 'Cmd+-': 'zoom-out', 'Cmd+0': 'zoom-reset',
     'Cmd+Shift+D': 'toggle-dark', 'Cmd+,': 'settings', F1: 'help', Escape: 'stop',
