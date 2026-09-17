@@ -768,7 +768,7 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
 }
 let BookmarkRow = ({ bookmark, activate }: { bookmark: Bookmark; activate: (bookmark: Bookmark, newTab?: boolean) => void }) => {
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
-  let click = (event: MouseEvent<HTMLButtonElement>) => { activate(bookmark, event.metaKey) }
+  let click = () => { activate(bookmark, true) }
   if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} activate={activate} />)}</div></details>
   return <button className={css.listRow} data-bookmark-id={bookmark.id} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
 }
