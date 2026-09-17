@@ -869,22 +869,25 @@ test('window management shortcuts and keyboard session selection', async () => {
 
 test('accessibility preferences and custom window and pane shortcuts reload and survive restart', async () => {
   let config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    Cmd+ShiftLeft: move-window-left\n    Cmd+ShiftRight: move-window-right\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    Cmd+ShiftLeft: move-window-first\n    Cmd+ShiftRight: move-window-last\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
   await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+2')
   await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
   await application.close(); await launch()
   expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
   let session = await cli('new-session', { name: 'custom-shortcuts' })
   let second = await cli('new-window', { session: session.id })
+  let third = await cli('new-window', { session: session.id })
   let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
     await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
-  let modifierKey = async (code: 'ShiftLeft' | 'ShiftRight', cancel = false) => {
+  let modifierKey = async (code: 'ShiftLeft' | 'ShiftRight', cancel = false, statusBar = false) => {
     await cli('activate-client', { client: client.id })
-    await cli('focus-page', { client: client.id })
+    if (statusBar) await chrome.locator(`[data-window-id="${session.windows[0].id}"] button`).focus()
+    else await cli('focus-page', { client: client.id })
     await application.evaluate(({ webContents }, { code, cancel }) => {
       let contents = webContents.getFocusedWebContents()!
       let emit = (input: Record<string, unknown>) => (contents as any).emit('before-input-event', { preventDefault: () => undefined }, input)
@@ -893,12 +896,12 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
       emit({ type: 'keyUp', key: 'Shift', code, meta: true, control: false, alt: false, shift: false })
     }, { code, cancel })
   }
-  await modifierKey('ShiftRight')
-  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([second.id, session.windows[0].id])
-  await modifierKey('ShiftLeft', true)
-  expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([second.id, session.windows[0].id])
-  await modifierKey('ShiftLeft')
-  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([session.windows[0].id, second.id])
+  await modifierKey('ShiftRight', false, true)
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([second.id, third.id, session.windows[0].id])
+  await modifierKey('ShiftLeft', true, true)
+  expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([second.id, third.id, session.windows[0].id])
+  await modifierKey('ShiftLeft', false, true)
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([session.windows[0].id, second.id, third.id])
   let historyTabs = [session.windows[0].panes[0].activeTabId, second.panes[0].activeTabId]
   for (let tab of historyTabs) {
     await cli('navigate', { tab, url: `${url}/shortcut-history-one` })

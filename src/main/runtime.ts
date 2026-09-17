@@ -980,6 +980,18 @@ export let createRuntime = (dataDirectory: string) => {
       changed(); await visualQueue; return window
     }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
+    if (method === 'move-window') {
+      let client = resolve(model.clients, args.client, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let index = session.windows.findIndex(window => window.id === client.windowId)
+      let position = args.position
+      if (position !== 'first' && position !== 'last') throw new Error('Window position must be first or last')
+      let destination = position === 'first' ? 0 : session.windows.length - 1
+      if (index === destination) return session.windows[index]
+      let [window] = session.windows.splice(index, 1)
+      session.windows.splice(destination, 0, window)
+      changed(); await visualQueue; return window
+    }
     if (method === 'swap-window') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')

@@ -43,6 +43,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'previous-window', description: 'Switch to the previous window', action: 'previous-window' },
   { command: 'move-window-left', description: 'Move the current window one position left', action: 'move-window-left' },
   { command: 'move-window-right', description: 'Move the current window one position right', action: 'move-window-right' },
+  { command: 'move-window-first', description: 'Move the current window to the first position', action: 'move-window-first' },
+  { command: 'move-window-last', description: 'Move the current window to the last position', action: 'move-window-last' },
   { command: 'swap-window -t ', usage: 'swap-window -t -1|+1', description: 'Move the current window one position left or right', complete: true },
   { command: 'select-window -t ', usage: 'select-window -t INDEX', description: 'Switch to a window by index or ID', complete: true },
   { command: 'new-session -s ', usage: 'new-session -s NAME [--profile PROFILE]', description: 'Create a persistent session', complete: true },
