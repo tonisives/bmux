@@ -161,7 +161,7 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await expect(search).toBeFocused(); await search.fill('api reference')
   await expect(group.locator('summary')).toHaveText(['Work', 'Guides'])
   await expect(group.getByRole('button')).toHaveText(['API reference'])
-  await search.fill('sessions'); await expect(group.getByRole('button')).toHaveText(['Sessions'])
+  await search.fill('sessions'); await expect(group.getByRole('button')).toHaveText(['Sessions', 'Other page'])
   await search.fill('bot-only'); await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
   await search.fill('bookmarklet'); await expect(group.getByRole('button')).toBeDisabled()
   await search.press('Enter'); await expect(group).toBeVisible()
