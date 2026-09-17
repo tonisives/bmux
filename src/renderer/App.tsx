@@ -573,7 +573,7 @@ let PluginDialog = () => {
     {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
   </form>}</>
 }
-let usePickerNavigation = () => {
+let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void) => {
   let [query, setQuery] = useState('')
   let ref = useRef<HTMLDivElement>(null)
   let input = useRef<HTMLInputElement>(null)
@@ -584,12 +584,19 @@ let usePickerNavigation = () => {
   }, [query])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey) return
+    if (event.nativeEvent.isComposing || event.altKey) return
     let editing = event.target === input.current
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')].filter(row => row.getClientRects().length)
+    if (event.key === 'Enter' && event.metaKey && onMetaEnter) {
+      event.preventDefault()
+      let selected = rows.find(row => row === document.activeElement) ?? rows[0]
+      if (selected) onMetaEnter(selected)
+      return
+    }
+    if (event.metaKey || event.ctrlKey) return
     if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); input.current?.focus(); return }
     if (event.key === '/' && !editing) { event.preventDefault(); input.current?.focus(); input.current?.select(); return }
     if (!editing && event.key.length === 1 && event.key !== ' ') { event.preventDefault(); setQuery(query + event.key); input.current?.focus(); return }
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')].filter(row => row.getClientRects().length)
     if (editing && event.key === 'Enter') { event.preventDefault(); rows[0]?.click(); return }
     if (editing && ['Home', 'End'].includes(event.key)) return
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
@@ -733,21 +740,37 @@ let BookmarkEditor = () => {
   </form>
 }
 let BookmarkPicker = () => {
-  let { state } = useUI()
-  let { profile } = selection(state)
-  let { ref, keys, input, query, change } = usePickerNavigation()
-  let bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
-}
-let BookmarkRow = ({ bookmark }: { bookmark: Bookmark }) => {
   let { state, run, dismiss } = useUI()
-  let { client, tab } = selection(state)
-  let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
-  let activate = async () => {
-    if (supported && client?.paneId && tab && await run('navigate', { tab: tab.id, url: bookmark.url }) !== undefined) dismiss()
+  let { profile, client, tab } = selection(state)
+  let bookmarks: Bookmark[] = []
+  let activate = async (bookmark: Bookmark, newTab = false) => {
+    if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
+    let result = newTab
+      ? await run('tab.create', { pane: client.paneId, client: client.id, url: bookmark.url })
+      : tab ? await run('navigate', { tab: tab.id, url: bookmark.url }) : undefined
+    if (result !== undefined) dismiss()
   }
-  if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} />)}</div></details>
-  return <button className={css.listRow} disabled={!supported} onClick={activate} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+  let { ref, keys, input, query, change } = usePickerNavigation(row => {
+    let bookmark = findBookmark(bookmarks, row.dataset.bookmarkId ?? '')
+    if (bookmark) void activate(bookmark, true)
+  })
+  bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
+}
+let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
+  for (let bookmark of bookmarks) {
+    if (bookmark.id === id) return bookmark
+    if (bookmark.children) {
+      let found = findBookmark(bookmark.children, id)
+      if (found) return found
+    }
+  }
+}
+let BookmarkRow = ({ bookmark, activate }: { bookmark: Bookmark; activate: (bookmark: Bookmark, newTab?: boolean) => void }) => {
+  let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
+  let click = (event: MouseEvent<HTMLButtonElement>) => { activate(bookmark, event.metaKey) }
+  if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} activate={activate} />)}</div></details>
+  return <button className={css.listRow} data-bookmark-id={bookmark.id} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
 }
 let HistoryPicker = () => {
   let { state } = useUI()
