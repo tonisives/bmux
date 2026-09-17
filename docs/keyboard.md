@@ -29,7 +29,7 @@ Common direct shortcuts:
 | Command+L | Open the selected pane's address bar |
 | Command+T / Command+W | New / close internal window; closing a session's last window removes the session |
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
-| Command+Right Shift / Command+Left Shift | Move the current internal window to the first / last position |
+| Command+Right Shift / Command+Left Shift | Move the current internal window right / left, wrapping at the ends |
 | Command+R | Reload |
 | Command+F (macOS) / Control+F (Linux and Windows) | Find in page |
 | Hyper+W (Command+Control+Option+Shift+W) | Show sessions |
@@ -109,7 +109,7 @@ Configured shortcuts take precedence over website shortcuts and native menu defa
 
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. Split actions are `split-right` and `split-down`. Assign any of them under `keyboard.shortcuts` or `keyboard.prefixBindings`.
 
-Window reordering actions are `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window to the first position and `Cmd+ShiftLeft` to move it to the last. They run when the Shift key is released and are canceled if another key is pressed while it is held.
+Window reordering actions are `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window one position right and `Cmd+ShiftLeft` to move it one position left. Movement wraps to the opposite end at the boundary. The shortcuts run when the Shift key is released and are canceled if another key is pressed while it is held.
 
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
 

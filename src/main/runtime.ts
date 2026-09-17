@@ -998,10 +998,11 @@ export let createRuntime = (dataDirectory: string) => {
       let index = session.windows.findIndex(window => window.id === client.windowId)
       let direction = Number(args.direction)
       if (![-1, 1].includes(direction)) throw new Error('Window direction must be -1 or 1')
-      let destination = index + direction
-      if (destination < 0 || destination >= session.windows.length) return session.windows[index]
-      ;[session.windows[index], session.windows[destination]] = [session.windows[destination], session.windows[index]]
-      changed(); await visualQueue; return session.windows[destination]
+      let destination = (index + direction + session.windows.length) % session.windows.length
+      if (destination === index) return session.windows[index]
+      let [window] = session.windows.splice(index, 1)
+      session.windows.splice(destination, 0, window)
+      changed(); await visualQueue; return window
     }
     if (method === 'select-window' || method === 'cycle-window') {
       let client = resolve(model.clients, args.client, 'Client')
