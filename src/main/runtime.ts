@@ -25,7 +25,9 @@ import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
 import { parseSearchSuggestions } from '../shared/address-suggestions'
-import { createBookmarkFolder, saveBookmark } from './bookmarks'
+import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
+import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
+import { queryParameters } from '../shared/bookmark-parameters'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -55,7 +57,9 @@ export let normalizeUrl = (value: string) => {
 
 export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
+  let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
+  let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
   let hosts = new Map<string, BaseWindow>()
@@ -165,7 +169,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -850,6 +854,21 @@ export let createRuntime = (dataDirectory: string) => {
       let result = createBookmarkFolder(profile, { title, parentId: typeof args.parent === 'string' && args.parent ? args.parent : undefined }, () => id('bookmark-folder'))
       save()
       return result
+    }
+    if (method === 'bookmark.parameters.update') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let bookmark = bookmarkById(profile.bookmarks ?? [], required(args, 'bookmark'))
+      if (!bookmark?.url) throw new Error('Bookmark not found')
+      let keys = new Set(queryParameters(bookmark.url).map(([key]) => key))
+      let values = args.values, hidden = args.hidden
+      if (!values || typeof values !== 'object' || Array.isArray(values) || !Array.isArray(hidden)
+        || Object.entries(values).some(([key, value]) => !keys.has(key) || typeof value !== 'string' || value.length > 2048)
+        || hidden.some(key => typeof key !== 'string' || !keys.has(key))) throw new Error('Invalid bookmark parameters')
+      let next = { ...bookmarkParameters, [profile.id]: { ...bookmarkParameters[profile.id], [bookmark.id]: { values: values as Record<string, string>, hidden: hidden as string[] } } }
+      writeBookmarkParameters(parameterFile, next)
+      bookmarkParameters = next
+      publish()
+      return next[profile.id][bookmark.id]
     }
     if (method === 'browser.update-filters') { void filters?.update(); return { updating: true } }
     if (method === 'browser.reload-scripts') { pageTools?.reload(); return pageTools?.list() }

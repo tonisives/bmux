@@ -53,6 +53,7 @@ test.beforeAll(async () => {
   ] }, { id: 'notes', title: 'Research notes', url: `${url}/notes` },
   { id: 'sessions', title: 'Sessions', url: `${url}/sessions` },
   { id: 'suggestions', title: 'Search suggestions', url: `${url}/suggestions` },
+  { id: 'parameterized', title: 'Parameterized search', url: `${url}/search?q=original&limit=10&tracking=1` },
   { id: 'url-only', title: 'Other page', url: `${url}/sessions/other` }] }]
   model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
   model.profiles[0].history = [{ title: 'Research notes', url: `${url}/notes`, visitedAt: Date.parse('2026-01-02T03:04:00Z') }]
@@ -188,6 +189,29 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   let afterMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
   expect(afterMetaEnter.tabs).toHaveLength(beforeMetaEnter.tabs.length + 1)
   expect(afterMetaEnter.activeTabId).not.toBe(beforeMetaEnter.activeTabId)
+})
+
+test('bookmark parameter controls customize the opened URL and persist removed keys', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('Parameterized search')
+  await group.getByRole('button', { name: 'Customize Parameterized search' }).click()
+  await group.getByRole('textbox', { name: 'q', exact: true }).fill('new words')
+  await group.getByRole('spinbutton', { name: 'limit', exact: true }).fill('25')
+  await expect(group.getByRole('slider', { name: 'limit slider' })).toHaveValue('25')
+  await group.getByRole('button', { name: 'Remove tracking parameter' }).click()
+  await expect(group.getByRole('textbox', { name: 'tracking' })).toHaveCount(0)
+  await group.getByRole('button', { name: 'Open', exact: true }).click()
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].tabs.at(-1).url).toBe(`${url}/search?q=new+words&limit=25`)
+  let stored = await fs.readFile(path.join(directory, 'bookmark-parameters.yaml'), 'utf8')
+  expect(stored).toContain('tracking')
+  expect(stored).toContain('new words')
+  await open('bookmarks')
+  group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('Parameterized search')
+  await group.getByRole('button', { name: 'Customize Parameterized search' }).click()
+  await expect(group.getByRole('textbox', { name: 'q', exact: true })).toHaveValue('new words')
+  await expect(group.getByRole('button', { name: 'Remove tracking parameter' })).toHaveCount(0)
 })
 
 test('history search stays profile scoped and opens a result in the selected pane', async () => {

@@ -101,6 +101,21 @@
 .sessionConfirm button { color: inherit; }
 .folder > summary { padding: 6px 0; cursor: pointer; }
 .folder > div { padding-left: 14px; }
+.bookmarkRow { display: flex; align-items: stretch; }
+.bookmarkRow > .listRow { flex: 1; min-width: 0; }
+.panel .bookmarkCustomize { display: grid; place-items: center; flex: 0 0 30px; color: #8e98a4; cursor: pointer; }
+.panel .bookmarkCustomize:hover, .panel .bookmarkCustomize[aria-expanded="true"] { color: #d6dcd2; background: #303944; }
+.bookmarkCustomize svg { width: 16px; height: 16px; fill: #191d23; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+.bookmarkParameters { display: flex; flex-direction: column; gap: 9px; padding: 8px 8px 12px 14px; border-bottom: 1px solid #363c45; }
+.bookmarkParameter { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bookmarkParameter label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.bookmarkParameter label span { width: 95px; flex: 0 0 95px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aab4bf; }
+.bookmarkParameter input[type="text"], .bookmarkParameter input[type="number"] { min-width: 0; width: 100%; background: #11161c; color: #eceef2; border: 1px solid #414b58; padding: 4px 6px; font: inherit; }
+.bookmarkParameter input[type="range"] { width: 95px; flex: 0 0 95px; accent-color: #a7b69c; }
+.panel .bookmarkRemoveParameter { flex: 0 0 20px; color: #8e98a4; font-size: 18px; line-height: 20px; cursor: pointer; }
+.panel .bookmarkRemoveParameter:hover { color: #e6a69c; }
+.panel .bookmarkOpenCustomized { align-self: flex-end; padding: 3px 7px; color: #bdc9b4; cursor: pointer; }
+.panel .bookmarkOpenCustomized:hover { color: #f0f2f5; }
 .historyRow { display: flex; align-items: baseline; gap: 16px; }
 .historyRow > span { display: flex; flex: 1; min-width: 0; flex-direction: column; }
 .historyRow strong, .historyRow span span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

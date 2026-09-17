@@ -135,7 +135,8 @@ let start = async () => {
   if (!fs.existsSync(executable)) throw new Error('Electron not found. Run pnpm install, or set BMUX_APP to bmux.app')
   fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
   let log = fs.openSync(path.join(dataDirectory, 'server.log'), 'a', 0o600)
-  let env = { ...process.env, BMUX_BACKGROUND: '1', BMUX_DATA_DIR: dataDirectory }
+  let env = { ...process.env, BMUX_BACKGROUND: '1' }
+  if (configuredDataDirectory) env.BMUX_DATA_DIR = dataDirectory
   delete env.ELECTRON_RUN_AS_NODE
   let child = spawn(executable, args, { detached: true, stdio: ['ignore', log, log], env })
   child.on('error', () => undefined)

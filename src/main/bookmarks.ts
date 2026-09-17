@@ -2,6 +2,14 @@ import type { Bookmark, Profile } from '../shared/types'
 
 type BookmarkLocation = { bookmark: Bookmark; parent: Bookmark[] }
 
+export let bookmarkById = (bookmarks: Bookmark[], bookmarkId: string): Bookmark | undefined => {
+  for (let bookmark of bookmarks) {
+    if (bookmark.id === bookmarkId) return bookmark
+    let nested = bookmark.children && bookmarkById(bookmark.children, bookmarkId)
+    if (nested) return nested
+  }
+}
+
 let findFolder = (bookmarks: Bookmark[], folderId: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
     if (bookmark.id === folderId && bookmark.children) return bookmark

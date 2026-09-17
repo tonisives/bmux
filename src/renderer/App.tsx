@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } from 'react'
-import type { Bookmark, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
@@ -10,6 +10,7 @@ import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/p
 import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
+import { parameterizedBookmarkUrl, queryParameters } from '../shared/bookmark-parameters'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -314,7 +315,7 @@ let AddressPrompt = () => {
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
   let history = normalized ? (profile?.history ?? []).filter(entry => !bookmarkUrls.has(entry.url) && `${entry.title} ${entry.url}`.toLowerCase().includes(normalized)).slice(0, Math.min(4, 8 - bookmarks.length)) : []
   let results = [
-    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: bookmark.url!, title: bookmark.title, detail: bookmark.url! })),
+    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - bookmarks.length - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
   ]
@@ -632,6 +633,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void) => {
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.altKey) return
+    if (event.target instanceof HTMLElement && event.target !== input.current && event.target.closest('input, [data-picker-action]')) return
     let editing = event.target === input.current
     let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')].filter(row => row.getClientRects().length)
     if (event.key === 'Enter' && event.metaKey && onMetaEnter) {
@@ -790,11 +792,12 @@ let BookmarkPicker = () => {
   let { state, run, dismiss } = useUI()
   let { profile, client, tab } = selection(state)
   let bookmarks: Bookmark[] = []
-  let activate = async (bookmark: Bookmark, newTab = false) => {
+  let activate = async (bookmark: Bookmark, newTab = false, settings?: BookmarkParameters) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
+    let url = parameterizedBookmarkUrl(bookmark.url, settings ?? state.bookmarkParameters?.[profile!.id]?.[bookmark.id])
     let result = newTab
-      ? await run('tab.create', { pane: client.paneId, client: client.id, url: bookmark.url })
-      : tab ? await run('navigate', { tab: tab.id, url: bookmark.url }) : undefined
+      ? await run('tab.create', { pane: client.paneId, client: client.id, url })
+      : tab ? await run('navigate', { tab: tab.id, url }) : undefined
     if (result !== undefined) dismiss()
   }
   let { ref, keys, input, query, change } = usePickerNavigation(row => {
@@ -802,7 +805,7 @@ let BookmarkPicker = () => {
     if (bookmark) void activate(bookmark, true)
   })
   bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
 }
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
@@ -813,11 +816,39 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
     }
   }
 }
-let BookmarkRow = ({ bookmark, activate }: { bookmark: Bookmark; activate: (bookmark: Bookmark, newTab?: boolean) => void }) => {
+let BookmarkRow = ({ bookmark, profileId, activate }: { bookmark: Bookmark; profileId: string; activate: (bookmark: Bookmark, newTab?: boolean, settings?: BookmarkParameters) => void }) => {
+  let { state, run } = useUI()
+  let [expanded, setExpanded] = useState(false)
+  let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
-  let click = () => { activate(bookmark, true) }
-  if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} activate={activate} />)}</div></details>
-  return <button className={css.listRow} data-bookmark-id={bookmark.id} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+  let parameters = bookmark.url ? queryParameters(bookmark.url) : []
+  let visible = parameters.filter(([key]) => !settings.hidden.includes(key))
+  let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
+  let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, true, settings) }
+  let click = () => { void open() }
+  let toggle = () => setExpanded(value => !value)
+  let update = (key: string, value: string) => setSettings(current => ({ ...current, values: { ...current.values, [key]: value } }))
+  let hide = (key: string) => {
+    let next = { ...settings, hidden: [...settings.hidden, key] }
+    setSettings(next); void persist(next)
+  }
+  let save = () => { void persist(settings) }
+  if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} activate={activate} />)}</div></details>
+  return <div className={css.bookmarkItem}>
+    <div className={css.bookmarkRow}><button className={css.listRow} data-bookmark-id={bookmark.id} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+      {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
+    </div>
+    {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
+      let value = settings.values[key] ?? initial
+      let numeric = /^-?\d+(?:\.\d+)?$/.test(initial) && Number.isFinite(Number(initial))
+      let number = Number(initial)
+      let minimum = Math.min(0, Math.floor(number * 2)), maximum = Math.max(100, Math.ceil(number * 2))
+      let step = initial.includes('.') ? 10 ** -Math.min(initial.split('.')[1].length, 4) : 1
+      let changeValue = (event: ChangeEvent<HTMLInputElement>) => update(key, event.target.value)
+      let remove = () => hide(key)
+      return <div className={css.bookmarkParameter} key={key}><label><span>{key}</span><input aria-label={key} type={numeric ? 'number' : 'text'} value={value} step={numeric ? step : undefined} onChange={changeValue} onBlur={save} autoComplete="off" spellCheck={false} /></label>{numeric && <input aria-label={`${key} slider`} type="range" min={minimum} max={maximum} step={step} value={value} onChange={changeValue} onPointerUp={save} onBlur={save} />}<button type="button" data-picker-action className={css.bookmarkRemoveParameter} aria-label={`Remove ${key} parameter`} title={`Remove ${key} from this bookmark URL`} onClick={remove}>×</button></div>
+    })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
+  </div>
 }
 let HistoryPicker = () => {
   let { state } = useUI()

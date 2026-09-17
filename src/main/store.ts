@@ -24,7 +24,7 @@ let parseBookmarks = (text: string): Record<string, Bookmark[]> => {
   return value.profiles as Record<string, Bookmark[]>
 }
 
-let writeAtomic = (file: string, content: string) => {
+export let writeAtomic = (file: string, content: string) => {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   let temporary = `${file}.tmp`
   let fd = fs.openSync(temporary, 'w', 0o600)
