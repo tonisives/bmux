@@ -36,7 +36,7 @@ export let parseConfig = (text: string): Settings => {
   if (value.statusBar !== undefined && value.statusBar !== 'top' && value.statusBar !== 'bottom') throw new Error('statusBar must be top or bottom')
   if (value.showTabCloseButtons !== undefined && typeof value.showTabCloseButtons !== 'boolean') throw new Error('showTabCloseButtons must be true or false')
   let keyboard = value.keyboard
-  for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
+  for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'sequences', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
   let result = structuredClone(DEFAULT_KEYBOARD)
   if (keyboard.prefix !== undefined) {
     if (typeof keyboard.prefix !== 'string') throw new Error('keyboard.prefix must be a key combination')
@@ -64,6 +64,19 @@ export let parseConfig = (text: string): Settings => {
       if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
       if (field === 'shortcuts' && object) result.shortcuts[key] = { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined }
       else result[field][key] = name
+    }
+  }
+  if (keyboard.sequences !== undefined) {
+    if (!keyboard.sequences || typeof keyboard.sequences !== 'object' || Array.isArray(keyboard.sequences)) throw new Error('sequences must be a mapping')
+    for (let [key, action] of Object.entries(keyboard.sequences)) {
+      if (!/^[a-z]{2}$/.test(key)) throw new Error(`Invalid key sequence: ${key}`)
+      if (action === null) { delete result.sequences[key]; continue }
+      let object = typeof action === 'object' && !Array.isArray(action) ? action as Record<string, unknown> : undefined
+      if (object && (Object.keys(object).some(key => !['action', 'when'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid sequence context for ${key}`)
+      let name = object ? object.action : action
+      if (typeof name === 'string') name = normalizeKeyAction(name)
+      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
+      result.sequences[key] = object ? { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined } : name
     }
   }
   let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false } }

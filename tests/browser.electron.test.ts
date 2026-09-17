@@ -777,6 +777,57 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
 })
 
 
+test('configured Vim page keys scroll, reload, and open find outside text fields', async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    j: { action: scroll-down, when: pane-not-editing }\n    k: { action: scroll-up, when: pane-not-editing }\n    d: { action: scroll-half-down, when: pane-not-editing }\n    u: { action: scroll-half-up, when: pane-not-editing }\n    Shift+G: { action: scroll-bottom, when: pane-not-editing }\n    r: { action: reload, when: pane-not-editing }\n    Shift+R: { action: hard-reload, when: pane-not-editing }\n    /: { action: find, when: pane-not-editing }\n  sequences:\n    gg: { action: scroll-top, when: pane-not-editing }\n')
+  await cli('settings.reload')
+  let session = await cli('new-session', { name: 'vim-page-keys' })
+  let tab = session.windows[0].panes[0].activeTabId
+  let client = await cli('attach-session', { session: session.id })
+  await cli('navigate', { tab, url: `${url}/vim-page-keys` })
+  let page = application.context().pages().find(page => page.url() === `${url}/vim-page-keys`)!
+  await page.locator('#inc').click()
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let press = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
+    await cli('activate-client', { client: client.id })
+    await cli('focus-page', { client: client.id })
+    await sendNativeKeys(application, [{ keyCode, modifiers }])
+  }
+  let scroll = () => cli('eval', { tab, expression: 'scrollY' }) as Promise<number>
+  await press('j')
+  await expect.poll(scroll).toBeGreaterThan(0)
+  await press('k')
+  await expect.poll(scroll).toBe(0)
+  await press('d')
+  await expect.poll(scroll).toBeGreaterThan(200)
+  await press('u')
+  await expect.poll(scroll).toBeLessThan(200)
+  await press('g'); await press('g')
+  await expect.poll(scroll).toBe(0)
+  await press('g', ['shift'])
+  await expect.poll(async () => (await cli('eval', { tab, expression: 'scrollY + innerHeight >= document.documentElement.scrollHeight - 2' }))).toBe(true)
+  await press('g'); await press('g')
+  await expect.poll(scroll).toBe(0)
+  let identity = await cli('eval', { tab, expression: 'window.identity' })
+  await press('r')
+  await expect.poll(() => cli('eval', { tab, expression: 'window.identity' })).not.toBe(identity)
+  identity = await cli('eval', { tab, expression: 'window.identity' })
+  await press('r', ['shift'])
+  await expect.poll(() => cli('eval', { tab, expression: 'window.identity' })).not.toBe(identity)
+  await press('/')
+  await expect(chrome.getByRole('textbox', { name: 'Find in page' })).toBeFocused()
+  await chrome.keyboard.press('Escape')
+  await cli('focus-page', { client: client.id })
+  await page.locator('#text').press('j')
+  await page.locator('#text').press('g')
+  await page.locator('#text').press('g')
+  await expect(page.locator('#text')).toHaveValue('jgg')
+  expect(await scroll()).toBe(0)
+  await cli('detach-client', { client: client.id })
+  await fs.writeFile(config, previous)
+  await cli('settings.reload')
+})
+
 test('window management shortcuts and keyboard session selection', async () => {
   let alpha = await cli('new-session', { name: 'keyboard-alpha' })
   let beta = await cli('new-session', { name: 'keyboard-beta' })

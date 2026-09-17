@@ -109,6 +109,23 @@ Configured shortcuts take precedence over website shortcuts and native menu defa
 
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. Split actions are `split-right` and `split-down`. Assign any of them under `keyboard.shortcuts` or `keyboard.prefixBindings`.
 
+Page scrolling actions are `scroll-up`, `scroll-down`, `scroll-half-up`, `scroll-half-down`, `scroll-top`, and `scroll-bottom`. A two letter binding such as `gg` goes under `keyboard.sequences`. Sequence keys use `prefixTimeoutMs` for the interval between letters. For Vim style page controls that leave text fields alone:
+
+```yaml
+keyboard:
+  shortcuts:
+    j: { action: scroll-down, when: pane-not-editing }
+    k: { action: scroll-up, when: pane-not-editing }
+    d: { action: scroll-half-down, when: pane-not-editing }
+    u: { action: scroll-half-up, when: pane-not-editing }
+    Shift+G: { action: scroll-bottom, when: pane-not-editing }
+    r: { action: reload, when: pane-not-editing }
+    Shift+R: { action: hard-reload, when: pane-not-editing }
+    /: { action: find, when: pane-not-editing }
+  sequences:
+    gg: { action: scroll-top, when: pane-not-editing }
+```
+
 Window reordering actions are `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window one position right and `Cmd+ShiftLeft` to move it one position left. Movement wraps to the opposite end at the boundary. The shortcuts run when the Shift key is released and are canceled if another key is pressed while it is held.
 
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
