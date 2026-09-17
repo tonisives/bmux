@@ -24,6 +24,7 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })
   expect(parseCommandLine('pane-left', current)).toEqual({ method: 'select-pane-direction', args: { client: 'client', direction: 'left' } })
   expect(parseCommandLine('toggle-pane-zoom', current)).toEqual({ method: 'toggle-pane-zoom', args: { client: 'client' } })
+  expect(parseCommandLine('reopen-closed-tab', current)).toEqual({ method: 'reopen-closed-tab', args: { client: 'client' } })
   expect(parseCommandLine('scroll-half-down', current)).toEqual({ method: 'scroll', args: { tab: window.panes[0].activeTabId, action: 'scroll-half-down' } })
   expect(parseCommandLine('move-window-left', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: -1 } })
   expect(parseCommandLine('move-window-right', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: 1 } })

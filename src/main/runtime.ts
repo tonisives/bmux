@@ -2,7 +2,7 @@ import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSes
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, Download, FindResult, Model, Permission, PublicState, Snapshot } from '../shared/types'
+import type { Bounds, Client, Command, Download, FindResult, InternalWindow, Model, Permission, PublicState, Snapshot, Tab } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removePane, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -59,6 +59,7 @@ export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
+  let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'tab'; paneId: string; index: number; tab: Tab; replacementTabId?: string })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
@@ -1035,6 +1036,27 @@ export let createRuntime = (dataDirectory: string) => {
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = window.panes[0].id }
       changed(); await visualQueue; return window
     }
+    if (method === 'reopen-closed-tab') {
+      let closed = closedTabs.at(-1)
+      if (!closed) return null
+      if (closed.kind === 'window') {
+        let client = args.client ? resolve(model.clients, args.client, 'Client') : undefined
+        let session = model.sessions.find(session => session.id === closed.sessionId)
+          ?? (client ? resolve(model.sessions, client.sessionId, 'Session') : undefined)
+        if (!session) throw new Error('No session available for the closed window')
+        session.windows.splice(Math.min(closed.index, session.windows.length), 0, closed.window)
+        if (client) { client.sessionId = session.id; client.windowId = closed.window.id; client.paneId = closed.window.panes[0]?.id ?? null }
+        closedTabs.pop()
+        changed(); await visualQueue; return closed.window
+      }
+      let { session, window, pane } = paneById(model, closed.paneId)
+      if (closed.replacementTabId && pane.tabs.length === 1 && pane.tabs[0].id === closed.replacementTabId && pane.tabs[0].url === 'about:blank') pane.tabs = []
+      pane.tabs.splice(Math.min(closed.index, pane.tabs.length), 0, closed.tab)
+      pane.activeTabId = closed.tab.id
+      if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = pane.id }
+      closedTabs.pop()
+      changed(); await visualQueue; return closed.tab
+    }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'move-window') {
       let client = resolve(model.clients, args.client, 'Client')
@@ -1125,17 +1147,19 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'kill-pane') {
       let { window, pane } = paneById(model, args.pane)
       if (pane.tabs.length > 1 && args.confirm !== true) throw new Error('Pane contains multiple tabs; pass --confirm')
-      window.layout = removePane(window.layout, pane.id); window.panes = window.panes.filter(item => item.id !== pane.id)
-      if (!window.panes.length) {
+      if (window.panes.length === 1) {
         await execute({ method: 'kill-window', args: { window: window.id, confirm: true } })
         return { closed: pane.id }
       }
+      window.layout = removePane(window.layout, pane.id); window.panes = window.panes.filter(item => item.id !== pane.id)
       changed(); await visualQueue; return { closed: pane.id }
     }
     if (method === 'kill-window') {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (window.panes.reduce((count, pane) => count + pane.tabs.length, 0) > 1 && args.confirm !== true) throw new Error('Window contains multiple tabs; pass --confirm')
       let session = model.sessions.find(session => session.windows.includes(window))!
+      closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })
+      if (closedTabs.length > 25) closedTabs.shift()
       session.windows = session.windows.filter(item => item !== window)
       if (!session.windows.length) removeSession(model, session)
       changed(); await visualQueue; return { closed: window.id }
@@ -1167,8 +1191,11 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; return tab }
     if (method === 'tab.close') {
       let { tab, pane } = tabById(model, args.tab)
+      let closed: Extract<(typeof closedTabs)[number], { kind: 'tab' }> = { kind: 'tab', paneId: pane.id, index: pane.tabs.indexOf(tab), tab: structuredClone(tab) }
+      closedTabs.push(closed)
+      if (closedTabs.length > 25) closedTabs.shift()
       pane.tabs = pane.tabs.filter(item => item.id !== tab.id)
-      if (!pane.tabs.length) pane.tabs.push(newTab())
+      if (!pane.tabs.length) { let replacement = newTab(); pane.tabs.push(replacement); closed.replacementTabId = replacement.id }
       if (pane.activeTabId === tab.id) pane.activeTabId = pane.tabs[0].id
       changed(); await visualQueue; return { closed: tab.id }
     }

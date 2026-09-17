@@ -28,6 +28,7 @@ Common direct shortcuts:
 | Command+1–9 | Select internal window 1–9 |
 | Command+L | Open the selected pane's address bar |
 | Command+T / Command+W | New / close internal window; closing a session's last window removes the session |
+| Command+Shift+T (macOS) / Control+Shift+T (Linux and Windows) | Reopen the most recently closed tab or internal window |
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
 | Command+Right Shift / Command+Left Shift | Move the current internal window right / left, wrapping at the ends |
 | Command+R | Reload |

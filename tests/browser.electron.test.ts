@@ -908,6 +908,36 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await cli('settings.reload')
 })
 
+test('reopen closed internal windows and pane tabs', async () => {
+  let session = await cli('new-session', { name: 'reopen-shortcut' })
+  let client = await cli('attach-session', { session: session.id })
+  let first = session.windows[0]
+  let pane = first.panes[0]
+  let second = await cli('new-window', { session: session.id, client: client.id, url })
+  await cli('wait', { tab: second.panes[0].activeTabId, selector: '#text' })
+  await cli('activate-client', { client: client.id })
+  await cli('focus-page', { client: client.id })
+  await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(1)
+  await sendNativeKeys(application, [{ keyCode: 't', modifiers: ['meta', 'shift'] }])
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([first.id, second.id])
+  expect((await cli('list-clients'))[0].windowId).toBe(second.id)
+  await cli('wait', { tab: second.panes[0].activeTabId, selector: '#text' })
+  let extra = await cli('tab.create', { pane: pane.id, url, client: client.id })
+  await cli('wait', { tab: extra.id, selector: '#text' })
+  await cli('tab.close', { tab: extra.id })
+  expect((await cli('tab.list', { pane: pane.id })).map((tab: { id: string }) => tab.id)).not.toContain(extra.id)
+  await cli('reopen-closed-tab', { client: client.id })
+  expect((await cli('tab.list', { pane: pane.id })).map((tab: { id: string }) => tab.id)).toContain(extra.id)
+  await cli('wait', { tab: extra.id, selector: '#text' })
+  let onlyTab = second.panes[0].tabs[0]
+  await cli('tab.close', { tab: onlyTab.id })
+  expect((await cli('tab.list', { pane: second.panes[0].id })).map((tab: { url: string }) => tab.url)).toEqual(['about:blank'])
+  await cli('reopen-closed-tab', { client: client.id })
+  expect((await cli('tab.list', { pane: second.panes[0].id })).map((tab: { id: string }) => tab.id)).toEqual([onlyTab.id])
+  await cli('wait', { tab: onlyTab.id, selector: '#text' })
+})
+
 test('window management shortcuts and keyboard session selection', async () => {
   let alpha = await cli('new-session', { name: 'keyboard-alpha' })
   let beta = await cli('new-session', { name: 'keyboard-beta' })
