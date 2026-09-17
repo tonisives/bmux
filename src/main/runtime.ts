@@ -31,6 +31,13 @@ type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: 
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+let focusWindow = async (window: BaseWindow) => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    window.focus()
+    await sleep(attempt ? 80 : 200)
+    if (window.isFocused()) return
+  }
+}
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 let required = (args: Record<string, unknown>, name: string) => {
   let value = args[name]
@@ -767,7 +774,7 @@ export let createRuntime = (dataDirectory: string) => {
     chrome.webContents.on('will-navigate', event => event.preventDefault())
     if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview')])
     else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' })])
-    if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); window.focus(); chrome.webContents.focus() }
+    if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
     else window.showInactive()
     save()
     return client
@@ -981,11 +988,7 @@ export let createRuntime = (dataDirectory: string) => {
       // previous key window, especially after another native window closes.
       // Wait for that restoration and retry so the RPC resolves on the window
       // the caller requested rather than during the transient focus event.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        owner.window.focus()
-        await sleep(attempt ? 80 : 200)
-        if (owner.window.isFocused()) break
-      }
+      await focusWindow(owner.window)
       owner.chrome.webContents.focus()
       return client
     }
