@@ -23,17 +23,16 @@ let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 
 let readyForLinks = false
-let pendingLinks: { url: string; newWindow: boolean }[] = []
+let pendingLinks: { url: string; allowFile: boolean }[] = []
 let linkQueue = Promise.resolve()
-let receiveLink = (url: string, newWindow = false) => {
-  try { if (!['http:', 'https:', ...(newWindow ? ['file:'] : [])].includes(new URL(url).protocol)) return } catch { return }
-  if (!readyForLinks) { pendingLinks.push({ url, newWindow }); return }
+let receiveLink = (url: string, allowFile = false) => {
+  try { if (!['http:', 'https:', ...(allowFile ? ['file:'] : [])].includes(new URL(url).protocol)) return } catch { return }
+  if (!readyForLinks) { pendingLinks.push({ url, allowFile }); return }
   linkQueue = linkQueue.then(async () => {
     let browser = runtime!
     let client = browser.model.clients.find(item => item.id === browser.state().focusedClientId) ?? browser.model.clients[0]
     if (!client) client = await browser.createClient(browser.model.sessions[0].id)
-    if (newWindow) await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } })
-    else await browser.execute({ method: 'tab.create', args: { pane: client.paneId, client: client.id, url } })
+    await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } })
     await browser.execute({ method: 'activate-client', args: { client: client.id } })
   }).catch(() => { console.error('Could not open external browser link') })
 }
@@ -75,7 +74,7 @@ else {
     ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
     await runtime.start(background)
     readyForLinks = true
-    pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.newWindow))
+    pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
     fs.mkdirSync(socketDirectory, { recursive: true, mode: 0o700 })
     if (fs.statSync(socketDirectory).uid !== process.getuid?.()) throw new Error('Socket directory belongs to another user')
     fs.chmodSync(socketDirectory, 0o700)

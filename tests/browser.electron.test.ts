@@ -1171,20 +1171,31 @@ test('status tabs show loading and favicon, with optional close control', async 
   await cli('detach-client', { client: client.id })
 })
 
-test('external web links open new selected tabs and reject other schemes', async () => {
-  let before = await cli('tab.list')
+test('external web links open new internal windows without replacing the current page or history', async () => {
+  let session = await cli('new-session', { name: 'external-web-links' })
+  let client = await cli('attach-session', { session: session.id })
+  let original = session.windows[0]
+  let originalTab = original.panes[0].activeTabId
+  await cli('navigate', { tab: originalTab, url: `${url}/original-first` })
+  await cli('navigate', { tab: originalTab, url: `${url}/original-second` })
+  let before = await cli('list-windows', { session: session.id })
   await application.evaluate(({ app }) => {
     app.emit('open-url', { preventDefault() {} }, 'javascript:alert(1)')
     app.emit('open-url', { preventDefault() {} }, 'file:///etc/passwd')
   })
-  expect((await cli('tab.list')).length).toBe(before.length)
+  expect((await cli('list-windows', { session: session.id })).length).toBe(before.length)
   await application.evaluate(({ app }, link) => {
     app.emit('open-url', { preventDefault() {} }, link)
   }, `${url}/external-link`)
-  await expect.poll(async () => (await cli('tab.list')).filter((tab: { url: string }) => tab.url === `${url}/external-link`).length).toBe(1)
-  let after = await cli('tab.list')
-  expect(after.length).toBe(before.length + 1)
-  expect(after.find((tab: { url: string }) => tab.url === `${url}/external-link`).active).toBe(true)
+  await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
+  let after = await cli('list-windows', { session: session.id })
+  let created = after.find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
+  expect(created.panes[0].tabs[0].url).toBe(`${url}/external-link`)
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(created.id)
+  expect(after.find((window: { id: string }) => window.id === original.id).panes[0].tabs.map((tab: { id: string }) => tab.id)).toEqual([originalTab])
+  expect(await cli('eval', { tab: originalTab, expression: 'location.pathname' })).toBe('/original-second')
+  await cli('back', { tab: originalTab })
+  await expect.poll(() => cli('eval', { tab: originalTab, expression: 'location.pathname' })).toBe('/original-first')
 })
 
 test('external HTML files open in new selected internal windows', async () => {
