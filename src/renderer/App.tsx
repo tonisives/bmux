@@ -15,13 +15,14 @@ import { editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
-type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0)
+  let [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
   let [bookmarkSearches, setBookmarkSearches] = useState<Record<string, string>>({})
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
@@ -85,11 +86,11 @@ export let App = () => {
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' || !!historyPopup }).then(() => {
+    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
       if (!cancelled && !control && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, historyPopup, state?.clientId, run])
+  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, run])
   useEffect(() => {
     let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
     document.addEventListener('keydown', escape)
@@ -99,7 +100,7 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
-  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
+  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -299,7 +300,7 @@ let CommandPrompt = () => {
 let isUrlInput = (value: string) => /^[a-z][a-z\d+.-]*:/i.test(value) || /^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value) || (!/\s/.test(value) && value.includes('.'))
 
 let AddressPrompt = () => {
-  let { state, run, dismiss, message, onMessage, addressFocusVersion } = useUI()
+  let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
   let [index, setIndex] = useState(-1)
   let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
@@ -321,6 +322,10 @@ let AddressPrompt = () => {
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - bookmarks.length - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
   ]
+  let selectedResult = results[index]
+  let selectedCompletion = selectedResult && selectedResult.kind !== 'search' ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let previewText = selectedResult ? selectedCompletion?.value ?? selectedResult.value : text
+  useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useEffect(() => {
     let value = query.trim()
     if (!value || value.length > 200 || isUrlInput(value)) { setSearchTerms([]); return }
@@ -335,9 +340,10 @@ let AddressPrompt = () => {
   }, [query])
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useLayoutEffect(() => {
-    if (!inlineUrl || !ref.current) return
-    ref.current.setSelectionRange(query.length, inlineUrl.value.length)
-  }, [inlineUrl, query])
+    if (!ref.current || (!inlineUrl && !selectedResult)) return
+    let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
+    ref.current.setSelectionRange(start, previewText.length)
+  }, [inlineUrl, selectedResult, previewText, query])
   let change = (event: ChangeEvent<HTMLInputElement>) => {
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
@@ -345,6 +351,7 @@ let AddressPrompt = () => {
     let completion = deletion ? undefined : (profile?.history ?? []).map(entry => inlineUrlCompletion(value, entry.url)).find(Boolean)
     setQuery(value); setIndex(-1); setInlineUrl(completion); setText(completion?.value ?? value)
   }
+  let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
   let navigate = async (url: string) => {
     if (!url.trim() || busy) return
     setBusy(true)
@@ -357,10 +364,9 @@ let AddressPrompt = () => {
     if (!mounted.current) return
     setBusy(false)
     if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
-    dismiss()
-    void run('focus-page', { client: client!.id })
+    finish()
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(inlineUrl?.url ?? results[index]?.value ?? text) }
+  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
   let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.value!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
@@ -374,16 +380,16 @@ let AddressPrompt = () => {
       return
     }
     if (event.key === 'Backspace' || event.key === 'Delete') deleting.current = true
-    if (event.key === 'ArrowRight' && inlineUrl && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === query.length && event.currentTarget.selectionEnd === text.length) {
-      event.preventDefault(); setQuery(text); setInlineUrl(undefined); requestAnimationFrame(() => ref.current?.setSelectionRange(text.length, text.length)); return
+    if (event.key === 'ArrowRight' && (inlineUrl || selectedResult) && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === query.length && event.currentTarget.selectionEnd === previewText.length) {
+      event.preventDefault(); setQuery(previewText); setText(previewText); setIndex(-1); setInlineUrl(undefined); requestAnimationFrame(() => ref.current?.setSelectionRange(previewText.length, previewText.length)); return
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       setIndex(current => Math.max(-1, Math.min(results.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1))))
     }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); void run('focus-page', { client: client!.id }) }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={results[index] ? `address-suggestion-${index}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && <div id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>}
   </div>
 }
