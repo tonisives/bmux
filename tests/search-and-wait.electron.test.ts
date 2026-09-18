@@ -253,6 +253,24 @@ test('X search minimum operators have separate numeric bookmark controls', async
   await expect.poll(async () => (await state()).bookmarkParameters.profile_default['x-ideas'].hidden).toContain('x:min_replies')
 })
 
+test('editing another bookmark clears the previous highlight and keeps the config button spaced', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('')
+  let first = group.getByRole('button', { name: 'Parameterized search', exact: true })
+  let second = group.getByRole('button', { name: 'X ideas', exact: true })
+  let firstConfig = group.getByRole('button', { name: 'Customize Parameterized search' })
+  let secondConfig = group.getByRole('button', { name: 'Customize X ideas' })
+  await firstConfig.click()
+  await expect(first).toHaveAttribute('data-active', 'true')
+  await expect(firstConfig.locator('..')).toHaveCSS('gap', '6px')
+  await secondConfig.click()
+  await expect(first).toHaveAttribute('data-active', 'false')
+  await expect(firstConfig).toHaveAttribute('aria-expanded', 'false')
+  await expect(second).toHaveAttribute('data-active', 'true')
+  await expect(secondConfig).toHaveAttribute('aria-expanded', 'true')
+})
+
 test('history search stays profile scoped and opens a result in the selected pane', async () => {
   await open('history')
   let group = chrome.getByRole('group', { name: 'Choose history entry', exact: true }), search = group.getByRole('textbox', { name: 'Search history', exact: true })

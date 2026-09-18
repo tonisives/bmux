@@ -823,9 +823,12 @@ let BookmarkEditor = () => {
     <button type="submit" disabled={!supported || !title.trim() || busy}>{busy ? 'Saving…' : 'Save bookmark'}</button>
   </form>
 }
+let BookmarkExpansionContext = createContext<{ expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void } | null>(null)
+
 let BookmarkPicker = () => {
   let { state, run, dismiss, bookmarkSearches, rememberBookmarkSearch } = useUI()
   let { profile, client, tab } = selection(state)
+  let [expandedBookmarkId, setExpandedBookmarkId] = useState<string | null>(null)
   let bookmarks: Bookmark[] = []
   let activate = async (bookmark: Bookmark, newTab = false, settings?: BookmarkParameters) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
@@ -839,8 +842,9 @@ let BookmarkPicker = () => {
     let bookmark = findBookmark(bookmarks, row.dataset.bookmarkId ?? '')
     if (bookmark) void activate(bookmark, true)
   }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) })
+  let changeQuery = (event: ChangeEvent<HTMLInputElement>) => { setExpandedBookmarkId(null); change(event) }
   bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
+  return <BookmarkExpansionContext.Provider value={{ expandedBookmarkId, setExpandedBookmarkId }}><div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div></BookmarkExpansionContext.Provider>
 }
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
@@ -853,7 +857,8 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
 }
 let BookmarkRow = ({ bookmark, profileId, activate }: { bookmark: Bookmark; profileId: string; activate: (bookmark: Bookmark, newTab?: boolean, settings?: BookmarkParameters) => void }) => {
   let { state, run } = useUI()
-  let [expanded, setExpanded] = useState(false)
+  let { expandedBookmarkId, setExpandedBookmarkId } = useContext(BookmarkExpansionContext)!
+  let expanded = expandedBookmarkId === bookmark.id
   let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
   let parameters = bookmark.url ? editableBookmarkParameters(bookmark.url, settings) : []
@@ -861,7 +866,7 @@ let BookmarkRow = ({ bookmark, profileId, activate }: { bookmark: Bookmark; prof
   let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
   let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, true, settings) }
   let click = () => { void open() }
-  let toggle = () => setExpanded(value => !value)
+  let toggle = () => setExpandedBookmarkId(expanded ? null : bookmark.id)
   let update = (key: string, value: string) => setSettings(current => ({ ...current, values: { ...current.values, [key]: value } }))
   let hide = (key: string) => {
     let next = { ...settings, hidden: [...settings.hidden, key] }

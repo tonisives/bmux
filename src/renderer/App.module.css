@@ -101,7 +101,7 @@
 .sessionConfirm button { color: inherit; }
 .folder > summary { padding: 6px 0; cursor: pointer; }
 .folder > div { padding-left: 14px; }
-.bookmarkRow { display: flex; align-items: stretch; }
+.bookmarkRow { display: flex; align-items: stretch; gap: 6px; }
 .bookmarkRow > .listRow { flex: 1; min-width: 0; }
 .panel .bookmarkCustomize { display: grid; place-items: center; flex: 0 0 30px; color: #8e98a4; cursor: pointer; }
 .panel .bookmarkCustomize:hover { color: #d6dcd2; background: #303944; }
