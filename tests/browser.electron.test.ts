@@ -787,6 +787,35 @@ test('pane address bars navigate independently and leave window switching availa
   await cli('detach-client', { client: client.id })
 })
 
+test('Command+L shows and replaces the URL during pending navigations', async () => {
+  let session = await cli('new-session', { name: 'pending-address' })
+  let tab = session.windows[0].panes[0].tabs[0]
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let openAddress = async () => {
+    await cli('activate-client', { client: client.id })
+    await cli('focus-page', { client: client.id })
+    await sendNativeKeys(application, [{ keyCode: 'l', modifiers: ['meta'] }])
+  }
+
+  await cli('navigate', { tab: tab.id, url: `${url}/pending-tab`, waitUntil: 'none' })
+  await expect.poll(async () => (await cli('state')).pendingUrls[tab.id]).toBe(`${url}/pending-tab`)
+  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/pending-tab`)
+  await openAddress()
+  await expect(address).toHaveValue(`${url}/pending-tab`)
+  await address.fill(`${url}/replaced`); await address.press('Enter')
+  await expect.poll(async () => (await cli('tab.list', { pane: session.windows[0].panes[0].id }))[0].url).toBe(`${url}/replaced`)
+
+  await cli('eval', { tab: tab.id, expression: 'location.href = "/pending-tab"; true' })
+  await expect.poll(async () => (await cli('state')).pendingUrls[tab.id]).toBe(`${url}/pending-tab`)
+  await openAddress()
+  await expect(address).toHaveValue(`${url}/pending-tab`)
+  await address.press('Escape')
+  await cli('stop', { tab: tab.id })
+  await cli('detach-client', { client: client.id })
+})
+
 test('stalled loads cannot block shortcuts, independent windows, or live keyboard settings', async () => {
   let session = await cli('new-session', { name: 'slow-loading' })
   let first = session.windows[0], tab = first.panes[0].tabs[0]

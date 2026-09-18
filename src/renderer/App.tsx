@@ -324,7 +324,8 @@ let AddressPrompt = () => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
   let [index, setIndex] = useState(-1)
-  let [text, setText] = useState(tab?.url !== 'about:blank' ? tab?.url ?? '' : '')
+  let currentUrl = tab ? state.pendingUrls[tab.id] ?? tab.url : ''
+  let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
   let [query, setQuery] = useState('')
   let [searchTerms, setSearchTerms] = useState<string[]>([])
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()

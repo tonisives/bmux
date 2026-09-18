@@ -461,7 +461,7 @@ export let createRuntime = (dataDirectory: string) => {
     let bootstrapping = !popupOptions
     let ready = Promise.all([extensions.attach(pane.profileId, contents.session), pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)]).finally(() => { bootstrapping = false })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
-    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -494,7 +494,7 @@ export let createRuntime = (dataDirectory: string) => {
       void scheduleVisuals()
     }
     contents.on('did-start-loading', () => { loading[tabId] = true; publish() })
-    contents.on('did-stop-loading', () => { delete loading[tabId]; publish() })
+    contents.on('did-stop-loading', () => { delete loading[tabId]; live.pendingUrl = undefined; publish() })
     contents.on('page-favicon-updated', (_event, urls) => {
       let iconUrl = urls.find(url => /^https?:\/\//i.test(url) || /^data:image\//i.test(url))
       if (!iconUrl) return
@@ -541,7 +541,7 @@ export let createRuntime = (dataDirectory: string) => {
         if (client.paneId !== pane.id) { client.paneId = pane.id; save() }
       }
     })
-    contents.on('did-navigate', update)
+    contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
     contents.on('did-navigate-in-page', update)
     contents.on('did-finish-load', () => { delete crashes[tabId]; update() })
     contents.on('render-process-gone', (_event, details) => { crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
@@ -1311,7 +1311,7 @@ export let createRuntime = (dataDirectory: string) => {
       void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.contents.loadURL(url) }).catch(() => undefined).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
-        live.pendingUrl = undefined
+        if (live.pendingUrl === url) live.pendingUrl = undefined
         publish()
         if (!live.disposed) void scheduleVisuals()
       })
