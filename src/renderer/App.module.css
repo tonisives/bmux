@@ -104,7 +104,8 @@
 .bookmarkRow { display: flex; align-items: stretch; }
 .bookmarkRow > .listRow { flex: 1; min-width: 0; }
 .panel .bookmarkCustomize { display: grid; place-items: center; flex: 0 0 30px; color: #8e98a4; cursor: pointer; }
-.panel .bookmarkCustomize:hover, .panel .bookmarkCustomize[aria-expanded="true"] { color: #d6dcd2; background: #303944; }
+.panel .bookmarkCustomize:hover { color: #d6dcd2; background: #303944; }
+.panel .bookmarkCustomize[aria-expanded="true"] { color: #e8f4df; background: #344738; }
 .bookmarkCustomize svg { width: 16px; height: 16px; fill: #191d23; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
 .bookmarkParameters { display: flex; flex-direction: column; gap: 9px; padding: 8px 8px 12px 14px; border-bottom: 1px solid #363c45; }
 .bookmarkParameter { display: flex; align-items: center; gap: 8px; min-width: 0; }

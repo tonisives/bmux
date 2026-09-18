@@ -846,7 +846,7 @@ let BookmarkRow = ({ bookmark, profileId, activate }: { bookmark: Bookmark; prof
   let save = () => { void persist(settings) }
   if (bookmark.children) return <details className={css.folder} open><summary>{bookmark.title || 'Untitled folder'}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} activate={activate} />)}</div></details>
   return <div className={css.bookmarkItem}>
-    <div className={css.bookmarkRow}><button className={css.listRow} data-bookmark-id={bookmark.id} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+    <div className={css.bookmarkRow}><button className={css.listRow} data-bookmark-id={bookmark.id} data-active={expanded} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
       {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
     </div>
     {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
