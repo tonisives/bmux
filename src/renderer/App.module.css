@@ -165,7 +165,7 @@
 .addressInput { display: grid; flex: 1; min-width: 0; }
 .addressInput input { grid-area: 1 / 1; min-width: 0; }
 .addressInput input { width: 100%; z-index: 1; }
-.urlHistory { position: fixed; z-index: 100; top: 29px; left: 0; right: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; padding: 4px 8px; border: 1px solid #444b59; background: #191d23cc; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.urlHistory { position: fixed; z-index: 100; top: 29px; left: 0; right: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; padding: 4px 8px; border: 1px solid #444b59; background: #191d23e6; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .urlHistory button { display: flex; flex: 0 0 auto; gap: 12px; padding: 5px 0; text-align: left; border: 0; border-radius: 0; background: transparent; }
 .urlHistory button:hover, .urlHistory button[aria-selected="true"] { background: #303844; }
 .addressSuggestionIcon { width: 16px; height: 16px; flex: 0 0 16px; color: #8e98a4; }
