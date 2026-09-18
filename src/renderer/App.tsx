@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
+import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
@@ -299,6 +300,26 @@ let CommandPrompt = () => {
 
 let isUrlInput = (value: string) => /^[a-z][a-z\d+.-]*:/i.test(value) || /^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value) || (!/\s/.test(value) && value.includes('.'))
 
+let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, visible: boolean, statusBar?: string) => {
+  useLayoutEffect(() => {
+    if (!visible || !form.current || !list.current) return
+    let bar = form.current.closest('[aria-label="Pane address"]')
+    let pane = bar?.parentElement
+    let position = () => {
+      if (!bar || !list.current) return
+      let bottom = bar.getBoundingClientRect().bottom
+      let available = window.innerHeight - bottom - (statusBar === 'bottom' ? 28 : 0)
+      list.current.style.top = `${bottom}px`
+      list.current.style.maxHeight = `${Math.max(0, available * .9)}px`
+    }
+    position()
+    let observer = new ResizeObserver(position)
+    if (pane) observer.observe(pane)
+    window.addEventListener('resize', position)
+    return () => { observer.disconnect(); window.removeEventListener('resize', position) }
+  }, [form, list, visible, statusBar])
+}
+
 let AddressPrompt = () => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
@@ -309,6 +330,8 @@ let AddressPrompt = () => {
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
+  let form = useRef<HTMLFormElement>(null)
+  let suggestionList = useRef<HTMLDivElement>(null)
   let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -326,6 +349,7 @@ let AddressPrompt = () => {
   let selectedCompletion = selectedResult && selectedResult.kind !== 'search' ? inlineUrlCompletion(query, selectedResult.value) : undefined
   let previewText = selectedResult ? selectedCompletion?.value ?? selectedResult.value : text
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
+  useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => {
     let value = query.trim()
     if (!value || value.length > 200 || isUrlInput(value)) { setSearchTerms([]); return }
@@ -389,8 +413,8 @@ let AddressPrompt = () => {
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && <div id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>}
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>, document.body)}
   </div>
 }
 
