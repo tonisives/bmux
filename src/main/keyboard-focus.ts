@@ -12,8 +12,11 @@ export let observeKeyboardFocus = (marker: string) => {
     if (!identity) return
     let active = document.activeElement
     while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement
-    // Unknown focusable hosts may contain closed shadow editors; preserve editing.
-    let editing = document.designMode.toLowerCase() === 'on' || !active || active.matches('input, textarea, select, iframe, frame, object, embed, [role="textbox"], [role="combobox"]') || (active instanceof HTMLElement && active.isContentEditable) || (!active.shadowRoot && !active.matches('html, body, button, a[href], area[href], summary'))
+    // Pages such as Gatsby focus a tabindex=-1 wrapper when their content is clicked.
+    // A wrapper with child elements is page content, while an unknown host without
+    // light-DOM children may contain a closed shadow editor.
+    let wrapper = active instanceof HTMLElement && active.getAttribute('tabindex') === '-1' && active.children.length > 0
+    let editing = document.designMode.toLowerCase() === 'on' || !active || active.matches('input, textarea, select, iframe, frame, object, embed, [role="textbox"], [role="combobox"]') || (active instanceof HTMLElement && active.isContentEditable) || (!wrapper && !active.shadowRoot && !active.matches('html, body, button, a[href], area[href], summary'))
     let value = editing ? 'editing' : 'pane'
     if (force || value !== previous) report(marker + JSON.stringify({ identity, editing }))
     previous = value

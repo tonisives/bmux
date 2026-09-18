@@ -861,6 +861,20 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
     await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
   let scroll = () => cli('eval', { tab, expression: 'scrollY' }) as Promise<number>
+  await page.evaluate(() => {
+    let wrapper = document.createElement('div')
+    wrapper.id = 'page-focus-wrapper'
+    wrapper.tabIndex = -1
+    wrapper.innerHTML = '<p id="wrapper-content">Page content</p>'
+    document.body.prepend(wrapper)
+  })
+  await page.locator('#wrapper-content').click()
+  await expect(page.locator('#page-focus-wrapper')).toBeFocused()
+  await page.mouse.wheel(0, 200)
+  let wheelPosition = await scroll()
+  await press('j')
+  await expect.poll(scroll).toBeGreaterThan(wheelPosition)
+  await page.evaluate(() => scrollTo(0, 0))
   await press('j')
   await expect.poll(scroll).toBeGreaterThan(0)
   await press('k')
