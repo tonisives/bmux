@@ -87,6 +87,7 @@
 .panel .listRow:is([data-active="true"], [aria-pressed="true"], [aria-current="true"]) { background: #344738; color: #e8f4df; font-weight: 600; }
 .panel .listRow:focus-visible { outline: 1px solid #83917b; outline-offset: -1px; }
 .panel .listRow:disabled { color: #77818d; cursor: not-allowed; }
+.panel [data-bookmark-picker] .bookmarkRow > .listRow:focus-visible { outline: none; }
 .panel [data-bookmark-picker][data-pointer-mode="true"]:has(.bookmarkRow > .listRow:hover) .bookmarkRow > .listRow:not(:hover) { background: transparent; color: inherit; font-weight: 400; outline: none; }
 .panel [data-bookmark-picker][data-pointer-mode="false"] .bookmarkRow > .listRow:hover:not(:focus-visible):not([data-search-selected="true"]):not([data-active="true"]) { background: transparent; color: inherit; }
 .profileHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #eceef2; }

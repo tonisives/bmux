@@ -691,7 +691,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     if (editing && ['Home', 'End'].includes(event.key)) return
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
     event.preventDefault()
-    let index = rows.findIndex(row => row === document.activeElement)
+    let index = editing && query ? 0 : rows.findIndex(row => row === document.activeElement)
     let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
     let nextIndex = Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
