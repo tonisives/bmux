@@ -5,8 +5,8 @@ import { createExtensionSessionStorage } from './extension-session-storage'
 
 type ExtensionEvent = { extension: Extension; sender: { getURL?: () => string; scriptURL?: string } }
 type Internals = { ctx: {
-  router: { apiHandler: () => (name: string, callback: (event: ExtensionEvent, ...args: any[]) => unknown, options: { permission: string }) => void; sendEvent: (id: string, name: string, ...args: unknown[]) => void }
-  store: { tabs: Set<WebContents>; tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; lastFocusedWindowId?: number; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; windowDetailsCache: Map<number, unknown> }
+  router: { apiHandler: () => (name: string, callback: (event: ExtensionEvent, ...args: any[]) => unknown, options?: { permission: string }) => void; getHandler: (name: string) => { callback: (event: ExtensionEvent, ...args: any[]) => unknown }; sendEvent: (id: string, name: string, ...args: unknown[]) => void }
+  store: { tabs: Set<WebContents>; windows: Set<BaseWindow>; tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; lastFocusedWindowId?: number; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; windowDetailsCache: Map<number, unknown> }
 } }
 
 // Adapter for the pinned 4.9.0 package. The preload patch registers these API calls.
@@ -16,6 +16,16 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
   let { ctx } = api as unknown as Internals
   let storage = createExtensionSessionStorage()
   let handle = ctx.router.apiHandler()
+  // The pinned package ignores focused on windows.update; Bitwarden uses it to reopen an existing item window.
+  let updateWindow = ctx.router.getHandler('windows.update').callback
+  handle('windows.update', (event, id: number, properties: { focused?: boolean }) => {
+    if (properties?.focused) {
+      let windowId = id === -2 ? ctx.store.lastFocusedWindowId : id
+      let window = [...ctx.store.windows].find(candidate => candidate.id === windowId && !candidate.isDestroyed())
+      if (window) { window.show(); window.focus() }
+    }
+    return updateWindow(event, id, properties)
+  })
   let register = (name: string, callback: (id: string, ...args: any[]) => unknown) => handle(`storage.session.${name}`, (event, ...args) => {
     let url = new URL(event.sender.getURL?.() ?? event.sender.scriptURL ?? 'about:blank')
     if (url.protocol !== 'chrome-extension:' || url.hostname !== event.extension.id) throw new Error('Session storage is restricted to trusted extension contexts')

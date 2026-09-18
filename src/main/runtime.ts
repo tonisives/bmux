@@ -97,9 +97,7 @@ export let createRuntime = (dataDirectory: string) => {
       window.webContents.on('will-navigate', (event, target) => { let next = new URL(target); if (next.protocol !== parsed.protocol || next.hostname !== parsed.hostname) event.preventDefault() })
       extensions.track(profileId, window.webContents, window, true)
       try { await window.loadURL(url) } catch (error) { window.destroy(); throw error }
-      let client = model.clients.find(client => client.id === focusedClientId)
-      let active = client?.paneId && paneById(model, client.paneId).pane.profileId === profileId && clients.get(client.id)?.window.isFocused()
-      if (active && details.focused !== false) window.show(); else window.showInactive()
+      if (details.focused !== false) { window.show(); window.focus() } else window.showInactive()
       return window
     },
     removeWindow: window => { if (extensionWindows.has(window as BrowserWindow)) window.close() },
