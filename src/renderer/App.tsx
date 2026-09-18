@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
+import type { ChangeEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
@@ -662,8 +662,14 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
   let input = useRef<HTMLInputElement>(null)
   useEffect(() => { (ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]') ?? input.current)?.focus() }, [])
   useEffect(() => {
-    let rows = ref.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')
-    rows?.forEach((row, index) => { row.dataset.searchSelected = String(!!query && index === 0) })
+    let picker = ref.current
+    let updateSelection = () => {
+      let rows = picker?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')
+      rows?.forEach((row, index) => { row.dataset.searchSelected = String(!!query && document.activeElement === input.current && index === 0) })
+    }
+    picker?.addEventListener('focusin', updateSelection)
+    updateSelection()
+    return () => picker?.removeEventListener('focusin', updateSelection)
   }, [query])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -843,8 +849,11 @@ let BookmarkPicker = () => {
     if (bookmark) void activate(bookmark, true)
   }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) })
   let changeQuery = (event: ChangeEvent<HTMLInputElement>) => { setExpandedBookmarkId(null); change(event) }
+  let focus = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.target === input.current || (event.target instanceof HTMLButtonElement && event.target.dataset.bookmarkId && event.target.dataset.bookmarkId !== expandedBookmarkId)) setExpandedBookmarkId(null)
+  }
   bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <BookmarkExpansionContext.Provider value={{ expandedBookmarkId, setExpandedBookmarkId }}><div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div></BookmarkExpansionContext.Provider>
+  return <BookmarkExpansionContext.Provider value={{ expandedBookmarkId, setExpandedBookmarkId }}><div ref={ref} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div></BookmarkExpansionContext.Provider>
 }
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
