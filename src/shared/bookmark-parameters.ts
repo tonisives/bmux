@@ -6,7 +6,7 @@ export let queryParameters = (url: string): [string, string][] => {
 }
 
 let xSearch = (url: URL) => ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'].includes(url.hostname) && url.pathname === '/search'
-let xMinimum = /(min_faves|min_replies|min_views):(\d+)(?=\s|$)/g
+let xMinimum = /(min_faves|min_replies):(\d+)(?=\s|$)/g
 
 export let editableBookmarkParameters = (url: string, settings?: BookmarkParameters): [string, string][] => {
   let ordinary = queryParameters(url)
@@ -26,7 +26,7 @@ export let parameterizedBookmarkUrl = (url: string, settings?: BookmarkParameter
   if (xSearch(parsed) && parsed.searchParams.has('q')) {
     let query = parsed.searchParams.get('q')!
     let removed = false
-    for (let key of ['min_faves', 'min_replies', 'min_views']) {
+    for (let key of ['min_faves', 'min_replies']) {
       let virtualKey = `x:${key}`
       let expression = new RegExp(`(?:^|\\s)${key}:\\d+(?=\\s|$)`, 'g')
       if (settings.hidden.includes(virtualKey)) { query = query.replace(expression, ''); removed = true }

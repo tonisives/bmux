@@ -63,7 +63,7 @@ test.beforeAll(async () => {
   for (let index = 0; index < 24; index++) model.sessions.push(newSession(`Scroll fixture ${index + 1}`, model.profiles[0].id))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
-  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1 min_views:100' }, hidden: [] } } } }))
+  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } } } }))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -183,6 +183,7 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
 
   await open('bookmarks')
   let newGroup = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), newSearch = newGroup.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await expect(newSearch).toHaveValue('API reference')
   await newSearch.fill('API reference')
   let beforeMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
   await newSearch.press('Meta+Enter')
@@ -191,6 +192,21 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   let afterMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
   expect(afterMetaEnter.tabs).toHaveLength(beforeMetaEnter.tabs.length + 1)
   expect(afterMetaEnter.activeTabId).not.toBe(beforeMetaEnter.activeTabId)
+
+  await open('bookmarks')
+  let remembered = chrome.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await expect(remembered).toHaveValue('API reference')
+  await remembered.press('Escape'); await expect(remembered).toHaveValue('')
+  await chrome.getByRole('dialog', { name: 'Bookmarks', exact: true }).getByRole('button', { name: 'Close' }).click()
+  await open('bookmarks')
+  await expect(chrome.getByRole('textbox', { name: 'Search bookmarks', exact: true })).toHaveValue('')
+  await chrome.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('API reference')
+  await rpc('switch-client', { client: (await state()).clientId, session: model.sessions[1].id })
+  await open('bookmarks')
+  await expect(chrome.getByRole('textbox', { name: 'Search bookmarks', exact: true })).toHaveValue('')
+  await rpc('switch-client', { client: (await state()).clientId, session: session.id })
+  await open('bookmarks')
+  await expect(chrome.getByRole('textbox', { name: 'Search bookmarks', exact: true })).toHaveValue('API reference')
 })
 
 test('bookmark parameter controls customize the opened URL and persist removed keys', async () => {
@@ -223,13 +239,13 @@ test('X search minimum operators have separate numeric bookmark controls', async
   await group.getByRole('button', { name: 'Customize X ideas' }).click()
   await expect(group.getByRole('spinbutton', { name: 'Min likes' })).toHaveValue('1')
   await expect(group.getByRole('spinbutton', { name: 'Min replies' })).toHaveValue('1')
-  await expect(group.getByRole('spinbutton', { name: 'Min views' })).toHaveValue('100')
+  await expect(group.getByRole('spinbutton', { name: 'Min views' })).toHaveCount(0)
   await group.getByRole('spinbutton', { name: 'Min likes' }).fill('25')
   await group.getByRole('spinbutton', { name: 'Min replies' }).focus()
   await expect.poll(async () => (await state()).bookmarkParameters.profile_default['x-ideas'].values['x:min_faves']).toBe('25')
-  await group.getByRole('button', { name: 'Remove Min views parameter' }).click()
-  await expect(group.getByRole('spinbutton', { name: 'Min views' })).toHaveCount(0)
-  await expect.poll(async () => (await state()).bookmarkParameters.profile_default['x-ideas'].hidden).toContain('x:min_views')
+  await group.getByRole('button', { name: 'Remove Min replies parameter' }).click()
+  await expect(group.getByRole('spinbutton', { name: 'Min replies' })).toHaveCount(0)
+  await expect.poll(async () => (await state()).bookmarkParameters.profile_default['x-ideas'].hidden).toContain('x:min_replies')
 })
 
 test('history search stays profile scoped and opens a result in the selected pane', async () => {

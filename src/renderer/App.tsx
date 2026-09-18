@@ -15,7 +15,7 @@ import { editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
-type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -23,6 +23,7 @@ export let App = () => {
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0)
   let [message, setMessage] = useState('')
+  let [bookmarkSearches, setBookmarkSearches] = useState<Record<string, string>>({})
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
@@ -64,6 +65,7 @@ export let App = () => {
     setControl(null); setHistoryPopup(null); setMessage('')
   }, [state?.pluginPrompt])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
+  let rememberBookmarkSearch = useCallback((profileId: string, query: string) => setBookmarkSearches(current => ({ ...current, [profileId]: query })), [])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
@@ -97,7 +99,7 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
-  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, message, onMessage: setMessage, run, show, dismiss, acknowledgeDownload, acknowledgedDownloads }
+  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -623,8 +625,9 @@ let PluginDialog = () => {
     {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
   </form>}</>
 }
-let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void) => {
-  let [query, setQuery] = useState('')
+let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initialQuery = '', onQueryChange?: (query: string) => void) => {
+  let [query, setCurrentQuery] = useState(initialQuery)
+  let setQuery = (value: string) => { setCurrentQuery(value); onQueryChange?.(value) }
   let ref = useRef<HTMLDivElement>(null)
   let input = useRef<HTMLInputElement>(null)
   useEffect(() => { (ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]') ?? input.current)?.focus() }, [])
@@ -791,7 +794,7 @@ let BookmarkEditor = () => {
   </form>
 }
 let BookmarkPicker = () => {
-  let { state, run, dismiss } = useUI()
+  let { state, run, dismiss, bookmarkSearches, rememberBookmarkSearch } = useUI()
   let { profile, client, tab } = selection(state)
   let bookmarks: Bookmark[] = []
   let activate = async (bookmark: Bookmark, newTab = false, settings?: BookmarkParameters) => {
@@ -805,7 +808,7 @@ let BookmarkPicker = () => {
   let { ref, keys, input, query, change } = usePickerNavigation(row => {
     let bookmark = findBookmark(bookmarks, row.dataset.bookmarkId ?? '')
     if (bookmark) void activate(bookmark, true)
-  })
+  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) })
   bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={change} />{bookmarks.map(bookmark => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
 }
@@ -842,7 +845,7 @@ let BookmarkRow = ({ bookmark, profileId, activate }: { bookmark: Bookmark; prof
     </div>
     {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
       let value = settings.values[key] ?? initial
-      let label = key === 'x:min_faves' ? 'Min likes' : key === 'x:min_replies' ? 'Min replies' : key === 'x:min_views' ? 'Min views' : key
+      let label = key === 'x:min_faves' ? 'Min likes' : key === 'x:min_replies' ? 'Min replies' : key
       let numeric = /^-?\d+(?:\.\d+)?$/.test(initial) && Number.isFinite(Number(initial))
       let number = Number(initial), currentNumber = Number(value) || number
       let minimum = Math.min(0, Math.floor(number * 2), Math.floor(currentNumber * 2)), maximum = Math.max(100, Math.ceil(number * 2), Math.ceil(currentNumber * 2))

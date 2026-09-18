@@ -3,7 +3,7 @@
 Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark in a new tab. Each profile has its own bookmarks.
 
 For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
-For X searches, numeric `min_faves`, `min_replies`, and `min_views` operators inside the `q` parameter also appear as separate controls. X does not document `min_views`, so a views threshold may be ignored by X.
+For X searches, numeric `min_faves` and `min_replies` operators inside the `q` parameter also appear as separate controls. X does not support a minimum post-view or impression-count search operator.
 
 Bookmarks are stored in `~/.config/bmux/bookmarks.yaml`, beside the keyboard settings in `config.yaml`. bmux creates the file automatically. Existing bookmarks in `state.json` move to YAML when you first start this version; subsequent state saves omit them.
 
