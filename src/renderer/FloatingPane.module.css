@@ -3,11 +3,13 @@
 .frame button { border: 0; border-radius: 0; background: transparent; color: inherit; padding: 2px 6px; }
 .frame button:hover { background: #3b4653; }
 .address { height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; background: #1b1f24; color: #c4cdd8; }
-.address input { flex: 1; min-width: 0; padding: 4px; border: 0; border-radius: 0; background: transparent; color: #e7ecf2; font-size: 12px; }
+.address input { width: 100%; max-width: 480px; min-width: 0; flex: 1 1 480px; padding: 4px; border: 0; border-radius: 0; background: transparent; color: #e7ecf2; font-size: 12px; }
+.address button { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; font-size: 16px; }
 .address button:disabled { opacity: .35; }
-.address .knob { position: relative; width: 22px; height: 30px; flex-shrink: 0; padding: 0; cursor: move; touch-action: none; }
-.knob::before { position: absolute; inset: 8px 7px; background: radial-gradient(circle, #8993a0 1px, transparent 1.5px) 0 0 / 4px 4px; content: ''; }
-.address .close { width: 28px; height: 30px; flex-shrink: 0; padding: 0; font-size: 18px; }
+.address .knob { position: relative; cursor: move; touch-action: none; }
+.address .knob:hover { background: transparent; }
+.knob::before { position: absolute; inset: 9px 11px; background: radial-gradient(circle, #8993a0 1px, transparent 1.5px) 0 0 / 4px 4px; content: ''; }
+.dragSpace { align-self: stretch; min-width: 40px; flex: 1 1 40px; cursor: move; touch-action: none; }
 .content { flex: 1; min-height: 0; background: #111318; overflow: hidden; }
 .content > span, .content > p { display: block; padding: 20px; color: #a7b0bd; font-size: 12px; }
 .content img { width: 100%; height: 100%; object-fit: fill; }
