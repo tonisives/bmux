@@ -73,6 +73,8 @@ export let createRuntime = (dataDirectory: string) => {
   let proxyCredentials = createProxyCredentialStore({ directory: path.join(dataDirectory, 'proxy-credentials'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data) })
   let proxyRelays = createProfileProxyRelays(proxyCredentials)
   let profileNetworkReady = new Map<string, Promise<void>>()
+  let blockedProfileNetworks = new Map<string, { wait: Promise<void>; continue: () => void }>()
+  let appliedProfileProxies = new Set<string>()
   let proxyLogin = (event: Electron.Event, _contents: WebContents | null, _details: Electron.AuthenticationResponseDetails, auth: Electron.AuthInfo, callback: (username?: string, password?: string) => void) => {
     if (!auth.isProxy) return
     let relay = proxyRelays.authentication(auth.host, auth.port)
@@ -95,6 +97,7 @@ export let createRuntime = (dataDirectory: string) => {
   let lastCacheChecks = new Map<string, number>()
   let profileCaches: PublicState['profileCaches'] = {}
   let profileProxyTests: PublicState['profileProxyTests'] = {}
+  let profileProxyFailures: PublicState['profileProxyFailures'] = {}
   let extensionWindows = new Set<BrowserWindow>()
   let extensions = createExtensions(dataDirectory, profileId => ({
     createTab: async details => {
@@ -214,7 +217,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -302,24 +305,72 @@ export let createRuntime = (dataDirectory: string) => {
     profileCaches = { ...profileCaches, [profileId]: { bytes, limit, checkedAt: Date.now() } }
     publish()
   }
-  let applyProfileNetwork = async (profileId: string, proxy = resolve(model.profiles, profileId, 'Profile').proxy, replacement?: ProxyCredentials) => {
+  let applyProfileNetwork = async (profileId: string, override?: ReturnType<typeof parseProfileProxy> | null, replacement?: ProxyCredentials) => {
+    let proxy = override === undefined ? resolve(model.profiles, profileId, 'Profile').proxy : override ?? undefined
     let browser = electronSession.fromPartition(`persist:${profileId}`)
     if (proxy) {
       let relay = await proxyRelays.create(profileId, proxy, replacement)
       await browser.setProxy({ mode: 'fixed_servers', proxyRules: `http://${relay.host}:${relay.port}`, proxyBypassRules: '<-loopback>' })
+      appliedProfileProxies.add(profileId)
     } else {
       await browser.setProxy({ mode: 'system' })
       await proxyRelays.close(profileId)
+      appliedProfileProxies.delete(profileId)
     }
     await browser.clearAuthCache()
     await browser.closeAllConnections()
+  }
+  let testProfileProxy = async (profileId: string) => {
+    let browser = electronSession.fromPartition(`persist:${profileId}`)
+    let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+    if (!response.ok) throw new Error(`Proxy test failed with HTTP ${response.status}`)
+    let value = await response.json() as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
+    if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
+    let locations = [value.city, value.region, value.country].filter((item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 120)
+    let region = [...new Set(locations.map(item => item.trim()))].join(', ')
+    return { ip: value.ip, ...(region ? { region } : {}), checkedAt: Date.now() }
+  }
+  let releaseProfileNetwork = (profileId: string) => {
+    let blocked = blockedProfileNetworks.get(profileId)
+    blockedProfileNetworks.delete(profileId)
+    blocked?.continue()
+  }
+  let waitForProfileProxyRecovery = (profileId: string, error: unknown) => {
+    let blocked = blockedProfileNetworks.get(profileId)
+    if (!blocked) {
+      let proceed!: () => void
+      let wait = new Promise<void>(resolve => { proceed = resolve })
+      blocked = { wait, continue: proceed }
+      blockedProfileNetworks.set(profileId, blocked)
+    }
+    delete profileProxyTests[profileId]
+    profileProxyFailures = { ...profileProxyFailures, [profileId]: { error: errorText(error), failedAt: Date.now() } }
+    publish()
+    return blocked.wait
+  }
+  let verifyProfileProxy = async (profileId: string) => {
+    let result = await testProfileProxy(profileId)
+    profileProxyTests = { ...profileProxyTests, [profileId]: result }
+    if (profileProxyFailures[profileId]) { let next = { ...profileProxyFailures }; delete next[profileId]; profileProxyFailures = next }
+    releaseProfileNetwork(profileId)
+    publish()
+    return result
   }
   let browserSession = (profileId: string) => {
     let profile = resolve(model.profiles, profileId, 'Profile')
     let session = configureSessionIdentity(profile.id, profile.device)
     if (configuredProfiles.has(profileId)) return session
     configuredProfiles.add(profileId)
-    let ready = Promise.all([applyProfileNetwork(profileId), maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
+    let networkReady = (async () => {
+      try {
+        await applyProfileNetwork(profileId)
+        if (profile.proxy) await verifyProfileProxy(profileId)
+      } catch (error) {
+        if (!profile.proxy) throw error
+        await waitForProfileProxyRecovery(profileId, error)
+      }
+    })()
+    let ready = Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
     profileNetworkReady.set(profileId, ready)
     void ready.catch(() => undefined)
     filters?.attach(session, profileId)
@@ -376,7 +427,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let updateProfileNetwork = async (profileId: string, proxy?: ReturnType<typeof parseProfileProxy>, replacement?: ProxyCredentials) => {
     browserSession(profileId)
-    let applying = applyProfileNetwork(profileId, proxy, replacement)
+    let applying = applyProfileNetwork(profileId, proxy ?? null, replacement)
     profileNetworkReady.set(profileId, applying)
     await applying
   }
@@ -1280,11 +1331,13 @@ export let createRuntime = (dataDirectory: string) => {
       let replacement = username && password ? { username, password } : proxy.authenticated ? proxyCredentials.get(profile.id) : undefined
       if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
       let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
+      let recovering = blockedProfileNetworks.has(profile.id)
       try {
         await updateProfileNetwork(profile.id, proxy, replacement)
+        if (recovering) await verifyProfileProxy(profile.id)
         proxyCredentials.set(profile.id, proxy.authenticated ? replacement : undefined)
         profile.proxy = proxy
-        delete profileProxyTests[profile.id]
+        if (!recovering) delete profileProxyTests[profile.id]
       } catch (error) {
         try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }
         throw error
@@ -1295,7 +1348,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
-      try { await updateProfileNetwork(profile.id); proxyCredentials.set(profile.id); delete profile.proxy; delete profileProxyTests[profile.id] }
+      try {
+        await updateProfileNetwork(profile.id)
+        proxyCredentials.set(profile.id); delete profile.proxy; delete profileProxyTests[profile.id]
+        if (profileProxyFailures[profile.id]) { let next = { ...profileProxyFailures }; delete next[profile.id]; profileProxyFailures = next }
+        releaseProfileNetwork(profile.id)
+      }
       catch (error) { try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }; throw error }
       save(); reloadProfileTabs(profile.id); return profile
     }
@@ -1305,18 +1363,10 @@ export let createRuntime = (dataDirectory: string) => {
       if (!profile.proxy) throw new Error('Configure a proxy first')
       delete profileProxyTests[profile.id]
       publish()
-      let browser = browserSession(profile.id)
-      await profileNetworkReady.get(profile.id)
-      let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
-      if (!response.ok) throw new Error(`Proxy test failed with HTTP ${response.status}`)
-      let value = await response.json() as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
-      if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
-      let locations = [value.city, value.region, value.country].filter((item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 120)
-      let region = [...new Set(locations.map(item => item.trim()))].join(', ')
-      let result = { ip: value.ip, ...(region ? { region } : {}), checkedAt: Date.now() }
-      profileProxyTests = { ...profileProxyTests, [profile.id]: result }
-      publish()
-      return result
+      browserSession(profile.id)
+      if (!blockedProfileNetworks.has(profile.id)) await profileNetworkReady.get(profile.id)
+      else if (!appliedProfileProxies.has(profile.id)) await applyProfileNetwork(profile.id)
+      return verifyProfileProxy(profile.id)
     }
     if (method === 'profile.device.set') {
       if (!sourceClientId) throw new Error('Trusted UI required')
