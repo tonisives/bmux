@@ -18,10 +18,13 @@
 .downloadCount { position: absolute; top: -3px; right: -5px; min-width: 11px; padding: 0 2px; border-radius: 6px; background: #9ca3ad; color: #1b1f24; font: 8px/11px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 @keyframes download-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
-.windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; }
+.windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; -webkit-app-region: no-drag; }
 .windows::-webkit-scrollbar { display: none; }
-.windowTab { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 260px; }
-.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 238px; }
+.windowTab { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 260px; }
+.windowTab[data-drop-position="before"]::before, .windowTab[data-drop-position="after"]::after { content: ''; position: absolute; top: 1px; bottom: 1px; width: 2px; background: #c2d8a7; pointer-events: none; }
+.windowTab[data-drop-position="before"]::before { left: -5px; }
+.windowTab[data-drop-position="after"]::after { right: -5px; }
+.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 238px; cursor: grab; }
 .windowLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabFavicon, .tabSpinner { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }
