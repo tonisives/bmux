@@ -9,8 +9,9 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { color: #bdc9b4; flex-shrink: 0; }
-.status .profileButton, .status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
-.status .profileButton { width: auto; height: 18px; gap: 3px; }
+.status .profileButton, .status .proxyButton, .status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
+.status .profileButton, .status .proxyButton { width: auto; height: 18px; }
+.status .proxyButton { margin-left: -7px; color: #a7c88d; }
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
 .statusIcon { width: 17px; height: 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .status .downloadButton { position: relative; overflow: visible; }
@@ -78,7 +79,9 @@
 .location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .location:hover { background: transparent; color: #f0f2f5; }
 .loading { flex-shrink: 0; color: #7d8590; }
+.profileRouteControls { display: inline-flex; align-items: center; flex: 0 0 auto; }
 .profileRoute { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 2px 5px; border: 0; border-radius: 0; background: transparent; color: #8e98a4; }
+.profileRouteControls .profileRoute + .profileRoute { padding-left: 2px; }
 .profileRoute:hover { color: #f0f2f5; background: #303844; }
 .profileRoute .profileAvatar { width: 16px; height: 16px; flex-basis: 16px; }
 .profileRouteIcon { display: block; width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -124,8 +127,11 @@
 .profileProxyActions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
 .profileProxyActions button { color: #bdc9b4; }
 .profileProxyActions button:disabled { color: #68717c; }
-.proxyTestSuccess { display: flex; align-items: center; gap: 6px; color: #a7c88d; }
+.proxyTestSuccess { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; color: #a7c88d; }
 .proxyTestSuccess svg { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.proxyTestSuccess dl { margin: 0; }
+.proxyTestSuccess dl > div { padding: 0; }
+.proxyTestSuccess dt { min-width: 64px; color: inherit; }
 @media (max-width: 650px) { .profileProxyEndpoint, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
 .sessionBack { color: #bdc9b4; }
 .newSession { color: #87a9c4; }

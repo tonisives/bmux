@@ -1307,11 +1307,13 @@ export let createRuntime = (dataDirectory: string) => {
       publish()
       let browser = browserSession(profile.id)
       await profileNetworkReady.get(profile.id)
-      let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+      let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
       if (!response.ok) throw new Error(`Proxy test failed with HTTP ${response.status}`)
-      let value = await response.json() as { ip?: unknown }
+      let value = await response.json() as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
       if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
-      let result = { ip: value.ip, checkedAt: Date.now() }
+      let locations = [value.city, value.region, value.country].filter((item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 120)
+      let region = [...new Set(locations.map(item => item.trim()))].join(', ')
+      let result = { ip: value.ip, ...(region ? { region } : {}), checkedAt: Date.now() }
       profileProxyTests = { ...profileProxyTests, [profile.id]: result }
       publish()
       return result

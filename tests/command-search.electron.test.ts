@@ -50,7 +50,7 @@ test.beforeAll(async () => {
       response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Device fixture</title><h1>Device fixture</h1><a href="/device-popup" target="_blank">Open device popup</a>')
       return
     }
-    if (request.url === '/ip') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9' })); return }
+    if (request.url === '/ip') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9', city: 'Amsterdam', region: 'North Holland', country: 'Netherlands' })); return }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
@@ -215,15 +215,15 @@ test('pane profile route uses icons only for a profile that differs from the ses
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
   let defaultProfile = current.model.profiles.find((item: { id: string }) => item.id === session.defaultProfileId)!
-  await expect(chrome.getByRole('button', { name: `Profile ${defaultProfile.name}, desktop, system connection`, exact: true })).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: `Profile ${defaultProfile.name}, desktop`, exact: true })).toHaveCount(0)
   let customProfile = current.model.profiles.find((item: { id: string }) => item.id !== session.defaultProfileId)!
   let pane = await rpc('split-window', { pane: client.paneId, profile: customProfile.id, client: client.id })
-  let route = chrome.getByRole('button', { name: `Profile ${customProfile.name}, desktop, system connection`, exact: true })
+  let route = chrome.getByRole('button', { name: `Profile ${customProfile.name}, desktop`, exact: true })
   try {
     await expect(route).toBeVisible()
-    await expect(route.locator(':scope > svg')).toHaveCount(3)
+    await expect(route.locator(':scope > svg')).toHaveCount(2)
     await expect(route.locator('[data-profile-avatar]')).toHaveCount(1)
-    await expect(route.locator('[data-profile-route-icon]')).toHaveCount(2)
+    await expect(route.locator('[data-profile-route-icon]')).toHaveCount(1)
   } finally {
     await rpc('kill-pane', { pane: (pane as { id: string }).id, confirm: true })
   }
@@ -243,28 +243,41 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect.poll(() => proxyRequests).toBeGreaterThan(before)
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, proxy connection`, exact: true })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
-  await expect(panel.getByRole('status')).toHaveText('Exit IP: 203.0.113.9')
+  await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
   await expect(panel.getByRole('status').locator('svg')).toBeVisible()
   await expect.poll(async () => (await state()).profileProxyTests[profile.id]?.ip).toBe('203.0.113.9')
   let profileButton = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
-  await expect(profileButton.locator('[data-proxy-verified="true"]')).toBeVisible()
-  await expect(profileButton).toHaveAttribute('title', /Proxy verified · Exit IP: 203\.0\.113\.9/)
+  await expect(profileButton.locator('[data-proxy-verified="true"]')).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  let proxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}`, exact: true })
+  await expect(proxyButton.locator('[data-proxy-verified="true"]')).toBeVisible()
+  await expect(proxyButton).toHaveAttribute('title', /Proxy verified · Exit IP: 203\.0\.113\.9/)
+  await proxyButton.click()
+  let proxyPanel = chrome.getByRole('dialog', { name: 'Proxy', exact: true })
+  await expect(proxyPanel.getByRole('region', { name: `${profile.name} proxy settings`, exact: true })).toBeVisible()
+  await expect(proxyPanel.getByRole('status')).toContainText('RegionAmsterdam, North Holland, Netherlands')
+  await proxyPanel.getByRole('button', { name: 'Close', exact: true }).click()
   let otherProfile = current.model.profiles.find((item: { id: string }) => item.id !== profile.id)!
   let verificationSession = await rpc('new-session', { name: 'proxy route verification', profile: otherProfile.id, client: current.clientId }) as { id: string }
   let verificationState = await state(), verificationClient = verificationState.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let verificationPane = verificationState.model.sessions.find((item: { id: string }) => item.id === verificationSession.id)!.windows[0].panes[0]
   let customPane = await rpc('split-window', { pane: verificationPane.id, profile: profile.id, client: verificationClient.id }) as { id: string }
-  let route = chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, proxy connection, verified`, exact: true })
-  await expect(route.locator('[data-proxy-verified="true"]')).toBeVisible()
-  await expect(route).toHaveAttribute('title', /Exit IP: 203\.0\.113\.9/)
+  let route = chrome.getByRole('button', { name: `Profile ${profile.name}, desktop`, exact: true })
+  await expect(route).toBeVisible()
+  let paneProxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}, verified`, exact: true })
+  await expect(paneProxyButton.locator('[data-proxy-verified="true"]')).toBeVisible()
+  await expect(paneProxyButton).toHaveAttribute('title', /Exit IP: 203\.0\.113\.9/)
+  await paneProxyButton.click()
+  await expect(chrome.getByRole('dialog', { name: 'Proxy', exact: true }).getByRole('status')).toContainText('North Holland')
+  await chrome.getByRole('dialog', { name: 'Proxy', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
   await rpc('kill-pane', { pane: customPane.id, confirm: true })
   await rpc('kill-session', { session: verificationSession.id, confirm: true })
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('button', { name: 'Use system connection', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy).toBeUndefined()
   await expect.poll(async () => (await state()).profileProxyTests[profile.id]).toBeUndefined()
-  await expect(profileButton.locator('[data-proxy-verified="true"]')).toHaveCount(0)
-  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, system connection`, exact: true })).toHaveCount(0)
+  await expect(proxyButton).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop`, exact: true })).toHaveCount(0)
 })
 
 test('profile device identity is applied before requests and cache status is public', async () => {
