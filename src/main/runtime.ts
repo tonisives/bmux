@@ -925,8 +925,7 @@ export let createRuntime = (dataDirectory: string) => {
       moveView(live, target)
       extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.activeTabId === tabId)
       if (target === viewer?.live.window && bounds) {
-        let floating = !!viewer && !model.clients.find(client => client.id === viewer.id)?.zoomedPaneId && !!tabById(model, tabId).window.floating?.some(item => item.paneId === tabById(model, tabId).pane.id)
-        live.view.setBorderRadius(floating ? FLOAT_RADIUS - FLOAT_CONTENT_INSET : 0)
+        live.view.setBorderRadius(0)
         let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
         live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
