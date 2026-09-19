@@ -3,8 +3,9 @@ import { pageOrigin } from '../shared/browser-tools'
 
 type FrameTree = { frame: { id: string; parentId?: string; loaderId: string; url: string }; childFrames?: FrameTree[] }
 type FrameStyle = { loaderId: string; url: string; css?: string; key?: string }
-type Session = { id?: string; parent?: string; targetId?: string; frames: Map<string, FrameStyle>; documents: Map<string, FrameTree['frame']>; ready?: Promise<void> }
+type Session = { id?: string; parent?: string; parentFrameId?: string; targetId?: string; rootId?: string; frames: Map<string, FrameStyle>; documents: Map<string, FrameTree['frame']>; ready?: Promise<void> }
 type TargetInfo = { targetId: string; parentId?: string; parentFrameId?: string; url: string }
+export type FrameContext = { id: string; parentId?: string; value: unknown; evaluate: (expression: string) => Promise<unknown>; point: (x: number, y: number) => Promise<{ x: number; y: number }> }
 type Options = {
   contents: WebContents
   focusSource?: string
@@ -47,7 +48,7 @@ export let createFrameCosmetics = (options: Options) => {
         // race another debugger's initialization and leave nested frames paused.
         try {
           let { sessionId } = await options.send('Target.attachToTarget', { targetId: info.targetId, flatten: true })
-          if (!closed) sessions.set(sessionId, { id: sessionId, parent: parent.id ?? '', targetId: info.targetId, frames: new Map(), documents: new Map() })
+          if (!closed) sessions.set(sessionId, { id: sessionId, parent: parent.id ?? '', parentFrameId: info.parentFrameId, targetId: info.targetId, frames: new Map(), documents: new Map() })
         } catch { /* A frame can disappear before attachment. */ }
       }
     }
@@ -111,6 +112,7 @@ export let createFrameCosmetics = (options: Options) => {
     await initialize(session)
     let { frameTree } = await options.send('Page.getFrameTree', {}, session.id) as { frameTree: FrameTree }
     if (!current(session)) return
+    session.rootId = frameTree.frame.id
     session.documents.clear()
     let collect = (tree: FrameTree) => { session.documents.set(tree.frame.id, tree.frame); for (let child of tree.childFrames ?? []) collect(child) }
     collect(frameTree)
@@ -166,9 +168,55 @@ export let createFrameCosmetics = (options: Options) => {
   options.contents.debugger.on('detach', detached)
   options.contents.on('did-frame-finish-load', schedule)
   options.contents.on('did-frame-navigate', schedule)
+  let ownerOrigin = async (session: Session, frameId: string) => {
+    let { backendNodeId } = await options.send('DOM.getFrameOwner', { frameId }, session.id)
+    let { model } = await options.send('DOM.getBoxModel', { backendNodeId }, session.id)
+    let content = model?.content as number[] | undefined
+    if (!content || content.length < 8) throw new Error('Frame owner has no content box')
+    return { x: Math.min(content[0], content[2], content[4], content[6]), y: Math.min(content[1], content[3], content[5], content[7]) }
+  }
+  let framePoint = async (session: Session, frameId: string, x: number, y: number) => {
+    if (frameId !== session.rootId) { let origin = await ownerOrigin(session, frameId); x += origin.x; y += origin.y }
+    let child = session
+    while (child.parent !== undefined) {
+      let parent = sessions.get(child.parent)
+      if (!parent || !child.rootId) throw new Error('Frame parent is no longer available')
+      let origin = await ownerOrigin(parent, child.rootId)
+      x += origin.x; y += origin.y; child = parent
+    }
+    return { x, y }
+  }
+  let contexts = async (expression: string): Promise<FrameContext[]> => {
+    await refresh()
+    let candidates = [...sessions.values()].flatMap(session => [...session.documents.values()].map(frame => ({ session, frame })))
+      .sort((left, right) => Number(right.frame.id === right.session.rootId) - Number(left.frame.id === left.session.rootId))
+    let selected = new Set<string>(), result: FrameContext[] = []
+    for (let { session, frame } of candidates) {
+      if (selected.has(frame.id) || !current(session)) continue
+      selected.add(frame.id)
+      try {
+        let { executionContextId } = await options.send('Page.createIsolatedWorld', { frameId: frame.id, worldName: 'bmux:click-mode' }, session.id)
+        let response = await options.send('Runtime.evaluate', { contextId: executionContextId, expression, returnByValue: true, timeout: 1000 }, session.id)
+        if (response.exceptionDetails) continue
+        result.push({
+          id: frame.id,
+          parentId: frame.parentId,
+          value: response.result?.value,
+          evaluate: async next => {
+            let evaluated = await options.send('Runtime.evaluate', { contextId: executionContextId, expression: next, returnByValue: true, timeout: 1000 }, session.id)
+            if (evaluated.exceptionDetails) throw new Error('Frame evaluation failed')
+            return evaluated.result?.value
+          },
+          point: (x, y) => framePoint(session, frame.id, x, y),
+        })
+      } catch { /* Frames can navigate or detach while click mode starts. */ }
+    }
+    return result
+  }
   return {
     start: () => initialize(root),
     refresh,
+    contexts,
     close: () => {
       if (closed) return
       closed = true; clearTimeout(timer)

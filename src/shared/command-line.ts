@@ -95,6 +95,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   }
   if (name === 'next-pane') return { method: 'cycle-pane', args: current }
   if (name === 'toggle-pane-zoom') return { method: name, args: current }
+  if (name === 'click-mode') return { method: name, args: current }
   if (['pane-left', 'pane-right', 'pane-up', 'pane-down'].includes(name)) return { method: 'select-pane-direction', args: { ...current, direction: name.slice(5) } }
   if (name === 'profile') {
     let action = positional.shift()

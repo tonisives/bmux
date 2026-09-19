@@ -15,7 +15,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Split your workspace** — Keep docs, dashboards, and apps side by side. Save and restore named layouts.
 - **Persistent sessions** — Detach a client while its pages keep running. Reattach to the same live pages and form state.
 - **Isolated profiles** — Separate logins, cookies, storage, and permissions. Use different profiles in the same layout.
-- **Keyboard control** — A tmux-style prefix, command prompt, and desktop shortcuts. See [Keyboard](docs/keyboard.md).
+- **Keyboard control** — A tmux-style prefix, native click hints, command prompt, and desktop shortcuts. See [Keyboard](docs/keyboard.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
 - **Find pages again** — Search profile-scoped browsing history, save pages into bookmark folders stored in `~/.config/bmux/bookmarks.yaml`, or import Brave profile names and bookmarks. See [Bookmarks](docs/bookmarks.md) and [Import from Brave](docs/brave.md).

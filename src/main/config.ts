@@ -10,8 +10,10 @@ import type { PluginSettings } from '../shared/plugins'
 import { parseBrowserSettings } from './browser-config'
 import { DEFAULT_BROWSER } from '../shared/browser-tools'
 import type { BrowserSettings } from '../shared/browser-tools'
+import { DEFAULT_CLICK_MODE } from '../shared/click-mode'
+import type { ClickModeSettings, DoubleTapModifier } from '../shared/click-mode'
 
-type Settings = { keyboard: KeyboardConfig; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings }
+type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -26,7 +28,29 @@ export let configPath = (dataDirectory: string) => {
   }
   return current
 }
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status tabs.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status tabs.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+let parseClickMode = (value: unknown): ClickModeSettings => {
+  if (value === undefined) return structuredClone(DEFAULT_CLICK_MODE)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('clickMode must be a mapping')
+  let raw = value as Record<string, unknown>
+  let allowed = new Set(['enabled', 'doubleTapModifier', 'hintCharacters', 'showInput', 'fontSize', 'opacity', 'backgroundColor', 'textColor'])
+  for (let key of Object.keys(raw)) if (!allowed.has(key)) throw new Error(`Unknown clickMode setting: ${key}`)
+  let result = structuredClone(DEFAULT_CLICK_MODE)
+  if (raw.enabled !== undefined) { if (typeof raw.enabled !== 'boolean') throw new Error('clickMode.enabled must be true or false'); result.enabled = raw.enabled }
+  if (raw.doubleTapModifier !== undefined) {
+    if (raw.doubleTapModifier !== null && !['Option', 'Command', 'Control', 'Shift', 'Escape'].includes(String(raw.doubleTapModifier))) throw new Error('clickMode.doubleTapModifier must be Option, Command, Control, Shift, Escape, or null')
+    result.doubleTapModifier = raw.doubleTapModifier as DoubleTapModifier
+  }
+  if (raw.hintCharacters !== undefined) {
+    if (typeof raw.hintCharacters !== 'string' || !/^[a-z\d]+$/i.test(raw.hintCharacters) || new Set(raw.hintCharacters.toLowerCase()).size !== raw.hintCharacters.length || /[rcdn]/i.test(raw.hintCharacters) || raw.hintCharacters.length < 2) throw new Error('clickMode.hintCharacters must contain at least two unique ASCII letters or digits and cannot contain r, c, d, or n')
+    result.hintCharacters = raw.hintCharacters.toLowerCase()
+  }
+  if (raw.showInput !== undefined) { if (typeof raw.showInput !== 'boolean') throw new Error('clickMode.showInput must be true or false'); result.showInput = raw.showInput }
+  if (raw.fontSize !== undefined) { if (!Number.isInteger(raw.fontSize) || Number(raw.fontSize) < 8 || Number(raw.fontSize) > 24) throw new Error('clickMode.fontSize must be an integer from 8 to 24'); result.fontSize = Number(raw.fontSize) }
+  if (raw.opacity !== undefined) { if (typeof raw.opacity !== 'number' || raw.opacity < .5 || raw.opacity > 1) throw new Error('clickMode.opacity must be between 0.5 and 1'); result.opacity = raw.opacity }
+  for (let key of ['backgroundColor', 'textColor'] as const) if (raw[key] !== undefined) { if (typeof raw[key] !== 'string' || !/^#[\da-f]{6}$/i.test(raw[key])) throw new Error(`clickMode.${key} must be a six-digit hex color`); result[key] = raw[key].toLowerCase() }
+  return result
+}
 export let parseConfig = (text: string): Settings => {
   let document = parseDocument(text)
   if (document.errors.length) throw new Error('Invalid YAML in keyboard configuration')
@@ -89,10 +113,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { keyboard: result, accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, plugins, browser: parseBrowserSettings(value.browser) }
+  return { keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, plugins, browser: parseBrowserSettings(value.browser) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), accessibility: false, statusBar: 'top', showTabCloseButtons: false, plugins: {}, browser: structuredClone(DEFAULT_BROWSER) }, error: string | null = null
+  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, plugins: {}, browser: structuredClone(DEFAULT_BROWSER) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -114,7 +138,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
   return {
     get plugins() { return settings.plugins },
     get browser() { return settings.browser }, update,
-    get keyboard() { return settings.keyboard }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get showTabCloseButtons() { return settings.showTabCloseButtons }, get error() { return error }, path: file, reload,
+    get keyboard() { return settings.keyboard }, get clickMode() { return settings.clickMode }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get showTabCloseButtons() { return settings.showTabCloseButtons }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {
       parseBinding(prefix)
       let document = parseDocument(fs.readFileSync(file, 'utf8'))

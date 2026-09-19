@@ -967,6 +967,86 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await cli('settings.reload')
 })
 
+test('native click mode activates with Option taps and performs each click action', async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  await fs.writeFile(config, 'clickMode:\n  enabled: true\n  doubleTapModifier: Option\nkeyboard: {}\n')
+  await cli('settings.reload')
+  let session = await cli('new-session', { name: 'click-mode' })
+  let tab = session.windows[0].panes[0].activeTabId
+  let client = await cli('attach-session', { session: session.id })
+  await cli('navigate', { tab, url: `${url}/click-mode` })
+  let page = application.context().pages().find(page => page.url() === `${url}/click-mode`)!
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await page.evaluate(() => {
+    let fixture = document.createElement('div')
+    fixture.style.cssText = 'position:fixed;left:420px;top:90px;width:500px;z-index:2'
+    fixture.innerHTML = Array.from({ length: 30 }, (_, index) => `<button data-extra="${index}">Extra ${index}</button>`).join('')
+    document.body.append(fixture)
+    ;(window as any).rightClicks = 0; (window as any).commandClicks = 0; (window as any).doubleClicks = 0
+    let button = document.querySelector('#inc')!
+    button.addEventListener('contextmenu', event => { event.preventDefault(); (window as any).rightClicks++ })
+    button.addEventListener('click', event => { if ((event as MouseEvent).metaKey) (window as any).commandClicks++ })
+    button.addEventListener('dblclick', () => { (window as any).doubleClicks++ })
+  })
+  let activate = async () => {
+    await cli('activate-client', { client: client.id }); await cli('focus-page', { client: client.id })
+    expect((await cli('click-mode', { client: client.id })).active).toBe(true)
+    await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
+    await expect(chrome.locator('[data-bmux-click-mode]')).toHaveCount(0)
+  }
+  let keys = async (...keyCodes: string[]) => sendNativeKeys(application, keyCodes.map(keyCode => ({ keyCode })))
+  try {
+    await cli('activate-client', { client: client.id }); await cli('focus-page', { client: client.id })
+    await sendNativeKeys(application, [{ keyCode: 'Alt', modifiers: ['alt'] }, { keyCode: 'Alt', modifiers: ['alt'] }])
+    await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
+    await keys('a', '1', 'Backspace', 'a', 's')
+    await expect.poll(() => cli('eval', { tab, expression: 'window.count' })).toBe(1)
+    await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(0)
+
+    await activate(); await keys('r', 'a', 's')
+    await expect.poll(() => cli('eval', { tab, expression: 'window.rightClicks' })).toBe(1)
+
+    await activate(); await keys('c', 'a', 's')
+    await expect.poll(() => cli('eval', { tab, expression: 'window.commandClicks' })).toBe(1)
+
+    await activate(); await keys('d', 'a', 's')
+    await expect.poll(() => cli('eval', { tab, expression: 'window.doubleClicks' })).toBe(1)
+
+    await page.evaluate(() => {
+      document.body.replaceChildren()
+      let host = document.createElement('div'), shadow = host.attachShadow({ mode: 'open' }), button = document.createElement('button')
+      button.textContent = 'Shadow action'; button.addEventListener('click', () => { (window as any).shadowClicks = ((window as any).shadowClicks || 0) + 1 })
+      shadow.append(button); document.body.append(host)
+    })
+    await activate(); await keys('a')
+    await expect.poll(() => cli('eval', { tab, expression: 'window.shadowClicks' })).toBe(1)
+
+    let frameUrl = `${url.replace('127.0.0.1', 'localhost')}/click-frame`
+    await page.evaluate(frameUrl => {
+      let frame = document.createElement('iframe'); frame.src = frameUrl; frame.style.cssText = 'width:800px;height:500px;border:0'
+      document.body.replaceChildren(frame)
+    }, frameUrl)
+    await expect.poll(() => page.frames().some(frame => frame.url() === frameUrl)).toBe(true)
+    let child = page.frames().find(frame => frame.url() === frameUrl)!
+    await child.locator('#inc').waitFor()
+    await activate(); await keys('s')
+    await expect.poll(() => child.evaluate(() => (window as any).count)).toBe(1)
+
+    await activate(); await keys('Escape')
+    await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(0)
+
+    await fs.writeFile(config, 'clickMode:\n  enabled: false\nkeyboard: {}\n')
+    await expect.poll(async () => (await cli('state')).clickMode.enabled).toBe(false)
+    expect((await cli('click-mode', { client: client.id })).active).toBe(false)
+    await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(0)
+  } finally {
+    await page.evaluate(() => document.body.replaceChildren()).catch(() => undefined)
+    await cli('detach-client', { client: client.id })
+    await fs.writeFile(config, previous)
+    await cli('settings.reload')
+  }
+})
+
 test('reopen closed internal windows and pane tabs', async () => {
   let session = await cli('new-session', { name: 'reopen-shortcut' })
   let client = await cli('attach-session', { session: session.id })
