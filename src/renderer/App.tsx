@@ -19,6 +19,7 @@ type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'cl
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
+type Notification = { id: string; text: string; dismiss?: () => void; action?: { label: string; run: () => void } }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -33,8 +34,7 @@ export let App = () => {
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
-  let previousControl = useRef<Control | null>(null)
-  let previousHistoryPopup = useRef(false)
+  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
@@ -106,10 +106,11 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
-  let notices = [
+  let notices: Notification[] = [
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
+    ...proxyFailureNotices(state, run),
   ]
   let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
@@ -121,6 +122,8 @@ export let App = () => {
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
 }
+
+let proxyFailureNotices = (state: PublicState, run: UIContext['run']): Notification[] => Object.entries(state.profileProxyFailures).map(([profileId, failure]) => ({ id: `proxy:${profileId}`, text: `Proxy for ${state.model.profiles.find(item => item.id === profileId)?.name ?? profileId} could not connect. Pages using it are paused. ${failure.error}`, action: { label: 'Disable proxy and continue', run: () => { void run('profile.proxy.clear', { profile: profileId }) } } }))
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
 const NORDVPN_PROXY_REGIONS = [
@@ -183,8 +186,8 @@ let selection = (state: PublicState) => {
   return { client, session, window, pane, tab, profile }
 }
 
-let Notifications = ({ notices }: { notices: { id: string; text: string; dismiss: () => void }[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span><button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button></div>)}
+let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.action && <button type="button" className={css.notificationAction} onClick={notice.action.run}>{notice.action.label}</button>}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
