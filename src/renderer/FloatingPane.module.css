@@ -1,0 +1,23 @@
+.frame { position: relative; height: 100%; padding: 6px; background: #343c48; display: flex; flex-direction: column; overflow: hidden; }
+.frame[data-focused="true"] { background: #627766; }
+.header { height: 28px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding-left: 6px; color: #eef1f5; background: #20262e; cursor: move; user-select: none; }
+.header span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+.header button { width: 28px; height: 28px; font-size: 18px; }
+.frame button { border: 0; border-radius: 0; background: transparent; color: inherit; padding: 2px 6px; }
+.frame button:hover { background: #3b4653; }
+.address { height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; background: #1b1f24; color: #c4cdd8; }
+.address input { flex: 1; min-width: 0; padding: 4px; border: 0; border-radius: 0; background: transparent; color: #e7ecf2; font-size: 12px; }
+.address button:disabled { opacity: .35; }
+.content { flex: 1; min-height: 0; background: #111318; overflow: hidden; }
+.content > span, .content > p { display: block; padding: 20px; color: #a7b0bd; font-size: 12px; }
+.content img { width: 100%; height: 100%; object-fit: fill; }
+.edge { position: absolute; touch-action: none; }
+.edge[data-edge="n"] { top: 0; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.edge[data-edge="s"] { bottom: 0; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.edge[data-edge="w"] { left: 0; top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.edge[data-edge="e"] { right: 0; top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.edge[data-edge="nw"], .edge[data-edge="ne"], .edge[data-edge="sw"], .edge[data-edge="se"] { width: 10px; height: 10px; }
+.edge[data-edge="nw"] { top: 0; left: 0; cursor: nwse-resize; }
+.edge[data-edge="ne"] { top: 0; right: 0; cursor: nesw-resize; }
+.edge[data-edge="sw"] { bottom: 0; left: 0; cursor: nesw-resize; }
+.edge[data-edge="se"] { bottom: 0; right: 0; cursor: nwse-resize; }

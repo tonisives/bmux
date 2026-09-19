@@ -62,8 +62,8 @@ export let splitLayout = (layout: Layout | null, paneId: string, addedId: string
 }
 type PaneDirection = 'left' | 'right' | 'up' | 'down'
 type PaneRect = { paneId: string; x: number; y: number; width: number; height: number }
-export let paneInDirection = (layout: Layout | null, paneId: string, direction: PaneDirection): string | undefined => {
-  let panes: PaneRect[] = []
+export let paneInDirection = (layout: Layout | null, paneId: string, direction: PaneDirection, rectangles?: PaneRect[]): string | undefined => {
+  let panes: PaneRect[] = rectangles ?? []
   let visit = (node: Layout | null, x: number, y: number, width: number, height: number) => {
     if (!node) return
     if (node.kind === 'pane') { panes.push({ paneId: node.paneId, x, y, width, height }); return }
@@ -77,7 +77,7 @@ export let paneInDirection = (layout: Layout | null, paneId: string, direction: 
       visit(node.second, x, y + firstHeight, width, height - firstHeight)
     }
   }
-  visit(layout, 0, 0, 1, 1)
+  if (!rectangles) visit(layout, 0, 0, 1, 1)
   let current = panes.find(pane => pane.paneId === paneId)
   if (!current) return undefined
   let horizontal = direction === 'left' || direction === 'right'
@@ -85,6 +85,11 @@ export let paneInDirection = (layout: Layout | null, paneId: string, direction: 
   let crossEnd = (pane: PaneRect) => crossStart(pane) + (horizontal ? pane.height : pane.width)
   let candidates = panes.filter(pane => {
     if (pane === current) return false
+    if (rectangles) {
+      let dx = pane.x + pane.width / 2 - current.x - current.width / 2
+      let dy = pane.y + pane.height / 2 - current.y - current.height / 2
+      return direction === 'left' ? dx < 0 : direction === 'right' ? dx > 0 : direction === 'up' ? dy < 0 : dy > 0
+    }
     if (direction === 'left') return pane.x + pane.width <= current.x + Number.EPSILON
     if (direction === 'right') return pane.x >= current.x + current.width - Number.EPSILON
     if (direction === 'up') return pane.y + pane.height <= current.y + Number.EPSILON
@@ -94,7 +99,7 @@ export let paneInDirection = (layout: Layout | null, paneId: string, direction: 
     let overlap = (pane: PaneRect) => Math.max(0, Math.min(crossEnd(current), crossEnd(pane)) - Math.max(crossStart(current), crossStart(pane)))
     let overlapRank = Number(overlap(b) > 0) - Number(overlap(a) > 0)
     if (overlapRank) return overlapRank
-    let primary = (pane: PaneRect) => direction === 'left' ? current.x - pane.x - pane.width
+    let primary = (pane: PaneRect) => rectangles ? Math.abs(horizontal ? pane.x + pane.width / 2 - current.x - current.width / 2 : pane.y + pane.height / 2 - current.y - current.height / 2) : direction === 'left' ? current.x - pane.x - pane.width
       : direction === 'right' ? pane.x - current.x - current.width
         : direction === 'up' ? current.y - pane.y - pane.height : pane.y - current.y - current.height
     let crossCenter = (pane: PaneRect) => (crossStart(pane) + crossEnd(pane)) / 2
@@ -128,6 +133,7 @@ export let cloneWindow = (window: InternalWindow): InternalWindow => {
     }
   }
   copy.layout = mapLayout(copy.layout, node => node.kind === 'pane' ? { ...node, paneId: paneIds.get(node.paneId)! } : { ...node, id: id('split') })
+  copy.floating = copy.floating?.map(item => ({ ...item, paneId: paneIds.get(item.paneId)!, dock: item.dock ? { ...item.dock, siblingIds: item.dock.siblingIds.flatMap(id => paneIds.has(id) ? [paneIds.get(id)!] : []) } : undefined }))
   return copy
 }
 export let validateModel = (value: unknown): Model => {
@@ -154,6 +160,13 @@ export let validateModel = (value: unknown): Model => {
         else if (node.kind !== 'split' || !['horizontal', 'vertical'].includes(node.axis) || !Number.isFinite(node.ratio) || node.ratio < 0.1 || node.ratio > 0.9) throw new Error('Invalid split')
         return node
       })
+      if (window.floating !== undefined && !Array.isArray(window.floating)) throw new Error('Invalid floating panes')
+      for (let floating of window.floating ?? []) {
+        if (!floating || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(floating[key as keyof typeof floating])) || floating.width <= 0 || floating.height <= 0 || floating.x < 0 || floating.y < 0) throw new Error('Invalid floating geometry')
+        let dock = floating.dock
+        if (dock && (!Array.isArray(dock.siblingIds) || !dock.siblingIds.every(id => typeof id === 'string') || !['horizontal', 'vertical'].includes(dock.axis) || typeof dock.before !== 'boolean' || !Number.isFinite(dock.ratio) || dock.ratio < .1 || dock.ratio > .9)) throw new Error('Invalid floating dock')
+        leaves.push(floating.paneId)
+      }
       if (leaves.length !== window.panes.length || new Set(leaves).size !== leaves.length) throw new Error('Invalid layout leaves')
       for (let pane of window.panes) {
         checkId(pane.id)

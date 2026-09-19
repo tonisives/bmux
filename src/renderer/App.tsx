@@ -12,6 +12,7 @@ import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
 import { editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
+import { clampFloat } from '../shared/floating'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -32,11 +33,11 @@ export let App = () => {
   let previousControl = useRef<Control | null>(null)
   let previousHistoryPopup = useRef(false)
   let accept = useCallback((next: PublicState) => {
-    let { client, tab } = selection(next)
+    let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
     if (previous.current && previous.current !== target) { setControl(null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (client?.paneId && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerTabId) {
+    if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerTabId) {
       setControl('address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
@@ -103,7 +104,7 @@ export let App = () => {
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
   let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{layout ? <Branch node={layout} /> : <section className={css.pane}><PaneAddress /><EmptyPane /></section>}</main>
+    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status message={control === 'address' ? '' : message} />}
     </footer>
@@ -568,6 +569,20 @@ let Branch = ({ node }: { node: Layout }) => {
   if (node.kind === 'pane') return <BrowserPane paneId={node.paneId} />
   return <div ref={ref} className={css.branch} data-axis={node.axis}><div className={css.first}><Branch node={node.first} /></div><div className={css.gutter} role="separator" aria-label="Resize split" onPointerDown={startDrag} /><div className={css.second}><Branch node={node.second} /></div></div>
 }
+let FloatingPreview = ({ paneId }: { paneId: string }) => {
+  let { state } = useUI()
+  let { window, client } = selection(state)
+  let placement = window?.floating?.find(item => item.paneId === paneId)
+  let pane = window?.panes.find(pane => pane.id === paneId)
+  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!placement || !client || !ref.current) return
+    let rect = clampFloat(placement, client.width, client.height - 28)
+    for (let key of ['x', 'y', 'width', 'height'] as const) ref.current.style.setProperty(`--float-${key}`, `${rect[key]}px`)
+  }, [placement, client?.width, client?.height])
+  return <div ref={ref} className={css.floatingPreview} aria-hidden="true"><div>{tab?.title}</div>{tab && state.snapshots[tab.id] && <img src={state.snapshots[tab.id].image} alt="" />}</div>
+}
 let BrowserPane = ({ paneId }: { paneId: string }) => {
   let { state, run } = useUI()
   let { client } = selection(state)
@@ -582,9 +597,10 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
     return () => observer.disconnect()
   }, [tab.id, client!.windowId, state.statusBar])
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
+  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-tab-id={tab.id} onMouseDown={focus}>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-tab-id={tab.id} onMouseDown={focus}>
     {state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>}
   </div></section>
 }

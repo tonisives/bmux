@@ -23,6 +23,9 @@ Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t 
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           list-panes -t WINDOW | select-pane -c CLIENT -t PANE
           move-pane -t PANE --window WINDOW | kill-pane -t PANE [--confirm]
+          new-pane -t PANE [--url URL] | break-pane -t PANE --floating (or -W)
+          join-pane -t PANE [--destination PANE] [-h|-v]
+          move-pane -t PANE --x X --y Y | resize-pane -t PANE --width W --height H
 Layouts:  save-layout -t WINDOW -n NAME | list-layouts
           restore-layout -t WINDOW -n NAME --confirm
 Tabs:     tab list [--pane PANE] | tab new --pane PANE [URL] | tab select -t TAB | tab close -t TAB
@@ -62,8 +65,8 @@ let parse = () => {
   let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings', 'download', 'extension'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
-  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next'])
-  let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output' }
+  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating'])
+  let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output', W: 'floating' }
   while (argv.length) {
     let item = argv.shift()
     if (item === '-h' || item === '-v') { args.axis = item === '-h' ? 'horizontal' : 'vertical'; continue }
@@ -92,8 +95,9 @@ let parse = () => {
   let targetKeys = {
     'rename-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
     'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window',
-    'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane',
+    'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
+  if (method === 'resize-pane' && !args.split && (args.width !== undefined || args.height !== undefined)) targetKeys[method] = 'pane'
   if (args.target !== undefined) { args[targetKeys[method] ?? 'tab'] = args.target; delete args.target }
   if (method === 'profile.create') args.name = positional[0] ?? args.name
   if (method === 'profile.rename') { args.profile = positional[0]; args.name = positional[1] ?? args.name }

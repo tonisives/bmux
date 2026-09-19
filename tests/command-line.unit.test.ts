@@ -51,6 +51,15 @@ it('cycles sessions in both directions and wraps at the ends', () => {
   expect(parseCommandLine('next-session', current)).toMatchObject({ args: { session: first.id } })
 })
 
+it('parses floating pane commands while preserving legacy move targets', () => {
+  let current = state(), pane = current.model.sessions[0].windows[0].panes[0]
+  expect(parseCommandLine('new-pane --url http://localhost:3000', current)).toMatchObject({ method: 'new-pane', args: { pane: pane.id, url: 'http://localhost:3000' } })
+  expect(parseCommandLine('break-pane -W', current)).toMatchObject({ method: 'break-pane', args: { pane: pane.id, floating: true } })
+  expect(parseCommandLine('join-pane --destination pane_target -v', current)).toMatchObject({ method: 'join-pane', args: { pane: pane.id, destination: 'pane_target', axis: 'vertical' } })
+  expect(parseCommandLine('move-pane -t pane_source --window win_target', current)).toMatchObject({ args: { pane: 'pane_source', window: 'win_target' } })
+  expect(parseCommandLine('resize-pane --width 500 --height 300', current)).toMatchObject({ args: { pane: pane.id, width: '500', height: '300' } })
+})
+
 it('parses Bitwarden fill, lock, and tab-scoped cancellation', () => {
   let current = state(), tab = current.model.sessions[0].windows[0].panes[0].activeTabId
 })

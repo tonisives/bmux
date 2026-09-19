@@ -28,7 +28,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let pane = window.panes.find(pane => pane.id === client.paneId)
   let positional: string[] = []
   let options: Record<string, unknown> = {}
-  let aliases: Record<string, string> = { t: 'target', s: 'name', n: 'name', c: 'client' }
+  let aliases: Record<string, string> = { t: 'target', s: 'name', n: 'name', c: 'client', W: 'floating' }
   while (words.length) {
     let word = words.shift()!
     if (word === '--') { positional.push(...words); break }
@@ -36,7 +36,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     if (!word.startsWith('-')) { positional.push(word); continue }
     let [raw, ...rest] = word.replace(/^-+/, '').split('=')
     let key = aliases[raw] ?? raw
-    let value = rest.length ? rest.join('=') : ['confirm', 'background'].includes(key) ? true : words.shift()
+    let value = rest.length ? rest.join('=') : ['confirm', 'background', 'floating'].includes(key) ? true : words.shift()
     if (value === undefined) throw new Error(`Missing value for ${word}`)
     options[key] = value
   }
@@ -86,7 +86,8 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   }
   if (['select-window', 'kill-window', 'rename-window', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget, name: options.name ?? positional[0] } }
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
-  if (['split-window', 'select-pane', 'kill-pane', 'move-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
+  if (['split-window', 'select-pane', 'kill-pane', 'move-pane', 'join-pane', 'new-pane', 'break-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
+  if (name === 'resize-pane') return { method: name, args: { ...current, ...(options.split ? { window: target ?? client.windowId } : { pane: target ?? pane?.id }), ...options } }
   if (name === 'next-window' || name === 'previous-window') return { method: 'cycle-window', args: { ...current, direction: name === 'next-window' ? 1 : -1 } }
   if (name === 'next-session' || name === 'previous-session') {
     let index = state.model.sessions.findIndex(item => item.id === session.id)
