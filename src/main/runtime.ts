@@ -2,7 +2,7 @@ import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSes
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, Download, FindResult, InternalWindow, Model, Permission, PublicState, Snapshot, Tab } from '../shared/types'
+import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Permission, PublicState, Snapshot, Tab } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -28,6 +28,9 @@ import { parseSearchSuggestions } from '../shared/address-suggestions'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
+import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy } from './profile-proxy'
+import type { ProxyCredentials } from './profile-proxy'
+import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { contextLinkExpression, resolvedContextLink } from './context-link'
@@ -35,7 +38,7 @@ import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
 
-type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
+type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -67,6 +70,17 @@ export let createRuntime = (dataDirectory: string) => {
   let model: Model = readModel(dataDirectory, bookmarkFile)
   let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
   let startupNotice = crashRecovery.startupNotice
+  let proxyCredentials = createProxyCredentialStore({ directory: path.join(dataDirectory, 'proxy-credentials'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data) })
+  let proxyRelays = createProfileProxyRelays(proxyCredentials)
+  let profileNetworkReady = new Map<string, Promise<void>>()
+  let proxyLogin = (event: Electron.Event, _contents: WebContents | null, _details: Electron.AuthenticationResponseDetails, auth: Electron.AuthInfo, callback: (username?: string, password?: string) => void) => {
+    if (!auth.isProxy) return
+    let relay = proxyRelays.authentication(auth.host, auth.port)
+    if (!relay) return
+    event.preventDefault()
+    callback(relay.username, relay.password)
+  }
+  app.on('login', proxyLogin)
   if (startupNotice) writeModel(dataDirectory, model, bookmarkFile)
   let navigationCrashMarker = crashRecovery.marker
   let queueRestoredNavigation = createSerialNavigationQueue()
@@ -77,6 +91,9 @@ export let createRuntime = (dataDirectory: string) => {
   let tabs = new Map<string, LiveTab>()
   let hosts = new Map<string, BaseWindow>()
   let configuredProfiles = new Set<string>()
+  let defaultUserAgents = new Map<string, string>()
+  let lastCacheChecks = new Map<string, number>()
+  let profileCaches: PublicState['profileCaches'] = {}
   let extensionWindows = new Set<BrowserWindow>()
   let extensions = createExtensions(dataDirectory, profileId => ({
     createTab: async details => {
@@ -196,7 +213,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -268,12 +285,42 @@ export let createRuntime = (dataDirectory: string) => {
     hosts.set(profileId, host)
     return host
   }
+  let configureSessionIdentity = (profileId: string, persona?: DevicePersona) => {
+    let browser = electronSession.fromPartition(`persist:${profileId}`)
+    if (!defaultUserAgents.has(profileId)) defaultUserAgents.set(profileId, browser.getUserAgent())
+    browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(profileId)!, persona?.locale)
+    return browser
+  }
+  let maintainCache = async (profileId: string, force = false) => {
+    let last = lastCacheChecks.get(profileId) ?? 0
+    if (!force && Date.now() - last < 30 * 60 * 1000) return
+    lastCacheChecks.set(profileId, Date.now())
+    let browser = electronSession.fromPartition(`persist:${profileId}`)
+    let limit = 256 * 1024 * 1024, bytes = await browser.getCacheSize()
+    if (bytes > limit) { await browser.clearCache(); bytes = 0 }
+    profileCaches = { ...profileCaches, [profileId]: { bytes, limit, checkedAt: Date.now() } }
+    publish()
+  }
+  let applyProfileNetwork = async (profileId: string, proxy = resolve(model.profiles, profileId, 'Profile').proxy, replacement?: ProxyCredentials) => {
+    let browser = electronSession.fromPartition(`persist:${profileId}`)
+    if (proxy) {
+      let relay = await proxyRelays.create(profileId, proxy, replacement)
+      await browser.setProxy({ mode: 'fixed_servers', proxyRules: `http://${relay.host}:${relay.port}`, proxyBypassRules: '<-loopback>' })
+    } else {
+      await browser.setProxy({ mode: 'system' })
+      await proxyRelays.close(profileId)
+    }
+    await browser.clearAuthCache()
+    await browser.closeAllConnections()
+  }
   let browserSession = (profileId: string) => {
     let profile = resolve(model.profiles, profileId, 'Profile')
-    let session = electronSession.fromPartition(`persist:${profile.id}`)
+    let session = configureSessionIdentity(profile.id, profile.device)
     if (configuredProfiles.has(profileId)) return session
     configuredProfiles.add(profileId)
-    void extensions.attach(profileId, session).catch(() => undefined)
+    let ready = Promise.all([applyProfileNetwork(profileId), maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
+    profileNetworkReady.set(profileId, ready)
+    void ready.catch(() => undefined)
     filters?.attach(session, profileId)
     session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${profileId}|${origin}|${permission}`) === true)
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
@@ -313,12 +360,56 @@ export let createRuntime = (dataDirectory: string) => {
     })
     return session
   }
+  let reloadProfileTabs = (profileId: string) => {
+    for (let [tabId, live] of tabs) {
+      if (live.contents.isDestroyed() || tabById(model, tabId).pane.profileId !== profileId) continue
+      delete crashes[tabId]
+      live.contents.reloadIgnoringCache()
+    }
+  }
+  let recreateProfileTabs = async (profileId: string) => {
+    let tabIds = [...tabs].filter(([tabId]) => tabById(model, tabId).pane.profileId === profileId).map(([tabId]) => tabId)
+    for (let tabId of tabIds) disposeTab(tabId)
+    await scheduleVisuals()
+    await Promise.all(tabIds.map(tabId => tabs.get(tabId)?.ready))
+  }
+  let updateProfileNetwork = async (profileId: string, proxy?: ReturnType<typeof parseProfileProxy>, replacement?: ProxyCredentials) => {
+    browserSession(profileId)
+    let applying = applyProfileNetwork(profileId, proxy, replacement)
+    profileNetworkReady.set(profileId, applying)
+    await applying
+  }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
     let live = tabs.get(tabId)
     if (!live || live.contents.isDestroyed()) throw new Error(`Tab ${tabId} is closed`)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     return debuggerApi.sendCommand(method, params, sessionId)
+  }
+  let applyDeviceMetrics = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
+    let debuggerApi = contents.debugger
+    if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+    let viewport = deviceViewport(persona)
+    await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale })
+  }
+  let applyDevicePersona = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
+    let debuggerApi = contents.debugger
+    if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+    let viewport = deviceViewport(persona)
+    let metadata = deviceUserAgentMetadata(persona)
+    let deviceMemoryScript = persona.platform === 'android'
+      ? "Object.defineProperty(Navigator.prototype, 'deviceMemory', { configurable: true, get: () => 8 })"
+      : "delete Navigator.prototype.deviceMemory"
+    await Promise.all([
+      debuggerApi.sendCommand('Emulation.setUserAgentOverride', { userAgent: deviceUserAgent(persona), acceptLanguage: persona.locale, platform: persona.platform === 'android' ? 'Linux armv81' : 'iPhone', ...(metadata ? { userAgentMetadata: metadata } : {}) }),
+      debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceMemoryScript }),
+      debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale }),
+      debuggerApi.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }),
+      debuggerApi.sendCommand('Emulation.setLocaleOverride', { locale: persona.locale }),
+      debuggerApi.sendCommand('Emulation.setTimezoneOverride', { timezoneId: persona.timezone }),
+      persona.geolocation ? debuggerApi.sendCommand('Emulation.setGeolocationOverride', persona.geolocation) : debuggerApi.sendCommand('Emulation.clearGeolocationOverride'),
+      debuggerApi.sendCommand('Emulation.setHardwareConcurrencyOverride', { hardwareConcurrency: persona.platform === 'android' ? 8 : 6 }),
+    ])
   }
   let scrollTab = (tabId: string, action: string) => {
     if (!['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].includes(action)) throw new Error(`Unknown scroll action: ${action}`)
@@ -503,13 +594,17 @@ export let createRuntime = (dataDirectory: string) => {
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
-    let live: LiveTab = { view, contents, parent, disposed: false }
+    let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
     let serializedRestore = restoringTabs
     tabs.set(tabId, live)
     faviconRevisions.set(tabId, 0)
     extensions.track(pane.profileId, contents, parent)
     let bootstrapping = !popupOptions
-    let ready = Promise.all([extensions.attach(pane.profileId, contents.session), pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)]).finally(() => { bootstrapping = false })
+    live.ready = Promise.all([
+      profileNetworkReady.get(pane.profileId),
+      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)),
+    ]).then(() => undefined).finally(() => { bootstrapping = false })
+    void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
@@ -593,7 +688,7 @@ export let createRuntime = (dataDirectory: string) => {
     })
     contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
     contents.on('did-navigate-in-page', update)
-    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update() })
+    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
@@ -604,16 +699,28 @@ export let createRuntime = (dataDirectory: string) => {
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
-      if (!options) { changed(); return undefined }
+      if (!options) {
+        if (profile.device) {
+          let popup = createLiveTab(added.id, false)
+          void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url) }).catch(reportError)
+        }
+        changed(); return undefined
+      }
       let popup = createLiveTab(added.id, false, options)
-      if (!options.webContents) void popup.contents.loadURL(url, loadOptions).catch(reportError)
+      if (!options.webContents) void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
       changed()
       return popup.contents
     }
-    contents.setWindowOpenHandler(details => ({
-      action: 'allow', outlivesOpener: true,
-      createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) })!,
-    }))
+    contents.setWindowOpenHandler(details => {
+      if (profile.device) {
+        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, false) }, 100)
+        return { action: 'deny' }
+      }
+      return {
+        action: 'allow', outlivesOpener: true,
+        createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) })!,
+      }
+    })
     contents.on('update-target-url', (_event, url) => {
       let owner = [...clients.values()].find(client => client.window === live.parent)
       if (!owner) return
@@ -663,7 +770,7 @@ export let createRuntime = (dataDirectory: string) => {
     })
     if (load && initialUrl !== 'about:blank') {
       let navigate = async () => {
-        await ready
+        await live.ready
         if (live.disposed) return
         navigationCrashMarker.mark(pane.id, tabId, initialUrl)
         await contents.loadURL(initialUrl)
@@ -819,7 +926,13 @@ export let createRuntime = (dataDirectory: string) => {
       if (target === viewer?.live.window && bounds) {
         let floating = !!viewer && !model.clients.find(client => client.id === viewer.id)?.zoomedPaneId && !!tabById(model, tabId).window.floating?.some(item => item.paneId === tabById(model, tabId).pane.id)
         live.view.setBorderRadius(floating ? FLOAT_RADIUS - FLOAT_CONTENT_INSET : 0)
-        live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
+        let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
+        let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
+        live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
+        if (persona && live.deviceScale !== fitted.scale) {
+          live.deviceScale = fitted.scale
+          void live.ready.then(() => applyDeviceMetrics(live.contents, persona, fitted.scale)).catch(error => { crashes[tabId] = `Device viewport failed: ${errorText(error)}`; publish() })
+        }
       }
     }
     for (let candidate of model.clients) {
@@ -968,8 +1081,11 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'search-suggestions') {
       let query = required(args, 'query').slice(0, 200)
+      let tabId = required(args, 'tab')
       try {
-        let response = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(2500) })
+        let live = tabs.get(tabId)
+        if (!live || live.contents.isDestroyed()) return []
+        let response = await live.contents.session.fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(2500) })
         if (!response.ok) return []
         return parseSearchSuggestions(await response.json(), query)
       } catch {
@@ -980,6 +1096,7 @@ export let createRuntime = (dataDirectory: string) => {
       let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined
       let profile = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
       browserSession(profile.id)
+      await profileNetworkReady.get(profile.id)
       if (method === 'extension.list') return extensions.list(profile.id)
       if (method === 'extension.load') return extensions.load(profile.id, required(args, 'path'))
       if (method === 'extension.install-bitwarden') {
@@ -1149,6 +1266,98 @@ export let createRuntime = (dataDirectory: string) => {
       let name = required(args, 'name')
       if (model.profiles.some(item => item.id !== profile.id && item.name === name)) throw new Error('Profile name already exists')
       profile.name = name; save(); return profile
+    }
+    if (method === 'profile.proxy.set') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
+      let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
+      if (!!username !== !!password) throw new Error('Enter both proxy username and password')
+      let replacement = username && password ? { username, password } : proxy.authenticated ? proxyCredentials.get(profile.id) : undefined
+      if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
+      let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
+      try {
+        await updateProfileNetwork(profile.id, proxy, replacement)
+        proxyCredentials.set(profile.id, proxy.authenticated ? replacement : undefined)
+        profile.proxy = proxy
+      } catch (error) {
+        try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }
+        throw error
+      }
+      save(); reloadProfileTabs(profile.id); return profile
+    }
+    if (method === 'profile.proxy.clear') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
+      try { await updateProfileNetwork(profile.id); proxyCredentials.set(profile.id); delete profile.proxy }
+      catch (error) { try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }; throw error }
+      save(); reloadProfileTabs(profile.id); return profile
+    }
+    if (method === 'profile.proxy.test') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      if (!profile.proxy) throw new Error('Configure a proxy first')
+      let browser = browserSession(profile.id)
+      await profileNetworkReady.get(profile.id)
+      let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+      if (!response.ok) throw new Error(`Proxy test failed with HTTP ${response.status}`)
+      let value = await response.json() as { ip?: unknown }
+      if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
+      return { ip: value.ip }
+    }
+    if (method === 'profile.device.set') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let device = parseDevicePersona(args.device)
+      let previous = profile.device
+      try {
+        configureSessionIdentity(profile.id, device)
+        let liveTabs = [...tabs].filter(([tabId, live]) => !live.contents.isDestroyed() && tabById(model, tabId).pane.profileId === profile.id)
+        await Promise.all(liveTabs.map(([, live]) => applyDevicePersona(live.contents, device, live.deviceScale ?? 1)))
+        for (let [, live] of liveTabs) live.deviceScale = undefined
+        profile.device = device
+      } catch (error) {
+        configureSessionIdentity(profile.id, previous)
+        if (previous) {
+          try { await Promise.all([...tabs].filter(([tabId, live]) => !live.contents.isDestroyed() && tabById(model, tabId).pane.profileId === profile.id).map(([, live]) => applyDevicePersona(live.contents, previous, live.deviceScale ?? 1))) } catch { /* Preserve the original error. */ }
+        } else {
+          try { await recreateProfileTabs(profile.id) } catch { /* Preserve the original error. */ }
+        }
+        throw error
+      }
+      save(); reloadProfileTabs(profile.id); void scheduleVisuals(); return profile
+    }
+    if (method === 'profile.device.clear') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let previous = profile.device
+      try {
+        delete profile.device
+        configureSessionIdentity(profile.id)
+        await recreateProfileTabs(profile.id)
+      } catch (error) {
+        profile.device = previous
+        configureSessionIdentity(profile.id, previous)
+        try { await recreateProfileTabs(profile.id) } catch { /* Preserve the original error. */ }
+        throw error
+      }
+      save(); return profile
+    }
+    if (method === 'profile.cache.status') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let bytes = await browserSession(profile.id).getCacheSize(), limit = 256 * 1024 * 1024
+      profileCaches = { ...profileCaches, [profile.id]: { bytes, limit, checkedAt: Date.now() } }; publish()
+      return profileCaches[profile.id]
+    }
+    if (method === 'profile.cache.clear') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      await browserSession(profile.id).clearCache()
+      lastCacheChecks.set(profile.id, Date.now())
+      profileCaches = { ...profileCaches, [profile.id]: { bytes: 0, limit: 256 * 1024 * 1024, checkedAt: Date.now() } }; publish()
+      return profileCaches[profile.id]
     }
     if (method === 'new-session') {
       let name = required(args, 'name')
@@ -1554,7 +1763,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void (pageTools?.ready(tabId) ?? Promise.resolve()).then(() => { if (!live.disposed) return live.contents.loadURL(url) }).catch(() => undefined).finally(() => {
+      void live.ready.then(() => { if (!live.disposed) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url) live.pendingUrl = undefined
@@ -1570,13 +1779,15 @@ export let createRuntime = (dataDirectory: string) => {
     return serializeTab(tabId, async () => {
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane } = tabById(model, tabId)
-      let contents = tabs.get(tabId)!.contents
+      let live = tabs.get(tabId)!
+      await live.ready
+      let contents = live.contents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
       contents.setBackgroundThrottling(false)
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
-        if (method === 'navigate') { await pageTools?.ready(tabId); await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
+        if (method === 'navigate') { await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
         if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { tab: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
@@ -1670,6 +1881,8 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    app.off('login', proxyLogin)
+    void proxyRelays.closeAll()
     clickMode.cancel()
     crashRecovery.close()
     extensions.close()

@@ -15,6 +15,7 @@ if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDa
 let dataDirectory = configuredDataDirectory ?? defaultDataDirectory
 let background = process.env.BMUX_BACKGROUND === '1' || process.env.BROWMUX_BACKGROUND === '1' || process.argv.includes('--background')
 app.setName('bmux')
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
 app.setPath('userData', dataDirectory)
 fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
 let socketDirectory = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`)

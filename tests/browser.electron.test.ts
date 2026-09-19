@@ -77,6 +77,7 @@ test.afterAll(async () => {
 })
 
 test('profiles, clients, handoff, hidden automation, and restart', async () => {
+  expect(await application.evaluate(({ app }) => app.commandLine.getSwitchValue('force-webrtc-ip-handling-policy'))).toBe('disable_non_proxied_udp')
   let initial = await cli('state')
   expect(initial.model.clients).toHaveLength(0)
   let session = initial.model.sessions[0]
