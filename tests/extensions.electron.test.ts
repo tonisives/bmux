@@ -148,11 +148,16 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect(extensionWindow.id).toBeGreaterThan(0)
     expect(extensionWindow.tabs).toHaveLength(1)
     await rpc('extension.remove', { profile, id: another.id })
+    await popup.evaluate(() => (window as any).chrome.storage.local.set({ upgradeFixture: 'preserved' }))
+    let manifest = JSON.parse(await fs.readFile(path.join(extensionPath, 'manifest.json'), 'utf8'))
+    manifest.version = '1.1'
+    await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify(manifest))
     await application!.close()
     await launch()
-    expect((await rpc('extension.list', { profile })).extensions[0].id).toBe(installed.id)
+    expect((await rpc('extension.list', { profile })).extensions[0]).toMatchObject({ id: installed.id, version: '1.1' })
     await rpc('extension.open', { profile, id: installed.id })
     let restoredPopup = application!.context().pages().find(page => page.url() === `chrome-extension://${installed.id}/popup.html`)!
+    expect(await restoredPopup.evaluate(() => (window as any).chrome.storage.local.get('upgradeFixture'))).toEqual({ upgradeFixture: 'preserved' })
     expect(await restoredPopup.evaluate(() => (window as any).chrome.storage.session.get(null))).toEqual({})
     await rpc('extension.remove', { profile, id: installed.id })
     expect((await rpc('extension.list', { profile })).extensions).toEqual([])
