@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ChangeEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
+import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
@@ -149,9 +149,40 @@ let selection = (state: PublicState) => {
 }
 
 let Status = ({ message }: { message: string }) => {
-  let { state, show, acknowledgedDownloads } = useUI()
+  let { state, show, run, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
+  let draggedWindow = useRef<string | null>(null)
+  let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
+  let dropAt = (event: DragEvent<HTMLDivElement>) => {
+    let tab = (event.target as HTMLElement).closest<HTMLElement>('[data-window-id]')
+    if (!tab || !windows.current?.contains(tab)) return null
+    return { id: tab.dataset.windowId!, position: event.clientX < tab.getBoundingClientRect().left + tab.getBoundingClientRect().width / 2 ? 'before' as const : 'after' as const }
+  }
+  let startWindowDrag = (event: DragEvent<HTMLDivElement>) => {
+    let button = (event.target as HTMLElement).closest<HTMLElement>(`.${css.windowSelect}`)
+    let id = button?.closest<HTMLElement>('[data-window-id]')?.dataset.windowId
+    if (!id) return
+    draggedWindow.current = id
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', id)
+  }
+  let overWindow = (event: DragEvent<HTMLDivElement>) => {
+    if (!draggedWindow.current) return
+    let target = dropAt(event)
+    if (!target || target.id === draggedWindow.current) { setDrop(null); return }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDrop(current => current?.id === target.id && current.position === target.position ? current : target)
+  }
+  let finishWindowDrag = () => { draggedWindow.current = null; setDrop(null) }
+  let dropWindow = (event: DragEvent<HTMLDivElement>) => {
+    let source = draggedWindow.current, target = dropAt(event)
+    finishWindowDrag()
+    if (!source || !target || source === target.id) return
+    event.preventDefault()
+    void run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
+  }
   let sessions = () => show('sessions')
   let profiles = () => show('profiles')
   let help = () => show('help')
@@ -182,7 +213,7 @@ let Status = ({ message }: { message: string }) => {
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows.length])
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
-    <div ref={windows} className={css.windows} data-window-list>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} />)}</div>
+    <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />{(message || state.configError) && <span className={css.error} title={message || state.configError || undefined}>{message || state.configError}</span>}
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profile ? `Profile: ${profile.name}` : 'Profile'} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
@@ -190,7 +221,7 @@ let Status = ({ message }: { message: string }) => {
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
-let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: number; active: boolean }) => {
+let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalWindow; index: number; active: boolean; dropPosition?: 'before' | 'after' }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
@@ -198,8 +229,8 @@ let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: 
   let label = `${index}:${window.name}${active ? '*' : ''}`
   let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
-  return <span className={css.windowTab} data-window-id={window.id}>
-    <button onClick={select} className={css.windowSelect} data-active={active} title={window.name}>
+  return <span className={css.windowTab} data-window-id={window.id} data-drop-position={dropPosition}>
+    <button onClick={select} className={css.windowSelect} data-active={active} title={window.name} draggable>
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : null)}
       <span className={css.windowLabel}>{label}</span>
     </button>

@@ -1286,6 +1286,29 @@ test('status window list uses available room and hides its native scrollbar', as
   await cli('detach-client', { client: client.id })
 })
 
+test('status windows can be dragged into a new order without switching the active window', async () => {
+  let session = await cli('new-session', { name: 'drag-windows' })
+  let first = session.windows[0]
+  let second = await cli('new-window', { session: session.id, name: 'second' })
+  let third = await cli('new-window', { session: session.id, name: 'third' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = application.context().pages().filter(page => page.url().endsWith('index.html')).at(-1)!
+  let tab = (id: string) => chrome.locator(`[data-window-id="${id}"] button[draggable="true"]`)
+  let list = chrome.locator('[data-window-list]')
+  let order = () => list.locator('[data-window-id]').evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.windowId))
+  await expect.poll(order).toEqual([first.id, second.id, third.id])
+  await tab(second.id).dragTo(tab(first.id), { targetPosition: { x: 2, y: 8 } })
+  await expect.poll(order).toEqual([second.id, first.id, third.id])
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(first.id)
+  let thirdBounds = (await tab(third.id).boundingBox())!
+  await tab(second.id).dragTo(tab(third.id), { targetPosition: { x: thirdBounds.width - 2, y: 8 } })
+  await expect.poll(order).toEqual([first.id, third.id, second.id])
+  expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([first.id, third.id, second.id])
+  await tab(third.id).click()
+  await expect.poll(async () => (await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(third.id)
+  await cli('detach-client', { client: client.id })
+})
+
 test('status tabs show loading and favicon, with optional close control', async () => {
   let session = await cli('new-session', { name: 'status-tab-controls' })
   let client = await cli('attach-session', { session: session.id })

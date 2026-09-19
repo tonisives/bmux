@@ -1177,6 +1177,21 @@ export let createRuntime = (dataDirectory: string) => {
       session.windows.splice(destination, 0, window)
       changed(); await visualQueue; return window
     }
+    if (method === 'reorder-window') {
+      let client = resolve(model.clients, args.client, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let window = resolve(session.windows, args.window, 'Window')
+      let target = resolve(session.windows, args.target, 'Window')
+      let position = args.position
+      if (position !== 'before' && position !== 'after') throw new Error('Window position must be before or after')
+      let sourceIndex = session.windows.indexOf(window)
+      let destination = session.windows.indexOf(target) + (position === 'after' ? 1 : 0)
+      if (sourceIndex < destination) destination--
+      if (sourceIndex === destination) return window
+      session.windows.splice(sourceIndex, 1)
+      session.windows.splice(destination, 0, window)
+      changed(); await visualQueue; return window
+    }
     if (method === 'swap-window') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
