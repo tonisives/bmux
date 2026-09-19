@@ -6,7 +6,7 @@ import os from 'node:os'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { observeNativeFocus, recordNativeFocus } from './native-focus'
+import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 
 let application: ElectronApplication, chrome: Page, directory: string, server: http.Server, url: string
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
@@ -34,7 +34,7 @@ let launch = async () => {
 }
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-floating-'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+W: close-pane-or-window\nbrowser:\n  autoUpdateFilters: false\n')
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
@@ -127,6 +127,22 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   let after = await state()
   expect(after.model.sessions[0].windows.find((item: any) => item.id === destination.id).panes.some((pane: any) => pane.id === second.id)).toBe(true)
   expect(after.model.sessions[0].windows[0].floating).toHaveLength(0)
+})
+
+test('configured Command+W closes a selected float before its window', async () => {
+  let current = await state(), client = current.model.clients[0]
+  let session = await rpc('new-session', { name: 'close-floating', profile: 'bot' })
+  await rpc('switch-client', { client: client.id, session: session.id })
+  let window = session.windows[0], tiled = window.panes[0]
+  let floating = await rpc('new-pane', { pane: tiled.id, client: client.id })
+  await rpc('focus-page', { client: client.id })
+  await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+  await expect.poll(async () => (await rpc('list-windows', { session: session.id }))[0].panes.some((pane: { id: string }) => pane.id === floating.id)).toBe(false)
+  expect((await rpc('list-windows', { session: session.id }))[0].id).toBe(window.id)
+  await rpc('select-pane', { client: client.id, pane: tiled.id })
+  await rpc('focus-page', { client: client.id })
+  await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+  await expect.poll(async () => (await rpc('list-sessions')).some((item: { id: string }) => item.id === session.id)).toBe(false)
 })
 
 test('page context menu opens links in a float using the source profile', async () => {

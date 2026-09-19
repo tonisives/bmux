@@ -137,6 +137,14 @@ Set `showTabCloseButtons: true` when you want close buttons on the status tabs.
 
 Configured shortcuts take precedence over website shortcuts and native menu defaults. Multiple shortcuts can use the same action.
 
+To make Command+W close the selected floating pane, while continuing to close the internal window for a tiled pane, use:
+
+```yaml
+keyboard:
+  shortcuts:
+    Cmd+W: close-pane-or-window
+```
+
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. Split actions are `split-right` and `split-down`. Assign any of them under `keyboard.shortcuts` or `keyboard.prefixBindings`.
 
 Page scrolling actions are `scroll-up`, `scroll-down`, `scroll-half-up`, `scroll-half-down`, `scroll-top`, and `scroll-bottom`. A two letter binding such as `gg` goes under `keyboard.sequences`. Sequence keys use `prefixTimeoutMs` for the interval between letters. For Vim style page controls that leave text fields alone:

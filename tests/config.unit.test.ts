@@ -159,6 +159,10 @@ it('accepts conditional shortcuts while preserving legacy bindings and validatin
   expect(shortcutMatchesContext({ action: 'reload', when: 'always' }, false, true)).toBe(true)
 })
 
+it('accepts a shortcut that closes a floating pane before its window', () => {
+  expect(parseConfig('keyboard:\n  shortcuts:\n    Cmd+W: close-pane-or-window\n').keyboard.shortcuts['Cmd+W']).toBe('close-pane-or-window')
+})
+
 it('parses page scrolling actions and two letter sequences', () => {
   let keyboard = parseConfig('keyboard:\n  shortcuts:\n    j: { action: scroll-down, when: pane-not-editing }\n    Shift+G: { action: scroll-bottom, when: pane-not-editing }\n  sequences:\n    gg: { action: scroll-top, when: pane-not-editing }\n').keyboard
   expect(keyboard.shortcuts.j).toEqual({ action: 'scroll-down', when: 'pane-not-editing' })
