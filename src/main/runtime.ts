@@ -735,8 +735,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (!owner) return
       let show = async () => {
         let linkUrl = params.linkURL
-        if (!linkUrl && params.frame && !params.frame.isDestroyed()) {
-          let result = await params.frame.executeJavaScript(contextLinkExpression(params.x, params.y)).catch(() => undefined)
+        let frame = params.frame && !params.frame.isDestroyed() ? params.frame : contents.mainFrame
+        if (!linkUrl && !frame.isDestroyed()) {
+          let result = await frame.executeJavaScript(contextLinkExpression(params.x, params.y)).catch(() => undefined)
           linkUrl = resolvedContextLink(result)
         }
         if (linkUrl && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)

@@ -13,16 +13,20 @@ export let xPostLink = (pageUrl: string, links: string[]) => {
   return ''
 }
 
-let pageResolver = (x: number, y: number) => {
-  let target = document.elementFromPoint(x, y)
-  if (!target) return { pageUrl: location.href, custom: '', links: [] as string[] }
-  let detail = { target, url: '' }
-  document.dispatchEvent(new CustomEvent('bmux:resolve-context-link', { detail }))
-  let custom = detail.url || target.closest('[data-bmux-link]')?.getAttribute('data-bmux-link') || ''
-  let article = target.closest('article')
-  let timestamp = article?.querySelector('a[href] time')?.closest('a[href]')
-  let links = [timestamp?.getAttribute('href') ?? '', ...Array.from(article?.querySelectorAll('a[href*="/status/"]') ?? []).map(link => link.getAttribute('href') ?? '')]
-  return { pageUrl: location.href, custom, links }
+export let pageResolver = (x: number, y: number) => {
+  let hovered = Array.from(document.querySelectorAll(':hover')).pop()
+  let point = document.elementFromPoint(x, y)
+  let targets = [hovered, point].filter((target, index, all): target is Element => !!target && all.indexOf(target) === index)
+  for (let target of targets) {
+    let detail = { target, url: '' }
+    document.dispatchEvent(new CustomEvent('bmux:resolve-context-link', { detail }))
+    let custom = detail.url || target.closest('[data-bmux-link]')?.getAttribute('data-bmux-link') || ''
+    let article = target.closest('article')
+    let timestamp = article?.querySelector('a[href] time')?.closest('a[href]')
+    let links = [timestamp?.getAttribute('href') ?? '', ...Array.from(article?.querySelectorAll('a[href*="/status/"]') ?? []).map(link => link.getAttribute('href') ?? '')]
+    if (custom || links.some(Boolean)) return { pageUrl: location.href, custom, links }
+  }
+  return { pageUrl: location.href, custom: '', links: [] as string[] }
 }
 
 export let contextLinkExpression = (x: number, y: number) => `(${pageResolver.toString()})(${JSON.stringify(x)}, ${JSON.stringify(y)})`

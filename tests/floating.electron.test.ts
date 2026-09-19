@@ -172,6 +172,32 @@ test('page context menu resolves JavaScript-driven links', async () => {
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
 })
 
+test('page context menu falls back to the hovered target and main frame', async () => {
+  let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('select-pane', { client: client.id, pane: pane.id })
+  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/hovered-script-link` })
+  await rpc('wait', { tab: pane.activeTabId, selector: '#script-link' })
+  let page = application.context().pages().find(page => page.url() === `${url}/hovered-script-link`)!
+  await page.locator('#script-link').hover()
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restoreFloatingMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      ;(globalThis as any).floatingMenu = menu
+      menu.popup = () => undefined
+      return menu
+    }
+  })
+  try {
+    await application.evaluate(({ webContents }, pageUrl) => {
+      let contents = webContents.getAllWebContents().find(item => item.getURL() === pageUrl)!
+      ;(contents as any).emit('context-menu', { preventDefault: () => undefined }, { linkURL: '', x: -100, y: -100, frame: undefined, selectionText: '', isEditable: false })
+    }, `${url}/hovered-script-link`)
+    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open Link in Floating Pane'))).toBe(true)
+  } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
+})
+
 test('only-floating windows support saved layouts, window switching and competing clients', async () => {
   let original = await state(), client = original.model.clients[0]
   let session = await rpc('new-session', { name: 'floating-only', profile: 'bot' })
