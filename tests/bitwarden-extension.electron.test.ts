@@ -11,8 +11,9 @@ test('official Bitwarden reaches its login screen', async () => {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown>) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
-    let installed = await rpc('extension.install-bitwarden', { profile: 'profile_default' })
+    let installed = await rpc('extension.install-bitwarden', { profile: 'profile_default' }) as { name: string; path: string }
     expect(installed.name).toBe('Bitwarden Password Manager')
+    expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
     await rpc('extension.open', { profile: 'profile_default', id: 'Bitwarden' })
     await expect.poll(() => application.context().pages().some(page => page.url().startsWith('chrome-extension://'))).toBe(true)
     let popup = application.context().pages().find(page => page.url().startsWith('chrome-extension://'))!
