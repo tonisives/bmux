@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron'
 import type { FrameContext } from './frame-cosmetics'
-import { generateHints } from '../shared/click-mode'
+import { generateHints, usableHintCharacters } from '../shared/click-mode'
 import type { ClickAction, ClickModeSettings, DoubleTapInput } from '../shared/click-mode'
 
 type ScanResult = { index: number; x: number; y: number; width: number; height: number; role: string; title: string; url: string | null }
@@ -61,7 +61,7 @@ let installClickMode = (token: string) => {
     }
     if (settings.showInput && settings.main) {
       let indicator = document.createElement('span'), names: Record<string, string> = { normal: 'click', right: 'right', command: 'cmd', double: 'double', float: 'float link', 'split-left': 'link left', 'split-right': 'link right' }
-      indicator.textContent = `${names[action] || action}${input ? `  ${input}` : ''}   r c d n  F H L`
+      indicator.textContent = `${names[action] || action}${input ? `  ${input}` : ''}   r c d n  f h l`
       indicator.style.cssText = `all:initial;position:fixed;left:50%;top:12px;transform:translateX(-50%);background:rgba(20,22,25,.92);color:${settings.backgroundColor};font:600 12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:5px 9px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:pre;opacity:${settings.opacity}`
       shadow.append(indicator)
     }
@@ -95,7 +95,7 @@ export let createClickMode = (options: Options) => {
       let contexts = await options.frames(tabId, `(${installClickMode.toString()})(${JSON.stringify(token)})`)
       if (!active || active.version !== activation || !options.valid(clientId, tabId, contents)) { for (let context of contexts) void context.evaluate(clickModeCall('remove')).catch(() => undefined); return false }
       let scanned = contexts.flatMap(frame => Array.isArray(frame.value) ? (frame.value as ScanResult[]).map(result => ({ ...result, frame })) : []).slice(0, 500)
-      let hints = generateHints(scanned.length, settings.hintCharacters)
+      let hints = generateHints(scanned.length, usableHintCharacters(settings.hintCharacters))
       active.contexts = contexts
       active.candidates = scanned.map((candidate, index) => ({ ...candidate, hint: hints[index] }))
       if (!active.candidates.length) { cancel(); return false }
@@ -127,9 +127,8 @@ export let createClickMode = (options: Options) => {
     if (input.key === 'Escape') { cancel(); return true }
     if (input.key === 'Backspace') { mode.input = mode.input.slice(0, -1); mode.wrongSecondKey = false; render(mode); return true }
     let key = input.key.toLowerCase()
-    let shiftedActions: Record<string, ClickAction> = { f: 'float', h: 'split-left', l: 'split-right' }
-    let actions: Record<string, ClickAction> = { r: 'right', c: 'command', d: 'double', n: 'normal' }
-    let action = input.shift ? shiftedActions[key] : actions[key]
+    let actions: Record<string, ClickAction> = { r: 'right', c: 'command', d: 'double', n: 'normal', f: 'float', h: 'split-left', l: 'split-right' }
+    let action = !input.alt && !input.control && !input.meta && !input.shift ? actions[key] : undefined
     if (action) { mode.action = action; mode.input = ''; mode.wrongSecondKey = false; render(mode); return true }
     if (input.alt || input.control || input.meta || input.shift || input.key.length !== 1 || !/[a-z\d]/i.test(input.key)) return true
     let next = mode.input + key.toUpperCase()

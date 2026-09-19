@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { createDoubleTapTracker, generateHints } from '../src/shared/click-mode'
+import { createDoubleTapTracker, generateHints, usableHintCharacters } from '../src/shared/click-mode'
 import type { DoubleTapInput } from '../src/shared/click-mode'
 
 let option = (type: 'keyDown' | 'keyUp', alt = type === 'keyDown'): DoubleTapInput => ({ type, key: 'Alt', code: 'AltLeft', alt, control: false, meta: false, shift: false })
@@ -12,6 +12,10 @@ it('generates equal-length hints without prefix conflicts', () => {
   expect(hints).toHaveLength(30)
   expect(new Set(hints).size).toBe(30)
   expect(hints.every(hint => hint.length === 3)).toBe(true)
+})
+
+it('reserves action-first link keys from legacy hint alphabets', () => {
+  expect(usableHintCharacters('asfghjl')).toBe('asgj')
 })
 
 it('detects two quick pure modifier taps and resets invalid attempts', () => {

@@ -10,7 +10,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaults = defaultConfig.keyboard
   expect(defaultConfig.statusBar).toBe('top')
   expect(defaultConfig.showTabCloseButtons).toBe(false)
-  expect(defaultConfig.clickMode).toMatchObject({ enabled: true, doubleTapModifier: 'Option', hintCharacters: 'asfghjklqwetyuiopzxvbm' })
+  expect(defaultConfig.clickMode).toMatchObject({ enabled: true, doubleTapModifier: 'Option', hintCharacters: 'asgjkqwetyuiopzxvbm' })
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
   expect(defaults.shortcuts['Cmd+Ctrl+Alt+Shift+W']).toBe('sessions')
   expect(defaults.shortcuts['Cmd+T']).toBe('new-window')
