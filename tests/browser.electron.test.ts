@@ -1072,7 +1072,7 @@ test('native click mode activates with Option taps and performs each click actio
     let sourcePaneId = session.windows[0].panes[0].id, windowId = session.windows[0].id
     let openLinkPane = async (action: 'f' | 'h' | 'l') => {
       await activate()
-      await sendNativeKeys(application, [{ keyCode: action, modifiers: ['shift'] }, { keyCode: 's' }])
+      await keys(action, 's')
       await expect.poll(async () => {
         let current = await cli('state')
         return current.model.sessions.find((item: { id: string }) => item.id === session.id).windows.find((item: { id: string }) => item.id === windowId).panes.length
