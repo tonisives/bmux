@@ -9,13 +9,30 @@ import { promisify } from 'node:util'
 // until Bitwarden ships the upstream WASM decryption fix.
 let version = '2026.6.1'
 let digest = 'fcd29c5971d9b218ad9159717a19c38cca5150f2a0aa909ddf805bd7695d097e'
+let inlineNewItemPatch = 'bmux-inline-new-item-existing-popout-check'
+let inlineNewItemNeedle = 'const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})}'
+
+export let patchBitwardenInlineNewItem = (source: string) => {
+  if (source.includes(inlineNewItemPatch)) return source
+  if (!source.includes(inlineNewItemNeedle)) throw new Error('Bitwarden inline New item compatibility target was not found')
+  let replacement = 'const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});if(!h){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s});/* ' + inlineNewItemPatch + ' */return}try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})}'
+  return source.replace(inlineNewItemNeedle, replacement)
+}
+
+let patchPackage = async (directory: string) => {
+  let background = path.join(directory, 'background.js')
+  let source = await fs.readFile(background, 'utf8')
+  let patched = patchBitwardenInlineNewItem(source)
+  if (patched !== source) await fs.writeFile(background, patched)
+}
+
 export let installBitwardenExtension = async (directory: string, installedPath?: string) => {
   let root = path.join(directory, 'extension-packages')
   let target = installedPath ? path.resolve(installedPath) : path.join(root, 'bitwarden')
   if (path.dirname(target) !== path.resolve(root) || !/^bitwarden(?:-|$)/.test(path.basename(target))) throw new Error('Existing Bitwarden package path is invalid')
   try {
     let manifest = JSON.parse(await fs.readFile(path.join(target, 'manifest.json'), 'utf8'))
-    if (manifest.version === version) return target
+    if (manifest.version === version) { await patchPackage(target); return target }
   } catch { /* First installation or an incomplete package. */ }
   await fs.mkdir(root, { recursive: true })
   let temporary = await fs.mkdtemp(path.join(root, '.bitwarden-'))
@@ -29,6 +46,7 @@ export let installBitwardenExtension = async (directory: string, installedPath?:
     let zip = path.join(temporary, 'extension.zip'), unpacked = path.join(temporary, 'unpacked')
     await fs.writeFile(zip, archive, { mode: 0o600 })
     await promisify(execFile)('/usr/bin/unzip', ['-q', zip, '-d', unpacked], { timeout: 30000 })
+    await patchPackage(unpacked)
     try { await fs.rename(target, backup); movedPrevious = true } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
     try { await fs.rename(unpacked, target) } catch (error) {
       if (movedPrevious) await fs.rename(backup, target)
