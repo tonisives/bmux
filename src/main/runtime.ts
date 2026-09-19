@@ -32,7 +32,7 @@ import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from '.
 import { clampFloat, FLOAT_BORDER, FLOAT_HEADER } from '../shared/floating'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
-import { createNavigationCrashMarker, createSerialNavigationQueue, recoverNavigationCrash } from './crash-recovery'
+import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -64,11 +64,12 @@ export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
-  let startupNotice = recoverNavigationCrash(dataDirectory, model)
+  let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
+  let startupNotice = crashRecovery.startupNotice
   if (startupNotice) writeModel(dataDirectory, model, bookmarkFile)
-  let navigationCrashMarker = createNavigationCrashMarker(dataDirectory)
+  let navigationCrashMarker = crashRecovery.marker
   let queueRestoredNavigation = createSerialNavigationQueue()
-  let restoringTabs = true
+  let restoringTabs = crashRecovery.serializeRestores
   let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'tab'; paneId: string; index: number; tab: Tab; replacementTabId?: string })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
@@ -1652,7 +1653,7 @@ export let createRuntime = (dataDirectory: string) => {
   let shutdown = () => {
     shuttingDown = true
     clickMode.cancel()
-    navigationCrashMarker.close()
+    crashRecovery.close()
     extensions.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
     pageTools?.close()

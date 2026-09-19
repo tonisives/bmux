@@ -3,8 +3,8 @@
 .floatingPreview { position: absolute; left: var(--float-x); top: var(--float-y); width: var(--float-width); height: var(--float-height); border: 6px solid #343c48; background: #111318; overflow: hidden; pointer-events: none; }
 .floatingPreview > div { height: 58px; padding: 6px; background: #20262e; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .floatingPreview img { width: 100%; height: calc(100% - 58px); object-fit: fill; }
-.status { display: flex; order: -1; align-items: center; flex-shrink: 0; height: 28px; gap: 10px; padding: 0 8px; background: #1b1f24; color: #9ca3ad; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-app-region: drag; }
-.app[data-status-bar="bottom"] .status { order: initial; }
+.status { display: flex; order: -2; align-items: center; flex-shrink: 0; height: 28px; gap: 10px; padding: 0 8px; background: #1b1f24; color: #9ca3ad; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-app-region: drag; }
+.app[data-status-bar="bottom"] .status { order: 1; }
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
@@ -38,8 +38,14 @@
 @keyframes tab-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .tabSpinner { animation: none; } }
 .drag { flex: 1; min-width: 24px; align-self: stretch; }
-.status .error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status .error, .prompt .error { color: #e6a69c; }
+.prompt .error { color: #e6a69c; }
+.notifications { position: relative; z-index: 101; order: -1; flex: 0 0 auto; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.app[data-status-bar="bottom"] .notifications { order: 2; }
+.notification { display: flex; align-items: center; min-height: 28px; gap: 12px; padding: 4px 8px 4px 12px; border-top: 1px solid #493638; border-bottom: 1px solid #493638; background: #2a2022; color: #e6a69c; }
+.notification span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notification button { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #b98d89; }
+.notification button:hover { color: #f2c1bb; }
+.notification svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
 .prompt label { color: #c2ceb9; }
 .prompt input { padding: 0; outline: none; border: 0; border-radius: 0; background: transparent; flex: 1; color: #eceef2; }

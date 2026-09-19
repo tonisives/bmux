@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createNavigationCrashMarker, createSerialNavigationQueue, recoverNavigationCrash } from '../src/main/crash-recovery'
+import { createNavigationCrashMarker, createSerialNavigationQueue, recoverNavigationCrash, startNavigationCrashRecovery } from '../src/main/crash-recovery'
 import { id, initialModel, newPane } from '../src/main/model'
 
 let directories: string[] = []
@@ -59,4 +59,28 @@ it('serializes restored navigations so the crash marker cannot be overwritten', 
   releaseFirst()
   await Promise.all([first, second])
   expect(order).toEqual(['first:start', 'first:end', 'second:start'])
+})
+
+it('uses serialized restoration only after an unclean normal run', () => {
+  let dataDirectory = directory(), model = initialModel(), session = model.sessions[0], window = session.windows[0]
+  let safe = window.panes[0], crashed = newPane(session.defaultProfileId, 'https://example.com/crashed')
+  window.panes.push(crashed)
+  window.layout = { kind: 'split', id: id('split'), axis: 'horizontal', ratio: 0.5, first: { kind: 'pane', paneId: safe.id }, second: { kind: 'pane', paneId: crashed.id } }
+
+  let normal = startNavigationCrashRecovery(dataDirectory, model)
+  expect(normal.serializeRestores).toBe(false)
+  normal.marker.mark(safe.id, safe.activeTabId, 'https://example.com/safe')
+
+  let recovery = startNavigationCrashRecovery(dataDirectory, model)
+  expect(recovery.serializeRestores).toBe(true)
+  expect(recovery.startupNotice).toBeUndefined()
+  recovery.marker.mark(crashed.id, crashed.activeTabId, crashed.tabs[0].url)
+
+  let recovered = startNavigationCrashRecovery(dataDirectory, model)
+  expect(recovered.serializeRestores).toBe(false)
+  expect(recovered.startupNotice).toBe('Removed a pane after example.com crashed bmux during navigation.')
+  expect(window.panes.map(pane => pane.id)).toEqual([safe.id])
+  recovered.close()
+
+  expect(startNavigationCrashRecovery(dataDirectory, model).serializeRestores).toBe(false)
 })

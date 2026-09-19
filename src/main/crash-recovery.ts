@@ -5,8 +5,10 @@ import { removePane, removeSession, repairClientSelections, walkPanes } from './
 import { writeAtomic } from './store'
 
 type NavigationMarker = { version: 2; paneId: string; tabId: string; url: string }
+type RunMarker = { version: 1; recovery: boolean }
 
 let markerPath = (directory: string) => path.join(directory, 'navigation-crash.json')
+let runMarkerPath = (directory: string) => path.join(directory, 'browser-run.json')
 
 let readMarker = (file: string): NavigationMarker | undefined => {
   try {
@@ -66,5 +68,29 @@ export let createSerialNavigationQueue = () => {
     let result = tail.then(operation)
     tail = result.then(() => undefined, () => undefined)
     return result
+  }
+}
+
+let readRunMarker = (file: string): RunMarker | undefined => {
+  try {
+    let value = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<RunMarker>
+    if (value.version === 1 && typeof value.recovery === 'boolean') return value as RunMarker
+  } catch { /* A missing marker means the previous run shut down cleanly. */ }
+  return undefined
+}
+
+export let startNavigationCrashRecovery = (directory: string, model: Model) => {
+  let runFile = runMarkerPath(directory)
+  let previous = readRunMarker(runFile)
+  let startupNotice = previous?.recovery ? recoverNavigationCrash(directory, model) : undefined
+  if (!previous?.recovery) removeMarker(markerPath(directory))
+  let serializeRestores = previous?.recovery === false
+  writeAtomic(runFile, JSON.stringify({ version: 1, recovery: serializeRestores } satisfies RunMarker))
+  let marker = createNavigationCrashMarker(directory)
+  return {
+    marker,
+    serializeRestores,
+    startupNotice,
+    close: () => { marker.close(); removeMarker(runFile) },
   }
 }

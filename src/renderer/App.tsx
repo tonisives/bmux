@@ -26,6 +26,7 @@ export let App = () => {
   let [addressFocusVersion, setAddressFocusVersion] = useState(0)
   let [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
+  let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let [bookmarkSearches, setBookmarkSearches] = useState<Record<string, string>>({})
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
@@ -98,16 +99,23 @@ export let App = () => {
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
   }, [dismiss])
+  useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
+  let notices = [
+    ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
+    ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
+    ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
+  ]
   let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status message={control === 'address' ? '' : message} />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
+    {notices.length > 0 && <Notifications notices={notices} />}
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
 }
@@ -148,7 +156,11 @@ let selection = (state: PublicState) => {
   return { client, session, window, pane, tab, profile }
 }
 
-let Status = ({ message }: { message: string }) => {
+let Notifications = ({ notices }: { notices: { id: string; text: string; dismiss: () => void }[] }) => <div className={css.notifications} aria-label="Notifications">
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span><button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button></div>)}
+</div>
+
+let Status = () => {
   let { state, show, run, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
@@ -214,7 +226,7 @@ let Status = ({ message }: { message: string }) => {
   }, [client?.windowId, session?.windows.length])
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
-    <span className={css.drag} />{(message || state.configError || state.startupNotice) && <span className={css.error} title={message || state.configError || state.startupNotice}>{message || state.configError || state.startupNotice}</span>}
+    <span className={css.drag} />
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profile ? `Profile: ${profile.name}` : 'Profile'} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}

@@ -566,19 +566,25 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await cli('select-pane', { client: client.id, pane: crashed.id })
   await application.close()
   await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.activeTabId, url: 'https://chromewebstore.google.com/detail/example' }))
+  await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: true }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
   expect((await cli('list-panes', { window: session.windows[0].id })).map((pane: { id: string }) => pane.id)).toEqual([retained.id])
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(retained.id)
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
-  await expect(chrome.getByText('Removed a pane after chromewebstore.google.com crashed bmux during navigation.', { exact: true })).toBeVisible()
+  let notice = chrome.getByRole('status').filter({ hasText: 'Removed a pane after chromewebstore.google.com crashed bmux during navigation.' })
+  await expect(notice).toBeVisible()
+  let positions = await chrome.locator('[aria-label="Browser status"], [aria-label="Notifications"]').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
+  expect(positions[1]).toBeGreaterThan(positions[0])
+  await notice.getByRole('button', { name: 'Dismiss notification' }).click()
+  await expect(notice).toHaveCount(0)
   await cli('detach-client', { client: client.id })
   await application.close()
   await launch()
 })
 
-test('restores persisted pane navigations one at a time', async () => {
+test('restores concurrently normally and one at a time after an application crash', async () => {
   let session = await cli('new-session', { name: 'serialized restore' })
   let first = session.windows[0].panes[0]
   let second = await cli('split-window', { pane: first.id })
@@ -590,6 +596,13 @@ test('restores persisted pane navigations one at a time', async () => {
   saved.windows[0].panes.find((pane: { id: string }) => pane.id === second.id).tabs[0].url = `${url}/serialized-restore-second`
   await fs.writeFile(stateFile, JSON.stringify(persisted, null, 2))
   let before = heldRequests
+  await launch()
+  await expect.poll(() => heldRequests).toBeGreaterThan(before)
+  await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
+  for (let response of heldResponses) response.end()
+  await application.close()
+  await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
+  before = heldRequests
   await launch()
   await expect.poll(() => heldRequests).toBeGreaterThan(before)
   await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'navigation-crash.json'), 'utf8')).tabId).toBe(first.activeTabId)
