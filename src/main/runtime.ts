@@ -1101,7 +1101,8 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'extension.load') return extensions.load(profile.id, required(args, 'path'))
       if (method === 'extension.install-bitwarden') {
         let before = await extensions.list(profile.id)
-        let installed = await extensions.load(profile.id, await installBitwardenExtension(dataDirectory))
+        let current = before.extensions.find(extension => extension.name === 'Bitwarden Password Manager')
+        let installed = await extensions.load(profile.id, await installBitwardenExtension(dataDirectory, current?.path))
         for (let extension of before.extensions) if (extension.name === installed.name && extension.id !== installed.id) await extensions.remove(profile.id, extension.id)
         return installed
       }

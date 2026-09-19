@@ -9,32 +9,43 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-'))
   let extensionPath = path.join(directory, 'extension')
   await fs.mkdir(extensionPath)
-  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', version: '1.0', permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
+  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', version: '1.0', permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, sandbox: { pages: ['inline-list.html'] }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js', 'inline-list.html', 'inline-list.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
   await fs.writeFile(path.join(extensionPath, 'background.js'), `
     chrome.tabs.onActivated.addListener(() => chrome.storage.local.get('activated', value => chrome.storage.local.set({ activated: (value.activated || 0) + 1 })))
     chrome.runtime.onConnect.addListener(port => {
       if (port.name !== 'inline') return
-      chrome.storage.local.set({ inlineSender: port.sender?.tab })
-      chrome.tabs.sendMessage(port.sender.tab.id, { command: 'newItem' })
+      port.onMessage.addListener(message => {
+        if (message.command !== 'newItem') return
+        chrome.storage.local.set({ inlineSender: port.sender?.tab, inlineOrigin: port.sender?.origin, inlineFrameId: port.sender?.frameId })
+        port.postMessage({ command: 'ack' })
+        chrome.tabs.sendMessage(port.sender.tab.id, { command: 'newItem' })
+      })
     })
     chrome.runtime.onMessage.addListener((message, sender) => {
       if (message.command !== 'newItemDone') return
       chrome.storage.local.set({ inlineReply: sender.tab?.url })
       chrome.storage.local.get('inlineWindow', value => {
         if (value.inlineWindow) return chrome.windows.update(value.inlineWindow, { focused: true })
-        chrome.windows.get(sender.tab.windowId, { populate: true }, senderWindow => {
-          chrome.runtime.getPlatformInfo(() => {
-            chrome.windows.create({ type: 'popup', focused: true, width: 420, height: 630, left: senderWindow.left, top: senderWindow.top, url: chrome.runtime.getURL('edit.html?uilocation=popout') }, created => {
-              chrome.storage.local.set({ inlineWindow: created?.id, inlineError: chrome.runtime.lastError?.message })
+        chrome.tabs.query({ url: chrome.runtime.getURL('edit.html') + '*' }, existing => {
+          let queryError = chrome.runtime.lastError?.message
+          chrome.storage.local.set({ inlineQueryCount: existing?.length, inlineQueryError: queryError })
+          if (queryError) return
+          chrome.windows.get(sender.tab.windowId, { populate: true }, senderWindow => {
+            chrome.runtime.getPlatformInfo(() => {
+              chrome.windows.create({ type: 'popup', focused: true, width: 420, height: 630, left: senderWindow.left, top: senderWindow.top, url: chrome.runtime.getURL('edit.html?uilocation=popout') }, created => {
+                chrome.storage.local.set({ inlineWindow: created?.id, inlineError: chrome.runtime.lastError?.message })
+              })
             })
           })
         })
       })
     })
   `)
-  await fs.writeFile(path.join(extensionPath, 'content.js'), 'document.documentElement.dataset.extensionFixture = "loaded"; let frame = document.createElement("iframe"); frame.src = chrome.runtime.getURL("inline.html"); document.documentElement.appendChild(frame); chrome.runtime.onMessage.addListener(message => { if (message.command === "newItem") chrome.runtime.sendMessage({ command: "newItemDone" }) })')
-  await fs.writeFile(path.join(extensionPath, 'inline.html'), '<!doctype html><button id="new-item">New item</button><script src="inline.js"></script>')
-  await fs.writeFile(path.join(extensionPath, 'inline.js'), 'document.querySelector("#new-item").onclick = () => chrome.runtime.connect({ name: "inline" })')
+  await fs.writeFile(path.join(extensionPath, 'content.js'), 'document.documentElement.dataset.extensionFixture = "loaded"; let frame = document.createElement("iframe"); frame.setAttribute("credentialless", ""); frame.src = chrome.runtime.getURL("inline.html"); document.documentElement.appendChild(frame); chrome.runtime.onMessage.addListener(message => { if (message.command === "newItem") chrome.runtime.sendMessage({ command: "newItemDone" }) })')
+  await fs.writeFile(path.join(extensionPath, 'inline.html'), '<!doctype html><iframe sandbox="allow-scripts" src="inline-list.html" style="width:300px;height:100px"></iframe><script src="inline.js"></script>')
+  await fs.writeFile(path.join(extensionPath, 'inline.js'), 'let port = chrome.runtime.connect({ name: "inline" }); port.onMessage.addListener(message => { if (message.command === "ack") document.body.dataset.ack = "received" }); window.addEventListener("message", event => { if (event.source !== document.querySelector("iframe").contentWindow || event.data.command !== "newItem") return; port.postMessage({ command: "newItem" }) })')
+  await fs.writeFile(path.join(extensionPath, 'inline-list.html'), '<!doctype html><button id="new-item">New item</button><script src="inline-list.js"></script>')
+  await fs.writeFile(path.join(extensionPath, 'inline-list.js'), 'document.querySelector("#new-item").onclick = () => parent.postMessage({ command: "newItem" }, "*")')
   await fs.writeFile(path.join(extensionPath, 'edit.html'), '<!doctype html><h1>New vault item</h1>')
   await fs.writeFile(path.join(extensionPath, 'popup.html'), '<!doctype html><h1>Extension fixture</h1><p id="active-tab"></p><script src="popup.js"></script>')
   await fs.writeFile(path.join(extensionPath, 'popup.js'), `
@@ -65,8 +76,13 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let page = application!.context().pages().find(page => page.url() === url)!
     await expect(page.locator('h1')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-extension-fixture', 'loaded')
-    await page.frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
+    await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
+    await expect(page.frameLocator('iframe').locator('body')).toHaveAttribute('data-ack', 'received')
     expect(await page.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/edit.html?uilocation=popout'))).toBe(true)
+    let editWindow = application!.context().pages().find(page => page.url().endsWith('/edit.html?uilocation=popout'))!
+    await expect(editWindow.getByRole('heading', { name: 'New vault item' })).toBeVisible()
+    await expect.poll(() => application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), editWindow.url())).toBe(true)
     let other = await rpc('profile.create', { name: 'Isolated extension profile' })
     expect((await rpc('extension.list', { profile: other.id })).extensions).toEqual([])
     await rpc('extension.open', { profile, id: installed.id })
@@ -74,15 +90,14 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let popup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
     await expect(popup.locator('h1')).toHaveText('Extension fixture')
     await expect(popup.locator('#active-tab')).toHaveText(url)
+    expect(await popup.evaluate(async () => (await (window as any).chrome.storage.local.get(['inlineQueryCount', 'inlineQueryError'])))).toEqual({ inlineQueryCount: 0 })
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineSender')).inlineSender?.url)).toBe(url)
+    expect(await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineOrigin')).inlineOrigin)).toBe(`chrome-extension://${installed.id}`)
+    expect(await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineFrameId')).inlineFrameId)).toBeGreaterThan(0)
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineReply')).inlineReply)).toBe(url)
-    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/edit.html?uilocation=popout'))).toBe(true)
-    let editWindow = application!.context().pages().find(page => page.url().endsWith('/edit.html?uilocation=popout'))!
-    await expect(editWindow.getByRole('heading', { name: 'New vault item' })).toBeVisible()
-    await expect.poll(() => application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), editWindow.url())).toBe(true)
     await page.locator('input[type=password]').click()
     await expect.poll(() => application!.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.getTitle() === 'bmux')?.isFocused())).toBe(true)
-    await page.frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
+    await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect.poll(() => application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), editWindow.url())).toBe(true)
     await editWindow.close()
     let current = (await rpc('tab.list')).find((tab: any) => tab.active)
@@ -133,11 +148,16 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect(extensionWindow.id).toBeGreaterThan(0)
     expect(extensionWindow.tabs).toHaveLength(1)
     await rpc('extension.remove', { profile, id: another.id })
+    await popup.evaluate(() => (window as any).chrome.storage.local.set({ upgradeFixture: 'preserved' }))
+    let manifest = JSON.parse(await fs.readFile(path.join(extensionPath, 'manifest.json'), 'utf8'))
+    manifest.version = '1.1'
+    await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify(manifest))
     await application!.close()
     await launch()
-    expect((await rpc('extension.list', { profile })).extensions[0].id).toBe(installed.id)
+    expect((await rpc('extension.list', { profile })).extensions[0]).toMatchObject({ id: installed.id, version: '1.1' })
     await rpc('extension.open', { profile, id: installed.id })
     let restoredPopup = application!.context().pages().find(page => page.url() === `chrome-extension://${installed.id}/popup.html`)!
+    expect(await restoredPopup.evaluate(() => (window as any).chrome.storage.local.get('upgradeFixture'))).toEqual({ upgradeFixture: 'preserved' })
     expect(await restoredPopup.evaluate(() => (window as any).chrome.storage.session.get(null))).toEqual({})
     await rpc('extension.remove', { profile, id: installed.id })
     expect((await rpc('extension.list', { profile })).extensions).toEqual([])
