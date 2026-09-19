@@ -37,7 +37,7 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1)</script>`)
+    response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await launch()
@@ -139,6 +139,30 @@ test('page context menu opens links in a float using the source profile', async 
     expect(added.profileId).toBe(pane.profileId)
     await rpc('wait', { tab: added.activeTabId, selector: '#counter' })
     expect((await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/linked`)
+  } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
+})
+
+test('page context menu resolves JavaScript-driven links', async () => {
+  let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('select-pane', { client: client.id, pane: pane.id })
+  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/script-link` })
+  await rpc('wait', { tab: pane.activeTabId, selector: '#script-link' })
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restoreFloatingMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      ;(globalThis as any).floatingMenu = menu
+      menu.popup = () => undefined
+      return menu
+    }
+  })
+  try {
+    let page = application.context().pages().find(page => page.url() === `${url}/script-link`)!
+    await page.locator('#script-link').click({ button: 'right' })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open Link in Floating Pane'))).toBe(true)
+    await application.evaluate(() => { let item = (globalThis as any).floatingMenu.items.find((item: any) => item.label === 'Open Link in Floating Pane'); item.click() })
+    await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/resolved-post`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
 })
 
