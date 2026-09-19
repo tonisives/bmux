@@ -1434,6 +1434,30 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await cli('detach-client', { client: client.id })
 })
 
+test('dragging over the displayed URL preserves the selection when editing starts', async () => {
+  let session = await cli('new-session', { name: 'Address selection' })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('navigate', { tab: pane.activeTabId, url: `${url}/select-the-right-side-of-this-url` })
+  let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
+  let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
+  let bounds = (await displayed.boundingBox())!
+  await chrome.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)
+  await chrome.mouse.down()
+  await chrome.mouse.move(bounds.x + 210, bounds.y + bounds.height / 2, { steps: 5 })
+  let selected = await displayed.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
+  expect(selected.start).toBeGreaterThan(0)
+  expect(selected.end).toBeGreaterThan(selected.start!)
+  await chrome.mouse.up()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(address).toBeFocused()
+  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(selected)
+  await address.press('Delete')
+  await expect(address).not.toHaveValue(`${url}/select-the-right-side-of-this-url`)
+  await address.press('Escape')
+  await cli('detach-client', { client: client.id })
+})
+
 test('status window list uses available room and hides its native scrollbar', async () => {
   let session = await cli('new-session', { name: 'status-window-list' })
   let client = await cli('attach-session', { session: session.id })
