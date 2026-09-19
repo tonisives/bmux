@@ -17,6 +17,7 @@ import { clampFloat } from '../shared/floating'
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
+type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -373,7 +374,18 @@ let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, lis
   }, [form, list, visible, statusBar])
 }
 
-let AddressPrompt = () => {
+let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: number, takeSelection: () => AddressSelection | undefined) => {
+  useEffect(() => {
+    let input = ref.current
+    if (!input) return
+    input.focus()
+    let selection = takeSelection()
+    if (selection) input.setSelectionRange(selection.start, selection.end, selection.direction)
+    else input.select()
+  }, [focusVersion, ref, takeSelection])
+}
+
+let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
   let [index, setIndex] = useState(-1)
@@ -389,7 +401,7 @@ let AddressPrompt = () => {
   let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [addressFocusVersion])
+  useAddressFocus(ref, addressFocusVersion, takeSelection)
   let normalized = query.trim().toLowerCase()
   let bookmarks = searchBookmarkPages(profile?.bookmarks ?? [], query).slice(0, 8)
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
@@ -570,7 +582,23 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
   let url = tab ? state.pendingUrls[tab.id] ?? tab.url : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
+  let addressSelection = useRef<AddressSelection | undefined>(undefined)
+  let takeAddressSelection = useCallback(() => {
+    let selection = addressSelection.current
+    addressSelection.current = undefined
+    return selection
+  }, [])
   let open = () => show('address', paneId)
+  let editSelection = (event: MouseEvent<HTMLInputElement>) => {
+    let input = event.currentTarget
+    let start = input.selectionStart ?? 0, end = input.selectionEnd ?? 0
+    addressSelection.current = start === end ? undefined : { start, end, direction: input.selectionDirection ?? 'none' }
+    void open()
+  }
+  let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault(); void open()
+  }
   let navigation = tab ? state.navigation[tab.id] : undefined
   let activeIndex = navigation?.activeIndex ?? 0
   let entries = navigation?.entries ?? []
@@ -601,7 +629,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
         {(popup.direction === 'back' ? back : forward).map(entry => <NavigationMenuItem key={entry.index} entry={entry} select={selectHistory} />)}
       </div>}
     </div>}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={url}>{url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'}</button>}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
     {customProfile && <button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteTitle}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /><ProfileConnectionIcon proxy={!!customProfile.proxy} /></button>}
   </div>

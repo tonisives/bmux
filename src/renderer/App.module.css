@@ -75,7 +75,7 @@
 .navigationMenu strong, .navigationMenu span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .navigationMenu strong { font-weight: 500; }
 .navigationMenu span { color: #8e98a4; }
-.location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .location:hover { background: transparent; color: #f0f2f5; }
 .loading { flex-shrink: 0; color: #7d8590; }
 .profileRoute { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 2px 5px; border: 0; border-radius: 0; background: transparent; color: #8e98a4; }

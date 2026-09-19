@@ -44,7 +44,7 @@ try {
   await prompt.press('Enter')
   await expect(prompt).toHaveCount(0, { timeout: 45000 })
   await expect(status.getByRole('button', { name: `1:${targetWindowName}*`, exact: true })).toBeVisible()
-  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toContainText(new URL(target).hostname, { timeout: 45000 })
+  await expect.poll(() => chrome.getByRole('button', { name: 'Address', exact: true }).inputValue(), { timeout: 45000 }).toContain(new URL(target).hostname)
   if (selector) {
     await expect.poll(() => application.context().pages().some(page => page.url().startsWith(target)), { timeout: 30000 }).toBe(true)
     let page = application.context().pages().find(page => page.url().startsWith(target))
@@ -74,7 +74,7 @@ try {
     await activate()
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await prompt.fill(secondUrl); await prompt.press('Enter')
-    await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toContainText(new URL(secondUrl).hostname, { timeout: 45000 })
+    await expect.poll(() => chrome.getByRole('button', { name: 'Address', exact: true }).inputValue(), { timeout: 45000 }).toContain(new URL(secondUrl).hostname)
     let urls = await chrome.evaluate(async () => (await window.bmux.state()).model.sessions[0].windows.map(window => window.panes[0].tabs[0].url))
     if (urls[0] !== target || urls[1] !== secondUrl) throw new Error('Internal windows did not preserve their own URLs')
     await activate()
@@ -92,7 +92,7 @@ try {
   await expect(panePrompt).toBeFocused()
   await panePrompt.fill(`${fixtureUrl}/second-pane`); await panePrompt.press('Enter')
   await expect(panePrompt).toHaveCount(0)
-  await expect(pane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${fixtureUrl}/second-pane`)
+  await expect(pane.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${fixtureUrl}/second-pane`)
   await activate()
   for (let pageUrl of [target, `${fixtureUrl}/second-pane`]) {
     await expect.poll(() => application.evaluate(({ BaseWindow }, pageUrl) => {
