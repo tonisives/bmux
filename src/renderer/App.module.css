@@ -113,10 +113,10 @@
 .profileProxy h2 { color: #eceef2; font: inherit; font-weight: 600; }
 .profileProxyEndpoint { display: grid; grid-template-columns: 110px minmax(180px, 1fr) 100px; gap: 10px; }
 .profileProxyEndpoint label, .profileProxyCredentials label { display: grid; gap: 4px; }
-.profileProxyEndpoint select { height: 34px; margin-top: 8px; padding: 0 7px; border: 1px solid #505a66; border-radius: 0; background: #111318; color: #eceef2; font: inherit; }
+.profileProxyEndpoint select { height: 34px; margin: 8px 0 12px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .profileDeviceGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 .profileDeviceGrid label, .profileDeviceLocation label { display: grid; gap: 4px; }
-.profileDeviceGrid select { height: 34px; padding: 0 7px; border: 1px solid #505a66; border-radius: 0; background: #111318; color: #eceef2; font: inherit; }
+.profileDeviceGrid select { height: 34px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .profileDeviceLocation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .profileProxyAuthentication { display: block; margin: 6px 0 12px; }
 .profileProxyCredentials { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
