@@ -121,6 +121,20 @@ export let App = () => {
 }
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
+const NORDVPN_PROXY_REGIONS = [
+  { label: 'Netherlands', host: 'nl.socks.nordhold.net' },
+  { label: 'Sweden', host: 'se.socks.nordhold.net' },
+  { label: 'United States', host: 'us.socks.nordhold.net' },
+  { label: 'Amsterdam, Netherlands', host: 'amsterdam.nl.socks.nordhold.net' },
+  { label: 'Stockholm, Sweden', host: 'stockholm.se.socks.nordhold.net' },
+  { label: 'Atlanta, United States', host: 'atlanta.us.socks.nordhold.net' },
+  { label: 'Chicago, United States', host: 'chicago.us.socks.nordhold.net' },
+  { label: 'Dallas, United States', host: 'dallas.us.socks.nordhold.net' },
+  { label: 'Los Angeles, United States', host: 'los-angeles.us.socks.nordhold.net' },
+  { label: 'New York, United States', host: 'new-york.us.socks.nordhold.net' },
+  { label: 'Phoenix, United States', host: 'phoenix.us.socks.nordhold.net' },
+  { label: 'San Francisco, United States', host: 'san-francisco.us.socks.nordhold.net' },
+]
 
 let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
 let profileDeviceLabel = (profile: Profile) => !profile.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: profile.device.platform === 'android' ? 'Android' : 'iOS' })[profile.device.preset]
@@ -881,6 +895,9 @@ let ProxyProtocolSelect = ({ value, onChange }: { value: 'http' | 'https' | 'soc
 
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
   let { state, run } = useUI()
+  let configuredNordRegion = NORDVPN_PROXY_REGIONS.find(region => region.host === profile.proxy?.host)?.host ?? ''
+  let [provider, setProvider] = useState<'custom' | 'nordvpn'>(configuredNordRegion ? 'nordvpn' : 'custom')
+  let [nordRegion, setNordRegion] = useState(configuredNordRegion)
   let [protocol, setProtocol] = useState(profile?.proxy?.protocol ?? 'https')
   let [host, setHost] = useState(profile?.proxy?.host ?? '')
   let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
@@ -888,6 +905,15 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
   let [busy, setBusy] = useState(false)
   let proxyTest = state.profileProxyTests[profile.id]
+  let changeProvider = (event: ChangeEvent<HTMLSelectElement>) => {
+    let value = event.target.value as 'custom' | 'nordvpn'
+    setProvider(value)
+    if (value === 'custom') return
+    setProtocol('socks5'); setPort('1080'); setAuthenticated(true)
+    if (nordRegion) setHost(nordRegion)
+    else setHost('')
+  }
+  let changeNordRegion = (event: ChangeEvent<HTMLSelectElement>) => { setNordRegion(event.target.value); setHost(event.target.value) }
   let changeProtocol = (event: ChangeEvent<HTMLSelectElement>) => { let value = event.target.value as 'http' | 'https' | 'socks5'; setProtocol(value); if (!profile.proxy) setPort(value === 'http' ? '80' : value === 'https' ? '443' : '1080') }
   let changeHost = (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value)
   let changePort = (event: ChangeEvent<HTMLInputElement>) => setPort(event.target.value)
@@ -911,8 +937,9 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   return <form className={css.profileProxy} onSubmit={saveProxy}>
       <h2>Connection</h2>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
-      <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>
-      <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>
+      <div className={css.profileProxyProvider}><label>Provider<select aria-label="Provider" value={provider} onChange={changeProvider}><option value="custom">Custom</option><option value="nordvpn">NordVPN</option></select></label>{provider === 'nordvpn' && <label>Region<select aria-label="Region" value={nordRegion} onChange={changeNordRegion} required><option value="" disabled>Choose region</option>{NORDVPN_PROXY_REGIONS.map(region => <option key={region.host} value={region.host}>{region.label}</option>)}</select></label>}</div>
+      {provider === 'custom' && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
+      {provider === 'nordvpn' ? <p>Uses SOCKS5 on port 1080. Enter your NordVPN service credentials.</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
       <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>

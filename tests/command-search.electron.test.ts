@@ -232,6 +232,12 @@ test('pane profile route uses icons only for a profile that differs from the ses
 test('profile proxy settings route, test, and restore the selected profile connection', async () => {
   let current = await state(), profile = current.model.profiles[0]
   let panel = await openProfilePanel(profile.name)
+  await panel.getByLabel('Provider', { exact: true }).selectOption('nordvpn')
+  await expect(panel.getByLabel('Region', { exact: true })).toBeVisible()
+  await panel.getByLabel('Region', { exact: true }).selectOption('amsterdam.nl.socks.nordhold.net')
+  await expect(panel).toContainText('Uses SOCKS5 on port 1080')
+  await expect(panel.getByLabel('Host', { exact: true })).toHaveCount(0)
+  await panel.getByLabel('Provider', { exact: true }).selectOption('custom')
   await panel.getByLabel('Protocol', { exact: true }).selectOption('http')
   await panel.getByLabel('Host', { exact: true }).fill('127.0.0.1')
   await panel.getByLabel('Port', { exact: true }).fill(String(proxy.port))

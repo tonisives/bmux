@@ -116,8 +116,11 @@
 .profileProxy { margin-top: 18px; padding-top: 14px; border-top: 1px solid #363c45; }
 .profileProxy h2 { color: #eceef2; font: inherit; font-weight: 600; }
 .profileProxyEndpoint { display: grid; grid-template-columns: 110px minmax(180px, 1fr) 100px; gap: 10px; }
-.profileProxyEndpoint label, .profileProxyCredentials label { display: grid; gap: 4px; }
-.profileProxyEndpoint select { height: 34px; margin: 8px 0 12px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.profileProxyProvider { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-bottom: 10px; }
+.profileProxyEndpoint label, .profileProxyProvider label, .profileProxyCredentials label { display: grid; gap: 4px; }
+.profileProxyEndpoint select, .profileProxyProvider select { height: 34px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.profileProxyEndpoint select { margin: 8px 0 12px; }
+.profileProxyProvider select { margin-top: 8px; }
 .profileDeviceGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
 .profileDeviceGrid label, .profileDeviceLocation label { display: grid; gap: 4px; }
 .profileDeviceGrid select { height: 34px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
@@ -132,7 +135,7 @@
 .proxyTestSuccess dl { margin: 0; }
 .proxyTestSuccess dl > div { padding: 0; }
 .proxyTestSuccess dt { min-width: 64px; color: inherit; }
-@media (max-width: 650px) { .profileProxyEndpoint, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
+@media (max-width: 650px) { .profileProxyEndpoint, .profileProxyProvider, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
 .sessionBack { color: #bdc9b4; }
 .newSession { color: #87a9c4; }
 .sessionRow { display: flex; align-items: stretch; }
