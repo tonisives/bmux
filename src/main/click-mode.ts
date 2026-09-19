@@ -3,14 +3,17 @@ import type { FrameContext } from './frame-cosmetics'
 import { generateHints } from '../shared/click-mode'
 import type { ClickAction, ClickModeSettings, DoubleTapInput } from '../shared/click-mode'
 
-type ScanResult = { index: number; x: number; y: number; width: number; height: number; role: string; title: string }
+type ScanResult = { index: number; x: number; y: number; width: number; height: number; role: string; title: string; url: string | null }
 type Candidate = ScanResult & { frame: FrameContext; hint: string }
 type ActiveMode = { clientId: string; tabId: string; contents: WebContents; contexts: FrameContext[]; candidates: Candidate[]; input: string; action: ClickAction; wrongSecondKey: boolean; settings: ClickModeSettings; version: number }
 type Options = {
   frames: (tabId: string, expression: string) => Promise<FrameContext[]>
   valid: (clientId: string, tabId: string, contents: WebContents) => boolean
+  openLink: (clientId: string, tabId: string, url: string, action: Extract<ClickAction, 'float' | 'split-left' | 'split-right'>) => Promise<void>
   error: (error: unknown) => void
 }
+
+let linkAction = (action: ClickAction): action is Extract<ClickAction, 'float' | 'split-left' | 'split-right'> => action === 'float' || action === 'split-left' || action === 'split-right'
 
 let installClickMode = (token: string) => {
   type Hint = { index: number; hint: string; x: number; y: number }
@@ -35,7 +38,9 @@ let installClickMode = (token: string) => {
     positions.add(position)
     let title = element.getAttribute('aria-label') || element.getAttribute('title') || (element as HTMLInputElement).value || (element as HTMLInputElement).placeholder || element.textContent || ''
     elements.push(element)
-    results.push({ index: elements.length - 1, x: left, y: top, width: right - left, height: bottom - top, role: element.getAttribute('role') || element.tagName.toLowerCase(), title: title.trim().replace(/\s+/g, ' ').slice(0, 80) })
+    let rawUrl = element.tagName.toLowerCase() === 'a' ? element.getAttribute('href') : null, url: string | null = null
+    if (rawUrl) try { let parsed = new URL(rawUrl, document.baseURI); if (['http:', 'https:', 'file:'].includes(parsed.protocol)) url = parsed.href } catch { /* Ignore malformed links. */ }
+    results.push({ index: elements.length - 1, x: left, y: top, width: right - left, height: bottom - top, role: element.getAttribute('role') || element.tagName.toLowerCase(), title: title.trim().replace(/\s+/g, ' ').slice(0, 80), url })
   }
   let host = document.createElement('div')
   host.dataset.bmuxClickMode = token
@@ -55,8 +60,8 @@ let installClickMode = (token: string) => {
       label.append(document.createTextNode(remaining)); shadow.append(label)
     }
     if (settings.showInput && settings.main) {
-      let indicator = document.createElement('span'), names: Record<string, string> = { normal: 'click', right: 'right', command: 'cmd', double: 'double' }
-      indicator.textContent = `${names[action] || action}${input ? `  ${input}` : ''}   r c d n`
+      let indicator = document.createElement('span'), names: Record<string, string> = { normal: 'click', right: 'right', command: 'cmd', double: 'double', float: 'float link', 'split-left': 'link left', 'split-right': 'link right' }
+      indicator.textContent = `${names[action] || action}${input ? `  ${input}` : ''}   r c d n  F H L`
       indicator.style.cssText = `all:initial;position:fixed;left:50%;top:12px;transform:translateX(-50%);background:rgba(20,22,25,.92);color:${settings.backgroundColor};font:600 12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:5px 9px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:pre;opacity:${settings.opacity}`
       shadow.append(indicator)
     }
@@ -74,9 +79,10 @@ export let createClickMode = (options: Options) => {
   let clear = (mode: ActiveMode) => Promise.allSettled(mode.contexts.map(context => context.evaluate(clickModeCall('remove'))))
   let cancel = () => { version++; let previous = active; active = undefined; return previous ? clear(previous) : Promise.resolve([]) }
   let render = (mode: ActiveMode, shake = false) => {
+    let visible = linkAction(mode.action) ? mode.candidates.filter(candidate => candidate.url) : mode.candidates
     for (let context of mode.contexts) {
       let style = { showInput: mode.settings.showInput, main: !context.parentId, fontSize: mode.settings.fontSize, opacity: mode.settings.opacity, backgroundColor: mode.settings.backgroundColor, textColor: mode.settings.textColor }
-      let hints = mode.candidates.filter(candidate => candidate.frame === context).map(({ index, hint, x, y }) => ({ index, hint, x, y }))
+      let hints = visible.filter(candidate => candidate.frame === context).map(({ index, hint, x, y }) => ({ index, hint, x, y }))
       void context.evaluate(clickModeCall('render', [hints, mode.input, mode.action, style, shake])).catch(() => undefined)
     }
   }
@@ -101,6 +107,7 @@ export let createClickMode = (options: Options) => {
     let action = mode.action, contents = mode.contents, clientId = mode.clientId, tabId = mode.tabId
     await cancel(); await sleep(50)
     if (!options.valid(clientId, tabId, contents) || contents.isDestroyed()) return
+    if (linkAction(action)) { if (candidate.url) await options.openLink(clientId, tabId, candidate.url, action); return }
     let point = await candidate.frame.point(candidate.x + candidate.width / 2, candidate.y + candidate.height / 2)
     let x = Math.round(point.x), y = Math.round(point.y), modifiers = action === 'command' ? 4 : 0
     contents.focus()
@@ -119,12 +126,15 @@ export let createClickMode = (options: Options) => {
     if (input.type !== 'keyDown') return true
     if (input.key === 'Escape') { cancel(); return true }
     if (input.key === 'Backspace') { mode.input = mode.input.slice(0, -1); mode.wrongSecondKey = false; render(mode); return true }
-    if (input.alt || input.control || input.meta || input.shift || input.key.length !== 1 || !/[a-z\d]/i.test(input.key)) return true
     let key = input.key.toLowerCase()
+    let shiftedActions: Record<string, ClickAction> = { f: 'float', h: 'split-left', l: 'split-right' }
     let actions: Record<string, ClickAction> = { r: 'right', c: 'command', d: 'double', n: 'normal' }
-    if (actions[key]) { mode.action = actions[key]; render(mode); return true }
+    let action = input.shift ? shiftedActions[key] : actions[key]
+    if (action) { mode.action = action; mode.input = ''; mode.wrongSecondKey = false; render(mode); return true }
+    if (input.alt || input.control || input.meta || input.shift || input.key.length !== 1 || !/[a-z\d]/i.test(input.key)) return true
     let next = mode.input + key.toUpperCase()
-    let matches = mode.candidates.filter(candidate => candidate.hint.startsWith(next))
+    let available = linkAction(mode.action) ? mode.candidates.filter(candidate => candidate.url) : mode.candidates
+    let matches = available.filter(candidate => candidate.hint.startsWith(next))
     let exact = matches.find(candidate => candidate.hint === next)
     if (exact) { void sendClick(mode, exact).catch(options.error); return true }
     if (matches.length) { mode.input = next; mode.wrongSecondKey = false; render(mode); return true }

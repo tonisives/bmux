@@ -50,10 +50,13 @@ Double-tap Option to show keyboard hints over clickable elements in the selected
 | c | Use Command-click for the selected hint |
 | d | Use double-click for the selected hint |
 | n | Return to a normal click |
+| Shift+F | Open the selected link in a floating pane |
+| Shift+H | Open the selected link in a split on the left |
+| Shift+L | Open the selected link in a split on the right |
 | Backspace | Remove the last hint character |
 | Escape | Close click mode |
 
-Click mode only targets web content. It does not place hints over bmux's status bar or dialogs. Use the `click-mode` action to assign another shortcut or prefix binding.
+The pane actions show hints for links only. Click mode only targets web content. It does not place hints over bmux's status bar or dialogs. Use the `click-mode` action to assign another shortcut or prefix binding.
 
 Pickers support typing to search, Up/Down to select, Enter to confirm, and Escape to clear or close. Open `?` or press F1 to see active shortcuts and commands.
 

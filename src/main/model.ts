@@ -54,10 +54,10 @@ export let mapLayout = (layout: Layout | null, transform: (node: Layout) => Layo
   let node = layout.kind === 'split' ? { ...layout, first: mapLayout(layout.first, transform)!, second: mapLayout(layout.second, transform)! } : layout
   return transform(node)
 }
-export let splitLayout = (layout: Layout | null, paneId: string, addedId: string, axis: 'horizontal' | 'vertical'): Layout => {
+export let splitLayout = (layout: Layout | null, paneId: string, addedId: string, axis: 'horizontal' | 'vertical', before = false): Layout => {
   if (!layout) return { kind: 'pane', paneId: addedId }
   return mapLayout(layout, node => node.kind === 'pane' && node.paneId === paneId
-    ? { kind: 'split', id: id('split'), axis, ratio: 0.5, first: node, second: { kind: 'pane', paneId: addedId } }
+    ? { kind: 'split', id: id('split'), axis, ratio: 0.5, first: before ? { kind: 'pane', paneId: addedId } : node, second: before ? node : { kind: 'pane', paneId: addedId } }
     : node)!
 }
 type PaneDirection = 'left' | 'right' | 'up' | 'down'

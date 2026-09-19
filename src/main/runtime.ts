@@ -152,6 +152,11 @@ export let createRuntime = (dataDirectory: string) => {
       let pane = paneById(model, client.paneId).pane
       return pane.activeTabId === tabId && tabs.get(tabId)?.contents === contents && tabs.get(tabId)?.parent === owner.window
     },
+    openLink: async (clientId, tabId, url, action) => {
+      let pane = tabById(model, tabId).pane
+      if (action === 'float') await execute({ method: 'new-pane', args: { pane: pane.id, client: clientId, url } })
+      else await execute({ method: 'split-window', args: { pane: pane.id, client: clientId, url, axis: 'horizontal', before: action === 'split-left' } })
+    },
     error: error => reportError(error),
   })
   let browserSettings = () => configuration?.browser ?? DEFAULT_BROWSER
@@ -1341,7 +1346,7 @@ export let createRuntime = (dataDirectory: string) => {
       let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url)) : undefined)
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
-      window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal')
+      window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
       window.panes.push(pane)
       if (args.client) resolve(model.clients, args.client, 'Client').paneId = pane.id
       changed(); await visualQueue; return pane
