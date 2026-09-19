@@ -14,13 +14,15 @@ export type ClickModeSettings = {
 export const DEFAULT_CLICK_MODE: ClickModeSettings = {
   enabled: true,
   doubleTapModifier: 'Option',
-  hintCharacters: 'asfghjklqwetyuiopzxvbm',
+  hintCharacters: 'asgjkqwetyuiopzxvbm',
   showInput: true,
   fontSize: 12,
   opacity: .95,
   backgroundColor: '#ffcc00',
   textColor: '#000000',
 }
+
+export let usableHintCharacters = (characters: string) => characters.replace(/[fhl]/gi, '')
 
 export let generateHints = (count: number, characters: string) => {
   if (!count) return []

@@ -10,7 +10,7 @@ import type { PluginSettings } from '../shared/plugins'
 import { parseBrowserSettings } from './browser-config'
 import { DEFAULT_BROWSER } from '../shared/browser-tools'
 import type { BrowserSettings } from '../shared/browser-tools'
-import { DEFAULT_CLICK_MODE } from '../shared/click-mode'
+import { DEFAULT_CLICK_MODE, usableHintCharacters } from '../shared/click-mode'
 import type { ClickModeSettings, DoubleTapModifier } from '../shared/click-mode'
 
 type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings }
@@ -42,7 +42,7 @@ let parseClickMode = (value: unknown): ClickModeSettings => {
     result.doubleTapModifier = raw.doubleTapModifier as DoubleTapModifier
   }
   if (raw.hintCharacters !== undefined) {
-    if (typeof raw.hintCharacters !== 'string' || !/^[a-z\d]+$/i.test(raw.hintCharacters) || new Set(raw.hintCharacters.toLowerCase()).size !== raw.hintCharacters.length || /[rcdn]/i.test(raw.hintCharacters) || raw.hintCharacters.length < 2) throw new Error('clickMode.hintCharacters must contain at least two unique ASCII letters or digits and cannot contain r, c, d, or n')
+    if (typeof raw.hintCharacters !== 'string' || !/^[a-z\d]+$/i.test(raw.hintCharacters) || new Set(raw.hintCharacters.toLowerCase()).size !== raw.hintCharacters.length || /[rcdn]/i.test(raw.hintCharacters) || usableHintCharacters(raw.hintCharacters).length < 2) throw new Error('clickMode.hintCharacters must contain at least two usable unique ASCII letters or digits and cannot contain r, c, d, or n')
     result.hintCharacters = raw.hintCharacters.toLowerCase()
   }
   if (raw.showInput !== undefined) { if (typeof raw.showInput !== 'boolean') throw new Error('clickMode.showInput must be true or false'); result.showInput = raw.showInput }

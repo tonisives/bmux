@@ -50,13 +50,13 @@ Double-tap Option to show keyboard hints over clickable elements in the selected
 | c | Use Command-click for the selected hint |
 | d | Use double-click for the selected hint |
 | n | Return to a normal click |
-| Shift+F | Open the selected link in a floating pane |
-| Shift+H | Open the selected link in a split on the left |
-| Shift+L | Open the selected link in a split on the right |
+| f | Show link hints and open the selected link in a floating pane |
+| h | Show link hints and open the selected link in a split on the left |
+| l | Show link hints and open the selected link in a split on the right |
 | Backspace | Remove the last hint character |
 | Escape | Close click mode |
 
-The pane actions show hints for links only. Click mode only targets web content. It does not place hints over bmux's status bar or dialogs. Use the `click-mode` action to assign another shortcut or prefix binding.
+Choose a pane action before typing its link hint. The pane actions show hints for links only. Click mode only targets web content. It does not place hints over bmux's status bar or dialogs. Use the `click-mode` action to assign another shortcut or prefix binding.
 
 Pickers support typing to search, Up/Down to select, Enter to confirm, and Escape to clear or close. Open `?` or press F1 to see active shortcuts and commands.
 
@@ -133,7 +133,7 @@ keyboard:
 
 Set `showTabCloseButtons: true` when you want close buttons on the status tabs.
 
-`clickMode.doubleTapModifier` accepts `Option`, `Command`, `Control`, `Shift`, `Escape`, or `null`. Hint characters must be unique letters or digits and cannot include `r`, `c`, `d`, or `n`, which select click actions. Click mode settings reload with the rest of the file.
+`clickMode.doubleTapModifier` accepts `Option`, `Command`, `Control`, `Shift`, `Escape`, or `null`. Hint characters must be unique letters or digits and cannot include `r`, `c`, `d`, or `n`, which select click actions. The action-first link keys `f`, `h`, and `l` are ignored if present in an older `hintCharacters` setting. Click mode settings reload with the rest of the file.
 
 Configured shortcuts take precedence over website shortcuts and native menu defaults. Multiple shortcuts can use the same action.
 
