@@ -29,7 +29,7 @@ import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from './floating'
-import { clampFloat, FLOAT_BORDER, FLOAT_HEADER } from '../shared/floating'
+import { clampFloat, FLOAT_BORDER, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
@@ -725,6 +725,7 @@ export let createRuntime = (dataDirectory: string) => {
       let frame = live.floats.get(placement.paneId)
       if (!frame) {
         frame = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+        frame.setBorderRadius(FLOAT_RADIUS)
         live.floats.set(placement.paneId, frame)
         live.window.contentView.addChildView(frame)
         frame.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -802,7 +803,11 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed) continue
       moveView(live, target)
       extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.activeTabId === tabId)
-      if (target === viewer?.live.window && bounds) live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
+      if (target === viewer?.live.window && bounds) {
+        let floating = !!viewer && !model.clients.find(client => client.id === viewer.id)?.zoomedPaneId && !!tabById(model, tabId).window.floating?.some(item => item.paneId === tabById(model, tabId).pane.id)
+        live.view.setBorderRadius(floating ? FLOAT_RADIUS - FLOAT_BORDER : 0)
+        live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
+      }
     }
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
