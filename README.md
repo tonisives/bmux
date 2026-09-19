@@ -6,9 +6,9 @@
 
 Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser for people who live at the keyboard, with a CLI for background browser automation.
 
-[Website](https://bmux.tonis.dev) · [Download](https://github.com/tonisives/bmux/releases/latest) · [Get started](#get-started) · [Keyboard shortcuts](docs/keyboard.md) · [Automation guide](docs/agent.md)
+[Website](https://bmux.cc) · [Download](https://github.com/tonisives/bmux/releases/latest) · [Get started](#get-started) · [Keyboard shortcuts](docs/keyboard.md) · [Automation guide](docs/agent.md)
 
-[![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.tonis.dev/#split-panes)
+[![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.cc/#split-panes)
 
 ## Features
 
@@ -29,13 +29,13 @@ bmux is an early preview, free under the [GNU GPL version 3](LICENSE). The [orig
 
 Keep a workspace for each project.
 
-[![The bmux session picker showing development, research and personal workspaces](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/switch-sessions.png)](https://bmux.tonis.dev/#switch-sessions)
+[![The bmux session picker showing development, research and personal workspaces](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/switch-sessions.png)](https://bmux.cc/#switch-sessions)
 
 ## Made for agents
 
 Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit tab IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.
 
-[![A task added through the bmux CLI in the bot pane while the human pane stays selected](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/run-agent.png)](https://bmux.tonis.dev/#agents)
+[![A task added through the bmux CLI in the bot pane while the human pane stays selected](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/run-agent.png)](https://bmux.cc/#agents)
 
 ## Get started
 
@@ -95,7 +95,7 @@ See the [roadmap](docs/todo.md) for the development backlog and recently complet
 
 See [Local verification](docs/verification.md) for checks, test artifacts, and GUI test setup.
 
-The product website is at [bmux.tonis.dev](https://bmux.tonis.dev). Its source and deployment are maintained separately from this browser repository.
+The product website is at [bmux.cc](https://bmux.cc). Its source and deployment are maintained separately from this browser repository.
 
 Build and launch locally:
 
