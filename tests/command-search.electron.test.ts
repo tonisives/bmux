@@ -211,6 +211,24 @@ test('profile icon has no visible label and opens details for the selected pane'
   await expect(panel).toContainText(`Pane${pane.id}`)
 })
 
+test('pane profile route uses icons only for a profile that differs from the session default', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
+  let defaultProfile = current.model.profiles.find((item: { id: string }) => item.id === session.defaultProfileId)!
+  await expect(chrome.getByRole('button', { name: `Profile ${defaultProfile.name}, desktop, system connection`, exact: true })).toHaveCount(0)
+  let customProfile = current.model.profiles.find((item: { id: string }) => item.id !== session.defaultProfileId)!
+  let pane = await rpc('split-window', { pane: client.paneId, profile: customProfile.id, client: client.id })
+  let route = chrome.getByRole('button', { name: `Profile ${customProfile.name}, desktop, system connection`, exact: true })
+  try {
+    await expect(route).toBeVisible()
+    await expect(route.locator(':scope > svg')).toHaveCount(3)
+    await expect(route.locator('[data-profile-avatar]')).toHaveCount(1)
+    await expect(route.locator('[data-profile-route-icon]')).toHaveCount(2)
+  } finally {
+    await rpc('kill-pane', { pane: (pane as { id: string }).id, confirm: true })
+  }
+})
+
 test('profile proxy settings route, test, and restore the selected profile connection', async () => {
   let current = await state(), profile = current.model.profiles[0]
   let panel = await openProfilePanel(profile.name)
@@ -223,12 +241,12 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await panel.getByRole('button', { name: 'Save proxy', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy?.host).toBe('127.0.0.1')
   await expect.poll(() => proxyRequests).toBeGreaterThan(before)
-  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, proxy connection`, exact: true })).toBeVisible()
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, proxy connection`, exact: true })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
   await expect(panel.getByRole('status')).toHaveText('Exit IP: 203.0.113.9')
   await panel.getByRole('button', { name: 'Use system connection', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy).toBeUndefined()
-  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, system connection`, exact: true })).toBeVisible()
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, system connection`, exact: true })).toHaveCount(0)
 })
 
 test('profile device identity is applied before requests and cache status is public', async () => {
@@ -239,7 +257,7 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByLabel('Timezone', { exact: true }).fill('Europe/Paris')
   await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('pixel-8')
-  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toBeVisible()
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toHaveCount(0)
   current = await state()
   let tab = current.model.sessions[0].windows[0].panes[0].activeTabId
   await rpc('navigate', { tab, url: `${url}/device-android` })

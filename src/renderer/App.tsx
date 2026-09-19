@@ -136,6 +136,14 @@ let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
   </svg>
 }
 
+let ProfileDeviceIcon = ({ mobile }: { mobile: boolean }) => mobile
+  ? <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="5" y="1.5" width="8" height="15" rx="1" /><path d="M8 14h2" /></svg>
+  : <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="2" y="3" width="14" height="9" rx="1" /><path d="M6 15h6M9 12v3" /></svg>
+
+let ProfileConnectionIcon = ({ proxy }: { proxy: boolean }) => proxy
+  ? <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="connection"><circle cx="4" cy="5" r="1.5" /><circle cx="14" cy="4" r="1.5" /><circle cx="13" cy="14" r="1.5" /><path d="m5.5 5 7-1M5 6.2l7 6.6" /></svg>
+  : <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="connection"><circle cx="9" cy="9" r="7" /><path d="M2 9h14M9 2c2 2 3 4.3 3 7s-1 5-3 7c-2-2-3-4.3-3-7s1-5 3-7Z" /></svg>
+
 let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; progress?: number }) => progressing
   ? <svg className={`${css.statusIcon} ${progress === undefined ? css.downloadProgressIndeterminate : ''}`} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="progressing" data-download-progress={progress}>
     <circle className={css.downloadProgressTrack} cx="10" cy="10" r="7" pathLength="100" />
@@ -556,7 +564,7 @@ let NavigationMenuItem = ({ entry, select }: { entry: { index: number; title: st
 }
 let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let { state, control, show, run, historyPopup, setHistoryPopup } = useUI()
-  let { client, window } = selection(state)
+  let { client, session, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
   let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
@@ -581,6 +589,9 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
   let openProfile = () => show('profiles', paneId)
+  let customProfile = profile && session && profile.id !== session.defaultProfileId ? profile : undefined
+  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}, ${customProfile.proxy ? 'proxy' : 'system'} connection` : ''
+  let profileRouteTitle = customProfile?.proxy ? `${profileRouteLabel} · ${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}` : profileRouteLabel
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -592,7 +603,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     </div>}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={url}>{url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'}</button>}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {profile && <button type="button" className={css.profileRoute} onClick={openProfile} aria-label={`Profile ${profile.name}, ${profileDeviceLabel(profile)}, ${profile.proxy ? 'proxy' : 'system'} connection`} title={profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'System connection'}>{profile.name} · {profileDeviceLabel(profile)} · {profile.proxy ? 'proxy' : 'system'}</button>}
+    {customProfile && <button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteTitle}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /><ProfileConnectionIcon proxy={!!customProfile.proxy} /></button>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
