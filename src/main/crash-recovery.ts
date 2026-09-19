@@ -1,0 +1,61 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import type { Model } from '../shared/types'
+import { removePane, removeSession, repairClientSelections, walkPanes } from './model'
+import { writeAtomic } from './store'
+
+type NavigationMarker = { version: 1; paneId: string; tabId: string; url: string }
+
+let markerPath = (directory: string) => path.join(directory, 'navigation-crash.json')
+
+let readMarker = (file: string): NavigationMarker | undefined => {
+  try {
+    let value = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<NavigationMarker>
+    if (value.version === 1 && typeof value.paneId === 'string' && typeof value.tabId === 'string' && typeof value.url === 'string') return value as NavigationMarker
+  } catch { /* Missing and invalid markers are not recoverable. */ }
+  return undefined
+}
+
+let removeMarker = (file: string) => {
+  try { fs.unlinkSync(file) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+}
+
+let pageName = (url: string) => {
+  try { return new URL(url).hostname.replace(/^www\./, '') || 'a page' } catch { return 'a page' }
+}
+
+export let recoverNavigationCrash = (directory: string, model: Model) => {
+  let file = markerPath(directory)
+  let marker = readMarker(file)
+  removeMarker(file)
+  if (!marker) return undefined
+  let found = walkPanes(model).find(({ pane }) => pane.id === marker.paneId && pane.tabs.some(tab => tab.id === marker.tabId))
+  if (!found) return undefined
+  let { session, window, pane } = found
+  if (window.panes.length > 1) {
+    window.layout = removePane(window.layout, pane.id)
+    window.floating = window.floating?.filter(item => item.paneId !== pane.id)
+    window.panes = window.panes.filter(item => item.id !== pane.id)
+  } else if (session.windows.length > 1) session.windows = session.windows.filter(item => item.id !== window.id)
+  else removeSession(model, session)
+  repairClientSelections(model)
+  return `Removed a pane after ${pageName(marker.url)} crashed bmux during navigation.`
+}
+
+export let createNavigationCrashMarker = (directory: string) => {
+  let file = markerPath(directory)
+  let current: NavigationMarker | undefined
+  return {
+    mark: (paneId: string, tabId: string, url: string) => {
+      if (url === 'about:blank') return
+      current = { version: 1, paneId, tabId, url }
+      writeAtomic(file, JSON.stringify(current))
+    },
+    clear: (tabId: string, url?: string) => {
+      if (current?.tabId !== tabId || (url !== undefined && current.url !== url)) return
+      current = undefined
+      removeMarker(file)
+    },
+    close: () => { current = undefined; removeMarker(file) },
+  }
+}

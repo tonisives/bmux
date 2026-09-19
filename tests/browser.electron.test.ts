@@ -557,6 +557,27 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   await fs.writeFile(path.join(root, 'artifacts/resource-sample.json'), JSON.stringify({ liveTabs: metrics.tabs, clients: metrics.visibleClients, workingSetMB: Math.round(totalWorkingSetKB / 1024), processes: metrics.processes }, null, 2))
 })
 
+test('removes a pane after an interrupted navigation and reports the recovery on restart', async () => {
+  let session = await cli('new-session', { name: 'navigation crash recovery' })
+  let retained = session.windows[0].panes[0]
+  let crashed = await cli('split-window', { pane: retained.id, url: `${url}/crash-candidate` })
+  await cli('wait', { tab: crashed.activeTabId, selector: '#text' })
+  let client = await cli('attach-session', { session: session.id })
+  await cli('select-pane', { client: client.id, pane: crashed.id })
+  await application.close()
+  await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 1, paneId: crashed.id, tabId: crashed.activeTabId, url: 'https://chromewebstore.google.com/detail/example' }))
+  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
+  expect((await cli('list-panes', { window: session.windows[0].id })).map((pane: { id: string }) => pane.id)).toEqual([retained.id])
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(retained.id)
+  let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
+  await expect(chrome.getByText('Removed a pane after chromewebstore.google.com crashed bmux during navigation.', { exact: true })).toBeVisible()
+  await cli('detach-client', { client: client.id })
+  await application.close()
+  await launch()
+})
+
 test('imports Brave bookmark folders, opens them in the correct profile, and persists them', async () => {
   let source = path.join(directory, 'brave-fixture')
   await fs.mkdir(path.join(source, 'Default'), { recursive: true })

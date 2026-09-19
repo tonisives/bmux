@@ -32,6 +32,7 @@ import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from '.
 import { clampFloat, FLOAT_BORDER, FLOAT_HEADER } from '../shared/floating'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
+import { createNavigationCrashMarker, recoverNavigationCrash } from './crash-recovery'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -63,6 +64,9 @@ export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
+  let startupNotice = recoverNavigationCrash(dataDirectory, model)
+  if (startupNotice) writeModel(dataDirectory, model, bookmarkFile)
+  let navigationCrashMarker = createNavigationCrashMarker(dataDirectory)
   let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'tab'; paneId: string; index: number; tab: Tab; replacementTabId?: string })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
@@ -183,7 +187,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -497,7 +501,7 @@ export let createRuntime = (dataDirectory: string) => {
     let bootstrapping = !popupOptions
     let ready = Promise.all([extensions.attach(pane.profileId, contents.session), pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)]).finally(() => { bootstrapping = false })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
-    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -579,9 +583,9 @@ export let createRuntime = (dataDirectory: string) => {
     })
     contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
     contents.on('did-navigate-in-page', update)
-    contents.on('did-finish-load', () => { delete crashes[tabId]; update() })
-    contents.on('render-process-gone', (_event, details) => { crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
-    contents.on('did-fail-load', (_event, code, description, _url, mainFrame) => { if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
+    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update() })
+    contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
+    contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
       let added = created.panes[0].tabs[0]
@@ -640,7 +644,7 @@ export let createRuntime = (dataDirectory: string) => {
       )
       Menu.buildFromTemplate(template).popup({ window: owner.window })
     })
-    if (load && initialUrl !== 'about:blank') void ready.then(() => { if (!live.disposed) return contents.loadURL(initialUrl) }).catch(error => { if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
+    if (load && initialUrl !== 'about:blank') void ready.then(() => { if (!live.disposed) { navigationCrashMarker.mark(pane.id, tabId, initialUrl); return contents.loadURL(initialUrl) } }).catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
     return live
   }
   let keepClientFocus = (live: LiveTab) => {
@@ -1635,6 +1639,7 @@ export let createRuntime = (dataDirectory: string) => {
   let shutdown = () => {
     shuttingDown = true
     clickMode.cancel()
+    navigationCrashMarker.close()
     extensions.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
     pageTools?.close()
