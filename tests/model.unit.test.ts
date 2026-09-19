@@ -24,6 +24,11 @@ describe('session layouts and persistence', () => {
     expect(kept).toMatchObject({ kind: 'split', axis: 'horizontal', first: { paneId: 'a' }, second: { paneId: 'c' } })
     expect(removePane(removePane(kept, 'a'), 'c')).toBeNull()
   })
+  it('can place a new pane before its split target', () => {
+    let tree = splitLayout(null, '', 'right', 'horizontal')
+    tree = splitLayout(tree, 'right', 'left', 'horizontal', true)
+    expect(tree).toMatchObject({ kind: 'split', axis: 'horizontal', first: { paneId: 'left' }, second: { paneId: 'right' } })
+  })
   it('clones mixed-profile layouts with fresh page IDs and preserves the selected tabs', () => {
     let model = initialModel()
     let window = model.sessions[0].windows[0]

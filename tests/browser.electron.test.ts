@@ -1067,6 +1067,35 @@ test('native click mode activates with Option taps and performs each click actio
     await activate(); await keys('d', 'a', 's')
     await expect.poll(() => cli('eval', { tab, expression: 'window.doubleClicks' })).toBe(1)
 
+    await page.evaluate(() => { document.body.innerHTML = '<button>Not a link</button><a href="/click-mode-pane-target">Pane target</a>' })
+    let sourcePaneId = session.windows[0].panes[0].id, windowId = session.windows[0].id
+    let openLinkPane = async (action: 'f' | 'h' | 'l') => {
+      await activate()
+      await sendNativeKeys(application, [{ keyCode: action, modifiers: ['shift'] }, { keyCode: 's' }])
+      await expect.poll(async () => {
+        let current = await cli('state')
+        return current.model.sessions.find((item: { id: string }) => item.id === session.id).windows.find((item: { id: string }) => item.id === windowId).panes.length
+      }).toBe(2)
+      let current = await cli('state')
+      let window = current.model.sessions.find((item: { id: string }) => item.id === session.id).windows.find((item: { id: string }) => item.id === windowId)
+      let created = window.panes.find((item: { id: string }) => item.id !== sourcePaneId)
+      expect(created.tabs[0].url).toBe(`${url}/click-mode-pane-target`)
+      await cli('select-pane', { client: client.id, pane: sourcePaneId })
+      return { created, window }
+    }
+
+    let floating = await openLinkPane('f')
+    expect(floating.window.floating.some((item: { paneId: string }) => item.paneId === floating.created.id)).toBe(true)
+    await cli('kill-pane', { pane: floating.created.id, confirm: true })
+
+    let left = await openLinkPane('h')
+    expect(left.window.layout).toMatchObject({ axis: 'horizontal', first: { paneId: left.created.id }, second: { paneId: sourcePaneId } })
+    await cli('kill-pane', { pane: left.created.id, confirm: true })
+
+    let right = await openLinkPane('l')
+    expect(right.window.layout).toMatchObject({ axis: 'horizontal', first: { paneId: sourcePaneId }, second: { paneId: right.created.id } })
+    await cli('kill-pane', { pane: right.created.id, confirm: true })
+
     await page.evaluate(() => {
       document.body.replaceChildren()
       let host = document.createElement('div'), shadow = host.attachShadow({ mode: 'open' }), button = document.createElement('button')

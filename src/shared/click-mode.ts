@@ -1,5 +1,5 @@
 export type DoubleTapModifier = 'Option' | 'Command' | 'Control' | 'Shift' | 'Escape' | null
-export type ClickAction = 'normal' | 'right' | 'command' | 'double'
+export type ClickAction = 'normal' | 'right' | 'command' | 'double' | 'float' | 'split-left' | 'split-right'
 export type ClickModeSettings = {
   enabled: boolean
   doubleTapModifier: DoubleTapModifier
