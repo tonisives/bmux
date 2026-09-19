@@ -1,12 +1,30 @@
 import { expect, it } from 'vitest'
 import { cloneWindow, initialModel, newPane, paneInDirection, splitLayout, validateModel } from '../src/main/model'
-import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from '../src/main/floating'
-import { clampFloat, FLOAT_BORDER, FLOAT_CONTENT_INSET, FLOAT_HEADER } from '../src/shared/floating'
+import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from '../src/main/floating'
+import { clampFloat, FLOAT_BORDER, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER } from '../src/shared/floating'
 
 it('keeps floating page content inside the visible frame', () => {
   expect(FLOAT_BORDER).toBe(2.25)
   expect(FLOAT_CONTENT_INSET).toBe(6)
+  expect(FLOAT_CONTENT_VERTICAL_INSET).toBe(8)
   expect(FLOAT_HEADER).toBe(30)
+})
+
+it('remembers the last floating placement and preserves its relative position after a window resize', () => {
+  let model = initialModel(), window = model.sessions[0].windows[0], first = window.panes[0]
+  let floating = liftPane(window, first.id, 1280, 720)
+  Object.assign(floating, { x: 640, y: 360, width: 320, height: 240 })
+  rememberPlacement(window, floating, 1280, 720)
+  forgetPlacement(window, first.id)
+  let second = newPane(first.profileId)
+  window.panes = [second]
+  let reopened = liftPane(window, second.id, 1280, 720)
+  expect(reopened).toMatchObject({ x: 640, y: 360, width: 320, height: 240 })
+  forgetPlacement(window, second.id)
+  let third = newPane(first.profileId)
+  window.panes = [third]
+  expect(liftPane(window, third.id, 1920, 1080)).toMatchObject({ x: 1067, y: 630, width: 320, height: 240 })
+  expect(validateModel(model)).toBe(model)
 })
 
 it('lifts a pane and restores its position, orientation and ratio without replacing tabs', () => {

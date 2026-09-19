@@ -31,8 +31,8 @@ import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
-import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from './floating'
-import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
+import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
+import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
@@ -834,7 +834,7 @@ export let createRuntime = (dataDirectory: string) => {
     let placement = window.floating?.find(item => item.paneId === paneId)
     if (!placement) return
     let rect = floatRect(client, placement)
-    return { tabId: pane.activeTabId, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_INSET * 2) }
+    return { tabId: pane.activeTabId, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_VERTICAL_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_VERTICAL_INSET * 2) }
   }
   let prepareFloats = (client: Client, live: LiveClient) => {
     let window = model.sessions.flatMap(session => session.windows).find(window => window.id === client.windowId)
@@ -1075,6 +1075,7 @@ export let createRuntime = (dataDirectory: string) => {
       let values = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
       if (!Object.values(values).every(Number.isFinite)) throw new Error('Invalid floating bounds')
       Object.assign(placement, clampFloat({ ...placement, ...values }, client.width, client.height - 28))
+      if (args.commit === true) rememberPlacement(window, placement, client.width, client.height - 28)
       await scheduleVisuals()
       if (args.commit === true) save()
       return placement

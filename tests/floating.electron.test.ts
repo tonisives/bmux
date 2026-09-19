@@ -83,7 +83,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(systemWindows)
   await rpc('activate-client', { client: client.id })
   let before = (await views())[0], rect = before.children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
-  await expect.poll(async () => (await views())[0].children.find(view => view.url === `${url}/right`)?.bounds).toEqual({ x: rect.x + 6, y: rect.y + 36, width: rect.width - 12, height: rect.height - 42 })
+  await expect.poll(async () => (await views())[0].children.find(view => view.url === `${url}/right`)?.bounds).toEqual({ x: rect.x + 6, y: rect.y + 38, width: rect.width - 12, height: rect.height - 46 })
   await drag(before.bounds.x + rect.x + dragSpace!.x + dragSpace!.width / 2, before.bounds.y + rect.y + dragSpace!.y + dragSpace!.height / 2, 180, 100)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].x).toBe(rect.x + 180)
   let moved = (await views())[0].children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
@@ -155,6 +155,43 @@ test('page context menu opens links in a float using the source profile', async 
     await rpc('wait', { tab: added.activeTabId, selector: '#counter' })
     expect((await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/linked`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
+})
+
+test('reopens a closed float at its remembered position and adapts after window resizing', async () => {
+  let current = await state(), client = current.model.clients[0], session = current.model.sessions.find((item: any) => item.id === client.sessionId)
+  let originalWindowId = client.windowId
+  let memoryWindow = await rpc('new-window', { session: session.id, name: 'floating-memory' })
+  await rpc('select-window', { client: client.id, window: memoryWindow.id })
+  let tiled = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === memoryWindow.id).panes[0]
+  let first = await rpc('new-pane', { pane: tiled.id, client: client.id })
+  let before = (await state()).model.clients.find((item: any) => item.id === client.id)
+  let remembered = { x: 500, y: 260, width: 420, height: 310 }
+  await rpc('float.bounds', { client: client.id, pane: first.id, ...remembered, commit: true })
+  await rpc('kill-pane', { pane: first.id, confirm: true })
+  let reopened = await rpc('new-pane', { pane: tiled.id, client: client.id })
+  await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === memoryWindow.id).floating.find((item: any) => item.paneId === reopened.id)).toMatchObject(remembered)
+  await rpc('kill-pane', { pane: reopened.id, confirm: true })
+
+  let systemWindow = await application.evaluate(({ BaseWindow }) => {
+    let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+    let bounds = window.getBounds()
+    window.setBounds({ ...bounds, width: bounds.width - 240, height: bounds.height - 140 })
+    return bounds
+  })
+  await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).width).toBeLessThan(before.width)
+  let resized = (await state()).model.clients.find((item: any) => item.id === client.id)
+  let sourceHeight = before.height - 28, resizedHeight = resized.height - 28
+  let expected = {
+    x: Math.round(remembered.x / (before.width - remembered.width) * (resized.width - remembered.width)),
+    y: Math.round(remembered.y / (sourceHeight - remembered.height) * (resizedHeight - remembered.height)),
+    width: remembered.width,
+    height: remembered.height,
+  }
+  let scaled = await rpc('new-pane', { pane: tiled.id, client: client.id })
+  await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === memoryWindow.id).floating.find((item: any) => item.paneId === scaled.id)).toMatchObject(expected)
+  await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setBounds(bounds), systemWindow)
+  await rpc('select-window', { client: client.id, window: originalWindowId })
+  await rpc('kill-window', { window: memoryWindow.id, confirm: true })
 })
 
 test('page context menu resolves JavaScript-driven links', async () => {

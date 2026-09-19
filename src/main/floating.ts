@@ -3,6 +3,18 @@ import { clampFloat } from '../shared/floating'
 import { id, mapLayout, removePane } from './model'
 
 export let layoutPaneIds = (layout: Layout | null): string[] => !layout ? [] : layout.kind === 'pane' ? [layout.paneId] : [...layoutPaneIds(layout.first), ...layoutPaneIds(layout.second)]
+export let rememberPlacement = (window: InternalWindow, placement: FloatingPane, width: number, height: number) => {
+  window.lastFloating = { x: placement.x, y: placement.y, width: placement.width, height: placement.height, workspaceWidth: Math.max(1, width), workspaceHeight: Math.max(1, height) }
+}
+let rememberedPlacement = (window: InternalWindow, paneId: string, width: number, height: number): FloatingPane | undefined => {
+  let saved = window.lastFloating
+  if (!saved || window.floating?.length) return
+  let restoredWidth = Math.min(width, saved.width), restoredHeight = Math.min(height, saved.height)
+  let xTravel = Math.max(0, saved.workspaceWidth - saved.width), yTravel = Math.max(0, saved.workspaceHeight - saved.height)
+  let x = xTravel ? saved.x / xTravel * Math.max(0, width - restoredWidth) : saved.x
+  let y = yTravel ? saved.y / yTravel * Math.max(0, height - restoredHeight) : saved.y
+  return clampFloat({ paneId, x, y, width: restoredWidth, height: restoredHeight }, width, height)
+}
 export let liftPane = (window: InternalWindow, paneId: string, width: number, height: number) => {
   let existing = window.floating?.find(item => item.paneId === paneId)
   if (existing) return existing
@@ -16,9 +28,11 @@ export let liftPane = (window: InternalWindow, paneId: string, width: number, he
     return node
   })
   let offset = 24 * ((window.floating?.length ?? 0) % 8 + 1)
-  let floating = clampFloat({ paneId, x: offset, y: offset, width: width * .6, height: height * .6, dock }, width, height)
+  let floating = rememberedPlacement(window, paneId, width, height) ?? clampFloat({ paneId, x: offset, y: offset, width: width * .6, height: height * .6 }, width, height)
+  floating.dock = dock
   window.layout = removePane(window.layout, paneId)
   window.floating = [...window.floating ?? [], floating]
+  rememberPlacement(window, floating, width, height)
   return floating
 }
 export let forgetPlacement = (window: InternalWindow, paneId: string) => {

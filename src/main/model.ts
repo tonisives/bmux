@@ -165,6 +165,7 @@ export let validateModel = (value: unknown): Model => {
         return node
       })
       if (window.floating !== undefined && !Array.isArray(window.floating)) throw new Error('Invalid floating panes')
+      if (window.lastFloating && (!['x', 'y', 'width', 'height', 'workspaceWidth', 'workspaceHeight'].every(key => Number.isFinite(window.lastFloating![key as keyof typeof window.lastFloating])) || window.lastFloating.x < 0 || window.lastFloating.y < 0 || window.lastFloating.width <= 0 || window.lastFloating.height <= 0 || window.lastFloating.workspaceWidth <= 0 || window.lastFloating.workspaceHeight <= 0)) throw new Error('Invalid remembered floating geometry')
       for (let floating of window.floating ?? []) {
         if (!floating || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(floating[key as keyof typeof floating])) || floating.width <= 0 || floating.height <= 0 || floating.x < 0 || floating.y < 0) throw new Error('Invalid floating geometry')
         let dock = floating.dock
