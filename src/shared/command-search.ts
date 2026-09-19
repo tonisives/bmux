@@ -17,6 +17,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'history', description: 'Search browsing history in this profile', action: 'history' },
   { command: 'activity', description: 'Downloads, permissions, and running plugins', action: 'activity' },
   { command: 'profiles', description: 'Show the selected browser profile', action: 'profiles' },
+  { command: 'click-mode', description: 'Show keyboard hints for clickable elements in the selected pane', action: 'click-mode' },
   { command: 'open ', usage: 'open URL', description: 'Open a URL or search in the current pane', complete: true, action: 'address' },
   { command: 'dark', usage: 'dark [on|off|system|inherit] [--scope site|profile|global]', description: 'Toggle dark mode for this site', action: 'toggle-dark' },
   { command: 'dark on', description: 'Enable Dark Reader for this site' },

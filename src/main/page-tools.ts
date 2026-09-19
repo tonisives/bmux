@@ -144,6 +144,7 @@ export let createPageTools = (options: Options) => {
     reload,
     list: (): BrowserToolsState['scripts'] => scripts.map(({ id, name, enabled, error }) => ({ id, name, enabled, error })),
     editing: (tabId: string) => targets.get(tabId)?.focus.editing(),
+    frameContexts: (tabId: string, expression: string) => targets.get(tabId)?.frames?.contexts(expression) ?? Promise.resolve([]),
     error: (tabId: string) => targets.get(tabId)?.error,
     attach: (tabId: string, profileId: string, contents: WebContents, bootstrap = true) => {
       let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }

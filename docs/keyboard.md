@@ -40,6 +40,21 @@ Common direct shortcuts:
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
 
+## Click mode
+
+Double-tap Option to show keyboard hints over clickable elements in the selected pane. Type a hint to click its element. Click mode works directly in bmux, including page frames, without a browser extension or Accessibility permission.
+
+| Key | Action |
+| --- | --- |
+| r | Use right-click for the selected hint |
+| c | Use Command-click for the selected hint |
+| d | Use double-click for the selected hint |
+| n | Return to a normal click |
+| Backspace | Remove the last hint character |
+| Escape | Close click mode |
+
+Click mode only targets web content. It does not place hints over bmux's status bar or dialogs. Use the `click-mode` action to assign another shortcut or prefix binding.
+
 Pickers support typing to search, Up/Down to select, Enter to confirm, and Escape to clear or close. Open `?` or press F1 to see active shortcuts and commands.
 
 In the bookmark editor, press `/` from a folder row to search folders, use Up/Down and Enter to select one, or create a new folder inside the selected folder.
@@ -76,6 +91,15 @@ Edit `~/.config/bmux/config.yaml`, or press Command+,. Changes reload automatica
 ```yaml
 statusBar: top
 showTabCloseButtons: false
+clickMode:
+  enabled: true
+  doubleTapModifier: Option
+  hintCharacters: asfghjklqwetyuiopzxvbm
+  showInput: true
+  fontSize: 12
+  opacity: 0.95
+  backgroundColor: "#ffcc00"
+  textColor: "#000000"
 keyboard:
   prefix: Ctrl+B
   prefixTimeoutMs: 1600
@@ -105,6 +129,8 @@ keyboard:
 ```
 
 Set `showTabCloseButtons: true` when you want close buttons on the status tabs.
+
+`clickMode.doubleTapModifier` accepts `Option`, `Command`, `Control`, `Shift`, `Escape`, or `null`. Hint characters must be unique letters or digits and cannot include `r`, `c`, `d`, or `n`, which select click actions. Click mode settings reload with the rest of the file.
 
 Configured shortcuts take precedence over website shortcuts and native menu defaults. Multiple shortcuts can use the same action.
 

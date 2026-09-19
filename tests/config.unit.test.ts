@@ -10,6 +10,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaults = defaultConfig.keyboard
   expect(defaultConfig.statusBar).toBe('top')
   expect(defaultConfig.showTabCloseButtons).toBe(false)
+  expect(defaultConfig.clickMode).toMatchObject({ enabled: true, doubleTapModifier: 'Option', hintCharacters: 'asfghjklqwetyuiopzxvbm' })
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
   expect(defaults.shortcuts['Cmd+Ctrl+Alt+Shift+W']).toBe('sessions')
   expect(defaults.shortcuts['Cmd+T']).toBe('new-window')
@@ -55,6 +56,13 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(() => parseConfig('statusBar: left\nkeyboard: {}\n')).toThrow('statusBar must be top or bottom')
   expect(parseConfig('showTabCloseButtons: true\nkeyboard: {}\n').showTabCloseButtons).toBe(true)
   expect(() => parseConfig('showTabCloseButtons: yes\nkeyboard: {}\n')).toThrow('showTabCloseButtons must be true or false')
+})
+
+it('parses and validates click mode settings', () => {
+  let clickMode = parseConfig('clickMode:\n  enabled: false\n  doubleTapModifier: Command\n  hintCharacters: asfg12\n  showInput: false\n  fontSize: 16\n  opacity: 0.75\n  backgroundColor: "#112233"\n  textColor: "#abcdef"\nkeyboard: {}\n').clickMode
+  expect(clickMode).toEqual({ enabled: false, doubleTapModifier: 'Command', hintCharacters: 'asfg12', showInput: false, fontSize: 16, opacity: .75, backgroundColor: '#112233', textColor: '#abcdef' })
+  expect(parseConfig('clickMode:\n  doubleTapModifier: null\nkeyboard: {}\n').clickMode.doubleTapModifier).toBeNull()
+  for (let setting of ['hintCharacters: asdr', 'hintCharacters: aa', 'fontSize: 25', 'opacity: 0.1', 'backgroundColor: red', 'doubleTapModifier: Alt']) expect(() => parseConfig(`clickMode:\n  ${setting}\nkeyboard: {}\n`)).toThrow('clickMode')
 })
 it('preserves existing files and the last valid configuration when an edit is invalid', () => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-config-'))

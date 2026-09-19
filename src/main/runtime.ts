@@ -30,6 +30,8 @@ import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from './floating'
 import { clampFloat, FLOAT_BORDER, FLOAT_HEADER } from '../shared/floating'
+import { createClickMode } from './click-mode'
+import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -133,6 +135,17 @@ export let createRuntime = (dataDirectory: string) => {
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
   let pageTools: ReturnType<typeof createPageTools> | undefined
+  let doubleTap = createDoubleTapTracker()
+  let clickMode = createClickMode({
+    frames: (tabId, expression) => pageTools?.frameContexts(tabId, expression) ?? Promise.resolve([]),
+    valid: (clientId, tabId, contents) => {
+      let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
+      if (!client || !owner || client.id !== focusedClientId || !owner.window.isFocused() || overlays.has(clientId) || !client.paneId) return false
+      let pane = paneById(model, client.paneId).pane
+      return pane.activeTabId === tabId && tabs.get(tabId)?.contents === contents && tabs.get(tabId)?.parent === owner.window
+    },
+    error: error => reportError(error),
+  })
   let browserSettings = () => configuration?.browser ?? DEFAULT_BROWSER
   let toolsState = (): BrowserToolsState | undefined => filters ? {
     defaults: { adblock: browserSettings().adblock, darkMode: browserSettings().darkMode },
@@ -170,7 +183,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -309,6 +322,15 @@ export let createRuntime = (dataDirectory: string) => {
       live.contents.sendInputEvent({ type: 'mouseWheel', x: Math.round(bounds.width / 2), y: Math.round(bounds.height / 2), deltaY, hasPreciseScrollingDeltas: true, canScroll: true })
     }
   }
+  let activateClickMode = (clientId = focusedClientId) => {
+    if (!clientId || overlays.has(clientId)) return Promise.resolve(false)
+    let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
+    let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
+    let live = pane?.activeTabId ? tabs.get(pane.activeTabId) : undefined
+    if (!client || !owner || client.id !== focusedClientId || !owner.window.isFocused() || !pane || !live || live.parent !== owner.window) return Promise.resolve(false)
+    prefixUntil = 0; pendingSequence = undefined; pendingModifierShortcut = undefined
+    return clickMode.activate(client.id, pane.activeTabId, live.contents, configuration?.clickMode ?? DEFAULT_CLICK_MODE)
+  }
   let dispatchShortcut = (action: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
@@ -317,6 +339,7 @@ export let createRuntime = (dataDirectory: string) => {
     let tab = pane?.activeTabId
     let control = (name: string) => { pointerTarget = undefined; let chrome = name === 'address' && pane && !client.zoomedPaneId ? focused.floats.get(pane.id) ?? focused.chrome : focused.chrome; chrome.webContents.focus(); chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
+    if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
     if (action === 'close-pane') {
@@ -360,6 +383,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let refreshSettings = () => {
     pendingSequence = undefined
+    doubleTap.reset(); clickMode.cancel()
     filters?.refresh()
     pageTools?.reload()
     plugins?.reload()
@@ -385,6 +409,11 @@ export let createRuntime = (dataDirectory: string) => {
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && focused.permissionPopup.webContents !== contents && ![...focused.floats.values()].some(frame => frame.webContents === contents) && ![...tabs.values()].some(tab => tab.contents === contents && tab.parent === focused.window))) return
+      if (clickMode.handle(focusedClientId, input)) { event.preventDefault(); return }
+      let clickSettings = configuration?.clickMode ?? DEFAULT_CLICK_MODE
+      let selected = model.clients.find(client => client.id === focusedClientId)?.paneId
+      let selectedContents = selected ? tabs.get(paneById(model, selected).pane.activeTabId)?.contents : undefined
+      if (doubleTap.update(input, clickSettings.enabled && selectedContents === contents ? clickSettings.doubleTapModifier : null)) { event.preventDefault(); void activateClickMode().catch(reportError); return }
       if (pendingModifierShortcut && (pendingModifierShortcut.clientId !== focusedClientId || pendingModifierShortcut.contentsId !== contents.id)) pendingModifierShortcut = undefined
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
       let modifierKey = ['ShiftLeft', 'ShiftRight'].includes(input.code)
@@ -431,6 +460,10 @@ export let createRuntime = (dataDirectory: string) => {
       dispatchShortcut(shortcutAction(entry[1]))
     })
     contents.on('before-mouse-event', (event, mouse) => {
+      if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') {
+        let client = [...clients].find(([, live]) => live.window.isFocused() && (live.chrome.webContents === contents || live.permissionPopup.webContents === contents || [...live.floats.values()].some(frame => frame.webContents === contents) || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === live.window)))
+        if (client) clickMode.cancelClient(client[0])
+      }
       if (!automatedContents.has(contents.id) && mouse.type === 'mouseDown') pointerTarget = undefined
       // Electron emits back/forward here, although its input types only list three buttons.
       let button = String(mouse.button)
@@ -472,7 +505,7 @@ export let createRuntime = (dataDirectory: string) => {
       publish()
     })
     contents.on('render-process-gone', () => { delete findResults[tabId] })
-    let invalidate = () => { documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
+    let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
@@ -800,7 +833,7 @@ export let createRuntime = (dataDirectory: string) => {
     return visualQueue
   }
   let repairClients = () => repairClientSelections(model)
-  let changed = () => { repairClients(); save(); void scheduleVisuals() }
+  let changed = () => { clickMode.cancel(); doubleTap.reset(); repairClients(); save(); void scheduleVisuals() }
   let createClient = async (sessionId: string, restored?: Client, activate = true) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
@@ -816,7 +849,7 @@ export let createRuntime = (dataDirectory: string) => {
     let linkPreview = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     linkPreview.setVisible(false)
     window.contentView.addChildView(linkPreview)
-    let resizeChrome = () => { let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
+    let resizeChrome = () => { clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
     let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
@@ -838,7 +871,7 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('hide', () => { void scheduleVisuals() })
     window.on('minimize', () => { void scheduleVisuals() })
     window.on('restore', () => { void scheduleVisuals() })
-    window.on('blur', () => { if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
+    window.on('blur', () => { clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
@@ -1038,6 +1071,11 @@ export let createRuntime = (dataDirectory: string) => {
         else owner.chrome.webContents.focus()
       }
       return null
+    }
+    if (method === 'click-mode') {
+      let clientId = typeof args.client === 'string' ? args.client : sourceClientId
+      if (!clientId || clientId !== focusedClientId) throw new Error('Click mode requires the focused client')
+      return { active: await activateClickMode(clientId) }
     }
     if (method === 'state' || method === 'status') return state()
     if (method === 'client.overlay') {
@@ -1596,6 +1634,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    clickMode.cancel()
     extensions.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
     pageTools?.close()
