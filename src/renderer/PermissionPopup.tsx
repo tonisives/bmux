@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Bridge, Permission } from '../shared/types'
 import css from './PermissionPopup.module.css'
+import { CloseButton } from './CloseButton'
 
 export let PermissionPopup = () => {
   let [permissions, setPermissions] = useState<Permission[]>([])
@@ -23,7 +24,7 @@ let PermissionRequest = ({ request, permissions }: { request: Permission; permis
   let deny = () => { void command('permission.respond', { id: request.id, allow: false }) }
   let allow = () => { void command('permission.respond', { id: request.id, allow: true }) }
   return <section className={css.popup} role="dialog" aria-label="Permissions" aria-modal="false">
-    <header><strong>Site permission</strong><span>{permissions.length > 1 ? `${permissions.length} pending` : ''}</span><button onClick={close} disabled={busy} aria-label="Close">×</button></header>
+    <header><strong>Site permission</strong><span>{permissions.length > 1 ? `${permissions.length} pending` : ''}</span><CloseButton label="Close" onClick={close} disabled={busy} /></header>
     <div className={css.content}>
       <p className={css.origin} title={request.origin}>{request.origin}</p>
       <p>Allow <strong>{request.permission}</strong>?</p>

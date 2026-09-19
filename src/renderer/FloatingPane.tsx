@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, PointerEvent } 
 import type { Bridge, FloatingPane as Placement, PublicState } from '../shared/types'
 import { clampFloat } from '../shared/floating'
 import css from './FloatingPane.module.css'
+import { CloseButton } from './CloseButton'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -57,7 +58,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
       <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
       <div className={css.dragSpace} onPointerDown={drag} aria-hidden="true" />
-      <button className={css.close} type="button" onClick={close} aria-label="Close floating pane">×</button>
+      <CloseButton label="Close floating pane" onClick={close} />
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
       {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : <span>{tab?.url === 'about:blank' ? 'Enter a URL above' : 'Loading…'}</span>}

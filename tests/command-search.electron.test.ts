@@ -254,6 +254,7 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect.poll(async () => (await state()).profileProxyTests[profile.id]?.ip).toBe('203.0.113.9')
   let profileButton = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
   await expect(profileButton.locator('[data-proxy-verified="true"]')).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Close', exact: true }).locator('svg')).toBeVisible()
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   let proxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}`, exact: true })
   await expect(proxyButton.locator('[data-proxy-verified="true"]')).toBeVisible()
@@ -262,7 +263,8 @@ test('profile proxy settings route, test, and restore the selected profile conne
   let proxyPanel = chrome.getByRole('dialog', { name: 'Proxy', exact: true })
   await expect(proxyPanel.getByRole('region', { name: `${profile.name} proxy settings`, exact: true })).toBeVisible()
   await expect(proxyPanel.getByRole('status')).toContainText('RegionAmsterdam, North Holland, Netherlands')
-  await proxyPanel.getByRole('button', { name: 'Close', exact: true }).click()
+  await proxyPanel.locator('..').click({ position: { x: 5, y: 5 } })
+  await expect(proxyPanel).toHaveCount(0)
   let otherProfile = current.model.profiles.find((item: { id: string }) => item.id !== profile.id)!
   let verificationSession = await rpc('new-session', { name: 'proxy route verification', profile: otherProfile.id, client: current.clientId }) as { id: string }
   let verificationState = await state(), verificationClient = verificationState.model.clients.find((item: { id: string }) => item.id === current.clientId)!

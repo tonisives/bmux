@@ -69,7 +69,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   let backButton = await firstFrame.getByRole('button', { name: 'Back' }).boundingBox()
   let reloadButton = await firstFrame.getByRole('button', { name: 'Reload' }).boundingBox()
   let floatingAddressBox = await firstFrame.getByRole('textbox', { name: 'Address', exact: true }).boundingBox()
-  let dragSpace = await firstFrame.locator('[aria-hidden="true"]').boundingBox()
+  let dragSpace = await firstFrame.locator('form > div[aria-hidden="true"]').boundingBox()
   let closeButton = await firstFrame.getByRole('button', { name: 'Close floating pane' }).boundingBox()
   expect(knob!.y + knob!.height / 2).toBe(floatingAddressBox!.y + floatingAddressBox!.height / 2)
   expect(closeButton!.y + closeButton!.height / 2).toBe(floatingAddressBox!.y + floatingAddressBox!.height / 2)

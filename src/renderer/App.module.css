@@ -93,7 +93,7 @@
 .overlay { position: fixed; inset: 28px 0 0; z-index: 100; background: #090b10a8; display: flex; align-items: center; justify-content: center; }
 .app[data-status-bar="bottom"] .overlay { inset: 0 0 28px; }
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; padding: 20px; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.panel header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.panel header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; min-height: 42px; margin: -20px -20px 12px; padding: 6px 8px 6px 20px; border-bottom: 1px solid #363c45; background: #191d23; }
 .panel header strong { font-weight: 500; color: #eceef2; }
 .panel button { border: 0; background: transparent; }
 .panel p { color: #8e98a4; }
@@ -188,7 +188,7 @@
 .commandFinder mark, .helpContent mark { background: transparent; color: #c2d8a7; font-weight: 600; }
 .helpContent { outline: none; }
 .helpContent h2 { font: inherit; font-weight: 600; color: #eceef2; margin-top: 20px; }
-.helpSearch { position: sticky; top: -20px; padding: 8px 0; background: #191d23; border-bottom: 1px solid #363c45; }
+.helpSearch { position: sticky; top: 42px; z-index: 1; padding: 8px 0; background: #191d23; border-bottom: 1px solid #363c45; }
 .helpSearch p { margin: 4px 0; }
 .helpSearch span { color: #8e98a4; }
 .panel .helpCommands > div { display: block; margin-bottom: 10px; }

@@ -2,7 +2,6 @@
 .popup header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #343b45; }
 .popup header strong { font-weight: 500; color: #c2d8a7; }
 .popup header span { flex: 1; text-align: right; color: #9ca3ad; font-size: 12px; }
-.popup header button { background: transparent; border: 0; padding: 0 3px; font-size: 20px; }
 .content { flex: 1; min-height: 0; overflow: auto; padding: 0 12px; }
 .content p { margin: 10px 0; overflow-wrap: anywhere; }
 .origin { color: #b5c0d3; }
