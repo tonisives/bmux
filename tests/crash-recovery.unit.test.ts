@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createNavigationCrashMarker, recoverNavigationCrash } from '../src/main/crash-recovery'
+import { createNavigationCrashMarker, createSerialNavigationQueue, recoverNavigationCrash } from '../src/main/crash-recovery'
 import { id, initialModel, newPane } from '../src/main/model'
 
 let directories: string[] = []
@@ -35,6 +35,8 @@ it('removes the pane whose navigation was interrupted by an application crash', 
 
 it('replaces the final pane with a blank session and ignores clean navigation state', () => {
   let dataDirectory = directory(), model = initialModel(), pane = model.sessions[0].windows[0].panes[0], originalSession = model.sessions[0].id
+  fs.writeFileSync(path.join(dataDirectory, 'navigation-crash.json'), JSON.stringify({ version: 1, paneId: pane.id, tabId: pane.activeTabId, url: 'https://example.com/stale' }))
+  expect(recoverNavigationCrash(dataDirectory, model)).toBeUndefined()
   let marker = createNavigationCrashMarker(dataDirectory)
   marker.mark(pane.id, pane.activeTabId, 'https://example.com/failing')
   marker.close()
@@ -44,4 +46,17 @@ it('replaces the final pane with a blank session and ignores clean navigation st
   expect(recoverNavigationCrash(dataDirectory, model)).toBe('Removed a pane after example.com crashed bmux during navigation.')
   expect(model.sessions[0].id).not.toBe(originalSession)
   expect(model.sessions[0].windows[0].panes[0].tabs[0].url).toBe('about:blank')
+})
+
+it('serializes restored navigations so the crash marker cannot be overwritten', async () => {
+  let queue = createSerialNavigationQueue(), releaseFirst!: () => void
+  let firstGate = new Promise<void>(resolve => { releaseFirst = resolve })
+  let order: string[] = []
+  let first = queue(async () => { order.push('first:start'); await firstGate; order.push('first:end') })
+  let second = queue(async () => { order.push('second:start') })
+  await Promise.resolve()
+  expect(order).toEqual(['first:start'])
+  releaseFirst()
+  await Promise.all([first, second])
+  expect(order).toEqual(['first:start', 'first:end', 'second:start'])
 })

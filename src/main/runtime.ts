@@ -32,7 +32,7 @@ import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from '.
 import { clampFloat, FLOAT_BORDER, FLOAT_HEADER } from '../shared/floating'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
-import { createNavigationCrashMarker, recoverNavigationCrash } from './crash-recovery'
+import { createNavigationCrashMarker, createSerialNavigationQueue, recoverNavigationCrash } from './crash-recovery'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -67,6 +67,8 @@ export let createRuntime = (dataDirectory: string) => {
   let startupNotice = recoverNavigationCrash(dataDirectory, model)
   if (startupNotice) writeModel(dataDirectory, model, bookmarkFile)
   let navigationCrashMarker = createNavigationCrashMarker(dataDirectory)
+  let queueRestoredNavigation = createSerialNavigationQueue()
+  let restoringTabs = true
   let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'tab'; paneId: string; index: number; tab: Tab; replacementTabId?: string })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
@@ -495,6 +497,7 @@ export let createRuntime = (dataDirectory: string) => {
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false }
+    let serializedRestore = restoringTabs
     tabs.set(tabId, live)
     faviconRevisions.set(tabId, 0)
     extensions.track(pane.profileId, contents, parent)
@@ -644,7 +647,16 @@ export let createRuntime = (dataDirectory: string) => {
       )
       Menu.buildFromTemplate(template).popup({ window: owner.window })
     })
-    if (load && initialUrl !== 'about:blank') void ready.then(() => { if (!live.disposed) { navigationCrashMarker.mark(pane.id, tabId, initialUrl); return contents.loadURL(initialUrl) } }).catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
+    if (load && initialUrl !== 'about:blank') {
+      let navigate = async () => {
+        await ready
+        if (live.disposed) return
+        navigationCrashMarker.mark(pane.id, tabId, initialUrl)
+        await contents.loadURL(initialUrl)
+      }
+      let result = serializedRestore ? queueRestoredNavigation(navigate) : navigate()
+      void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
+    }
     return live
   }
   let keepClientFocus = (live: LiveTab) => {
@@ -1628,6 +1640,7 @@ export let createRuntime = (dataDirectory: string) => {
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
+    restoringTabs = false
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]
     if (!restore.length) { await createClient(model.sessions[0].id); return }

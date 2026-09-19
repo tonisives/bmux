@@ -4,14 +4,14 @@ import type { Model } from '../shared/types'
 import { removePane, removeSession, repairClientSelections, walkPanes } from './model'
 import { writeAtomic } from './store'
 
-type NavigationMarker = { version: 1; paneId: string; tabId: string; url: string }
+type NavigationMarker = { version: 2; paneId: string; tabId: string; url: string }
 
 let markerPath = (directory: string) => path.join(directory, 'navigation-crash.json')
 
 let readMarker = (file: string): NavigationMarker | undefined => {
   try {
     let value = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<NavigationMarker>
-    if (value.version === 1 && typeof value.paneId === 'string' && typeof value.tabId === 'string' && typeof value.url === 'string') return value as NavigationMarker
+    if (value.version === 2 && typeof value.paneId === 'string' && typeof value.tabId === 'string' && typeof value.url === 'string') return value as NavigationMarker
   } catch { /* Missing and invalid markers are not recoverable. */ }
   return undefined
 }
@@ -48,7 +48,7 @@ export let createNavigationCrashMarker = (directory: string) => {
   return {
     mark: (paneId: string, tabId: string, url: string) => {
       if (url === 'about:blank') return
-      current = { version: 1, paneId, tabId, url }
+      current = { version: 2, paneId, tabId, url }
       writeAtomic(file, JSON.stringify(current))
     },
     clear: (tabId: string, url?: string) => {
@@ -57,5 +57,14 @@ export let createNavigationCrashMarker = (directory: string) => {
       removeMarker(file)
     },
     close: () => { current = undefined; removeMarker(file) },
+  }
+}
+
+export let createSerialNavigationQueue = () => {
+  let tail = Promise.resolve()
+  return <T>(operation: () => Promise<T>) => {
+    let result = tail.then(operation)
+    tail = result.then(() => undefined, () => undefined)
+    return result
   }
 }

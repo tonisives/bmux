@@ -565,7 +565,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   let client = await cli('attach-session', { session: session.id })
   await cli('select-pane', { client: client.id, pane: crashed.id })
   await application.close()
-  await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 1, paneId: crashed.id, tabId: crashed.activeTabId, url: 'https://chromewebstore.google.com/detail/example' }))
+  await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.activeTabId, url: 'https://chromewebstore.google.com/detail/example' }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
@@ -576,6 +576,27 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await cli('detach-client', { client: client.id })
   await application.close()
   await launch()
+})
+
+test('restores persisted pane navigations one at a time', async () => {
+  let session = await cli('new-session', { name: 'serialized restore' })
+  let first = session.windows[0].panes[0]
+  let second = await cli('split-window', { pane: first.id })
+  await application.close()
+  let stateFile = path.join(directory, 'state.json')
+  let persisted = JSON.parse(await fs.readFile(stateFile, 'utf8'))
+  let saved = persisted.sessions.find((item: { id: string }) => item.id === session.id)
+  saved.windows[0].panes.find((pane: { id: string }) => pane.id === first.id).tabs[0].url = `${url}/slow-serialized-restore`
+  saved.windows[0].panes.find((pane: { id: string }) => pane.id === second.id).tabs[0].url = `${url}/serialized-restore-second`
+  await fs.writeFile(stateFile, JSON.stringify(persisted, null, 2))
+  let before = heldRequests
+  await launch()
+  await expect.poll(() => heldRequests).toBeGreaterThan(before)
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'navigation-crash.json'), 'utf8')).tabId).toBe(first.activeTabId)
+  expect(await application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(false)
+  for (let response of heldResponses) response.end()
+  await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
+  await expect.poll(() => fs.access(path.join(directory, 'navigation-crash.json')).then(() => false, () => true)).toBe(true)
 })
 
 test('imports Brave bookmark folders, opens them in the correct profile, and persists them', async () => {
