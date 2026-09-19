@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Layout, Model, Pane, Profile, Tab, WorkspaceSession, InternalWindow } from '../shared/types'
+import { parseProfileProxy } from './profile-proxy'
+import { parseDevicePersona } from './device-persona'
 
 export let id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`
 export let newTab = (url = 'about:blank'): Tab => ({ id: id('tab'), url, title: url === 'about:blank' ? 'New tab' : url, zoom: 1 })
@@ -147,6 +149,8 @@ export let validateModel = (value: unknown): Model => {
   for (let profile of model.profiles) {
     checkId(profile.id)
     if (typeof profile.name !== 'string' || typeof profile.background !== 'boolean') throw new Error('Invalid profile')
+    if (profile.proxy !== undefined) profile.proxy = parseProfileProxy(profile.proxy)
+    if (profile.device !== undefined) profile.device = parseDevicePersona(profile.device)
   }
   for (let session of model.sessions) {
     checkId(session.id)

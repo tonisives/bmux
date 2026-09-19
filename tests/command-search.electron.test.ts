@@ -5,13 +5,25 @@ import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
 import { stringify } from 'yaml'
+import { Server as ProxyServer } from 'proxy-chain'
 
-let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server
+let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server, proxy: ProxyServer, proxyRequests = 0
+let identityRequests = new Map<string, http.IncomingHttpHeaders>()
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let prompt = () => chrome.getByRole('combobox', { name: 'Command', exact: true })
 let open = async () => { await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click(); await expect(prompt()).toBeFocused() }
+let openProfilePanel = async (profile: string) => {
+  let panel = chrome.getByRole('dialog', { name: 'Profile', exact: true })
+  let details = panel.getByRole('region', { name: `${profile} profile details`, exact: true })
+  if (!await details.isVisible()) {
+    if (await panel.isVisible()) await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await chrome.getByRole('button', { name: `Profile: ${profile}`, exact: true }).click()
+  }
+  await expect(details).toBeVisible()
+  return panel
+}
 let nativeVisible = () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as any).webContents.getURL() === url && view.getBounds().height > 300)), url)
 let closeShortcut = async (key: string) => {
   await activate()
@@ -31,10 +43,21 @@ test.beforeAll(async () => {
   await fs.mkdir(path.join(directory, 'plugins/fixture'), { recursive: true })
   await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane', Q: 'close-window' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
-  server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>') })
+  server = http.createServer((request, response) => {
+    let deviceIndex = request.url?.indexOf('/device-') ?? -1
+    if (request.url && deviceIndex >= 0) {
+      identityRequests.set(request.url.slice(deviceIndex), request.headers)
+      response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Device fixture</title><h1>Device fixture</h1><a href="/device-popup" target="_blank">Open device popup</a>')
+      return
+    }
+    if (request.url === '/ip') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9' })); return }
+    response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>')
+  })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
+  proxy = new ProxyServer({ host: '127.0.0.1', port: 0, prepareRequestFunction: request => { proxyRequests++; return { requestAuthentication: request.username !== 'fixture-user' || request.password !== 'fixture-password' } } })
+  proxy.on('requestFailed', () => undefined); await proxy.listen()
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
-  application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_PROXY_TEST_URL: `http://127.0.0.1:${(server.address() as any).port}/ip` } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await activate(); await chrome.getByRole('button', { name: 'Address', exact: true }).click()
@@ -48,7 +71,7 @@ test.beforeEach(async () => {
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
   let current = await state(); await rpc('select-window', { client: current.clientId, window: current.model.sessions[0].windows[0].id }); await activate()
 })
-test.afterAll(async () => { await application?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (directory) await fs.rm(directory, { recursive: true, force: true }) })
+test.afterAll(async () => { await application?.close(); await proxy?.close(true); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (directory) await fs.rm(directory, { recursive: true, force: true }) })
 
 test('command finder accepts fuzzy selection and restores the native page', async () => {
   await expect.poll(nativeVisible).toBe(true)
@@ -181,11 +204,102 @@ test('profile icon has no visible label and opens details for the selected pane'
   let profile = current.model.profiles.find((item: { id: string }) => item.id === pane.profileId)!
   let button = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
   await expect(button.locator('span')).toHaveCount(0)
-  await button.click()
-  let panel = chrome.getByRole('dialog', { name: 'Profile', exact: true })
-  await expect(panel).toBeVisible()
+  let panel = await openProfilePanel(profile.name)
   await expect(panel.getByRole('region', { name: `${profile.name} profile details`, exact: true })).toContainText(`Background pages${profile.background ? 'Keep running' : 'Throttle when inactive'}`)
   await expect(panel).toContainText(`Session${session.name}`)
   await expect(panel).toContainText(`Window${window.name}`)
   await expect(panel).toContainText(`Pane${pane.id}`)
+})
+
+test('profile proxy settings route, test, and restore the selected profile connection', async () => {
+  let current = await state(), profile = current.model.profiles[0]
+  let panel = await openProfilePanel(profile.name)
+  await panel.getByLabel('Protocol', { exact: true }).selectOption('http')
+  await panel.getByLabel('Host', { exact: true }).fill('127.0.0.1')
+  await panel.getByLabel('Port', { exact: true }).fill(String(proxy.port))
+  await panel.getByLabel('Username', { exact: true }).fill('fixture-user')
+  await panel.getByLabel('Password', { exact: true }).fill('fixture-password')
+  let before = proxyRequests
+  await panel.getByRole('button', { name: 'Save proxy', exact: true }).click()
+  await expect.poll(async () => (await state()).model.profiles[0].proxy?.host).toBe('127.0.0.1')
+  await expect.poll(() => proxyRequests).toBeGreaterThan(before)
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, proxy connection`, exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
+  await expect(panel.getByRole('status')).toHaveText('Exit IP: 203.0.113.9')
+  await panel.getByRole('button', { name: 'Use system connection', exact: true }).click()
+  await expect.poll(async () => (await state()).model.profiles[0].proxy).toBeUndefined()
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, system connection`, exact: true })).toBeVisible()
+})
+
+test('profile device identity is applied before requests and cache status is public', async () => {
+  let current = await state(), profile = current.model.profiles[0]
+  let panel = await openProfilePanel(profile.name)
+  await panel.getByLabel('Device', { exact: true }).selectOption('pixel-8')
+  await panel.getByLabel('Locale', { exact: true }).fill('fr-FR')
+  await panel.getByLabel('Timezone', { exact: true }).fill('Europe/Paris')
+  await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
+  await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('pixel-8')
+  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toBeVisible()
+  current = await state()
+  let tab = current.model.sessions[0].windows[0].panes[0].activeTabId
+  await rpc('navigate', { tab, url: `${url}/device-android` })
+  await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('Android 10')
+  expect(identityRequests.get('/device-android')?.['accept-language']).toContain('fr-FR')
+  expect(await rpc('eval', { tab, expression: '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,cores:navigator.hardwareConcurrency,memory:navigator.deviceMemory,locale:Intl.DateTimeFormat().resolvedOptions().locale,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,uaPlatform:navigator.userAgentData?.platform,uaMobile:navigator.userAgentData?.mobile})' })).toEqual({ width: 412, height: 915, dpr: 2.625, touch: 5, cores: 8, memory: 8, locale: 'fr-FR', timezone: 'Europe/Paris', uaPlatform: 'Android', uaMobile: true })
+  await expect.poll(async () => (await state()).profileCaches[profile.id]?.limit).toBe(256 * 1024 * 1024)
+  await expect(panel.getByText(/MiB of 256 MiB/)).toBeVisible()
+  await panel.getByRole('button', { name: 'Clear HTTP cache', exact: true }).click()
+  await expect.poll(async () => (await state()).profileCaches[profile.id]?.bytes).toBe(0)
+
+  await panel.getByLabel('Device', { exact: true }).selectOption('custom')
+  await panel.getByLabel('Platform', { exact: true }).selectOption('android')
+  await panel.getByLabel('Orientation', { exact: true }).selectOption('landscape')
+  await panel.getByLabel('Width', { exact: true }).fill('400')
+  await panel.getByLabel('Height', { exact: true }).fill('800')
+  await panel.getByLabel('DPR', { exact: true }).fill('2')
+  await panel.getByText('Set geolocation', { exact: true }).click()
+  await panel.getByLabel('Latitude', { exact: true }).fill('48.8566')
+  await panel.getByLabel('Longitude', { exact: true }).fill('2.3522')
+  await panel.getByLabel('Accuracy', { exact: true }).fill('12')
+  await panel.getByRole('heading', { name: 'Device', exact: true }).evaluate(element => element.scrollIntoView({ block: 'start' }))
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-device-controls.png') })
+  await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
+  await expect.poll(async () => (await state()).model.profiles[0].device?.orientation).toBe('landscape')
+  expect((await state()).model.profiles[1].device).toBeUndefined()
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles[0].device?.geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  let contentBounds = await chrome.locator(`[data-browser-content][data-tab-id="${tab}"]`).boundingBox()
+  await expect.poll(() => application.evaluate(({ BaseWindow }, path) => {
+    for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
+  }, '/device-android')).toMatchObject({ width: 800, height: 400 })
+  let nativeBounds = await application.evaluate(({ BaseWindow }, path) => {
+    for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
+  }, '/device-android')
+  expect(Math.abs(nativeBounds!.x + nativeBounds!.width / 2 - (contentBounds!.x + contentBounds!.width / 2))).toBeLessThanOrEqual(1)
+  expect(Math.abs(nativeBounds!.y + nativeBounds!.height / 2 - (contentBounds!.y + contentBounds!.height / 2))).toBeLessThanOrEqual(1)
+  let geolocation = rpc('eval', { tab, expression: 'new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(position => resolve({latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy}), error => reject(new Error(error.message))))' })
+  let permission: any
+  await expect.poll(async () => { permission = (await rpc('permission.list') as any[]).find(item => item.permission === 'geolocation'); return !!permission }).toBe(true)
+  await rpc('permission.respond', { id: permission.id, allow: true })
+  expect(await geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
+  panel = await openProfilePanel(profile.name)
+  await panel.getByLabel('Device', { exact: true }).selectOption('iphone-15-pro')
+  await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
+  await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('iphone-15-pro')
+  await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
+  await rpc('navigate', { tab, url: `${url}/device-ios` })
+  await expect.poll(() => identityRequests.get('/device-ios')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
+  expect(identityRequests.get('/device-ios')?.['user-agent']).toContain('Version/27.0')
+  expect(identityRequests.get('/device-ios')?.['sec-ch-ua']).toBeUndefined()
+  expect(await rpc('eval', { tab, expression: '({cores:navigator.hardwareConcurrency,hasMemory:"deviceMemory" in navigator,memory:navigator.deviceMemory})' })).toEqual({ cores: 6, hasMemory: false })
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  let windowsBeforePopup = (await state()).model.sessions[0].windows.length
+  await rpc('eval', { tab, expression: `window.open(${JSON.stringify(`${url}/device-popup`)}, '_blank'); true` })
+  await expect.poll(() => identityRequests.get('/device-popup')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
+  expect(identityRequests.get('/device-popup')?.['sec-ch-ua']).toBeUndefined()
+  chrome = application.context().pages().find(candidate => candidate.url().endsWith('/renderer/index.html'))!
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(windowsBeforePopup + 1)
+  panel = await openProfilePanel(profile.name)
+  await panel.getByRole('button', { name: 'Use desktop', exact: true }).click()
+  await expect.poll(async () => (await state()).model.profiles[0].device).toBeUndefined()
 })

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
-import type { Bookmark, BookmarkParameters, Bridge, Download, HistoryEntry, InternalWindow, Layout, Permission, PublicState } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
@@ -115,6 +115,7 @@ export let App = () => {
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
 
 let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
+let profileDeviceLabel = (profile: Profile) => !profile.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: profile.device.platform === 'android' ? 'Android' : 'iOS' })[profile.device.preset]
 
 let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
   let hash = profileHash(id), background = AVATAR_COLORS[hash % AVATAR_COLORS.length], foreground = AVATAR_COLORS[(hash >>> 5) % AVATAR_COLORS.length]
@@ -204,9 +205,9 @@ let Status = ({ message }: { message: string }) => {
     let reveal = () => {
       let active = list.querySelector<HTMLElement>('[data-active="true"]')
       if (!active) return
-      let left = active.offsetLeft - list.offsetLeft, right = left + active.offsetWidth
-      if (left < list.scrollLeft) list.scrollLeft = Math.max(0, left - 1)
-      else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 1
+      let item = active.getBoundingClientRect(), bounds = list.getBoundingClientRect()
+      if (item.left < bounds.left) list.scrollLeft = Math.max(0, list.scrollLeft - (bounds.left - item.left) - 1)
+      else if (item.right > bounds.right) list.scrollLeft += item.right - bounds.right + 1
     }
     let observer = new ResizeObserver(reveal)
     observer.observe(list); reveal()
@@ -389,12 +390,12 @@ let AddressPrompt = () => {
     let cancelled = false
     setSearchTerms([])
     let timer = setTimeout(() => {
-      void bridge.command({ method: 'search-suggestions', args: { query: value } }).then(result => {
+      void bridge.command({ method: 'search-suggestions', args: { query: value, tab: tab?.id } }).then(result => {
         if (!cancelled) setSearchTerms(Array.isArray(result) ? result.filter((term): term is string => typeof term === 'string') : [])
       }).catch(() => { if (!cancelled) setSearchTerms([]) })
     }, 120)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [query])
+  }, [query, tab?.id])
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useLayoutEffect(() => {
     if (!ref.current || (!inlineUrl && !selectedResult)) return
@@ -546,6 +547,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let { client, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
   let url = tab ? state.pendingUrls[tab.id] ?? tab.url : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
   let open = () => show('address', paneId)
@@ -566,6 +568,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [popup, setHistoryPopup])
   let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
+  let openProfile = () => show('profiles', paneId)
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -577,6 +580,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     </div>}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={url}>{url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'}</button>}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
+    {profile && <button type="button" className={css.profileRoute} onClick={openProfile} aria-label={`Profile ${profile.name}, ${profileDeviceLabel(profile)}, ${profile.proxy ? 'proxy' : 'system'} connection`} title={profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'System connection'}>{profile.name} · {profileDeviceLabel(profile)} · {profile.proxy ? 'proxy' : 'system'}</button>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -786,10 +790,96 @@ let SessionRow = ({ id, name }: { id: string; name: string }) => {
   if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow}><button className={css.listRow} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
+type DeviceSettingsProps = { profile: Profile; paneCount: number }
+let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
+  let { run } = useUI()
+  let current = profile.device
+  let [preset, setPreset] = useState<DevicePreset>(current?.preset ?? 'pixel-8')
+  let [platform, setPlatform] = useState<DevicePlatform>(current?.platform ?? 'android')
+  let [width, setWidth] = useState(String(current?.width ?? 412)), [height, setHeight] = useState(String(current?.height ?? 915)), [dpr, setDpr] = useState(String(current?.deviceScaleFactor ?? 2.625))
+  let [orientation, setOrientation] = useState(current?.orientation ?? 'portrait')
+  let [locale, setLocale] = useState(current?.locale ?? navigator.language ?? 'en-US')
+  let [timezone, setTimezone] = useState(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC')
+  let [locationEnabled, setLocationEnabled] = useState(!!current?.geolocation)
+  let [latitude, setLatitude] = useState(String(current?.geolocation?.latitude ?? '')), [longitude, setLongitude] = useState(String(current?.geolocation?.longitude ?? '')), [accuracy, setAccuracy] = useState(String(current?.geolocation?.accuracy ?? 100))
+  let [busy, setBusy] = useState(false)
+  let changePreset = (event: ChangeEvent<HTMLSelectElement>) => setPreset(event.target.value as DevicePreset)
+  let changePlatform = (event: ChangeEvent<HTMLSelectElement>) => setPlatform(event.target.value as DevicePlatform)
+  let changeOrientation = (event: ChangeEvent<HTMLSelectElement>) => setOrientation(event.target.value as 'portrait' | 'landscape')
+  let changeLocale = (event: ChangeEvent<HTMLInputElement>) => setLocale(event.target.value)
+  let changeTimezone = (event: ChangeEvent<HTMLInputElement>) => setTimezone(event.target.value)
+  let changeWidth = (event: ChangeEvent<HTMLInputElement>) => setWidth(event.target.value)
+  let changeHeight = (event: ChangeEvent<HTMLInputElement>) => setHeight(event.target.value)
+  let changeDpr = (event: ChangeEvent<HTMLInputElement>) => setDpr(event.target.value)
+  let changeLocationEnabled = (event: ChangeEvent<HTMLInputElement>) => setLocationEnabled(event.target.checked)
+  let changeLatitude = (event: ChangeEvent<HTMLInputElement>) => setLatitude(event.target.value)
+  let changeLongitude = (event: ChangeEvent<HTMLInputElement>) => setLongitude(event.target.value)
+  let changeAccuracy = (event: ChangeEvent<HTMLInputElement>) => setAccuracy(event.target.value)
+  let saveDevice = async (event: FormEvent) => {
+    event.preventDefault(); if (busy) return
+    setBusy(true)
+    await run('profile.device.set', { profile: profile.id, device: { preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) } })
+    setBusy(false)
+  }
+  let clearDevice = async () => { if (busy) return; setBusy(true); await run('profile.device.clear', { profile: profile.id }); setBusy(false) }
+  return <form className={css.profileProxy} onSubmit={saveDevice}>
+    <h2>Device</h2>
+    <p>{current ? 'Mobile identity active' : 'Desktop identity'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+    <div className={css.profileDeviceGrid}>
+      <label>Device<select aria-label="Device" value={preset} onChange={changePreset}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select></label>
+      <label>Orientation<select aria-label="Orientation" value={orientation} onChange={changeOrientation}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+      <label>Locale<input className={css.pluginInput} value={locale} onChange={changeLocale} required spellCheck={false} /></label>
+      <label>Timezone<input className={css.pluginInput} value={timezone} onChange={changeTimezone} required spellCheck={false} /></label>
+    </div>
+    {preset === 'custom' && <div className={css.profileDeviceGrid}>
+      <label>Platform<select aria-label="Platform" value={platform} onChange={changePlatform}><option value="android">Android</option><option value="ios">iOS</option></select></label>
+      <label>Width<input className={css.pluginInput} type="number" min="240" max="1440" value={width} onChange={changeWidth} required /></label>
+      <label>Height<input className={css.pluginInput} type="number" min="320" max="2560" value={height} onChange={changeHeight} required /></label>
+      <label>DPR<input className={css.pluginInput} type="number" min="1" max="4" step="0.125" value={dpr} onChange={changeDpr} required /></label>
+    </div>}
+    <label className={css.profileProxyAuthentication}><input type="checkbox" checked={locationEnabled} onChange={changeLocationEnabled} />Set geolocation</label>
+    {locationEnabled && <div className={css.profileDeviceLocation}><label>Latitude<input className={css.pluginInput} type="number" min="-90" max="90" step="any" value={latitude} onChange={changeLatitude} required /></label><label>Longitude<input className={css.pluginInput} type="number" min="-180" max="180" step="any" value={longitude} onChange={changeLongitude} required /></label><label>Accuracy<input className={css.pluginInput} type="number" min="0" max="100000" step="any" value={accuracy} onChange={changeAccuracy} required /></label></div>}
+    <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Apply device</button>{current && <button type="button" onClick={clearDevice} disabled={busy}>Use desktop</button>}</div>
+  </form>
+}
+
+let ProxyProtocolSelect = ({ value, onChange }: { value: 'http' | 'https' | 'socks5'; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Protocol" value={value} onChange={onChange}><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select>
+
 let ProfileInfo = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
   let { session, window, pane, profile } = selection(state)
+  let [protocol, setProtocol] = useState(profile?.proxy?.protocol ?? 'https')
+  let [host, setHost] = useState(profile?.proxy?.host ?? '')
+  let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
+  let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
+  let [username, setUsername] = useState(''), [password, setPassword] = useState('')
+  let [busy, setBusy] = useState(false), [testResult, setTestResult] = useState('')
+  useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
+  let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
+  let cache = state.profileCaches[profile.id]
+  let changeProtocol = (event: ChangeEvent<HTMLSelectElement>) => { let value = event.target.value as 'http' | 'https' | 'socks5'; setProtocol(value); if (!profile.proxy) setPort(value === 'http' ? '80' : value === 'https' ? '443' : '1080') }
+  let changeHost = (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value)
+  let changePort = (event: ChangeEvent<HTMLInputElement>) => setPort(event.target.value)
+  let changeAuthenticated = (event: ChangeEvent<HTMLInputElement>) => setAuthenticated(event.target.checked)
+  let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
+  let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
+  let saveProxy = async (event: FormEvent) => {
+    event.preventDefault(); if (busy) return
+    setBusy(true); setTestResult('')
+    let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password })
+    if (result) { setUsername(''); setPassword('') }
+    setBusy(false)
+  }
+  let useSystem = async () => { if (busy) return; setBusy(true); setTestResult(''); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
+  let testProxy = async () => {
+    if (busy) return
+    setBusy(true); setTestResult('')
+    let result = await run('profile.proxy.test', { profile: profile.id }) as { ip?: string } | undefined
+    if (result?.ip) setTestResult(`Exit IP: ${result.ip}`)
+    setBusy(false)
+  }
+  let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
     <dl>
@@ -798,7 +888,23 @@ let ProfileInfo = () => {
       <div><dt>Window</dt><dd>{window?.name}</dd></div>
       <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
     </dl>
-    <p>Cookies, site storage, cache, permissions, bookmarks, and history are isolated to this profile.</p>
+    <p>Sessions organize windows. Profiles define a browser identity and are inherited when a pane is split. Cookies, storage, history, extensions, and network routing are isolated to this profile.</p>
+    <ProfileDeviceSettings profile={profile} paneCount={paneCount} />
+    <form className={css.profileProxy} onSubmit={saveProxy}>
+      <h2>Connection</h2>
+      <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+      <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>
+      <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>
+      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
+      {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
+      <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
+      {testResult && <p role="status">{testResult}</p>}
+    </form>
+    <section className={css.profileProxy}>
+      <h2>HTTP cache</h2>
+      <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
+      <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
+    </section>
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }
