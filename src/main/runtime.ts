@@ -30,6 +30,7 @@ import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
+import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
@@ -625,33 +626,40 @@ export let createRuntime = (dataDirectory: string) => {
       event.preventDefault()
       let owner = [...clients.values()].find(client => client.window === live.parent)
       if (!owner) return
-      if (params.linkURL && params.frame && !params.frame.isDestroyed()) {
-        void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
+      let show = async () => {
+        let linkUrl = params.linkURL
+        if (!linkUrl && params.frame && !params.frame.isDestroyed()) {
+          let result = await params.frame.executeJavaScript(contextLinkExpression(params.x, params.y)).catch(() => undefined)
+          linkUrl = resolvedContextLink(result)
+        }
+        if (linkUrl && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
+        if (contents.isDestroyed() || owner.window.isDestroyed()) return
+        let navigation = contents.navigationHistory
+        let template: Electron.MenuItemConstructorOptions[] = []
+        if (linkUrl) template.push(
+          { label: 'Open Link in Floating Pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
+          { label: 'Open Link in New bmux Window', click: () => { openLinkWindow(linkUrl, true) } },
+          { label: 'Open Link in Background bmux Window', click: () => { openLinkWindow(linkUrl, false) } },
+          { label: 'Open Link in This Tab', click: () => { void contents.loadURL(linkUrl).catch(reportError) } },
+          { label: 'Copy Link Address', click: () => clipboard.writeText(linkUrl) },
+          { type: 'separator' },
+        )
+        template.push(
+          ...paneMenu(tabById(model, tabId).pane.id, [...clients].find(([, live]) => live === owner)![0]),
+          { type: 'separator' },
+          { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
+          { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
+          { label: 'Reload', click: () => contents.reload() },
+        )
+        if (params.selectionText || params.isEditable) template.push(
+          { type: 'separator' },
+          ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
+          { role: 'copy' },
+          { role: 'selectAll' },
+        )
+        Menu.buildFromTemplate(template).popup({ window: owner.window })
       }
-      let navigation = contents.navigationHistory
-      let template: Electron.MenuItemConstructorOptions[] = []
-      if (params.linkURL) template.push(
-        { label: 'Open Link in Floating Pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: params.linkURL } }).catch(reportError) } },
-        { label: 'Open Link in New bmux Window', click: () => { openLinkWindow(params.linkURL, true) } },
-        { label: 'Open Link in Background bmux Window', click: () => { openLinkWindow(params.linkURL, false) } },
-        { label: 'Open Link in This Tab', click: () => { void contents.loadURL(params.linkURL).catch(reportError) } },
-        { label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) },
-        { type: 'separator' },
-      )
-      template.push(
-        ...paneMenu(tabById(model, tabId).pane.id, [...clients].find(([, live]) => live === owner)![0]),
-        { type: 'separator' },
-        { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
-        { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
-        { label: 'Reload', click: () => contents.reload() },
-      )
-      if (params.selectionText || params.isEditable) template.push(
-        { type: 'separator' },
-        ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
-        { role: 'copy' },
-        { role: 'selectAll' },
-      )
-      Menu.buildFromTemplate(template).popup({ window: owner.window })
+      void show().catch(reportError)
     })
     if (load && initialUrl !== 'about:blank') {
       let navigate = async () => {
