@@ -137,6 +137,24 @@ execution but cannot undo previous effects. Invalid JavaScript edits keep the
 previous valid source and show an error. Files are limited to 1 MB.
 `reload-scripts` forces a rescan.
 
+### JavaScript-driven context links
+
+bmux recognizes X posts when the context menu is opened over a post and offers
+its detail URL as a link. A userscript can add equivalent support for another
+single-page app by handling `bmux:resolve-context-link` synchronously:
+
+```js
+document.addEventListener('bmux:resolve-context-link', event => {
+  let card = event.detail.target.closest('[data-post-id]')
+  if (card) event.detail.url = `/posts/${card.dataset.postId}`
+})
+```
+
+The URL may be relative to the current page and must resolve to HTTP or HTTPS.
+For simple pages, a userscript can instead set `data-bmux-link` on the element
+or one of its ancestors. These hooks only supply the link shown by the native
+context menu; they do not receive browser privileges.
+
 ## Saved forms
 
 The bundled **Saved forms** plugin is enabled by default. Fill a form, run
