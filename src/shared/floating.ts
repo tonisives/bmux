@@ -2,6 +2,7 @@ import type { FloatingPane } from './types'
 
 export let FLOAT_BORDER = 2.25
 export let FLOAT_CONTENT_INSET = 6
+export let FLOAT_CONTENT_RADIUS = 6
 export let FLOAT_CONTENT_VERTICAL_INSET = 8
 export let FLOAT_HEADER = 30
 export let FLOAT_RADIUS = 10

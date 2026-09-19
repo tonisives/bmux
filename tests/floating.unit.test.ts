@@ -1,11 +1,12 @@
 import { expect, it } from 'vitest'
 import { cloneWindow, initialModel, newPane, paneInDirection, splitLayout, validateModel } from '../src/main/model'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from '../src/main/floating'
-import { clampFloat, FLOAT_BORDER, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER } from '../src/shared/floating'
+import { clampFloat, FLOAT_BORDER, FLOAT_CONTENT_INSET, FLOAT_CONTENT_RADIUS, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER } from '../src/shared/floating'
 
 it('keeps floating page content inside the visible frame', () => {
   expect(FLOAT_BORDER).toBe(2.25)
   expect(FLOAT_CONTENT_INSET).toBe(6)
+  expect(FLOAT_CONTENT_RADIUS).toBe(6)
   expect(FLOAT_CONTENT_VERTICAL_INSET).toBe(8)
   expect(FLOAT_HEADER).toBe(30)
 })

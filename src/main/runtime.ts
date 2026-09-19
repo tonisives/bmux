@@ -32,7 +32,7 @@ import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy
 import type { ProxyCredentials } from './profile-proxy'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
-import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
+import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_RADIUS, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
@@ -898,16 +898,17 @@ export let createRuntime = (dataDirectory: string) => {
     for (let candidate of model.clients) { let live = clients.get(candidate.id); if (live) prepareFloats(candidate, live) }
     let client = model.clients.find(client => client.id === focusedClientId)
     let owner = client && !overlays.has(client.id) ? clients.get(client.id) : undefined
-    let viewers = new Map<string, { id: string; live: LiveClient; bounds: Bounds }[]>()
+    let viewers = new Map<string, { id: string; live: LiveClient; bounds: Bounds; floating: boolean }[]>()
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
       if (!live || !live.window.isVisible() || live.window.isMinimized() || overlays.has(candidate.id)) continue
       for (let paneId of visiblePaneIds(candidate)) {
         let tabId = paneById(model, paneId).pane.activeTabId
-        let bounds = floatBounds(candidate, paneId) ?? live.bounds.find(bounds => bounds.tabId === tabId)
+        let floatingBounds = floatBounds(candidate, paneId)
+        let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.tabId === tabId)
         if (!bounds) continue
         let entries = viewers.get(tabId) ?? []
-        entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
+        entries.push({ id: candidate.id, live, bounds, floating: !!floatingBounds }); viewers.set(tabId, entries)
       }
     }
     for (let [tabId, live] of tabs) {
@@ -925,7 +926,7 @@ export let createRuntime = (dataDirectory: string) => {
       moveView(live, target)
       extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.activeTabId === tabId)
       if (target === viewer?.live.window && bounds) {
-        live.view.setBorderRadius(0)
+        live.view.setBorderRadius(viewer.floating ? FLOAT_CONTENT_RADIUS : 0)
         let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
         live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
