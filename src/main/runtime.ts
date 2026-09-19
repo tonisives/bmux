@@ -29,7 +29,7 @@ import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane } from './floating'
-import { clampFloat, FLOAT_BORDER, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
+import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
@@ -713,7 +713,7 @@ export let createRuntime = (dataDirectory: string) => {
     let placement = window.floating?.find(item => item.paneId === paneId)
     if (!placement) return
     let rect = floatRect(client, placement)
-    return { tabId: pane.activeTabId, x: rect.x + FLOAT_BORDER, y: rect.y + FLOAT_HEADER, width: Math.max(1, rect.width - FLOAT_BORDER * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_BORDER) }
+    return { tabId: pane.activeTabId, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_INSET * 2) }
   }
   let prepareFloats = (client: Client, live: LiveClient) => {
     let window = model.sessions.flatMap(session => session.windows).find(window => window.id === client.windowId)
@@ -805,7 +805,7 @@ export let createRuntime = (dataDirectory: string) => {
       extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.activeTabId === tabId)
       if (target === viewer?.live.window && bounds) {
         let floating = !!viewer && !model.clients.find(client => client.id === viewer.id)?.zoomedPaneId && !!tabById(model, tabId).window.floating?.some(item => item.paneId === tabById(model, tabId).pane.id)
-        live.view.setBorderRadius(floating ? FLOAT_RADIUS - FLOAT_BORDER : 0)
+        live.view.setBorderRadius(floating ? FLOAT_RADIUS - FLOAT_CONTENT_INSET : 0)
         live.view.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) })
       }
     }

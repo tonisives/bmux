@@ -68,6 +68,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(systemWindows)
   await rpc('activate-client', { client: client.id })
   let before = (await views())[0], rect = before.children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
+  await expect.poll(async () => (await views())[0].children.find(view => view.url === `${url}/right`)?.bounds).toEqual({ x: rect.x + 4, y: rect.y + 62, width: rect.width - 8, height: rect.height - 66 })
   await drag(before.bounds.x + rect.x + 90, before.bounds.y + rect.y + 18, 180, 100)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].x).toBe(rect.x + 180)
   let moved = (await views())[0].children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
