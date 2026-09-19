@@ -50,12 +50,13 @@ export let FloatingPane = () => {
   let navigation = tab && state?.navigation[tab.id]
   let client = state?.model.clients.find(client => client.id === state.clientId)
   return <section className={css.frame} data-floating-pane={paneId} data-focused={client?.paneId === paneId}>
-    <header className={css.header} onPointerDown={drag} onContextMenu={menu}><span>{tab?.title ?? 'Floating pane'}</span><button onClick={close} aria-label="Close floating pane">×</button></header>
-    <form className={css.address} onSubmit={submit}>
+    <form className={css.address} onSubmit={submit} onContextMenu={menu}>
+      <button className={css.knob} type="button" onPointerDown={drag} data-drag-handle aria-label="Move floating pane" />
       <button type="button" onClick={back} aria-label="Back" disabled={!navigation || navigation.activeIndex <= 0}>←</button>
       <button type="button" onClick={forward} aria-label="Forward" disabled={!navigation || navigation.activeIndex >= navigation.entries.length - 1}>→</button>
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
       <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+      <button className={css.close} type="button" onClick={close} aria-label="Close floating pane">×</button>
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
       {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : <span>{tab?.url === 'about:blank' ? 'Enter a URL above' : 'Loading…'}</span>}
@@ -73,7 +74,8 @@ let useFloatingDrag = (placement: Placement | undefined, state: PublicState | nu
   useEffect(() => () => cleanup.current?.(), [])
   useEffect(() => { if (!placement) cleanup.current?.() }, [placement])
   return (event: PointerEvent<HTMLElement>) => {
-    if (event.button !== 0 || !placement || !state || (event.target as HTMLElement).closest('button,input')) return
+    let target = event.target as HTMLElement
+    if (event.button !== 0 || !placement || !state || (target.closest('button,input') && !target.closest('[data-drag-handle]'))) return
     cleanup.current?.()
     event.preventDefault()
     let client = state.model.clients.find(client => client.id === state.clientId)!

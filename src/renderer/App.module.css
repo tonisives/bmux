@@ -1,8 +1,8 @@
 .app { display: flex; flex-direction: column; height: 100%; }
 .workspace { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 .floatingPreview { position: absolute; left: var(--float-x); top: var(--float-y); width: var(--float-width); height: var(--float-height); border: 2.25px solid #343c48; border-radius: 10px; background: #111318; overflow: hidden; pointer-events: none; }
-.floatingPreview > div { height: 58px; padding: 6px; background: #20262e; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.floatingPreview img { display: block; width: calc(100% - 3.5px); height: calc(100% - 61.5px); margin: 1.75px; object-fit: fill; }
+.floatingPreview > div { height: 30px; padding: 6px; background: #1b1f24; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.floatingPreview img { display: block; width: calc(100% - 7.5px); height: calc(100% - 37.5px); margin: 3.75px; object-fit: fill; }
 .status { display: flex; order: -2; align-items: center; flex-shrink: 0; height: 28px; gap: 10px; padding: 0 8px; background: #1b1f24; color: #9ca3ad; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-app-region: drag; }
 .app[data-status-bar="bottom"] .status { order: 1; }
 .status button, .status input, .status form { -webkit-app-region: no-drag; }

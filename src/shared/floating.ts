@@ -1,8 +1,8 @@
 import type { FloatingPane } from './types'
 
 export let FLOAT_BORDER = 2.25
-export let FLOAT_CONTENT_INSET = 4
-export let FLOAT_HEADER = 58
+export let FLOAT_CONTENT_INSET = 6
+export let FLOAT_HEADER = 30
 export let FLOAT_RADIUS = 10
 export let clampFloat = (rect: FloatingPane, width: number, height: number): FloatingPane => {
   width = Math.max(1, width); height = Math.max(1, height)

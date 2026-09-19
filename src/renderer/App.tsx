@@ -628,7 +628,7 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
     let rect = clampFloat(placement, client.width, client.height - 28)
     for (let key of ['x', 'y', 'width', 'height'] as const) ref.current.style.setProperty(`--float-${key}`, `${rect[key]}px`)
   }, [placement, client?.width, client?.height])
-  return <div ref={ref} className={css.floatingPreview} aria-hidden="true"><div>{tab?.title}</div>{tab && state.snapshots[tab.id] && <img src={state.snapshots[tab.id].image} alt="" />}</div>
+  return <div ref={ref} className={css.floatingPreview} aria-hidden="true"><div>{tab?.url}</div>{tab && state.snapshots[tab.id] && <img src={state.snapshots[tab.id].image} alt="" />}</div>
 }
 let BrowserPane = ({ paneId }: { paneId: string }) => {
   let { state, run } = useUI()
