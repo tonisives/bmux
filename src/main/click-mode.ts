@@ -60,10 +60,38 @@ let installClickMode = (token: string) => {
       label.append(document.createTextNode(remaining)); shadow.append(label)
     }
     if (settings.showInput && settings.main) {
-      let indicator = document.createElement('span'), names: Record<string, string> = { normal: 'click', right: 'right', command: 'cmd', double: 'double', float: 'float link', 'split-left': 'link left', 'split-right': 'link right' }
-      indicator.textContent = `${names[action] || action}${input ? `  ${input}` : ''}   r c d n  f h l`
-      indicator.style.cssText = `all:initial;position:fixed;left:50%;top:12px;transform:translateX(-50%);background:rgba(20,22,25,.92);color:${settings.backgroundColor};font:600 12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:5px 9px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:pre;opacity:${settings.opacity}`
+      let definitions = [
+        { action: 'normal', key: 'n', label: 'click', icon: '<path d="M4 3v16l4.2-4.1 3 6.6 3-1.4-3-6.5H17z"/>' },
+        { action: 'right', key: 'r', label: 'right', icon: '<rect x="5" y="2" width="14" height="20" rx="7"/><path d="M12 2v8h7"/><path d="M13 3h1a4 4 0 0 1 4 4v2h-5z" fill="currentColor" stroke="none" opacity=".35"/>' },
+        { action: 'command', key: 'c', label: 'cmd', icon: '<text x="12" y="17" text-anchor="middle" font-size="17" stroke="none" fill="currentColor">⌘</text>' },
+        { action: 'double', key: 'd', label: 'double', icon: '<text x="12" y="16" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">2×</text>' },
+        { action: 'float', key: 'f', label: 'float', icon: '<rect x="3" y="6" width="13" height="12" rx="1"/><rect x="8" y="3" width="13" height="12" rx="1" fill="currentColor" fill-opacity=".18"/>' },
+        { action: 'split-left', key: 'h', label: 'left', icon: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/><path d="M4 5h7v14H4z" fill="currentColor" stroke="none" opacity=".3"/>' },
+        { action: 'split-right', key: 'l', label: 'right', icon: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/><path d="M13 5h7v14h-7z" fill="currentColor" stroke="none" opacity=".3"/>' },
+      ]
+      let indicator = document.createElement('span')
+      indicator.style.cssText = `all:initial;position:fixed;left:50%;top:12px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:3px;max-width:calc(100vw - 24px);background:rgba(20,22,25,.94);color:#f4f5f6;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;padding:5px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;opacity:${settings.opacity}`
+      if (input) {
+        let typed = document.createElement('span')
+        typed.textContent = input
+        typed.style.cssText = `all:initial;color:${settings.backgroundColor};font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;padding:0 5px`
+        indicator.append(typed)
+      }
+      for (let [index, definition] of definitions.entries()) {
+        if (index === 4) { let divider = document.createElement('span'); divider.style.cssText = 'all:initial;width:1px;height:18px;background:rgba(255,255,255,.24);margin:0 2px'; indicator.append(divider) }
+        let item = document.createElement('span'), icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), key = document.createElement('span')
+        let selected = action === definition.action
+        item.dataset.bmuxClickAction = definition.action; item.dataset.selected = String(selected)
+        item.style.cssText = `all:initial;display:inline-flex;align-items:center;gap:3px;color:${selected ? settings.textColor : '#f4f5f6'};background:${selected ? settings.backgroundColor : 'transparent'};font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;border:1px solid ${selected ? settings.backgroundColor : 'rgba(255,255,255,.2)'};border-radius:3px`
+        icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true'); icon.style.cssText = 'width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round'
+        icon.innerHTML = definition.icon
+        key.textContent = definition.key
+        key.style.cssText = `all:initial;color:${selected ? settings.textColor : settings.backgroundColor};font:700 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace`
+        item.append(key, icon, document.createTextNode(definition.label)); indicator.append(item)
+      }
       shadow.append(indicator)
+      host.dataset.bmuxClickIcons = String(indicator.querySelectorAll('svg').length)
+      host.dataset.bmuxClickSelected = action
     }
   }
   document.documentElement.append(host)
