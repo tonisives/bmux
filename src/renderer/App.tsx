@@ -140,9 +140,11 @@ let ProfileDeviceIcon = ({ mobile }: { mobile: boolean }) => mobile
   ? <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="5" y="1.5" width="8" height="15" rx="1" /><path d="M8 14h2" /></svg>
   : <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="2" y="3" width="14" height="9" rx="1" /><path d="M6 15h6M9 12v3" /></svg>
 
-let ProfileConnectionIcon = ({ proxy }: { proxy: boolean }) => proxy
-  ? <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="connection"><circle cx="4" cy="5" r="1.5" /><circle cx="14" cy="4" r="1.5" /><circle cx="13" cy="14" r="1.5" /><path d="m5.5 5 7-1M5 6.2l7 6.6" /></svg>
+let ProfileConnectionIcon = ({ proxy, verified = false }: { proxy: boolean; verified?: boolean }) => proxy
+  ? <svg className={`${css.profileRouteIcon} ${verified ? css.profileRouteIconVerified : ''}`} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="connection" data-proxy-verified={verified || undefined}><circle cx="4" cy="5" r="1.5" /><circle cx="14" cy="4" r="1.5" /><circle cx="13" cy="14" r="1.5" /><path d="m5.5 5 7-1M5 6.2l7 6.6" /></svg>
   : <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="connection"><circle cx="9" cy="9" r="7" /><path d="M2 9h14M9 2c2 2 3 4.3 3 7s-1 5-3 7c-2-2-3-4.3-3-7s1-5 3-7Z" /></svg>
+
+let ProxyTestSuccess = ({ ip }: { ip: string }) => <p className={css.proxyTestSuccess} role="status" aria-label={`Proxy test passed. Exit IP: ${ip}`}><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="m5 8 2 2 4-4" /></svg><span>Exit IP: {ip}</span></p>
 
 let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; progress?: number }) => progressing
   ? <svg className={`${css.statusIcon} ${progress === undefined ? css.downloadProgressIndeterminate : ''}`} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="progressing" data-download-progress={progress}>
@@ -219,6 +221,8 @@ let Status = () => {
   let downloadTitle = progressingDownloads.length
     ? `${progressingDownloads.length} download${progressingDownloads.length === 1 ? '' : 's'} in progress${downloadProgress === undefined ? '' : ` · ${downloadProgress}%`}`
     : 'Downloads'
+  let proxyTest = profile ? state.profileProxyTests[profile.id] : undefined
+  let profileTitle = profile ? `Profile: ${profile.name}${proxyTest ? ` · Proxy verified · Exit IP: ${proxyTest.ip}` : ''}` : 'Profile'
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
@@ -236,7 +240,7 @@ let Status = () => {
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
-    <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profile ? `Profile: ${profile.name}` : 'Profile'} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
+    <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}{proxyTest && <ProfileConnectionIcon proxy verified />}</button>
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
@@ -590,8 +594,9 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
   let openProfile = () => show('profiles', paneId)
   let customProfile = profile && session && profile.id !== session.defaultProfileId ? profile : undefined
-  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}, ${customProfile.proxy ? 'proxy' : 'system'} connection` : ''
-  let profileRouteTitle = customProfile?.proxy ? `${profileRouteLabel} · ${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}` : profileRouteLabel
+  let proxyTest = customProfile ? state.profileProxyTests[customProfile.id] : undefined
+  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}, ${customProfile.proxy ? 'proxy' : 'system'} connection${proxyTest ? ', verified' : ''}` : ''
+  let profileRouteTitle = customProfile?.proxy ? `${profileRouteLabel} · ${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : profileRouteLabel
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -603,7 +608,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     </div>}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} /> : <button onClick={open} aria-label="Address" className={css.location} title={url}>{url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'}</button>}
     {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {customProfile && <button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteTitle}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /><ProfileConnectionIcon proxy={!!customProfile.proxy} /></button>}
+    {customProfile && <button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteTitle}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /><ProfileConnectionIcon proxy={!!customProfile.proxy} verified={!!proxyTest} /></button>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -876,11 +881,12 @@ let ProfileInfo = () => {
   let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
   let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
-  let [busy, setBusy] = useState(false), [testResult, setTestResult] = useState('')
+  let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   let cache = state.profileCaches[profile.id]
+  let proxyTest = state.profileProxyTests[profile.id]
   let changeProtocol = (event: ChangeEvent<HTMLSelectElement>) => { let value = event.target.value as 'http' | 'https' | 'socks5'; setProtocol(value); if (!profile.proxy) setPort(value === 'http' ? '80' : value === 'https' ? '443' : '1080') }
   let changeHost = (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value)
   let changePort = (event: ChangeEvent<HTMLInputElement>) => setPort(event.target.value)
@@ -889,17 +895,16 @@ let ProfileInfo = () => {
   let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
   let saveProxy = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return
-    setBusy(true); setTestResult('')
+    setBusy(true)
     let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password })
     if (result) { setUsername(''); setPassword('') }
     setBusy(false)
   }
-  let useSystem = async () => { if (busy) return; setBusy(true); setTestResult(''); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
+  let useSystem = async () => { if (busy) return; setBusy(true); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
   let testProxy = async () => {
     if (busy) return
-    setBusy(true); setTestResult('')
-    let result = await run('profile.proxy.test', { profile: profile.id }) as { ip?: string } | undefined
-    if (result?.ip) setTestResult(`Exit IP: ${result.ip}`)
+    setBusy(true)
+    await run('profile.proxy.test', { profile: profile.id })
     setBusy(false)
   }
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
@@ -921,7 +926,7 @@ let ProfileInfo = () => {
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
       <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
-      {testResult && <p role="status">{testResult}</p>}
+      {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} />}
     </form>
     <section className={css.profileProxy}>
       <h2>HTTP cache</h2>

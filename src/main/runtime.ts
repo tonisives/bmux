@@ -94,6 +94,7 @@ export let createRuntime = (dataDirectory: string) => {
   let defaultUserAgents = new Map<string, string>()
   let lastCacheChecks = new Map<string, number>()
   let profileCaches: PublicState['profileCaches'] = {}
+  let profileProxyTests: PublicState['profileProxyTests'] = {}
   let extensionWindows = new Set<BrowserWindow>()
   let extensions = createExtensions(dataDirectory, profileId => ({
     createTab: async details => {
@@ -213,7 +214,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches })
+  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -1283,6 +1284,7 @@ export let createRuntime = (dataDirectory: string) => {
         await updateProfileNetwork(profile.id, proxy, replacement)
         proxyCredentials.set(profile.id, proxy.authenticated ? replacement : undefined)
         profile.proxy = proxy
+        delete profileProxyTests[profile.id]
       } catch (error) {
         try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }
         throw error
@@ -1293,7 +1295,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
-      try { await updateProfileNetwork(profile.id); proxyCredentials.set(profile.id); delete profile.proxy }
+      try { await updateProfileNetwork(profile.id); proxyCredentials.set(profile.id); delete profile.proxy; delete profileProxyTests[profile.id] }
       catch (error) { try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }; throw error }
       save(); reloadProfileTabs(profile.id); return profile
     }
@@ -1301,13 +1303,18 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       if (!profile.proxy) throw new Error('Configure a proxy first')
+      delete profileProxyTests[profile.id]
+      publish()
       let browser = browserSession(profile.id)
       await profileNetworkReady.get(profile.id)
       let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
       if (!response.ok) throw new Error(`Proxy test failed with HTTP ${response.status}`)
       let value = await response.json() as { ip?: unknown }
       if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
-      return { ip: value.ip }
+      let result = { ip: value.ip, checkedAt: Date.now() }
+      profileProxyTests = { ...profileProxyTests, [profile.id]: result }
+      publish()
+      return result
     }
     if (method === 'profile.device.set') {
       if (!sourceClientId) throw new Error('Trusted UI required')
