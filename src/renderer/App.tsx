@@ -14,6 +14,7 @@ import { deleteWordBackward } from '../shared/text-edit'
 import { editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
 import { CloseButton } from './CloseButton'
+import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
@@ -131,40 +132,6 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, run: UICo
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
-const NORDVPN_PROXY_REGIONS: { group: string; label: string; host: string; protocol: 'https' | 'socks5'; port: number }[] = [
-  { group: 'SOCKS5', label: 'Netherlands', host: 'nl.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Sweden', host: 'se.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'United States', host: 'us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Amsterdam, Netherlands', host: 'amsterdam.nl.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Stockholm, Sweden', host: 'stockholm.se.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Atlanta, United States', host: 'atlanta.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Chicago, United States', host: 'chicago.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Dallas, United States', host: 'dallas.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Los Angeles, United States', host: 'los-angeles.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'New York, United States', host: 'new-york.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'Phoenix, United States', host: 'phoenix.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'SOCKS5', label: 'San Francisco, United States', host: 'san-francisco.us.socks.nordhold.net', protocol: 'socks5', port: 1080 },
-  { group: 'Asia Pacific', label: 'Adelaide, Australia', host: 'au789.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Brisbane, Australia', host: 'au737.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Melbourne, Australia', host: 'au912.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Perth, Australia', host: 'au1113.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Sydney, Australia', host: 'au824.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Hong Kong', host: 'hk389.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Mumbai, India', host: 'in189.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Jakarta, Indonesia', host: 'id74.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Osaka, Japan', host: 'jp1220.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Tokyo, Japan', host: 'jp680.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Kuala Lumpur, Malaysia', host: 'my67.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Auckland, New Zealand', host: 'nz123.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Manila, Philippines', host: 'ph20.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Singapore', host: 'sg640.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Seoul, South Korea', host: 'kr169.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Taipei, Taiwan', host: 'tw246.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Bangkok, Thailand', host: 'th45.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Hanoi, Vietnam', host: 'vn59.proxy.nordvpn.com', protocol: 'https', port: 89 },
-  { group: 'Asia Pacific', label: 'Ho Chi Minh City, Vietnam', host: 'vn56.proxy.nordvpn.com', protocol: 'https', port: 89 },
-]
-const NORDVPN_PROXY_REGION_GROUPS = ['SOCKS5', 'Asia Pacific']
 
 let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
 let profileDeviceLabel = (profile: Profile) => !profile.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: profile.device.platform === 'android' ? 'Android' : 'iOS' })[profile.device.preset]
@@ -953,13 +920,21 @@ let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
 }
 
 let ProxyProtocolSelect = ({ value, onChange }: { value: 'http' | 'https' | 'socks5'; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Protocol" value={value} onChange={onChange}><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select>
-let NordRegionSelect = ({ value, onChange }: { value: string; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Region" value={value} onChange={onChange} required><option value="" disabled>Choose region</option>{NORDVPN_PROXY_REGION_GROUPS.map(group => <optgroup key={group} label={group}>{NORDVPN_PROXY_REGIONS.filter(region => region.group === group).map(region => <option key={region.host} value={region.host}>{region.label}</option>)}</optgroup>)}</select>
+let ProxyRegionSelect = ({ regions, value, onChange }: { regions: PluginProxyRegion[]; value: string; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => {
+  let groups = [...new Set(regions.map(region => region.group))]
+  return <select aria-label="Region" value={value} onChange={onChange} required><option value="" disabled>Choose region</option>{groups.map(group => <optgroup key={group} label={group}>{regions.filter(region => region.group === group).map(region => <option key={`${region.protocol}:${region.host}:${region.port}`} value={region.host}>{region.label}</option>)}</optgroup>)}</select>
+}
+type ProxyProviderEntry = { key: string; provider: PluginProxyProvider }
+let proxyProviderEntries = (state: PublicState): ProxyProviderEntry[] => (state.plugins ?? []).filter(plugin => plugin.enabled).flatMap(plugin => plugin.proxyProviders.map(provider => ({ key: `${plugin.id}/${provider.id}`, provider })))
+let matchesProxyRegion = (region: PluginProxyRegion, profile: Profile) => region.protocol === profile.proxy?.protocol && region.host === profile.proxy.host && region.port === profile.proxy.port
 
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
   let { state, run } = useUI()
-  let configuredNordRegion = NORDVPN_PROXY_REGIONS.find(region => region.host === profile.proxy?.host)?.host ?? ''
-  let [provider, setProvider] = useState<'custom' | 'nordvpn'>(configuredNordRegion ? 'nordvpn' : 'custom')
-  let [nordRegion, setNordRegion] = useState(configuredNordRegion)
+  let providers = proxyProviderEntries(state)
+  let configuredProvider = providers.find(entry => entry.provider.regions.some(region => matchesProxyRegion(region, profile)))
+  let configuredRegion = configuredProvider?.provider.regions.find(region => matchesProxyRegion(region, profile))?.host ?? ''
+  let [providerKey, setProviderKey] = useState(configuredProvider?.key ?? 'custom')
+  let [providerRegion, setProviderRegion] = useState(configuredRegion)
   let [protocol, setProtocol] = useState(profile?.proxy?.protocol ?? 'https')
   let [host, setHost] = useState(profile?.proxy?.host ?? '')
   let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
@@ -967,19 +942,23 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
   let [busy, setBusy] = useState(false)
   let proxyTest = state.profileProxyTests[profile.id]
+  let providerEntry = providers.find(entry => entry.key === providerKey)
+  let provider = providerEntry?.provider
   let changeProvider = (event: ChangeEvent<HTMLSelectElement>) => {
-    let value = event.target.value as 'custom' | 'nordvpn'
-    setProvider(value)
+    let value = event.target.value
+    setProviderKey(value)
     if (value === 'custom') return
-    let region = NORDVPN_PROXY_REGIONS.find(item => item.host === nordRegion)
-    setProtocol(region?.protocol ?? 'socks5'); setPort(String(region?.port ?? 1080)); setAuthenticated(true)
+    let selectedProvider = providers.find(entry => entry.key === value)?.provider
+    let region = selectedProvider?.regions.find(item => item.host === providerRegion)
+    setAuthenticated(selectedProvider?.authenticated ?? false)
     if (region) setHost(region.host)
-    else setHost('')
+    else { setProviderRegion(''); setHost('') }
+    if (region) { setProtocol(region.protocol); setPort(String(region.port)) }
   }
-  let changeNordRegion = (event: ChangeEvent<HTMLSelectElement>) => {
-    let region = NORDVPN_PROXY_REGIONS.find(item => item.host === event.target.value)
+  let changeProviderRegion = (event: ChangeEvent<HTMLSelectElement>) => {
+    let region = provider?.regions.find(item => item.host === event.target.value)
     if (!region) return
-    setNordRegion(region.host); setHost(region.host); setProtocol(region.protocol); setPort(String(region.port))
+    setProviderRegion(region.host); setHost(region.host); setProtocol(region.protocol); setPort(String(region.port))
   }
   let changeProtocol = (event: ChangeEvent<HTMLSelectElement>) => { let value = event.target.value as 'http' | 'https' | 'socks5'; setProtocol(value); if (!profile.proxy) setPort(value === 'http' ? '80' : value === 'https' ? '443' : '1080') }
   let changeHost = (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value)
@@ -1004,9 +983,9 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   return <form className={css.profileProxy} onSubmit={saveProxy}>
       <h2>Connection</h2>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
-      <div className={css.profileProxyProvider}><label>Provider<select aria-label="Provider" value={provider} onChange={changeProvider}><option value="custom">Custom</option><option value="nordvpn">NordVPN</option></select></label>{provider === 'nordvpn' && <label>Region<NordRegionSelect value={nordRegion} onChange={changeNordRegion} /></label>}</div>
-      {provider === 'custom' && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
-      {provider === 'nordvpn' ? <p>{protocol === 'socks5' ? 'Uses SOCKS5 on port 1080' : 'Uses HTTPS proxy on port 89'}. Enter your NordVPN service credentials.</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
+      <div className={css.profileProxyProvider}><label>Provider<select aria-label="Provider" value={providerEntry ? providerKey : 'custom'} onChange={changeProvider}><option value="custom">Custom</option>{providers.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
+      {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
+      {provider ? <p>Uses {protocol.toUpperCase()} proxy on port {port}. {provider.help}</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
       <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>

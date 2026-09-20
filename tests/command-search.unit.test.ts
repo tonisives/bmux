@@ -17,8 +17,8 @@ test('finder includes active shortcuts, enabled plugin actions, and deduplicated
   let keyboard = structuredClone(DEFAULT_KEYBOARD)
   keyboard.prefix = 'Ctrl+X'; keyboard.shortcuts['Cmd+Alt+D'] = 'browser-tools'
   let entries = commandEntries(keyboard, [
-    { id: 'on', name: 'Fixture', version: '1', enabled: true, hooks: false, actions: [{ id: 'title', title: 'Read page heading' }] },
-    { id: 'off', name: 'Disabled', version: '1', enabled: false, hooks: false, actions: [{ id: 'title', title: 'Hidden action' }] },
+    { id: 'on', name: 'Fixture', version: '1', enabled: true, hooks: false, actions: [{ id: 'title', title: 'Read page heading' }], proxyProviders: [] },
+    { id: 'off', name: 'Disabled', version: '1', enabled: false, hooks: false, actions: [{ id: 'title', title: 'Hidden action' }], proxyProviders: [] },
   ])
   expect(entries.find(entry => entry.command === 'browser-tools')?.shortcuts).toContain('Cmd+Alt+D')
   expect(entries.find(entry => entry.command === 'bookmark')?.shortcuts).toContain('Cmd+D')
