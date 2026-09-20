@@ -32,7 +32,7 @@ import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy
 import type { ProxyCredentials } from './profile-proxy'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
-import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
+import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_RADIUS, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
@@ -250,7 +250,8 @@ export let createRuntime = (dataDirectory: string) => {
     let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.activeTabId === live.linkTabId && !!bounds
     if (!visible || !bounds) { live.linkPreview.setVisible(false); return }
     live.linkPreview.webContents.send('link-preview', live.linkUrl)
-    live.linkPreview.setBounds({ x: Math.round(bounds.x), y: Math.round(bounds.y + bounds.height - 26), width: Math.max(1, Math.min(520, Math.round(bounds.width))), height: 26 })
+    let inset = client && target && floatBounds(client, target.pane.id) ? FLOAT_CONTENT_RADIUS : 0
+    live.linkPreview.setBounds({ x: Math.round(bounds.x + inset), y: Math.round(bounds.y + bounds.height - 26 - inset), width: Math.max(1, Math.min(520, Math.round(bounds.width - inset * 2))), height: 26 })
     if (live.window.contentView.children.at(-1) !== live.linkPreview) live.window.contentView.addChildView(live.linkPreview)
     live.linkPreview.setVisible(true)
   }

@@ -25,22 +25,29 @@ let nativeMouse = async (events: { type: number; x: number; y: number }[]) => {
 }
 let click = (x: number, y: number) => nativeMouse([{ type: 5, x, y }, { type: 1, x, y }, { type: 2, x, y }])
 let drag = (x: number, y: number, dx: number, dy: number) => nativeMouse([{ type: 5, x, y }, { type: 1, x, y }, ...Array.from({ length: 8 }, (_, i) => ({ type: 6, x: x + dx * (i + 1) / 8, y: y + dy * (i + 1) / 8 })), { type: 2, x: x + dx, y: y + dy }])
-let expectCoveredCorners = async (pageUrl: string, screenshotPath: string) => {
-  await promisify(execFile)('/usr/sbin/screencapture', ['-x', screenshotPath])
-  let colors = await application.evaluate(({ BaseWindow, nativeImage, screen }, { pageUrl, screenshotPath }) => {
-    let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
-    let page = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === pageUrl)!
-    let bounds = page.getBounds(), origin = window.getContentBounds()
-    let image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
-    let display = screen.getPrimaryDisplay().bounds, scale = size.width / display.width
-    let color = (x: number, y: number) => {
-      let offset = (Math.floor((origin.y + bounds.y + y - display.y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - display.x) * scale)) * 4
-      return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
-    }
-    return { corners: [[0, 0], [bounds.width - 1, 0], [0, bounds.height - 1], [bounds.width - 1, bounds.height - 1]].map(([x, y]) => color(x, y)), inside: color(bounds.width / 2, bounds.height - 3) }
-  }, { pageUrl, screenshotPath })
-  for (let color of colors.corners) expect(color).toEqual([0x11, 0x13, 0x18])
-  expect(colors.inside).toEqual([0xd9, 0xe7, 0xee])
+let expectCoveredCorners = async (pageUrl: string, screenshotPath: string, insideColor = [0xd9, 0xe7, 0xee]) => {
+  await expect(async () => {
+    await promisify(execFile)('/usr/sbin/screencapture', ['-x', screenshotPath])
+    let colors = await application.evaluate(({ BaseWindow, nativeImage, screen }, { pageUrl, screenshotPath }) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+      let page = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === pageUrl)!
+      let bounds = page.getBounds(), origin = window.getContentBounds()
+      let image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
+      let display = screen.getPrimaryDisplay().bounds, scale = size.width / display.width
+      let color = (x: number, y: number) => {
+        let offset = (Math.floor((origin.y + bounds.y + y - display.y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - display.x) * scale)) * 4
+        return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
+      }
+      return {
+        corners: [[0, 0], [bounds.width - 1, 0], [0, bounds.height - 1], [bounds.width - 1, bounds.height - 1]].map(([x, y]) => color(x, y)),
+        well: [[-2, bounds.height / 2], [bounds.width + 1, bounds.height / 2], [bounds.width / 2, -3], [bounds.width / 2, bounds.height + 2]].map(([x, y]) => color(x, y)),
+        inside: color(bounds.width / 2, bounds.height - 3),
+      }
+    }, { pageUrl, screenshotPath })
+    for (let color of colors.corners) expect(color).toEqual([0x11, 0x13, 0x18])
+    for (let color of colors.well) expect(color).toEqual([0x11, 0x13, 0x18])
+    expect(colors.inside).toEqual(insideColor)
+  }).toPass({ timeout: 5000 })
 }
 let launch = async () => {
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
@@ -68,6 +75,44 @@ test.afterAll(async () => {
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 
+test('floating corners stay covered over composited pages after repainting', async ({}, info) => {
+  let current = await state(), client = current.model.clients[0]
+  let floating = await rpc('new-pane', { pane: client.paneId, client: client.id })
+  let floatingFrame = await frame(floating.id)
+  let address = floatingFrame.getByRole('textbox', { name: 'Address', exact: true })
+  await address.fill(`${url}/composited`); await address.press('Enter')
+  await rpc('wait', { tab: floating.activeTabId, selector: '#counter' })
+  let paint = () => rpc('eval', { tab: floating.activeTabId, expression: `(() => {
+    let canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:2147483647;transform:translateZ(0)';
+    document.body.append(canvas);
+    let gl = canvas.getContext('webgl');
+    if (!gl) throw new Error('WebGL unavailable');
+    let draw = () => { gl.clearColor(1, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(draw) };
+    draw();
+    return true;
+  })()` })
+  await paint()
+  await rpc('activate-client', { client: client.id })
+  await expectCoveredCorners(`${url}/composited`, info.outputPath('floating-webgl.png'), [255, 0, 255])
+  await rpc('float.bounds', { client: client.id, pane: floating.id, x: 150, y: 100, width: 530, height: 360, commit: true })
+  await rpc('client.overlay', { client: client.id, visible: true })
+  await expect.poll(async () => !!(await state()).snapshots[floating.activeTabId]).toBe(true)
+  await rpc('client.overlay', { client: client.id, visible: false })
+  await expect(floatingFrame.locator('img')).toBeVisible()
+  await expectCoveredCorners(`${url}/composited`, info.outputPath('floating-webgl-resized.png'), [255, 0, 255])
+  await rpc('reload', { tab: floating.activeTabId })
+  await rpc('wait', { tab: floating.activeTabId, selector: '#counter' })
+  await paint()
+  await expectCoveredCorners(`${url}/composited`, info.outputPath('floating-webgl-reloaded.png'), [255, 0, 255])
+  let otherOrigin = url.replace('127.0.0.1', 'localhost')
+  await rpc('navigate', { tab: floating.activeTabId, url: `${otherOrigin}/composited` })
+  await rpc('wait', { tab: floating.activeTabId, selector: '#counter' })
+  await paint()
+  await expectCoveredCorners(`${otherOrigin}/composited`, info.outputPath('floating-webgl-new-origin.png'), [255, 0, 255])
+  await rpc('kill-pane', { pane: floating.id, confirm: true })
+})
+
 test('floating panes preserve live pages, stack, drag, resize, dock and restore', async ({}, info) => {
   test.setTimeout(180_000)
   let initial = await state(), client = initial.model.clients[0], window = initial.model.sessions[0].windows[0], tiled = window.panes[0]
@@ -86,7 +131,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   let backButton = await firstFrame.getByRole('button', { name: 'Back' }).boundingBox()
   let reloadButton = await firstFrame.getByRole('button', { name: 'Reload' }).boundingBox()
   let floatingAddressBox = await firstFrame.getByRole('textbox', { name: 'Address', exact: true }).boundingBox()
-  let dragSpace = await firstFrame.locator('form > div[aria-hidden="true"]').boundingBox()
+  let dragSpace = await firstFrame.locator('[data-drag-space]').boundingBox()
   let closeButton = await firstFrame.getByRole('button', { name: 'Close floating pane' }).boundingBox()
   expect(knob!.y + knob!.height / 2).toBe(floatingAddressBox!.y + floatingAddressBox!.height / 2)
   expect(closeButton!.y + closeButton!.height / 2).toBe(floatingAddressBox!.y + floatingAddressBox!.height / 2)
@@ -95,15 +140,25 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   await knobControl.hover()
   expect(await knobControl.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(knobBackground)
   expect(dragSpace!.width).toBeGreaterThanOrEqual(40)
+  let textWidth = await firstFrame.getByRole('textbox', { name: 'Address', exact: true }).evaluate(element => {
+    let input = element as HTMLInputElement, canvas = document.createElement('canvas'), context = canvas.getContext('2d')!
+    context.font = getComputedStyle(input).font
+    return context.measureText(input.value).width
+  })
+  expect(dragSpace!.x - floatingAddressBox!.x - textWidth).toBeLessThan(12)
   expect(await firstFrame.locator('header').count()).toBe(0)
   expect(await rpc('eval', { tab: right.activeTabId, expression: 'window.identity' })).toBe(identity)
   expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(systemWindows)
   await rpc('activate-client', { client: client.id })
   let before = (await views())[0], rect = before.children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
   await expect.poll(async () => (await views())[0].children.find(view => view.url === `${url}/right`)?.bounds).toEqual({ x: rect.x + 6, y: rect.y + 38, width: rect.width - 12, height: rect.height - 46 })
-  await drag(before.bounds.x + rect.x + dragSpace!.x + dragSpace!.width / 2, before.bounds.y + rect.y + dragSpace!.y + dragSpace!.height / 2, 180, 100)
+  await drag(before.bounds.x + rect.x + dragSpace!.x + 2, before.bounds.y + rect.y + dragSpace!.y + dragSpace!.height / 2, 180, 100)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].x).toBe(rect.x + 180)
   let moved = (await views())[0].children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
+  let above = await firstFrame.locator('[data-drag-above]').boundingBox()
+  await drag(before.bounds.x + moved.x + above!.x + 10, before.bounds.y + moved.y + above!.y + above!.height / 2, 20, 10)
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].x).toBe(moved.x + 20)
+  moved = (await views())[0].children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
   await drag(before.bounds.x + moved.x + moved.width - 3, before.bounds.y + moved.y + moved.height - 3, -100, -80)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].width).toBe(moved.width - 100)
   await expectCoveredCorners(`${url}/right`, info.outputPath('floating-resized-corners.png'))
@@ -124,6 +179,12 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   await firstFrame.screenshot({ path: info.outputPath('floating-frame.png') })
   await promisify(execFile)('/usr/sbin/screencapture', ['-x', info.outputPath('floating-desktop.png')])
   await expectCoveredCorners(`${url}/right`, info.outputPath('floating-stacked-corners.png'))
+  let link = await application.context().pages().find(page => page.url() === `${url}/right`)!.locator('a').boundingBox()
+  let hoveredWindow = (await views())[0], hoveredPage = hoveredWindow.children.find(view => view.url === `${url}/right`)!
+  await nativeMouse([{ type: 5, x: hoveredWindow.bounds.x + hoveredPage.bounds.x + link!.x + 10, y: hoveredWindow.bounds.y + hoveredPage.bounds.y + link!.y + 10 }])
+  await expect.poll(async () => (await views())[0].children.some(view => view.url.endsWith('#link-preview') && view.visible)).toBe(true)
+  await expectCoveredCorners(`${url}/right`, info.outputPath('floating-link-preview-corners.png'))
+  await nativeMouse([{ type: 5, x: hoveredWindow.bounds.x + 5, y: hoveredWindow.bounds.y + 5 }])
 
   await rpc('toggle-pane-zoom', { client: client.id })
   await expect.poll(async () => (await views())[0].children.filter(view => view.visible && view.url.startsWith(url)).map(view => view.url)).toEqual([url + '/right'])
