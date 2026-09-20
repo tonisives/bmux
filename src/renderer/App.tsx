@@ -19,7 +19,7 @@ type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'cl
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; dismiss?: () => void; action?: { label: string; run: () => void } }
+type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -110,7 +110,7 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...proxyFailureNotices(state, run),
+    ...proxyFailureNotices(state, window, run, show),
   ]
   let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
@@ -123,7 +123,12 @@ export let App = () => {
   </div></Context.Provider>
 }
 
-let proxyFailureNotices = (state: PublicState, run: UIContext['run']): Notification[] => Object.entries(state.profileProxyFailures).map(([profileId, failure]) => ({ id: `proxy:${profileId}`, text: `Proxy for ${state.model.profiles.find(item => item.id === profileId)?.name ?? profileId} could not connect. Pages using it are paused. ${failure.error}`, action: { label: 'Disable proxy and continue', run: () => { void run('profile.proxy.clear', { profile: profileId }) } } }))
+let proxyFailureNotices = (state: PublicState, window: InternalWindow, run: UIContext['run'], show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
+  let pane = window.panes.find(item => item.profileId === profileId)
+  if (!pane) return []
+  let name = state.model.profiles.find(item => item.id === profileId)?.name ?? profileId
+  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }, { label: 'Disable proxy and continue', run: () => { void run('profile.proxy.clear', { profile: profileId }) } }] }]
+})
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
 const NORDVPN_PROXY_REGIONS = [
@@ -187,7 +192,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.action && <button type="button" className={css.notificationAction} onClick={notice.action.run}>{notice.action.label}</button>}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -242,8 +247,9 @@ let Status = () => {
     ? `${progressingDownloads.length} download${progressingDownloads.length === 1 ? '' : 's'} in progress${downloadProgress === undefined ? '' : ` · ${downloadProgress}%`}`
     : 'Downloads'
   let proxyTest = profile ? state.profileProxyTests[profile.id] : undefined
+  let proxyFailure = profile ? state.profileProxyFailures[profile.id] : undefined
   let profileTitle = profile ? `Profile: ${profile.name}` : 'Profile'
-  let proxyTitle = proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : ''
+  let proxyTitle = proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : profile?.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : ''
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
@@ -262,7 +268,7 @@ let Status = () => {
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
-    {proxyTest && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile!.name}`} title={proxyTitle} className={css.proxyButton}><ProfileConnectionIcon proxy verified /></button>}
+    {profile?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>

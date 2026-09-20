@@ -1,4 +1,4 @@
-import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard } from 'electron'
+import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -322,9 +322,25 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let testProfileProxy = async (profileId: string) => {
     let browser = electronSession.fromPartition(`persist:${profileId}`)
-    let response = await browser.fetch(process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
-    if (!response.ok) throw new Error(`Proxy test failed with HTTP ${response.status}`)
-    let value = await response.json() as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
+    let response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      let request = net.request({ url: process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', session: browser, credentials: 'include' })
+      let timer = setTimeout(() => { request.abort(); reject(new Error('Proxy test timed out')) }, 10000)
+      request.on('login', (auth, callback) => {
+        let relay = proxyRelays.authentication(auth.host, auth.port)
+        if (relay) callback(relay.username, relay.password)
+        else callback()
+      })
+      request.on('response', incoming => {
+        let chunks: Buffer[] = []
+        incoming.on('data', chunk => chunks.push(Buffer.from(chunk)))
+        incoming.on('end', () => { clearTimeout(timer); resolve({ status: incoming.statusCode, body: Buffer.concat(chunks).toString('utf8') }) })
+        incoming.on('error', error => { clearTimeout(timer); reject(error) })
+      })
+      request.on('error', error => { clearTimeout(timer); reject(error) })
+      request.end()
+    })
+    if (response.status < 200 || response.status >= 300) throw new Error(`Proxy test failed with HTTP ${response.status}`)
+    let value = JSON.parse(response.body) as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
     if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
     let locations = [value.city, value.region, value.country].filter((item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 120)
     let region = [...new Set(locations.map(item => item.trim()))].join(', ')
