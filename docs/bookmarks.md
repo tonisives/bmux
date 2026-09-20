@@ -1,5 +1,15 @@
 # Bookmarks
 
+## Save and search
+
+Give recurring pages a recognizable title. In the folder chooser, press `/`
+from a folder row to search folders, then use Up/Down and Enter to select one.
+You can create a folder inside the selected folder.
+
+Opening a bookmark creates a new tab in the selected pane, preserving the
+current layout and its original tab. Searches are remembered per profile during
+the running UI session. This is not cross-device synchronization.
+
 Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark in a new tab. Each profile has its own bookmarks.
 
 For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
@@ -26,3 +36,18 @@ You can edit the YAML while bmux is closed. Restart bmux to load edits. Keep eac
 `BMUX_CONFIG` selects the settings file whose directory contains `bookmarks.yaml`. `XDG_CONFIG_HOME` changes the default config directory. Isolated `BMUX_DATA_DIR` instances keep both YAML files in their data directory.
 
 Parameter values and hidden parameters live separately in `bookmark-parameters.yaml` in the same directory as `config.yaml`. bmux creates it when you customize a bookmark. Entries are keyed by profile ID and bookmark ID.
+
+The destination website must support the edited parameters. These controls do
+not change POST bodies or arbitrary page state. Manual bookmark YAML edits do
+not reload live; edit while bmux is closed and restart, unlike keyboard settings.
+
+## History and related guides
+
+Run `history` to search visited pages by title or URL within the selected profile.
+Select a result with Up/Down and Enter. History opens in the active tab; bookmarks
+open in a new tab. Deleting individual history entries and clearing history from
+the panel remain follow-up work.
+
+See [Import from Brave](brave.md) for existing folders and the
+[bookmark walkthrough](https://bmux.cc/articles/bookmarks/) for parameter examples
+and a Tart demonstration.

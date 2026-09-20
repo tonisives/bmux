@@ -42,6 +42,11 @@ Common direct shortcuts:
 
 ## Click mode
 
+For a reference lookup, activate Click Mode, press `f`, then type its link hint.
+Use `h` or `l` for a left or right split. See [Floating panes](floating-panes.md)
+for docking, or the [Click Mode walkthrough](https://bmux.cc/articles/click-mode/)
+for captures. Hint labels depend on the current page and may change.
+
 Double-tap Option to show keyboard hints over clickable elements in the selected pane. Type a hint to click its element. Click mode works directly in bmux, including page frames, without a browser extension or Accessibility permission.
 
 | Key | Action |
@@ -169,6 +174,13 @@ Window reordering actions are `move-window-left`, `move-window-right`, `move-win
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
 
 ### Conditional shortcuts
+
+The single-letter Vim-style example above is optional, not enabled by default.
+Merge it into your existing `keyboard` mapping without replacing unrelated
+preferences. Website shortcuts outside editable fields can still conflict:
+configured bmux bindings take precedence. See the
+[Vim navigation walkthrough](https://bmux.cc/articles/vim-navigation/) for a
+scrolling and text-input demonstration.
 
 A shortcut can specify an action and a context. For example, use Command+Z to
 zoom the active pane while retaining Undo in text fields:
