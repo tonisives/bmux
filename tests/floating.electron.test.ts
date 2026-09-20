@@ -25,6 +25,23 @@ let nativeMouse = async (events: { type: number; x: number; y: number }[]) => {
 }
 let click = (x: number, y: number) => nativeMouse([{ type: 5, x, y }, { type: 1, x, y }, { type: 2, x, y }])
 let drag = (x: number, y: number, dx: number, dy: number) => nativeMouse([{ type: 5, x, y }, { type: 1, x, y }, ...Array.from({ length: 8 }, (_, i) => ({ type: 6, x: x + dx * (i + 1) / 8, y: y + dy * (i + 1) / 8 })), { type: 2, x: x + dx, y: y + dy }])
+let expectCoveredCorners = async (pageUrl: string, screenshotPath: string) => {
+  await promisify(execFile)('/usr/sbin/screencapture', ['-x', screenshotPath])
+  let colors = await application.evaluate(({ BaseWindow, nativeImage, screen }, { pageUrl, screenshotPath }) => {
+    let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+    let page = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === pageUrl)!
+    let bounds = page.getBounds(), origin = window.getContentBounds()
+    let image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
+    let display = screen.getPrimaryDisplay().bounds, scale = size.width / display.width
+    let color = (x: number, y: number) => {
+      let offset = (Math.floor((origin.y + bounds.y + y - display.y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - display.x) * scale)) * 4
+      return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
+    }
+    return { corners: [[0, 0], [bounds.width - 1, 0], [0, bounds.height - 1], [bounds.width - 1, bounds.height - 1]].map(([x, y]) => color(x, y)), inside: color(bounds.width / 2, bounds.height - 3) }
+  }, { pageUrl, screenshotPath })
+  for (let color of colors.corners) expect(color).toEqual([0x11, 0x13, 0x18])
+  expect(colors.inside).toEqual([0xd9, 0xe7, 0xee])
+}
 let launch = async () => {
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await observeNativeFocus(application)
@@ -89,6 +106,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   let moved = (await views())[0].children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
   await drag(before.bounds.x + moved.x + moved.width - 3, before.bounds.y + moved.y + moved.height - 3, -100, -80)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].width).toBe(moved.width - 100)
+  await expectCoveredCorners(`${url}/right`, info.outputPath('floating-resized-corners.png'))
 
   let second = await rpc('new-pane', { pane: tiled.id, client: client.id })
   let secondFrame = await frame(second.id)
@@ -105,6 +123,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   await expect.poll(async () => (await views())[0].children.filter(view => [url + '/right', url + '/float'].includes(view.url)).at(-1)?.url).toBe(url + '/right')
   await firstFrame.screenshot({ path: info.outputPath('floating-frame.png') })
   await promisify(execFile)('/usr/sbin/screencapture', ['-x', info.outputPath('floating-desktop.png')])
+  await expectCoveredCorners(`${url}/right`, info.outputPath('floating-stacked-corners.png'))
 
   await rpc('toggle-pane-zoom', { client: client.id })
   await expect.poll(async () => (await views())[0].children.filter(view => view.visible && view.url.startsWith(url)).map(view => view.url)).toEqual([url + '/right'])
