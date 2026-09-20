@@ -11,7 +11,7 @@ import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/p
 import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
-import { editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
+import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
 import { CloseButton } from './CloseButton'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
@@ -1198,14 +1198,14 @@ let BookmarkRow = ({ bookmark, profileId, activate }: { bookmark: Bookmark; prof
     </div>
     {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
       let value = settings.values[key] ?? initial
-      let label = key === 'x:min_faves' ? 'Min likes' : key === 'x:min_replies' ? 'Min replies' : key
+      let { label, help } = bookmarkParameterPresentation(bookmark.url!, key)
       let numeric = /^-?\d+(?:\.\d+)?$/.test(initial) && Number.isFinite(Number(initial))
       let number = Number(initial), currentNumber = Number(value) || number
-      let minimum = Math.min(0, Math.floor(number * 2), Math.floor(currentNumber * 2)), maximum = Math.max(100, Math.ceil(number * 2), Math.ceil(currentNumber * 2))
+      let minimum = key === 'x:max_age_days' ? 0 : Math.min(0, Math.floor(number * 2), Math.floor(currentNumber * 2)), maximum = key === 'x:max_age_days' ? Math.max(365, currentNumber) : Math.max(100, Math.ceil(number * 2), Math.ceil(currentNumber * 2))
       let step = initial.includes('.') ? 10 ** -Math.min(initial.split('.')[1].length, 4) : 1
       let changeValue = (event: ChangeEvent<HTMLInputElement>) => update(key, event.target.value)
       let remove = () => hide(key)
-      return <div className={css.bookmarkParameter} key={key}><label><span title={label}>{label}</span><input aria-label={label} type={numeric ? 'number' : 'text'} value={value} step={numeric ? step : undefined} onChange={changeValue} onBlur={save} autoComplete="off" spellCheck={false} /></label>{numeric && <input aria-label={`${label} slider`} type="range" min={minimum} max={maximum} step={step} value={value} onChange={changeValue} onPointerUp={save} onBlur={save} />}<button type="button" data-picker-action className={css.bookmarkRemoveParameter} aria-label={`Remove ${label} parameter`} title={`Remove ${label} from this bookmark URL`} onClick={remove}>×</button></div>
+      return <div className={css.bookmarkParameter} key={key}><label><span title={help ?? label}>{label}</span><input aria-label={label} title={help} type={numeric ? 'number' : 'text'} value={value} step={numeric ? step : undefined} onChange={changeValue} onBlur={save} autoComplete="off" spellCheck={false} /></label>{numeric && <input aria-label={`${label} slider`} title={help} type="range" min={minimum} max={maximum} step={step} value={value} onChange={changeValue} onPointerUp={save} onBlur={save} />}<button type="button" data-picker-action className={css.bookmarkRemoveParameter} aria-label={`Remove ${label} parameter`} title={`Remove ${label} from this bookmark URL`} onClick={remove}>×</button></div>
     })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
   </div>
 }
