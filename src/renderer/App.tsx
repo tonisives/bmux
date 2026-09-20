@@ -727,19 +727,21 @@ let Panel = ({ type }: { type: Control }) => {
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={css.panel} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><CloseButton label="Close" onClick={dismiss} /></header>
-    {type === 'help' && <HelpContent />}
-    {type === 'plugins' && <PluginList />}
-    {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
-    {type === 'browser-tools' && <BrowserTools />}
-    {type === 'settings' && <KeyboardSettings />}
-    {type === 'sessions' && <SessionPicker />}
-    {type === 'profiles' && <ProfileInfo />}
-    {type === 'proxy' && <ProxyInfo />}
-    {type === 'bookmark' && <BookmarkEditor />}
-    {type === 'bookmarks' && <BookmarkPicker />}
-    {type === 'history' && <HistoryPicker />}
-    {type === 'downloads' && <DownloadManager />}
-    {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
+    <div className={css.panelBody}>
+      {type === 'help' && <HelpContent />}
+      {type === 'plugins' && <PluginList />}
+      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
+      {type === 'browser-tools' && <BrowserTools />}
+      {type === 'settings' && <KeyboardSettings />}
+      {type === 'sessions' && <SessionPicker />}
+      {type === 'profiles' && <ProfileInfo />}
+      {type === 'proxy' && <ProxyInfo />}
+      {type === 'bookmark' && <BookmarkEditor />}
+      {type === 'bookmarks' && <BookmarkPicker />}
+      {type === 'history' && <HistoryPicker />}
+      {type === 'downloads' && <DownloadManager />}
+      {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
+    </div>
   </div></div>
 }
 let PluginList = () => {

@@ -254,6 +254,11 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect.poll(async () => (await state()).profileProxyTests[profile.id]?.ip).toBe('203.0.113.9')
   let profileButton = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
   await expect(profileButton.locator('[data-proxy-verified="true"]')).toHaveCount(0)
+  await panel.evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect.poll(async () => {
+    let panelBox = (await panel.boundingBox())!, headerBox = (await panel.locator(':scope > header').boundingBox())!
+    return headerBox.y - panelBox.y
+  }).toBeLessThanOrEqual(2)
   await expect(panel.getByRole('button', { name: 'Close', exact: true }).locator('svg')).toBeVisible()
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   let proxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}`, exact: true })
