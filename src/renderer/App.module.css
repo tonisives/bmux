@@ -9,7 +9,7 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { color: #bdc9b4; flex-shrink: 0; }
-.status .profileButton, .status .proxyButton, .status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
+.status .profileButton, .status .proxyButton, .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .status .profileButton, .status .proxyButton { width: auto; height: 18px; }
 .status .proxyButton { margin-left: -7px; color: #a7c88d; }
 .status .proxyButton[data-proxy-failed="true"] { color: #e6a69c; }

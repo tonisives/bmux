@@ -17,10 +17,12 @@ import { CloseButton } from './CloseButton'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
+type BrowserExtension = { id: string; name: string; version: string; path: string }
+type ExtensionList = { extensions: BrowserExtension[]; errors: { path: string; error: string }[] }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -87,7 +89,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousHistoryPopup.current || ['sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousHistoryPopup.current || ['sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
@@ -165,6 +167,8 @@ let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; pro
   </svg>
   : <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="idle"><path d="M10 2v10m-4-4 4 4 4-4M4 17h12" /></svg>
 
+let ExtensionsIcon = () => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><path d="M7 2.5h3.5v3a2 2 0 1 0 3 0v-3H17.5V7h-3a2 2 0 1 0 0 3h3v7.5H10v-3a2 2 0 1 0-3 0v3H2.5V10h3a2 2 0 1 0 0-3h-3V2.5H7Z" /></svg>
+
 let bridge = (window as unknown as { bmux: Bridge }).bmux
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
@@ -224,6 +228,7 @@ let Status = () => {
   let commands = () => show('command')
   let activity = () => show('activity')
   let downloads = () => show('downloads')
+  let extensions = () => show('extensions')
   let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
   let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused)
   let progressTotal = progressingDownloads.reduce((total, item) => total + item.total, 0)
@@ -258,6 +263,7 @@ let Status = () => {
     {profile?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
+    <button onClick={extensions} aria-label="Extensions" title="Extensions" className={css.extensionsButton}><ExtensionsIcon /></button>
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -733,9 +739,34 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'bookmarks' && <BookmarkPicker />}
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
+      {type === 'extensions' && <ExtensionManager />}
       {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
+}
+let ExtensionManager = () => {
+  let { state, run, dismiss } = useUI()
+  let { profile } = selection(state)
+  let [listing, setListing] = useState<ExtensionList | null>(null)
+  useEffect(() => {
+    if (!profile) return
+    let cancelled = false
+    void run('extension.list', { profile: profile.id }).then(result => {
+      if (!cancelled && result) setListing(result as ExtensionList)
+    })
+    return () => { cancelled = true }
+  }, [profile?.id, run])
+  let open = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (!profile) return
+    let opened = await run('extension.open', { profile: profile.id, id: event.currentTarget.dataset.id })
+    if (opened) dismiss()
+  }
+  return <section aria-label="Profile extensions"><p>Profile: {profile?.name ?? 'No selected pane'}</p>
+    {!listing && <p>Loading extensions…</p>}
+    {listing && !listing.extensions.length && <p>No extensions in this profile.</p>}
+    {listing?.extensions.map(extension => <button key={extension.id} className={css.listRow} data-id={extension.id} onClick={open}><strong>{extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
+    {listing?.errors.map(error => <p key={`${error.path}:${error.error}`} className={css.error}>{error.error}</p>)}
+  </section>
 }
 let PluginList = () => {
   let { state, run, dismiss } = useUI()

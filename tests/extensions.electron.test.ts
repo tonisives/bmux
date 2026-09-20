@@ -76,6 +76,14 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let page = application!.context().pages().find(page => page.url() === url)!
     await expect(page.locator('h1')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-extension-fixture', 'loaded')
+    await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
+    let extensionPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
+    await expect(extensionPanel).toContainText('Profile: default')
+    await extensionPanel.getByRole('button', { name: /Fixture extension/ }).click()
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
+    let toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
+    await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
+    await toolbarPopup.close()
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect(page.frameLocator('iframe').locator('body')).toHaveAttribute('data-ack', 'received')
     expect(await page.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])

@@ -5,6 +5,9 @@ grants the extension its manifest permissions for that profile. Install only
 extensions you trust. They run in sandboxed extension contexts; websites do not
 receive the bmux API.
 
+Use the extensions button in the status bar to see extensions installed in the
+selected pane's profile and open their popups.
+
 Open the command prompt and run:
 
 ```text
