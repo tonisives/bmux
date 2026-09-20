@@ -1,5 +1,5 @@
 import { parseDocument } from 'yaml'
-import type { PluginAction, PluginCapability, PluginHook, PluginManifest, PluginParameter } from '../shared/plugins'
+import type { PluginAction, PluginCapability, PluginHook, PluginManifest, PluginParameter, PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
 let object = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a mapping')
@@ -27,13 +27,27 @@ let action = (raw: unknown): PluginAction => {
   if (new Set(parameters.map(item => item.name)).size !== parameters.length) throw new Error('Duplicate parameter')
   return { id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
 }
+let proxyRegion = (raw: unknown): PluginProxyRegion => {
+  let value = object(raw), protocol = value.protocol as PluginProxyRegion['protocol'], host = text(value.host).trim()
+  if (!['http', 'https', 'socks5'].includes(protocol)) throw new Error('Unknown proxy protocol')
+  if (host.length > 253 || /[\s/@?#]/.test(host)) throw new Error('Invalid proxy host')
+  if (!Number.isInteger(value.port) || Number(value.port) < 1 || Number(value.port) > 65535) throw new Error('Invalid proxy port')
+  return { group: text(value.group), label: text(value.label), protocol, host, port: Number(value.port) }
+}
+let proxyProvider = (raw: unknown): PluginProxyProvider => {
+  let value = object(raw)
+  if (typeof value.authenticated !== 'boolean' || !Array.isArray(value.regions) || !value.regions.length || value.regions.length > 1000) throw new Error('Invalid proxy provider')
+  let regions = value.regions.map(proxyRegion)
+  if (new Set(regions.map(region => region.host)).size !== regions.length) throw new Error('Duplicate proxy region host')
+  return { id: identifier(value.id), title: text(value.title), help: value.help === undefined ? undefined : text(value.help), authenticated: value.authenticated, regions }
+}
 export let parsePluginManifest = (source: string): PluginManifest => {
   if (source.length > 262144) throw new Error('Manifest too large')
   let document = parseDocument(source)
   if (document.errors.length) throw new Error('Invalid manifest YAML')
   let value = object(document.toJS({ maxAliasCount: 30 }))
   if (value.schema_version !== 1) throw new Error('Unsupported plugin schema_version (expected 1)')
-  if ((value.actions !== undefined && !Array.isArray(value.actions)) || (value.hooks !== undefined && !Array.isArray(value.hooks))) throw new Error('Actions and hooks must be lists')
+  if ((value.actions !== undefined && !Array.isArray(value.actions)) || (value.hooks !== undefined && !Array.isArray(value.hooks)) || (value.proxy_providers !== undefined && !Array.isArray(value.proxy_providers))) throw new Error('Actions, hooks, and proxy providers must be lists')
   let actions = ((value.actions ?? []) as unknown[]).map(action)
   let hooks = ((value.hooks ?? []) as unknown[]).map((raw): PluginHook => {
     let value = object(raw), base = action(raw), event = value.event as PluginHook['event']
@@ -43,9 +57,11 @@ export let parsePluginManifest = (source: string): PluginManifest => {
     if (matches && (!matches.length || matches.some(pattern => !/^(https?:\/\/|file:\/\/)/.test(pattern)))) throw new Error('Page hooks require URL patterns')
     return { ...base, event, matches, profiles: value.profiles === undefined ? undefined : strings(value.profiles) }
   })
+  let proxyProviders = ((value.proxy_providers ?? []) as unknown[]).map(proxyProvider)
   let all = [...actions, ...hooks]
   if (all.length > 100 || new Set(all.map(item => item.id)).size !== all.length) throw new Error('Too many or duplicate actions/hooks')
-  return { schema_version: 1, id: identifier(value.id), name: text(value.name), version: text(value.version), actions, hooks }
+  if (proxyProviders.length > 20 || new Set(proxyProviders.map(item => item.id)).size !== proxyProviders.length) throw new Error('Too many or duplicate proxy providers')
+  return { schema_version: 1, id: identifier(value.id), name: text(value.name), version: text(value.version), actions, hooks, proxyProviders }
 }
 export let matchesPluginUrl = (pattern: string, url: string) => {
   let expression = pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')

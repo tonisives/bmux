@@ -1,0 +1,41 @@
+schema_version: 1
+id: bmux.nordvpn
+name: NordVPN proxy regions
+version: 1.0.0
+proxy_providers:
+  - id: nordvpn
+    title: NordVPN
+    help: Enter your NordVPN service credentials.
+    authenticated: true
+    regions:
+      - { group: SOCKS5, label: Netherlands, host: nl.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: Sweden, host: se.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: United States, host: us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Amsterdam, Netherlands", host: amsterdam.nl.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Stockholm, Sweden", host: stockholm.se.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Atlanta, United States", host: atlanta.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Chicago, United States", host: chicago.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Dallas, United States", host: dallas.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Los Angeles, United States", host: los-angeles.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "New York, United States", host: new-york.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "Phoenix, United States", host: phoenix.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: SOCKS5, label: "San Francisco, United States", host: san-francisco.us.socks.nordhold.net, protocol: socks5, port: 1080 }
+      - { group: Asia Pacific, label: "Adelaide, Australia", host: au789.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Brisbane, Australia", host: au737.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Melbourne, Australia", host: au912.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Perth, Australia", host: au1113.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Sydney, Australia", host: au824.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: Hong Kong, host: hk389.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Mumbai, India", host: in189.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Jakarta, Indonesia", host: id74.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Osaka, Japan", host: jp1220.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Tokyo, Japan", host: jp680.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Kuala Lumpur, Malaysia", host: my67.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Auckland, New Zealand", host: nz123.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Manila, Philippines", host: ph20.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: Singapore, host: sg640.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Seoul, South Korea", host: kr169.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Taipei, Taiwan", host: tw246.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Bangkok, Thailand", host: th45.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Hanoi, Vietnam", host: vn59.proxy.nordvpn.com, protocol: https, port: 89 }
+      - { group: Asia Pacific, label: "Ho Chi Minh City, Vietnam", host: vn56.proxy.nordvpn.com, protocol: https, port: 89 }

@@ -60,6 +60,13 @@ actions:
         kind: choice
         choices: [brief, detailed]
         required: true
+proxy_providers:
+  - id: example
+    title: Example proxy
+    help: Enter the service credentials supplied by the provider.
+    authenticated: true
+    regions:
+      - { group: Europe, label: Amsterdam, protocol: https, host: proxy.example.com, port: 443 }
 hooks:
   - id: page
     title: Prepare page
@@ -68,6 +75,13 @@ hooks:
     command: [sh, ./page.sh]
     capabilities: [browser.write]
 ```
+
+Proxy providers are declarative presets for the profile and Proxy connection
+forms. A provider supplies its regions, endpoints, protocol, port, and whether
+credentials are required; core bmux still stores credentials and manages the
+connection. Providers appear only while their plugin is enabled. The bundled
+`bmux.nordvpn` plugin is disabled by default and adds NordVPN regions when
+enabled in the Plugins panel.
 
 Commands are argument arrays, not interpolated shell strings. Paths beginning
 with `.` resolve against the plugin directory; executable names use PATH. Invoke

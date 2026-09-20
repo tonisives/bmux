@@ -42,6 +42,14 @@ describe('plugin definitions', () => {
     expect(matchesPluginUrl('https://example.test/*', 'https://example.test.evil/path')).toBe(false)
     expect(matchesPluginUrl('http://127.0.0.1:*/plugin-fixture*', 'http://127.0.0.1:8123/plugin-fixture')).toBe(true)
   })
+  test('validates and publishes declarative proxy providers', () => {
+    let { manifest, plugins, writeManifest } = fixture('')
+    let provider = { id: 'service', title: 'Proxy service', help: 'Use service credentials.', authenticated: true, regions: [{ group: 'Asia Pacific', label: 'Singapore', protocol: 'https', host: 'sg.proxy.example', port: 89 }] }
+    writeManifest({ ...manifest, proxy_providers: [provider] }); plugins.reload()
+    expect(plugins.list()[0].proxyProviders).toEqual([provider])
+    expect(() => parsePluginManifest(stringify({ ...manifest, proxy_providers: [{ ...provider, regions: [{ ...provider.regions[0], protocol: 'invalid' }] }] }))).toThrow()
+    expect(() => parsePluginManifest(stringify({ ...manifest, proxy_providers: [{ ...provider, regions: [provider.regions[0], provider.regions[0]] }] }))).toThrow()
+  })
   test('keeps keyboard bindings valid before a plugin is installed', () => {
     let config = parseConfig('keyboard:\n  shortcuts:\n    Cmd+Shift+L: plugin:experimental.bitwarden/fill\nplugins:\n  experimental.bitwarden:\n    enabled: true\n')
     expect(config.plugins['experimental.bitwarden']).toEqual({ enabled: true, hooks: false })

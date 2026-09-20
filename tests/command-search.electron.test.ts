@@ -42,7 +42,7 @@ test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-command-search-'))
   await fs.mkdir(path.join(directory, 'plugins/fixture'), { recursive: true })
   await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane', Q: 'close-window' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true } } }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane', Q: 'close-window' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true }, 'bmux.nordvpn': { enabled: true } } }))
   server = http.createServer((request, response) => {
     let deviceIndex = request.url?.indexOf('/device-') ?? -1
     if (request.url && deviceIndex >= 0) {
@@ -232,7 +232,7 @@ test('pane profile route uses icons only for a profile that differs from the ses
 test('profile proxy settings route, test, and restore the selected profile connection', async () => {
   let current = await state(), profile = current.model.profiles[0]
   let panel = await openProfilePanel(profile.name)
-  await panel.getByLabel('Provider', { exact: true }).selectOption('nordvpn')
+  await panel.getByLabel('Provider', { exact: true }).selectOption('bmux.nordvpn/nordvpn')
   await expect(panel.getByLabel('Region', { exact: true })).toBeVisible()
   await panel.getByLabel('Region', { exact: true }).selectOption('sg640.proxy.nordvpn.com')
   await expect(panel).toContainText('Uses HTTPS proxy on port 89')
@@ -240,9 +240,9 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect(panel.getByLabel('Protocol', { exact: true })).toHaveValue('https')
   await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('sg640.proxy.nordvpn.com')
   await expect(panel.getByLabel('Port', { exact: true })).toHaveValue('89')
-  await panel.getByLabel('Provider', { exact: true }).selectOption('nordvpn')
+  await panel.getByLabel('Provider', { exact: true }).selectOption('bmux.nordvpn/nordvpn')
   await panel.getByLabel('Region', { exact: true }).selectOption('amsterdam.nl.socks.nordhold.net')
-  await expect(panel).toContainText('Uses SOCKS5 on port 1080')
+  await expect(panel).toContainText('Uses SOCKS5 proxy on port 1080')
   await expect(panel.getByLabel('Host', { exact: true })).toHaveCount(0)
   await panel.getByLabel('Provider', { exact: true }).selectOption('custom')
   await panel.getByLabel('Protocol', { exact: true }).selectOption('http')
@@ -298,6 +298,12 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect.poll(async () => (await state()).profileProxyTests[profile.id]).toBeUndefined()
   await expect(proxyButton).toHaveCount(0)
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop`, exact: true })).toHaveCount(0)
+  await rpc('plugin.enable', { id: 'bmux.nordvpn', enabled: false })
+  await expect.poll(async () => (await state()).plugins.find((plugin: { id: string }) => plugin.id === 'bmux.nordvpn')?.enabled).toBe(false)
+  await expect(panel.getByLabel('Provider', { exact: true }).getByRole('option', { name: 'NordVPN', exact: true })).toHaveCount(0)
+  await rpc('plugin.enable', { id: 'bmux.nordvpn', enabled: true })
+  await expect.poll(async () => (await state()).plugins.find((plugin: { id: string }) => plugin.id === 'bmux.nordvpn')?.enabled).toBe(true)
+  await expect(panel.getByLabel('Provider', { exact: true }).getByRole('option', { name: 'NordVPN', exact: true })).toHaveCount(1)
 })
 
 test('profile device identity is applied before requests and cache status is public', async () => {
