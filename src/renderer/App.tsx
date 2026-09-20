@@ -167,7 +167,7 @@ let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; pro
   </svg>
   : <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true" data-download-icon="idle"><path d="M10 2v10m-4-4 4 4 4-4M4 17h12" /></svg>
 
-let ExtensionsIcon = () => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2" /><path d="M3 7h14M10 10v4m-2-2h4" /></svg>
+let ExtensionsIcon = () => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7h4V5a2 2 0 0 1 4 0v2h4v9h-4v-2a2 2 0 0 0-4 0v2H4Z" /></svg>
 
 let bridge = (window as unknown as { bmux: Bridge }).bmux
 let Context = createContext<UIContext | null>(null)
