@@ -80,6 +80,15 @@
 .navigationMenu span { color: #8e98a4; }
 .location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .location:hover { background: transparent; color: #f0f2f5; }
+.clickModeActions { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 3px; overflow: hidden; color: #f4f5f6; white-space: nowrap; }
+.clickModeInput { flex: 0 0 auto; padding: 0 5px; font-size: 12px; }
+.clickModeActionGroup { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.clickModeAction { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 1px solid rgba(255,255,255,.2); border-radius: 3px; font-size: 11px; font-weight: 600; line-height: 1; }
+.clickModeAction strong { font-size: 10px; }
+.clickModeAction svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.clickModeAction text { fill: currentColor; stroke: none; font-size: 15px; font-weight: 700; }
+.clickModeFill { fill: currentColor; stroke: none; opacity: .3; }
+.clickModeDivider { width: 1px; height: 18px; background: rgba(255,255,255,.24); }
 .loading { flex-shrink: 0; color: #7d8590; }
 .profileRouteControls { display: inline-flex; align-items: center; flex: 0 0 auto; }
 .profileRoute { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 2px 5px; border: 0; border-radius: 0; background: transparent; color: #8e98a4; }

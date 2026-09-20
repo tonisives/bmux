@@ -1049,6 +1049,7 @@ test('native click mode activates with Option taps and performs each click actio
     expect((await cli('click-mode', { client: client.id })).active).toBe(true)
     await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
     await expect(chrome.locator('[data-bmux-click-mode]')).toHaveCount(0)
+    await expect(chrome.getByRole('group', { name: 'Click mode actions' })).toHaveCount(1)
   }
   let keys = async (...keyCodes: string[]) => sendNativeKeys(application, keyCodes.map(keyCode => ({ keyCode })))
   try {
@@ -1075,8 +1076,8 @@ test('native click mode activates with Option taps and performs each click actio
       await keys(action)
       let selected = { f: 'float', h: 'split-left', l: 'split-right' }[action]
       let overlay = page.locator('[data-bmux-click-mode]')
-      await expect(overlay).toHaveAttribute('data-bmux-click-icons', '7')
-      await expect(overlay).toHaveAttribute('data-bmux-click-selected', selected)
+      await expect(overlay).not.toHaveAttribute('data-bmux-click-icons', /.+/)
+      await expect(chrome.locator(`[data-click-action="${selected}"]`)).toHaveAttribute('data-selected', 'true')
       await keys('s')
       await expect.poll(async () => {
         let current = await cli('state')

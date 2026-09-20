@@ -1,7 +1,7 @@
 import type { BrowserToolsState } from './browser-tools'
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo, PluginPrompt, PluginRun } from './plugins'
-import type { ClickModeSettings } from './click-mode'
+import type { ClickModeSettings, ClickModeState } from './click-mode'
 export type StatusBarPosition = 'top' | 'bottom'
 export type Bookmark = { id: string; title: string; url?: string; children?: Bookmark[] }
 export type BookmarkParameters = { values: Record<string, string>; hidden: string[] }
@@ -33,7 +33,7 @@ export type ProfileProxyFailureState = { error: string; failedAt: number }
 export type Snapshot = { image: string; capturedAt: number }
 export type FindResult = { requestId: number; text: string; matches: number; activeMatchOrdinal: number; finalUpdate: boolean }
 export type NavigationStack = { activeIndex: number; entries: { title: string; url: string }[] }
-export type PublicState = { findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
+export type PublicState = { findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
 export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { tabId: string; x: number; y: number; width: number; height: number }
 export type Bridge = {

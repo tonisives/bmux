@@ -13,6 +13,7 @@ import { inlineUrlCompletion } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
+import type { ClickAction } from '../shared/click-mode'
 import { CloseButton } from './CloseButton'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
@@ -598,6 +599,33 @@ let NavigationMenuItem = ({ entry, select }: { entry: { index: number; title: st
   let click = () => select(entry.index)
   return <button type="button" role="menuitem" onClick={click} title={entry.url}><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></button>
 }
+let ClickModeActionIcon = ({ action }: { action: ClickAction }) => <svg viewBox="0 0 24 24" aria-hidden="true">
+  {action === 'normal' && <path d="M4 3v16l4.2-4.1 3 6.6 3-1.4-3-6.5H17z" />}
+  {action === 'right' && <><rect x="5" y="2" width="14" height="20" rx="7" /><path d="M12 2v8h7" /><path className={css.clickModeFill} d="M13 3h1a4 4 0 0 1 4 4v2h-5z" /></>}
+  {action === 'command' && <text x="12" y="17" textAnchor="middle">⌘</text>}
+  {action === 'double' && <text x="12" y="16" textAnchor="middle">2×</text>}
+  {action === 'float' && <><rect x="3" y="6" width="13" height="12" rx="1" /><rect className={css.clickModeFill} x="8" y="3" width="13" height="12" rx="1" /></>}
+  {action === 'split-left' && <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M12 4v16" /><path className={css.clickModeFill} d="M4 5h7v14H4z" /></>}
+  {action === 'split-right' && <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M12 4v16" /><path className={css.clickModeFill} d="M13 5h7v14h-7z" /></>}
+</svg>
+let ClickModeActions = ({ action, input, backgroundColor, textColor }: { action: ClickAction; input: string; backgroundColor: string; textColor: string }) => {
+  let definitions: { action: ClickAction; key: string; label: string }[] = [
+    { action: 'normal', key: 'n', label: 'click' }, { action: 'right', key: 'r', label: 'right' }, { action: 'command', key: 'c', label: 'cmd' }, { action: 'double', key: 'd', label: 'double' },
+    { action: 'float', key: 'f', label: 'float' }, { action: 'split-left', key: 'h', label: 'left' }, { action: 'split-right', key: 'l', label: 'right' },
+  ]
+  return <div className={css.clickModeActions} role="group" aria-label="Click mode actions">
+    {input && <strong className={css.clickModeInput} style={{ color: backgroundColor }}>{input}</strong>}
+    {definitions.map((definition, index) => {
+      let selected = action === definition.action
+      return <span key={definition.action} className={css.clickModeActionGroup}>
+        {index === 4 && <span className={css.clickModeDivider} />}
+        <span className={css.clickModeAction} data-click-action={definition.action} data-selected={selected} aria-label={`${definition.label} (${definition.key})`} style={selected ? { color: textColor, backgroundColor, borderColor: backgroundColor } : undefined}>
+          <strong style={{ color: selected ? textColor : backgroundColor }}>{definition.key}</strong><ClickModeActionIcon action={definition.action} /><span>{definition.label}</span>
+        </span>
+      </span>
+    })}
+  </div>
+}
 let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let { state, control, show, run, historyPopup, setHistoryPopup } = useUI()
   let { client, session, window } = selection(state)
@@ -647,6 +675,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}` : ''
   let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
   let proxyRouteTitle = customProfile?.proxy ? `${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
+  let clickState = state.clickMode?.showInput && state.clickModeState?.tabId === tab?.id ? state.clickModeState : undefined
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -656,8 +685,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
         {(popup.direction === 'back' ? back : forward).map(entry => <NavigationMenuItem key={entry.index} entry={entry} select={selectHistory} />)}
       </div>}
     </div>}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
-    {!editing && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : clickState ? <ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /> : <input onClick={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+    {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
     {customProfile && <div className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteLabel}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /></button>{customProfile.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}</div>}
   </div>
 }

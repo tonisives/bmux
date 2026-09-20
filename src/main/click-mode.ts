@@ -11,13 +11,14 @@ type Options = {
   valid: (clientId: string, tabId: string, contents: WebContents) => boolean
   openLink: (clientId: string, tabId: string, url: string, action: Extract<ClickAction, 'float' | 'split-left' | 'split-right'>) => Promise<void>
   error: (error: unknown) => void
+  changed: () => void
 }
 
 let linkAction = (action: ClickAction): action is Extract<ClickAction, 'float' | 'split-left' | 'split-right'> => action === 'float' || action === 'split-left' || action === 'split-right'
 
 let installClickMode = (token: string) => {
   type Hint = { index: number; hint: string; x: number; y: number }
-  type Style = { showInput: boolean; main: boolean; fontSize: number; opacity: number; backgroundColor: string; textColor: string }
+  type Style = { fontSize: number; opacity: number; backgroundColor: string; textColor: string }
   let scope = globalThis as typeof globalThis & { __bmuxClickMode?: { token: string; elements: Element[]; host: HTMLElement; shadow: ShadowRoot; render: (hints: Hint[], input: string, action: string, style: Style, shake: boolean) => void; remove: () => void } }
   scope.__bmuxClickMode?.remove()
   let selector = 'a[href],button,input:not([type="hidden"]),textarea,select,label,summary,details,[role="button"],[role="link"],[role="tab"],[role="checkbox"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"],[role="radio"],[role="textbox"],[role="combobox"],[role="option"],[role="switch"],[onclick],[tabindex]:not([tabindex="-1"]),[contenteditable]:not([contenteditable="false"])'
@@ -59,40 +60,6 @@ let installClickMode = (token: string) => {
       if (matched) { let prefix = document.createElement('span'); prefix.textContent = matched; prefix.style.opacity = '.4'; label.append(prefix) }
       label.append(document.createTextNode(remaining)); shadow.append(label)
     }
-    if (settings.showInput && settings.main) {
-      let definitions = [
-        { action: 'normal', key: 'n', label: 'click', icon: '<path d="M4 3v16l4.2-4.1 3 6.6 3-1.4-3-6.5H17z"/>' },
-        { action: 'right', key: 'r', label: 'right', icon: '<rect x="5" y="2" width="14" height="20" rx="7"/><path d="M12 2v8h7"/><path d="M13 3h1a4 4 0 0 1 4 4v2h-5z" fill="currentColor" stroke="none" opacity=".35"/>' },
-        { action: 'command', key: 'c', label: 'cmd', icon: '<text x="12" y="17" text-anchor="middle" font-size="17" stroke="none" fill="currentColor">⌘</text>' },
-        { action: 'double', key: 'd', label: 'double', icon: '<text x="12" y="16" text-anchor="middle" font-size="13" font-weight="700" stroke="none" fill="currentColor">2×</text>' },
-        { action: 'float', key: 'f', label: 'float', icon: '<rect x="3" y="6" width="13" height="12" rx="1"/><rect x="8" y="3" width="13" height="12" rx="1" fill="currentColor" fill-opacity=".18"/>' },
-        { action: 'split-left', key: 'h', label: 'left', icon: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/><path d="M4 5h7v14H4z" fill="currentColor" stroke="none" opacity=".3"/>' },
-        { action: 'split-right', key: 'l', label: 'right', icon: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M12 4v16"/><path d="M13 5h7v14h-7z" fill="currentColor" stroke="none" opacity=".3"/>' },
-      ]
-      let indicator = document.createElement('span')
-      indicator.style.cssText = `all:initial;position:fixed;left:50%;top:12px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:3px;max-width:calc(100vw - 24px);background:rgba(20,22,25,.94);color:#f4f5f6;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;padding:5px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;opacity:${settings.opacity}`
-      if (input) {
-        let typed = document.createElement('span')
-        typed.textContent = input
-        typed.style.cssText = `all:initial;color:${settings.backgroundColor};font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;padding:0 5px`
-        indicator.append(typed)
-      }
-      for (let [index, definition] of definitions.entries()) {
-        if (index === 4) { let divider = document.createElement('span'); divider.style.cssText = 'all:initial;width:1px;height:18px;background:rgba(255,255,255,.24);margin:0 2px'; indicator.append(divider) }
-        let item = document.createElement('span'), icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), key = document.createElement('span')
-        let selected = action === definition.action
-        item.dataset.bmuxClickAction = definition.action; item.dataset.selected = String(selected)
-        item.style.cssText = `all:initial;display:inline-flex;align-items:center;gap:3px;color:${selected ? settings.textColor : '#f4f5f6'};background:${selected ? settings.backgroundColor : 'transparent'};font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;border:1px solid ${selected ? settings.backgroundColor : 'rgba(255,255,255,.2)'};border-radius:3px`
-        icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true'); icon.style.cssText = 'width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round'
-        icon.innerHTML = definition.icon
-        key.textContent = definition.key
-        key.style.cssText = `all:initial;color:${selected ? settings.textColor : settings.backgroundColor};font:700 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace`
-        item.append(key, icon, document.createTextNode(definition.label)); indicator.append(item)
-      }
-      shadow.append(indicator)
-      host.dataset.bmuxClickIcons = String(indicator.querySelectorAll('svg').length)
-      host.dataset.bmuxClickSelected = action
-    }
   }
   document.documentElement.append(host)
   scope.__bmuxClickMode = { token, elements, host, shadow, render, remove }
@@ -105,11 +72,11 @@ let sleep = (milliseconds: number) => new Promise<void>(resolve => setTimeout(re
 export let createClickMode = (options: Options) => {
   let active: ActiveMode | undefined, version = 0
   let clear = (mode: ActiveMode) => Promise.allSettled(mode.contexts.map(context => context.evaluate(clickModeCall('remove'))))
-  let cancel = () => { version++; let previous = active; active = undefined; return previous ? clear(previous) : Promise.resolve([]) }
+  let cancel = () => { version++; let previous = active; active = undefined; if (previous) options.changed(); return previous ? clear(previous) : Promise.resolve([]) }
   let render = (mode: ActiveMode, shake = false) => {
     let visible = linkAction(mode.action) ? mode.candidates.filter(candidate => candidate.url) : mode.candidates
     for (let context of mode.contexts) {
-      let style = { showInput: mode.settings.showInput, main: !context.parentId, fontSize: mode.settings.fontSize, opacity: mode.settings.opacity, backgroundColor: mode.settings.backgroundColor, textColor: mode.settings.textColor }
+      let style = { fontSize: mode.settings.fontSize, opacity: mode.settings.opacity, backgroundColor: mode.settings.backgroundColor, textColor: mode.settings.textColor }
       let hints = visible.filter(candidate => candidate.frame === context).map(({ index, hint, x, y }) => ({ index, hint, x, y }))
       void context.evaluate(clickModeCall('render', [hints, mode.input, mode.action, style, shake])).catch(() => undefined)
     }
@@ -127,6 +94,7 @@ export let createClickMode = (options: Options) => {
       active.contexts = contexts
       active.candidates = scanned.map((candidate, index) => ({ ...candidate, hint: hints[index] }))
       if (!active.candidates.length) { cancel(); return false }
+      options.changed()
       render(active)
       return true
     } catch (error) { if (active?.version === activation) cancel(); options.error(error); return false }
@@ -153,20 +121,20 @@ export let createClickMode = (options: Options) => {
     if (!mode || mode.clientId !== clientId) return false
     if (input.type !== 'keyDown') return true
     if (input.key === 'Escape') { cancel(); return true }
-    if (input.key === 'Backspace') { mode.input = mode.input.slice(0, -1); mode.wrongSecondKey = false; render(mode); return true }
+    if (input.key === 'Backspace') { mode.input = mode.input.slice(0, -1); mode.wrongSecondKey = false; options.changed(); render(mode); return true }
     let key = input.key.toLowerCase()
     let actions: Record<string, ClickAction> = { r: 'right', c: 'command', d: 'double', n: 'normal', f: 'float', h: 'split-left', l: 'split-right' }
     let action = !input.alt && !input.control && !input.meta && !input.shift ? actions[key] : undefined
-    if (action) { mode.action = action; mode.input = ''; mode.wrongSecondKey = false; render(mode); return true }
+    if (action) { mode.action = action; mode.input = ''; mode.wrongSecondKey = false; options.changed(); render(mode); return true }
     if (input.alt || input.control || input.meta || input.shift || input.key.length !== 1 || !/[a-z\d]/i.test(input.key)) return true
     let next = mode.input + key.toUpperCase()
     let available = linkAction(mode.action) ? mode.candidates.filter(candidate => candidate.url) : mode.candidates
     let matches = available.filter(candidate => candidate.hint.startsWith(next))
     let exact = matches.find(candidate => candidate.hint === next)
     if (exact) { void sendClick(mode, exact).catch(options.error); return true }
-    if (matches.length) { mode.input = next; mode.wrongSecondKey = false; render(mode); return true }
+    if (matches.length) { mode.input = next; mode.wrongSecondKey = false; options.changed(); render(mode); return true }
     if (mode.input.length === 1 && !mode.wrongSecondKey) { mode.wrongSecondKey = true; render(mode, true); return true }
     cancel(); return true
   }
-  return { activate, cancel, handle, active: () => !!active, cancelTab: (tabId: string) => { if (active?.tabId === tabId) cancel() }, cancelClient: (clientId: string) => { if (active?.clientId === clientId) cancel() } }
+  return { activate, cancel, handle, active: () => !!active, status: (clientId: string) => active?.clientId === clientId ? { tabId: active.tabId, input: active.input, action: active.action } : undefined, cancelTab: (tabId: string) => { if (active?.tabId === tabId) cancel() }, cancelClient: (clientId: string) => { if (active?.clientId === clientId) cancel() } }
 }
