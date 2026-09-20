@@ -25,9 +25,8 @@ accessible and use the existing address bars and transient panels.
 - [ ] Clear the current site's cookies and storage without clearing the whole
   profile. Explain the sign-out effect, confirm the affected site/profile, and
   offer a reload after completion.
-- [ ] Add a searchable history panel using the existing per-profile visit data.
-  Search titles and URLs, open results with the keyboard, and support deleting
-  individual entries or clearing that profile's history.
+- [x] Add a profile-scoped history panel with title/URL search and keyboard opening.
+- [ ] Delete individual history entries and clear a profile's history from the panel.
 - [x] Create and update bookmarks from bmux with Command+D, folder selection,
   duplicate handling within a profile, and preserved imported folder structure.
 - [ ] Delete bookmarks from bmux.
@@ -93,5 +92,5 @@ explains why the lock must describe connection security rather than site trust.
 - [x] Add ad blocking, Dark Reader, saved forms, Bitwarden CLI filling, and userscripts.
 - [x] Add local script plugins and page hooks.
 
-Chrome extensions, external browser embedding, and cloud synchronization remain
-outside the current scope; see [README.md](../README.md#current-boundaries).
+Experimental Chrome extension support is available; see [Extensions](extensions.md).
+External browser embedding and cloud synchronization remain outside the current scope.

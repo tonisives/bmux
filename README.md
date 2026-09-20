@@ -8,9 +8,12 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 
 [Website](https://bmux.cc) · [Download](https://github.com/tonisives/bmux/releases/latest) · [Get started](#get-started) · [Keyboard shortcuts](docs/keyboard.md) · [Automation guide](docs/agent.md)
 
-[![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/split-panes.png)](https://bmux.cc/#split-panes)
+[![Three Chromium panes in bmux, each with its own address bar](https://cdn.digthree.tonis.dev/bmux/website-f6e4bc505084/product/split-panes.png)](https://bmux.cc/#split-panes)
 
 ## Features
+
+- **Floating panes** — Open references above your splits, then dock the same live pane again. See [Floating panes](docs/floating-panes.md).
+- **Profile connections and devices** — Configure a proxy per profile, verify its reported exit IP, and choose an optional mobile persona. See [Profiles](docs/profiles.md).
 
 - **Split your workspace** — Keep docs, dashboards, and apps side by side. Save and restore named layouts.
 - **Persistent sessions** — Detach a client while its pages keep running. Reattach to the same live pages and form state.
@@ -29,13 +32,13 @@ bmux is an early preview, free under the [GNU GPL version 3](LICENSE). The [orig
 
 Keep a workspace for each project.
 
-[![The bmux session picker showing development, research and personal workspaces](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/switch-sessions.png)](https://bmux.cc/#switch-sessions)
+[![The bmux session picker showing development, research and personal workspaces](https://cdn.digthree.tonis.dev/bmux/website-f6e4bc505084/product/switch-sessions.png)](https://bmux.cc/#switch-sessions)
 
 ## Made for agents
 
 Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit tab IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.
 
-[![A task added through the bmux CLI in the bot pane while the human pane stays selected](https://cdn.digthree.tonis.dev/bmux/website-73973cd36e3f/product/run-agent.png)](https://bmux.cc/#agents)
+[![A task added through the bmux CLI in the bot pane while the human pane stays selected](https://cdn.digthree.tonis.dev/bmux/website-f6e4bc505084/product/run-agent.png)](https://bmux.cc/#agents)
 
 ## Get started
 
@@ -136,6 +139,9 @@ CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an 
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.
 
 ## Guides
+
+- [Floating panes and docking](docs/floating-panes.md)
+- [Profiles, proxies, and device personas](docs/profiles.md)
 
 - [Keyboard shortcuts and configuration](docs/keyboard.md)
 - [Bookmarks and YAML storage](docs/bookmarks.md)
