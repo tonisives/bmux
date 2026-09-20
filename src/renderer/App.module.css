@@ -12,6 +12,7 @@
 .status .profileButton, .status .proxyButton, .status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .status .profileButton, .status .proxyButton { width: auto; height: 18px; }
 .status .proxyButton { margin-left: -7px; color: #a7c88d; }
+.status .proxyButton[data-proxy-failed="true"] { color: #e6a69c; }
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
 .statusIcon { width: 17px; height: 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .status .downloadButton { position: relative; overflow: visible; }

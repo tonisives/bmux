@@ -39,6 +39,14 @@ test('blocks restored pages when a saved proxy is unavailable and lets the user 
     await command(chrome, 'profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'saved-user', password: 'saved-password' })
     await expect.poll(() => proxyRequests).toBeGreaterThan(0)
     await application.close(); application = undefined
+    pageRequests = 0
+
+    application = await launch()
+    chrome = await chromeFor(application)
+    await expect.poll(async () => (await currentState(chrome)).profileProxyTests[profile.id]?.ip, { timeout: 15000 }).toBe('203.0.113.12')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/page`)).toBe(true)
+    expect((await currentState(chrome)).profileProxyFailures[profile.id]).toBeUndefined()
+    await application.close(); application = undefined
     await proxy.close(true)
     pageRequests = 0
 
@@ -49,6 +57,23 @@ test('blocks restored pages when a saved proxy is unavailable and lets the user 
     expect(application.context().pages().some(page => page.url() === `${origin}/page`)).toBe(false)
     let failure = chrome.getByRole('status').filter({ hasText: `Proxy for ${profile.name} could not connect` })
     await expect(failure).toContainText('Pages using it are paused')
+    let proxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}, unavailable`, exact: true })
+    await expect(proxyButton).toBeVisible()
+    await proxyButton.click()
+    await expect(chrome.getByRole('dialog', { name: 'Proxy', exact: true })).toBeVisible()
+    await chrome.getByRole('dialog', { name: 'Proxy', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+    let otherProfile = current.model.profiles.find((item: { id: string }) => item.id !== profile.id)!
+    let directSession = await command(chrome, 'new-session', { name: 'direct profile', profile: otherProfile.id }) as { id: string }
+    let directClient = await command(chrome, 'attach-session', { session: directSession.id }) as { id: string }
+    let directChrome: Page | undefined
+    await expect.poll(async () => {
+      for (let candidate of application!.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) if ((await currentState(candidate)).clientId === directClient.id) directChrome = candidate
+      return !!directChrome
+    }).toBe(true)
+    await expect(directChrome!.getByText(`Proxy for ${profile.name} could not connect`)).toHaveCount(0)
+    await failure.getByRole('button', { name: 'Proxy settings', exact: true }).click()
+    await expect(chrome.getByRole('dialog', { name: 'Proxy', exact: true })).toBeVisible()
+    await chrome.getByRole('dialog', { name: 'Proxy', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
     await failure.getByRole('button', { name: 'Disable proxy and continue', exact: true }).click()
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/page`)).toBe(true)
     await expect.poll(() => pageRequests).toBeGreaterThan(0)
