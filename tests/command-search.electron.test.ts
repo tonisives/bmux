@@ -118,6 +118,8 @@ test('command arguments, completion, history, and keyboard result selection work
   await expect(chrome.getByRole('button', { name: '2:two words*', exact: true })).toBeVisible()
   await open(); await prompt().press('Control+r'); await expect(prompt()).toHaveValue('new-window -n "two words"')
   await prompt().press('Control+s'); await expect(prompt()).toHaveValue('')
+  await prompt().fill('movep -t unfinished'); await prompt().press('Escape')
+  await open(); await prompt().press('Control+r'); await expect(prompt()).toHaveValue('movep -t unfinished')
   await prompt().fill('new-session'); await prompt().press('Tab'); await expect(prompt()).toHaveValue('new-session -s ')
   await prompt().press('Control+s'); await expect(prompt()).toHaveValue('new-session -s ')
   await prompt().press('Control+r'); await prompt().press('Control+s'); await expect(prompt()).toHaveValue('new-session -s ')

@@ -48,8 +48,11 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
     let window = session && indexed(session.windows, windowSelector)
     if (window) return { window: window.id }
   }
-  let window = sessions.flatMap(session => session.windows).find(window => window.id === value)
-  return window ? { window: window.id } : { destination: value }
+  let window = indexed(currentSession.windows, value)
+    ?? sessions.flatMap(session => session.windows).find(window => window.id === value)
+  if (window) return { window: window.id }
+  let session = indexed(sessions, value)
+  return session ? { window: session.windows[0].id } : { destination: value }
 }
 
 export let parseCommandLine = (line: string, state: PublicState): Command => {
