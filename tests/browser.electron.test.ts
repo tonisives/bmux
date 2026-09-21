@@ -1407,6 +1407,11 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   let client = await cli('attach-session', { session: session.id })
   await cli('activate-client', { client: client.id })
   await cli('navigate', { tab: pane.activeTabId, url: `${url}/history-suggestion` })
+  await cli('eval', { tab: pane.activeTabId, expression: "document.title = 'Long term metrics - Dashboards - Grafana'" })
+  await expect.poll(async () => {
+    let state = await cli('state')
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.find((entry: { url: string }) => entry.url === `${url}/history-suggestion`)?.title
+  }).toBe('Long term metrics - Dashboards - Grafana')
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
   let created = await cli('split-window', { pane: pane.id, client: client.id })
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -1417,12 +1422,16 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length + '/history-suggestion'.length })
   await address.press('Backspace')
   await expect(address).toHaveValue('127')
+  await address.fill('long term metrics')
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('history suggestion')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('suggestion history')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('hstry sggstn')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
+  await address.fill('long-term care')
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
   await cli('focus-page', { client: client.id })
   await application.evaluate(({ webContents }) => {
     let page = webContents.getFocusedWebContents()!

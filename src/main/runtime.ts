@@ -24,7 +24,6 @@ import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
-import { parseSearchSuggestions } from '../shared/address-suggestions'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
@@ -699,10 +698,10 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    let update = () => {
+    let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       tab.url = contents.getURL() || tab.url
-      tab.title = contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
+      tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
       if (/^https?:\/\//.test(tab.url)) {
         let profile = model.profiles.find(profile => profile.id === pane.profileId)!
         profile.history = [{ url: tab.url, title: tab.title, visitedAt: Date.now() }, ...(profile.history ?? []).filter(entry => entry.url !== tab.url)].slice(0, 1000)
@@ -744,7 +743,7 @@ export let createRuntime = (dataDirectory: string) => {
         publish()
       })().catch(() => undefined)
     })
-    contents.on('page-title-updated', update)
+    contents.on('page-title-updated', (_event, title) => update(title))
     contents.on('before-mouse-event', (_event, mouse) => {
       if (mouse.type === 'mouseDown') {
         let owner = [...clients.values()].find(client => client.window === live.parent)
@@ -759,7 +758,7 @@ export let createRuntime = (dataDirectory: string) => {
       }
     })
     contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
-    contents.on('did-navigate-in-page', update)
+    contents.on('did-navigate-in-page', () => update())
     contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
@@ -1174,19 +1173,6 @@ export let createRuntime = (dataDirectory: string) => {
       await scheduleVisuals()
       if (args.commit === true) save()
       return placement
-    }
-    if (method === 'search-suggestions') {
-      let query = required(args, 'query').slice(0, 200)
-      let tabId = required(args, 'tab')
-      try {
-        let live = tabs.get(tabId)
-        if (!live || live.contents.isDestroyed()) return []
-        let response = await live.contents.session.fetch(`https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(2500) })
-        if (!response.ok) return []
-        return parseSearchSuggestions(await response.json(), query)
-      } catch {
-        return []
-      }
     }
     if (method.startsWith('extension.')) {
       let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined

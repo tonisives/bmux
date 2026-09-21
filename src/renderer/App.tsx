@@ -381,8 +381,6 @@ let CommandPrompt = () => {
     </section></>
 }
 
-let isUrlInput = (value: string) => /^[a-z][a-z\d+.-]*:/i.test(value) || /^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value) || (!/\s/.test(value) && value.includes('.'))
-
 let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, visible: boolean, statusBar?: string) => {
   useLayoutEffect(() => {
     if (!visible || !form.current || !list.current) return
@@ -421,7 +419,6 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let currentUrl = tab ? state.pendingUrls[tab.id] ?? tab.url : ''
   let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
   let [query, setQuery] = useState('')
-  let [searchTerms, setSearchTerms] = useState<string[]>([])
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
@@ -437,25 +434,12 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let results = [
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
-    ...searchTerms.filter(term => !history.some(entry => entry.url === term)).slice(0, Math.max(0, 8 - bookmarks.length - history.length)).map(term => ({ kind: 'search', value: term, title: term, detail: 'Google Search' })),
   ]
   let selectedResult = results[index]
-  let selectedCompletion = selectedResult && selectedResult.kind !== 'search' ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let selectedCompletion = selectedResult ? inlineUrlCompletion(query, selectedResult.value) : undefined
   let previewText = selectedResult ? selectedCompletion?.value ?? selectedResult.value : text
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
-  useEffect(() => {
-    let value = query.trim()
-    if (!value || value.length > 200 || isUrlInput(value)) { setSearchTerms([]); return }
-    let cancelled = false
-    setSearchTerms([])
-    let timer = setTimeout(() => {
-      void bridge.command({ method: 'search-suggestions', args: { query: value, tab: tab?.id } }).then(result => {
-        if (!cancelled) setSearchTerms(Array.isArray(result) ? result.filter((term): term is string => typeof term === 'string') : [])
-      }).catch(() => { if (!cancelled) setSearchTerms([]) })
-    }, 120)
-    return () => { cancelled = true; clearTimeout(timer) }
-  }, [query, tab?.id])
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useLayoutEffect(() => {
     if (!ref.current || (!inlineUrl && !selectedResult)) return
