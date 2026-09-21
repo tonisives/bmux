@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import type { ElectronApplication } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
 import http from 'node:http'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -26,6 +26,21 @@ let cli = async (method: string, args: Record<string, unknown> = {}) => {
   let response = JSON.parse(result.stdout)
   if (!response.ok) throw new Error(response.error)
   return response.result
+}
+let rendererForClient = async (clientId: string) => {
+  let selected: Page | undefined
+  await expect.poll(async () => {
+    for (let page of application.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) {
+      try {
+        if ((await page.evaluate(() => (window as any).bmux.state())).clientId === clientId) { selected = page; return true }
+      } catch {
+        // The renderer may close while a client is being detached.
+      }
+    }
+    selected = undefined
+    return false
+  }).toBe(true)
+  return selected!
 }
 let launch = async () => {
   application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
@@ -925,7 +940,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let first = session.windows[0], tab = first.panes[0].tabs[0]
   let second = await cli('new-window', { session: session.id, name: 'second' })
   let client = await cli('attach-session', { session: session.id })
-  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let chrome = await rendererForClient(client.id)
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(`${url}/slow`); await address.press('Enter')
@@ -1214,6 +1229,7 @@ test('reopen closed internal windows and pane tabs', async () => {
   await cli('reopen-closed-tab', { client: client.id })
   expect((await cli('tab.list', { pane: second.panes[0].id })).map((tab: { id: string }) => tab.id)).toEqual([onlyTab.id])
   await cli('wait', { tab: onlyTab.id, selector: '#text' })
+  await cli('detach-client', { client: client.id })
 })
 
 test('window management shortcuts and keyboard session selection', async () => {
@@ -1224,7 +1240,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   let first = alpha.windows[0]
   await cli('navigate', { tab: first.panes[0].activeTabId, url })
   let temporary = await cli('new-window', { session: alpha.id, client: client.id, name: 'temporary' })
-  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let chrome = await rendererForClient(client.id)
   let shortcut = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = [], prefix = true) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
@@ -1237,7 +1253,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   let windowsAfterCmdT = await cli('list-windows', { session: alpha.id })
   let createdByCmdT = windowsAfterCmdT.find((window: { id: string }) => ![first.id, temporary.id].includes(window.id))
   expect(createdByCmdT).toBeTruthy()
-  expect((await cli('list-clients'))[0].windowId).toBe(createdByCmdT.id)
+  await expect.poll(async () => (await cli('list-clients')).find((item: { id: string }) => item.id === client.id)?.windowId).toBe(createdByCmdT.id)
   expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('bmux fixture')
   await cli('kill-window', { window: createdByCmdT.id, confirm: true })
   await cli('select-window', { client: client.id, window: temporary.id })

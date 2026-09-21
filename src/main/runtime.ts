@@ -1472,7 +1472,16 @@ export let createRuntime = (dataDirectory: string) => {
       changed(); await visualQueue; return { closed: session.id, selected: next.id }
     }
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
-    if (method === 'detach-client') { let client = resolve(model.clients, args.client, 'Client'); clients.get(client.id)?.window.close(); return { detached: client.id } }
+    if (method === 'detach-client') {
+      let client = resolve(model.clients, args.client, 'Client'), owner = clients.get(client.id)
+      if (!owner) return { detached: client.id }
+      if (!owner.window.isDestroyed()) {
+        let closed = new Promise<void>(resolve => owner.window.once('closed', resolve))
+        owner.window.close()
+        await closed
+      }
+      return { detached: client.id }
+    }
     if (method === 'activate-client') {
       let client = resolve(model.clients, args.client, 'Client'), owner = clients.get(client.id)!
       // Re-activating a focused macOS window briefly resigns it and can drop input
