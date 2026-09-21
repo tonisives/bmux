@@ -363,6 +363,20 @@ test('links show their target, offer browser actions, and open popups in bmux wi
     await cli('wait', { tab: openedTab.id, selector: '#text' })
     expect(openedTab).toMatchObject({ url: `${url}/popup`, openerTabId: tab.id })
     expect((await cli('list-clients')).find((candidate: { id: string }) => candidate.id === client.id).windowId).toBe(createdWindow!.id)
+    let nativeBounds = () => application.evaluate(({ BaseWindow }, target) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target))
+      let page = window?.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)
+      return page?.getBounds()
+    }, `${url}/popup`)
+    let expectedBounds = await chrome.locator(`[data-browser-content][data-tab-id="${openedTab.id}"]`).evaluate(element => {
+      let rect = element.getBoundingClientRect()
+      return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+    })
+    await expect.poll(nativeBounds).toEqual(expectedBounds)
+    await chrome.evaluate(({ tabId, bounds }) => (window as any).bmux.bounds([{ tabId, x: Math.round(bounds.width / 3), y: bounds.y, width: Math.round(bounds.width * 2 / 3), height: bounds.height }]), { tabId: openedTab.id, bounds: expectedBounds })
+    await expect.poll(nativeBounds).toEqual(expectedBounds)
+    await chrome.evaluate(({ tabId, bounds }) => (window as any).bmux.bounds([{ tabId, ...bounds }]), { tabId: tab.id, bounds: expectedBounds })
+    await expect.poll(nativeBounds).toEqual(expectedBounds)
     expect(await cli('tab.list', { pane: sourceWindow.panes[0].id })).toHaveLength(1)
   } finally {
     if (createdWindow) await cli('kill-window', { window: createdWindow.id, confirm: true })

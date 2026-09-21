@@ -962,6 +962,23 @@ export let createRuntime = (dataDirectory: string) => {
       }
     }).catch(() => undefined).finally(() => snapshotPending.delete(tabId))
   }
+  let singlePaneBounds = (tabId: string, live: LiveClient, exact?: Bounds) => {
+    // Popup and session changes can reconcile before the renderer publishes the
+    // selected tab. A single tiled pane fills the chrome, so its last content
+    // region is a safe fallback and split-sized horizontal insets are stale.
+    let candidates = exact ? [exact] : live.bounds.filter(bounds => bounds.width > 0 && bounds.height > 0)
+    if (!candidates.length) return
+    let left = Math.min(...candidates.map(bounds => bounds.x))
+    let top = Math.min(...candidates.map(bounds => bounds.y))
+    let right = Math.max(...candidates.map(bounds => bounds.x + bounds.width))
+    let bottom = Math.max(...candidates.map(bounds => bounds.y + bounds.height))
+    let chrome = live.chrome.getBounds()
+    let rightInset = chrome.width - right
+    let staleHorizontal = left < 0 || left > 8 || rightInset < 0 || rightInset > 8
+    let leftInset = staleHorizontal ? 1 : Math.round(left)
+    if (staleHorizontal) rightInset = 1
+    return { tabId, x: leftInset, y: Math.round(top), width: Math.max(1, chrome.width - leftInset - Math.round(rightInset)), height: Math.max(1, Math.round(bottom - top)) }
+  }
   let reconcile = () => {
     if (shuttingDown) return
     let liveIds = new Set(walkPanes(model).flatMap(({ pane }) => pane.tabs.map(tab => tab.id)))
@@ -974,10 +991,12 @@ export let createRuntime = (dataDirectory: string) => {
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
       if (!live || !live.window.isVisible() || live.window.isMinimized() || overlays.has(candidate.id)) continue
-      for (let paneId of visiblePaneIds(candidate)) {
+      let paneIds = visiblePaneIds(candidate)
+      for (let paneId of paneIds) {
         let tabId = paneById(model, paneId).pane.activeTabId
         let floatingBounds = floatBounds(candidate, paneId)
         let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.tabId === tabId)
+        if (!floatingBounds && paneIds.length === 1) bounds = singlePaneBounds(tabId, live, bounds)
         if (!bounds) continue
         let entries = viewers.get(tabId) ?? []
         entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
