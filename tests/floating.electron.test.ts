@@ -39,12 +39,17 @@ let expectCoveredCorners = async (pageUrl: string, screenshotPath: string, insid
         return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
       }
       return {
+        border: color(bounds.width / 2, -37),
+        frameCorners: [[-3, -35], [bounds.width + 2, -35], [-3, bounds.height + 4], [bounds.width + 2, bounds.height + 4]].map(([x, y]) => color(x, y)),
         corners: [[0, 0], [bounds.width - 1, 0], [0, bounds.height - 1], [bounds.width - 1, bounds.height - 1]].map(([x, y]) => color(x, y)),
         well: [[-2, bounds.height / 2], [bounds.width + 1, bounds.height / 2], [bounds.width / 2, -3], [bounds.width / 2, bounds.height + 2]].map(([x, y]) => color(x, y)),
         inside: color(bounds.width / 2, bounds.height - 3),
       }
     }, { pageUrl, screenshotPath })
-    for (let color of colors.corners) expect(color).toEqual([0x11, 0x13, 0x18])
+    // The fixture scrolls: its square right corners belong to the native scrollbar.
+    expect(colors.corners).toEqual([insideColor, [237, 237, 237], insideColor, [237, 237, 237]])
+    for (let color of colors.frameCorners) expect(color).toEqual(colors.border)
+    expect([[0x62, 0x77, 0x66], [0x34, 0x3c, 0x48]]).toContainEqual(colors.border)
     for (let color of colors.well) expect(color).toEqual([0x11, 0x13, 0x18])
     expect(colors.inside).toEqual(insideColor)
   }).toPass({ timeout: 5000 })
@@ -75,7 +80,7 @@ test.afterAll(async () => {
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 
-test('floating corners stay covered over composited pages after repainting', async ({}, info) => {
+test('floating frame border stays visible around square composited pages after repainting', async ({}, info) => {
   let current = await state(), client = current.model.clients[0]
   let floating = await rpc('new-pane', { pane: client.paneId, client: client.id })
   let floatingFrame = await frame(floating.id)

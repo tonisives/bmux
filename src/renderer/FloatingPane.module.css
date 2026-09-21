@@ -2,7 +2,8 @@
 .frame[data-focused="true"] { background: #627766; }
 .frame button { border: 0; border-radius: 0; background: transparent; color: inherit; padding: 2px 6px; }
 .frame button:hover { background: #3b4653; }
-.address { position: relative; height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; background: #1b1f24; color: #c4cdd8; }
+/* Inner frame corners follow the outer 10px radius minus its 2.25px border. */
+.address { position: relative; height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; border-radius: 7.75px 7.75px 0 0; overflow: hidden; background: #1b1f24; color: #c4cdd8; }
 .address input { field-sizing: content; width: auto; min-width: 60px; flex: 0 1 auto; padding: 4px; border: 0; border-radius: 0; background: transparent; color: #e7ecf2; font-size: 12px; }
 .address button { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; font-size: 16px; }
 .address button:disabled { opacity: .35; }
@@ -12,9 +13,9 @@
 .dragSpace { align-self: stretch; min-width: 40px; flex: 1; cursor: move; touch-action: none; }
 .dragAbove { position: absolute; top: 0; left: 128px; right: 32px; height: 5px; cursor: move; touch-action: none; }
 /* Match the native page's 6px/8px insets after the frame's 2.25px padding. */
-.content { flex: 1; min-height: 0; padding: 5.75px 3.75px; background: #111318; overflow: hidden; }
+.content { flex: 1; min-height: 0; padding: 5.75px 3.75px; border-radius: 0 0 7.75px 7.75px; background: #111318; overflow: hidden; }
 .content > span, .content > p { display: block; padding: 20px; color: #a7b0bd; font-size: 12px; }
-.content img { display: block; width: 100%; height: 100%; border-radius: 6px; object-fit: fill; }
+.content img { display: block; width: 100%; height: 100%; object-fit: fill; }
 .edge { position: absolute; touch-action: none; }
 .edge[data-edge="n"] { top: 0; left: 6px; right: 6px; height: 2px; cursor: ns-resize; }
 .edge[data-edge="s"] { bottom: 0; left: 6px; right: 6px; height: 6px; cursor: ns-resize; }

@@ -1,5 +1,5 @@
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
-import type { DownloadItem, ImageView, View, WebContents } from 'electron'
+import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Permission, PublicState, Snapshot, Tab } from '../shared/types'
@@ -32,15 +32,14 @@ import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy
 import type { ProxyCredentials } from './profile-proxy'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
-import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_RADIUS, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
+import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
-import { createFloatingCorners, positionFloatingCorners } from './floating-corners'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatCorners: Map<string, ImageView[]>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
@@ -250,7 +249,7 @@ export let createRuntime = (dataDirectory: string) => {
     let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.activeTabId === live.linkTabId && !!bounds
     if (!visible || !bounds) { live.linkPreview.setVisible(false); return }
     live.linkPreview.webContents.send('link-preview', live.linkUrl)
-    let inset = client && target && floatBounds(client, target.pane.id) ? FLOAT_CONTENT_RADIUS : 0
+    let inset = client && target && floatBounds(client, target.pane.id) ? FLOAT_CONTENT_INSET : 0
     live.linkPreview.setBounds({ x: Math.round(bounds.x + inset), y: Math.round(bounds.y + bounds.height - 26 - inset), width: Math.max(1, Math.min(520, Math.round(bounds.width - inset * 2))), height: 26 })
     if (live.window.contentView.children.at(-1) !== live.linkPreview) live.window.contentView.addChildView(live.linkPreview)
     live.linkPreview.setVisible(true)
@@ -914,8 +913,6 @@ export let createRuntime = (dataDirectory: string) => {
     let visible = client.zoomedPaneId ? [] : window?.floating ?? []
     for (let [paneId, frame] of live.floats) if (!visible.some(item => item.paneId === paneId)) {
       live.window.contentView.removeChildView(frame); frame.webContents.close(); live.floats.delete(paneId)
-      for (let corner of live.floatCorners.get(paneId) ?? []) live.window.contentView.removeChildView(corner)
-      live.floatCorners.delete(paneId)
     }
     for (let placement of visible) {
       let frame = live.floats.get(placement.paneId)
@@ -923,7 +920,6 @@ export let createRuntime = (dataDirectory: string) => {
         frame = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
         frame.setBorderRadius(FLOAT_RADIUS)
         live.floats.set(placement.paneId, frame)
-        live.floatCorners.set(placement.paneId, createFloatingCorners())
         live.window.contentView.addChildView(frame)
         frame.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         frame.webContents.on('will-navigate', event => event.preventDefault())
@@ -941,7 +937,6 @@ export let createRuntime = (dataDirectory: string) => {
       let { x, y, width, height } = floatRect(client, placement)
       frame.setBounds({ x, y, width, height })
       frame.setVisible(!overlays.has(client.id))
-      for (let corner of live.floatCorners.get(placement.paneId) ?? []) corner.setVisible(false)
     }
   }
   let moveView = (live: LiveTab, parent: BaseWindow) => {
@@ -1028,10 +1023,6 @@ export let createRuntime = (dataDirectory: string) => {
         let page = tabs.get(paneById(model, placement.paneId).pane.activeTabId)
         if (page?.parent === live.window) {
           ordered.push(page.view)
-          let corners = live.floatCorners.get(placement.paneId) ?? []
-          positionFloatingCorners(corners, page.view.getBounds())
-          for (let corner of corners) corner.setVisible(true)
-          ordered.push(...corners)
         }
       }
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
@@ -1081,7 +1072,7 @@ export let createRuntime = (dataDirectory: string) => {
     linkPreview.setVisible(false)
     window.contentView.addChildView(linkPreview)
     let resizeChrome = () => { clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), floatCorners: new Map(), permissionPopup, linkPreview, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
