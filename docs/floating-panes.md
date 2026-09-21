@@ -45,10 +45,12 @@ Coordinates are pixels inside the workspace, excluding the status bar. `-t`
 remains the source pane. Replace the IDs with real IDs from your workspace.
 
 The tmux-style aliases use `-s` for the source and `-t` for the destination. For
-example, `movep -t :work` moves the selected pane to the first window in the
+example, `movep -t work` moves the selected pane to the first window in the
 `work` session, and `joinp -s PANE_ID -t DESTINATION_PANE_ID` joins an explicit
-pane beside another pane. Session and window IDs, names, and one-based indices
-are accepted in targets such as `:SESSION`, `SESSION:`, and `SESSION:WINDOW`.
+pane beside another pane. Like tmux, bmux resolves an unqualified destination as
+a pane, then a window in the current session, then a session. Session and window
+IDs, names, and one-based indices are accepted. Explicit targets may use
+`SESSION:WINDOW`, `SESSION:`, `:SESSION`, or `:{SESSION}`.
 
 ## Close a float
 

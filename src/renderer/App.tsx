@@ -286,6 +286,11 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
 }
 
 let commandHistory: string[] = []
+let rememberCommand = (line: string) => {
+  if (!line.trim()) return
+  if (commandHistory.at(-1) !== line) commandHistory.push(line)
+  commandHistory = commandHistory.slice(-100)
+}
 let MatchText = ({ value, query }: { value: string; query: string }) => {
   let positions = new Set(query.trim().split(/\s+/).flatMap(term => fuzzyMatch(term, value)?.positions ?? []))
   let parts: { start: number; value: string; matched: boolean }[] = []
@@ -303,27 +308,26 @@ let CommandOption = ({ entry, position, active, query, busy, choose }: { entry: 
 let CommandPrompt = () => {
   let { state, run, show, dismiss, message } = useUI()
   let [text, setText] = useState(''), [index, setIndex] = useState(0), [selected, setSelected] = useState(false), [busy, setBusy] = useState(false)
-  let input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null), mounted = useRef(true)
+  let input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null), mounted = useRef(true), currentText = useRef('')
   let historyIndex = useRef(commandHistory.length), draft = useRef('')
   let entries = commandEntries(state.keyboard ?? DEFAULT_KEYBOARD, state.plugins)
   let literal = literalCommand(text), argumentsStarted = literal && /\S\s/.test(text.trimStart())
   let query = argumentsStarted ? text.trim().split(/\s+/)[0] : text
   let results = searchCommands(entries, query, commandHistory).slice(0, 80)
   let active = results[Math.min(index, Math.max(0, results.length - 1))]
-  useEffect(() => { input.current?.focus(); mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => { input.current?.focus(); mounted.current = true; return () => { mounted.current = false; rememberCommand(currentText.current) } }, [])
   useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [index, text])
   let finish = () => { dismiss(); void run('client.overlay', { client: state.clientId, visible: false }).then(() => run('focus-page', { client: state.clientId })) }
-  let edit = (line: string) => { setText(line); setIndex(0); setSelected(false); input.current?.focus() }
+  let edit = (line: string) => { currentText.current = line; setText(line); setIndex(0); setSelected(false); input.current?.focus() }
   let complete = (line: string) => { historyIndex.current = commandHistory.length; edit(line) }
   let change = (event: ChangeEvent<HTMLInputElement>) => { draft.current = event.target.value; historyIndex.current = commandHistory.length; edit(event.target.value) }
-  let remember = (line: string) => { if (commandHistory.at(-1) !== line) commandHistory.push(line); commandHistory = commandHistory.slice(-100) }
   let execute = async (line: string, entry?: CommandEntry) => {
     if (busy) return
     if (entry?.complete) { complete(entry.command); return }
     if (!line.trim()) return
     let exact = entries.find(item => item.command === line.trim())
     if (exact?.control) {
-      remember(line)
+      rememberCommand(line)
       let { session, window } = selection(state)
       if (exact.control !== 'close-window' || !session || !window) { show(exact.control); return }
       let behavior = windowCloseBehavior(session, window)
@@ -335,8 +339,8 @@ let CommandPrompt = () => {
       if (result !== undefined) finish()
       return
     }
-    if (PANEL_COMMANDS.some(panel => panel === line.trim())) { remember(line); show(line.trim() as Control); return }
-    setBusy(true); remember(line)
+    if (PANEL_COMMANDS.some(panel => panel === line.trim())) { rememberCommand(line); show(line.trim() as Control); return }
+    setBusy(true); rememberCommand(line)
     let result = await run('command-line', { client: state.clientId, line })
     if (!mounted.current) return
     setBusy(false)

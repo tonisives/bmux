@@ -64,8 +64,10 @@ it('parses tmux pane command aliases and session targets', () => {
   let current = state(), source = current.model.sessions[0].windows[0].panes[0]
   let destination = newSession('work', current.model.sessions[0].defaultProfileId)
   current.model.sessions.push(destination)
+  expect(parseCommandLine('movep -t work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, window: destination.windows[0].id } })
   expect(parseCommandLine('movep -t :work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, window: destination.windows[0].id } })
   expect(parseCommandLine('movep -s pane_source -t :{work}', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: 'pane_source', window: destination.windows[0].id } })
+  expect(parseCommandLine('joinp -s pane_source -t work -v', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', window: destination.windows[0].id, axis: 'vertical' } })
   expect(parseCommandLine('joinp -s pane_source -t pane_destination -v', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', destination: 'pane_destination', axis: 'vertical' } })
   expect(parseCommandLine('splitw -h', current)).toMatchObject({ method: 'split-window', args: { pane: source.id, axis: 'horizontal' } })
   expect(parseCommandLine('selectw -t 1', current)).toMatchObject({ method: 'select-window', args: { window: current.model.sessions[0].windows[0].id } })
