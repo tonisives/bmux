@@ -783,7 +783,7 @@ test('pane address bars navigate independently and leave window switching availa
   await address.fill('not-a-protocol://example'); await address.press('Enter')
   await expect(secondPane.getByRole('status')).toContainText('Only http')
   await address.press('Escape')
-  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pane`)
+  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/edited-second-pane`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
   await address.fill('one two three')
@@ -839,7 +839,7 @@ test('pane address bars navigate independently and leave window switching availa
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(other.id)
   await expect(chrome.getByRole('textbox', { name: 'URL or search', exact: true })).toHaveCount(0)
   await status.getByRole('button', { name: '1:127.0.0.1', exact: true }).click()
-  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/edited-second-pan`)
+  await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/edited-second-pan`)
   await cli('detach-client', { client: client.id })
 })
 
@@ -857,7 +857,7 @@ test('Command+L shows and replaces the URL during pending navigations', async ()
 
   await cli('navigate', { tab: tab.id, url: `${url}/pending-tab`, waitUntil: 'none' })
   await expect.poll(async () => (await cli('state')).pendingUrls[tab.id]).toBe(`${url}/pending-tab`)
-  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/pending-tab`)
+  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/pending-tab`)
   await openAddress()
   await expect(address).toHaveValue(`${url}/pending-tab`)
   await address.fill(`${url}/replaced`); await address.press('Enter')
@@ -882,7 +882,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(`${url}/slow`); await address.press('Enter')
   await expect(address).toHaveCount(0, { timeout: 1500 })
-  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveText(`${url}/slow`)
+  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/slow`)
   await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(true)
   let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
     await cli('activate-client', { client: client.id })
@@ -1437,11 +1437,11 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
 
 test('dragging over the displayed URL preserves the selection when editing starts', async () => {
   let session = await cli('new-session', { name: 'Address selection' })
-  let pane = session.windows[0].panes[0]
+  let first = session.windows[0].panes[0]
+  let pane = await cli('split-window', { pane: first.id, url: `${url}/select-the-right-side-of-this-url` })
   let client = await cli('attach-session', { session: session.id })
-  await cli('navigate', { tab: pane.activeTabId, url: `${url}/select-the-right-side-of-this-url` })
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
-  let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
+  let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
   let bounds = (await displayed.boundingBox())!
   await chrome.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)
   await chrome.mouse.down()
@@ -1453,9 +1453,40 @@ test('dragging over the displayed URL preserves the selection when editing start
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(selected)
-  await address.press('Delete')
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
+  await application.evaluate(({ webContents }) => {
+    let focused = webContents.getFocusedWebContents()!
+    focused.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' })
+    focused.sendInputEvent({ type: 'keyUp', keyCode: 'Delete' })
+  })
   await expect(address).not.toHaveValue(`${url}/select-the-right-side-of-this-url`)
   await address.press('Escape')
+  await cli('detach-client', { client: client.id })
+})
+
+test('dragging over a floating pane URL keeps its address input focused', async () => {
+  let session = await cli('new-session', { name: 'Floating address selection' })
+  let client = await cli('attach-session', { session: session.id })
+  let pane = await cli('new-pane', { pane: session.windows[0].panes[0].id, client: client.id, background: true, url: `${url}/select-the-right-side-of-this-floating-url` })
+  await expect.poll(() => application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))?.url()).toContain(`#float=${pane.id}`)
+  let floating = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+  let address = floating.getByRole('textbox', { name: 'Address', exact: true })
+  let bounds = (await address.boundingBox())!
+  await floating.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)
+  await floating.mouse.down()
+  await floating.mouse.move(bounds.x + 210, bounds.y + bounds.height / 2, { steps: 5 })
+  let selected = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
+  expect(selected.start).toBeGreaterThan(0)
+  expect(selected.end).toBeGreaterThan(selected.start!)
+  await floating.mouse.up()
+  await expect(address).toBeFocused()
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(floating.url())
+  await application.evaluate(({ webContents }) => {
+    let focused = webContents.getFocusedWebContents()!
+    focused.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' })
+    focused.sendInputEvent({ type: 'keyUp', keyCode: 'Delete' })
+  })
+  await expect(address).not.toHaveValue(`${url}/select-the-right-side-of-this-floating-url`)
   await cli('detach-client', { client: client.id })
 })
 

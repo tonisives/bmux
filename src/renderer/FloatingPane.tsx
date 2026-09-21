@@ -30,7 +30,10 @@ export let FloatingPane = () => {
   useEffect(() => {
     if (tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()
   }, [tab?.id])
-  let focus = () => { editing.current = true; void run('select-pane', { focus: false }) }
+  let focus = () => {
+    editing.current = true
+    void run('select-pane', { focus: false }).then(() => run('focus-ui'))
+  }
   let blur = () => { editing.current = false }
   let change = (event: ChangeEvent<HTMLInputElement>) => setAddress(event.target.value)
   let submit = async (event: FormEvent) => {
