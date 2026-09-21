@@ -6,11 +6,11 @@ Give recurring pages a recognizable title. In the folder chooser, press `/`
 from a folder row to search folders, then use Up/Down and Enter to select one.
 You can create a folder inside the selected folder.
 
-Opening a bookmark creates a new tab in the selected pane, preserving the
-current layout and its original tab. Searches are remembered per profile during
+Opening a bookmark preserves the current layout and keeps its original page
+available. Searches are remembered per profile during
 the running UI session. This is not cross-device synchronization.
 
-Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark in a new tab. Each profile has its own bookmarks.
+Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark. Each profile has its own bookmarks.
 
 For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
 For X searches, numeric `min_faves` and `min_replies` operators inside the `q` parameter also appear as separate controls. A post-age slider writes a relative `since:YYYY-MM-DD` operator when the bookmark opens; 0 keeps posts of any age. The `f` URL parameter is labeled Results, with `live` identified as Latest. X does not support a minimum post-view or impression-count search operator.
@@ -44,8 +44,8 @@ not reload live; edit while bmux is closed and restart, unlike keyboard settings
 ## History and related guides
 
 Run `history` to search visited pages by title or URL within the selected profile.
-Select a result with Up/Down and Enter. History opens in the active tab; bookmarks
-open in a new tab. Deleting individual history entries and clearing history from
+Select a result with Up/Down and Enter. History replaces the active page; bookmarks
+keep the previous page available. Deleting individual history entries and clearing history from
 the panel remain follow-up work.
 
 See [Import from Brave](brave.md) for existing folders and the

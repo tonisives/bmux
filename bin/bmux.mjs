@@ -28,20 +28,19 @@ Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           move-pane -t PANE --x X --y Y | resize-pane -t PANE --width W --height H
 Layouts:  save-layout -t WINDOW -n NAME | list-layouts
           restore-layout -t WINDOW -n NAME --confirm
-Tabs:     tab list [--pane PANE] | tab new --pane PANE [URL] | tab select -t TAB | tab close -t TAB
-Browser:  navigate -t TAB URL | dom -t TAB [--html] | eval -t TAB EXPRESSION [--file FILE]
-          screenshot -t TAB --output FILE [--viewport]
-          click -t TAB --selector CSS | type -t TAB --selector CSS --text TEXT
-          key -t TAB Enter | wait -t TAB --selector CSS [--state attached|detached|visible|hidden] [--timeout 15000]
-          wait -t TAB --expression JS | wait -t TAB --ms 1000
-          cdp -t TAB METHOD [JSON_PARAMS] | back -t TAB | forward -t TAB | reload -t TAB
-Tools:    dark on|off|system|inherit -t TAB [--scope site|profile|global]
-          adblock on|off|inherit -t TAB [--scope site|profile|global]
+Browser:  navigate -t PANE URL | dom -t PANE [--html] | eval -t PANE EXPRESSION [--file FILE]
+          screenshot -t PANE --output FILE [--viewport]
+          click -t PANE --selector CSS | type -t PANE --selector CSS --text TEXT
+          key -t PANE Enter | wait -t PANE --selector CSS [--state attached|detached|visible|hidden] [--timeout 15000]
+          wait -t PANE --expression JS | wait -t PANE --ms 1000
+          cdp -t PANE METHOD [JSON_PARAMS] | back -t PANE | forward -t PANE | reload -t PANE
+Tools:    dark on|off|system|inherit -t PANE [--scope site|profile|global]
+          adblock on|off|inherit -t PANE [--scope site|profile|global]
           update-filters | reload-scripts
 Other:    permission list | permission respond ID [--allow]
           settings prefix LETTER | downloads [--profile PROFILE_ID] | status | quit
           download pause|resume|cancel|reveal ID --profile PROFILE_ID
-Plugins:  plugin list | plugin run ID/ACTION [-t TAB] [--parameters JSON]
+Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Extensions: extension list|load PATH|open ID|remove ID --profile PROFILE
@@ -62,7 +61,8 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 
 let parse = () => {
   let command = argv.shift()
-  let subcommand = ['plugin', 'profile', 'tab', 'permission', 'settings', 'download', 'extension'].includes(command) ? argv.shift() : null
+  if (command === 'tab') throw new Error('Unknown command: tab')
+  let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating'])
@@ -84,7 +84,7 @@ let parse = () => {
     let value = positional[0] ?? 'toggle'
     if (command === 'dark' && value === 'on') value = 'dark'
     if (command === 'adblock' && ['on', 'off'].includes(value)) value = value === 'on'
-    return { method: 'browser.set', args: { tab: args.target ?? args.tab, setting: command === 'dark' ? 'darkMode' : 'adblock', value, scope: args.scope ?? 'site' } }
+    return { method: 'browser.set', args: { pane: args.target ?? args.pane, setting: command === 'dark' ? 'darkMode' : 'adblock', value, scope: args.scope ?? 'site' } }
   }
   if (command === 'update-filters') return { method: 'browser.update-filters' }
   if (command === 'reload-scripts') return { method: 'browser.reload-scripts' }
@@ -98,10 +98,10 @@ let parse = () => {
     'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
   if (method === 'resize-pane' && !args.split && (args.width !== undefined || args.height !== undefined)) targetKeys[method] = 'pane'
-  if (args.target !== undefined) { args[targetKeys[method] ?? 'tab'] = args.target; delete args.target }
+  if (args.target !== undefined) { args[targetKeys[method] ?? 'pane'] = args.target; delete args.target }
   if (method === 'profile.create') args.name = positional[0] ?? args.name
   if (method === 'profile.rename') { args.profile = positional[0]; args.name = positional[1] ?? args.name }
-  if (method === 'tab.create' || method === 'navigate') args.url = positional[0] ?? args.url
+  if (method === 'navigate') args.url = positional[0] ?? args.url
   if (method === 'eval') args.expression = args.file ? fs.readFileSync(path.resolve(args.file), 'utf8') : positional[0] ?? args.expression
   if (method === 'key') args.key = positional[0] ?? args.key
   if (method === 'cdp') { args.method = positional[0]; args.params = JSON.parse(positional[1] ?? '{}') }

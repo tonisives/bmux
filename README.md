@@ -36,7 +36,7 @@ Keep a workspace for each project.
 
 ## Made for agents
 
-Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit tab IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.
+Give your agents a browser that stays out of your way. With bmux, they can navigate real Chromium pages, inspect the DOM, run JavaScript, click, type, and capture screenshots through a CLI with JSON output and explicit pane IDs. Isolated profiles keep logins separate, while bot profiles keep background pages running. Split panes and saved layouts make it easy to follow their work. Detach and reconnect to live sessions whenever you need to, without background commands stealing your focus.
 
 [![A task added through the bmux CLI in the bot pane while the human pane stays selected](https://cdn.digthree.tonis.dev/bmux/website-f6e4bc505084/product/run-agent.png)](https://bmux.cc/#agents)
 
@@ -81,7 +81,7 @@ Panes can mix profiles within a layout. Panes with the same profile share logins
 
 Floating panes stay inside their internal bmux window, above its split panes. Right-click a link and choose **Open Link in Floating Pane**, or right-click a pane's page or address bar and choose **Float Pane**. JavaScript-driven X posts resolve to their detail pages too. Drag the floating header to move it and drag an edge or corner to resize it. Selecting a float brings it forward. Positions, sizes, and stacking survive a restart.
 
-Right-click a floating pane's header to **Return to Split** or **Move to Window**. Returning restores its former split position when available. Floating and docking keep the same pane, profile, tabs, and live pages. From the command prompt, use `new-pane`, `break-pane -W`, or `join-pane`. The CLI accepts explicit targets, for example `bmux move-pane -t PANE --window WINDOW`; `-t` remains the source pane in bmux's long-form command. The tmux aliases use tmux's source and destination flags: `movep -s PANE -t :SESSION` and `joinp -s PANE -t DESTINATION`. Omit `-s` to move the selected pane. Use `move-pane -t PANE --x 100 --y 80` to position a float and `resize-pane -t PANE --width 640 --height 480` to resize it. Coordinates are pixels within the workspace, excluding the status bar.
+Right-click a floating pane's header to **Return to Split** or **Move to Window**. Returning restores its former split position when available. Floating and docking keep the same pane, profile, and live page. From the command prompt, use `new-pane`, `break-pane -W`, or `join-pane`. The CLI accepts explicit targets, for example `bmux move-pane -t PANE --window WINDOW`; `-t` remains the source pane in bmux's long-form command. The tmux aliases use tmux's source and destination flags: `movep -s PANE -t :SESSION` and `joinp -s PANE -t DESTINATION`. Omit `-s` to move the selected pane. Use `move-pane -t PANE --x 100 --y 80` to position a float and `resize-pane -t PANE --width 640 --height 480` to resize it. Coordinates are pixels within the workspace, excluding the status bar.
 
 ## Development
 
@@ -134,7 +134,7 @@ bmux save-layout -t <window-id> -n development
 bmux restore-layout -t <window-id> -n development --confirm
 ```
 
-CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an error message, and a nonzero exit code. Browser actions require an explicit tab ID; IDs are returned by `tab list` and creation commands. A tab ID stays stable across view transfers and session restarts. A page reload or process crash can reset JavaScript state even though the application tab ID remains the same.
+CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an error message, and a nonzero exit code. Browser actions require an explicit pane ID; `list-panes` and pane creation commands return those IDs. A pane ID stays stable across view transfers and session restarts. A page reload or process crash can reset JavaScript state while the pane ID remains the same.
 
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.
 

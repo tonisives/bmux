@@ -29,7 +29,7 @@ let shortText = (value: unknown, limit = 4096) => { if (typeof value !== 'string
 let methods: Record<string, PluginAction['capabilities'][number]> = {
   'forms.list': 'browser.forms', 'forms.save': 'browser.forms', 'forms.fill': 'browser.forms', 'forms.delete': 'browser.forms',
   dom: 'browser.read', screenshot: 'browser.read', wait: 'browser.read', eval: 'browser.write', fill: 'browser.write', click: 'browser.write', type: 'browser.write', key: 'browser.write', navigate: 'browser.write', back: 'browser.write', forward: 'browser.write', reload: 'browser.write', cdp: 'browser.cdp',
-  'tab.list': 'browser.manage', 'tab.create': 'browser.manage', 'tab.close': 'browser.manage', 'tab.select': 'browser.manage', 'profile.list': 'browser.manage', 'list-sessions': 'browser.manage', 'list-windows': 'browser.manage', 'list-panes': 'browser.manage', 'new-window': 'browser.manage', 'split-window': 'browser.manage', 'select-pane': 'browser.manage', 'select-window': 'browser.manage', 'activate-client': 'browser.manage',
+  'profile.list': 'browser.manage', 'list-sessions': 'browser.manage', 'list-windows': 'browser.manage', 'list-panes': 'browser.manage', 'new-window': 'browser.manage', 'split-window': 'browser.manage', 'select-pane': 'browser.manage', 'select-window': 'browser.manage', 'activate-client': 'browser.manage',
 }
 export let createPlugins = (options: Options) => {
   let definitions = new Map<string, Definition>(), runs = new Map<string, Run>(), settings = options.settings()
@@ -113,8 +113,8 @@ export let createPlugins = (options: Options) => {
     let capability = methods[method]
     if (!capability || !run.action.capabilities.includes(capability)) throw new Error('Browser capability required or unknown method')
     if (method === 'wait' && args.expression !== undefined && !run.action.capabilities.includes('browser.write')) throw new Error('JavaScript waits require browser.write')
-    if (capability !== 'browser.manage' && args.tab !== undefined && args.tab !== run.context.tabId) throw new Error('Invocation is bound to its original tab')
-    if (run.public.hook && ['tab.select', 'select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
+    if (capability !== 'browser.manage' && args.tab !== undefined && args.tab !== run.context.tabId) throw new Error('Invocation is bound to its original page')
+    if (run.public.hook && ['select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
     try { return await options.browser(method, args, { ...run.context }, run.controller.signal) }
     catch { throw new Error('Browser operation failed or target document changed') }
   }

@@ -102,7 +102,7 @@ list filters by profile **ID**. Hooks cannot collect parameters or open prompts,
 activate clients, or change selection through the host API.
 
 At most four scripts run concurrently. Manual actions have queue priority. Pending
-hooks are coalesced by plugin, hook, and tab, and cancelled when their document is
+hooks are coalesced by plugin, hook, and page, and cancelled when their document is
 superseded. The queue holds up to 256 invocations; excess hooks are dropped. The
 default timeout is 120 seconds; manifests may choose 1–3600 seconds. Timeouts,
 cancellation, disablement, and shutdown revoke the invocation and terminate its
@@ -133,27 +133,27 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 
 | Methods | Capability | Arguments and behavior |
 | --- | --- | --- |
-| `context` | None | Returns invocation IDs, parameters, URL, document ID, and whether its original client is currently interactive. `{ "refresh": true }` explicitly reacquires the same tab's document. |
+| `context` | None | Returns invocation IDs, parameters, URL, document ID, and whether its original client is currently interactive. `{ "refresh": true }` explicitly reacquires the same page's document. |
 | `progress`, `result` | None | Explicit public output; never include secrets. Progress takes `percent` and `message`; result takes a JSON object. |
-| `dom` | `browser.read` | `{ "html": true }` for HTML; otherwise visible text. Returns tab, URL, content. |
+| `dom` | `browser.read` | `{ "html": true }` for HTML; otherwise visible text. Returns the page target, URL, and content. |
 | `screenshot` | `browser.read` | Existing screenshot options, including absolute `output` path. |
 | `wait` | `browser.read` | `selector` and optional `timeout` (maximum 60000 ms). `expression` waits additionally require `browser.write`. |
 | `eval` | `browser.write` | `expression` evaluated in the page's main JavaScript context, including DOM access; returns JSON-compatible value. |
 | `click`, `type`, `fill` | `browser.write` | Main-document selectors. Click calls the element's DOM click method; type inserts `text` into an input/textarea selection. Fill replaces values using `fields: [{selector, value}]` and requires the current `origin`. Visible editable fields only. Input/change events are dispatched. |
-| `key`, `navigate`, `back`, `forward`, `reload` | `browser.write` | Existing browser arguments without a tab override. Navigation starts immediately. |
-| `cdp` | `browser.cdp` | `method` and `params`; tab-scoped DOM, Runtime, Page, Input, Network, CSS, Accessibility, Emulation domains. No target/session routing. Raw CDP is an advanced trusted capability; use `fill` for document-bound credentials. |
+| `key`, `navigate`, `back`, `forward`, `reload` | `browser.write` | Existing browser arguments without a target override. Navigation starts immediately. |
+| `cdp` | `browser.cdp` | `method` and `params`; page-scoped DOM, Runtime, Page, Input, Network, CSS, Accessibility, Emulation domains. No target/session routing. Raw CDP is an advanced trusted capability; use `fill` for document-bound credentials. |
 | `ui` | `ui` | `kind`, `title`, optional `required`. Kinds: `text`, `password`, `confirm`, `pick`. Pickers take `items: [{id,label,description?}]` and return the selected ID. Confirm returns a boolean; text/password return strings. |
 
-`browser.manage` allows `tab.list/create/close/select`, `profile.list`,
-`list-sessions/windows/panes`, `new-window`, `split-window`, `select-pane/window`,
+`browser.manage` allows `profile.list`, `list-sessions/windows/panes`,
+`new-window`, `split-window`, `select-pane/window`,
 and `activate-client`, with the normal CLI RPC argument names and explicit IDs.
 No other runtime methods are exposed by the plugin host.
 
-Browser calls default to the invocation's captured tab, never the subsequently
-selected tab. DOM operations reject after URL/document changes until the plugin
+Browser calls use the invocation's captured page, never a subsequently selected
+pane. DOM operations reject after URL/document changes until the plugin
 explicitly calls `context` with `refresh: true`. Delayed fill/evaluation uses an
 object handle in the captured page execution context, which navigation destroys.
-Waits and script processes do not occupy the browser's per-tab command queue.
+Waits and script processes do not occupy the browser's per-page command queue.
 
 Prompts are scoped to the initiating client and selection. Escape, closing the
 prompt, or changing that selection cancels pending interaction. Background scripts
@@ -171,15 +171,15 @@ accessible to the site and to bmux's existing trusted local automation API.
 
 ```sh
 bmux plugin list
-bmux plugin run local.page-tools/title -t TAB_ID
-bmux plugin run local.page-tools/annotate -t TAB_ID --parameters '{"note":"Review this page"}'
+bmux plugin run local.page-tools/title -t PANE_ID
+bmux plugin run local.page-tools/annotate -t PANE_ID --parameters '{"note":"Review this page"}'
 bmux plugin runs
 bmux plugin cancel RUN_ID
 bmux plugin reload
 ```
 
 Run returns `{ "id": "..." }` immediately. Poll `plugin runs` for completion.
-In the on-screen command prompt, `plugin run ID/ACTION` uses the current tab and
+In the on-screen command prompt, `plugin run ID/ACTION` uses the current page and
 may collect parameters; CLI invocations have no interactive client. Shortcuts use
 `plugin:ID/ACTION`, and remain valid configuration even while a plugin is missing.
 

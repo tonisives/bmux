@@ -28,7 +28,7 @@ Common direct shortcuts:
 | Command+1–9 | Select internal window 1–9 |
 | Command+L | Open the selected pane's address bar |
 | Command+T / Command+W | New / close internal window; closing a session's last window removes the session |
-| Command+Shift+T (macOS) / Control+Shift+T (Linux and Windows) | Reopen the most recently closed tab or internal window |
+| Command+Shift+T (macOS) / Control+Shift+T (Linux and Windows) | Reopen the most recently closed internal window |
 | Command+Shift+[ / Command+Shift+] | Previous / next internal window |
 | Command+Right Shift / Command+Left Shift | Move the current internal window right / left, wrapping at the ends |
 | Command+R | Reload |
@@ -136,7 +136,7 @@ keyboard:
     ")": next-session
 ```
 
-Set `showTabCloseButtons: true` when you want close buttons on the status tabs.
+Set `showTabCloseButtons: true` when you want close buttons on the internal-window labels.
 
 `clickMode.doubleTapModifier` accepts `Option`, `Command`, `Control`, `Shift`, `Escape`, or `null`. Hint characters must be unique letters or digits and cannot include `r`, `c`, `d`, or `n`, which select click actions. The action-first link keys `f`, `h`, and `l` are ignored if present in an older `hintCharacters` setting. Click mode settings reload with the rest of the file.
 

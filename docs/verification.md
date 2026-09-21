@@ -16,7 +16,7 @@ interruptions, missing-file errors, profile filtering, and CLI profile guards.
 The September 14 implementation passed this targeted Tart test, `pnpm test:ui`,
 all 111 unit tests with type/lint checks, and macOS packaging.
 
-Local GUI checks run through the [Tart runner](tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-tab run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
+Local GUI checks run through the [Tart runner](tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-page run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
 
 The September 12 native-focus follow-up passed two consecutive full Tart suites
 (`pnpm test:electron --repeat-each=2 --max-failures=1 --trace=retain-on-failure`):
@@ -32,7 +32,7 @@ the URL/Enter and independent-pane UI check passed separately.
 
 The build uses the Little Lantern bmux icon and uses the bmux Developer ID identity when it is available. Extensions and external browser embedding are excluded. JavaScript alert/confirm/prompt dialogs are disabled. See README for other current boundaries.
 
-The URL regression test imports profiles while existing pages are live, submits a URL through the interface, and checks that the page is attached to a visible native window. It also sends Command+L and prefix/help keystrokes to the actual page WebContents and checks command errors. The import fix preserves object identity for existing live tab callbacks.
+The URL regression test imports profiles while existing pages are live, submits a URL through the interface, and checks that the page is attached to a visible native window. It also sends Command+L and prefix/help keystrokes to the actual page WebContents and checks command errors. The import fix preserves object identity for existing live page callbacks.
 
 Stalled-load coverage holds a script response indefinitely and verifies prefix commands, reload, window isolation, nonblocking switches, cancellation of a pending agent navigation, live YAML remapping, and recovery from invalid YAML. The installed build was checked anonymously at the requested Grafana login URL with its password field visible, then a second internal window opened example.com. Both retained distinct URLs and switching back restored the Grafana native view; no sign-in was attempted. Native GUI checks explicitly activate their disposable client because macOS focus changes park page views by design.
 
@@ -40,9 +40,9 @@ Keyboard management coverage includes native prefix shortcuts for window/session
 
 Command and picker coverage includes fuzzy command selection, completion, history, enabled plugin actions, slash search in help, session-name search, selected-profile details, and profile-scoped bookmark search with folder context and unsupported URL handling. Bookmark coverage uses `/` and Enter to search and select a nested folder, creates a child folder, saves through the command prompt, reopens through Command+D, and verifies that changing the title and folder moves the existing URL without duplication. Selection tests check the focused native page after Enter and verify that filtering alone does not switch it. Screenshots include `bookmark-search.png` and `bookmark-editor.png`.
 
-Find coverage checks match counts, forward/backward wrapping, no matches, clearing highlights, tab isolation, and refresh after navigation. A pending CLI wait runs on the same tab while the test exercises native Command+F and the prompt; `find-counts.png` records its appearance. Public CLI tests distinguish attached, detached, visible, and hidden elements in background tabs, including offscreen content, quoted selectors, invalid requests, and unchanged client selections.
+Find coverage checks match counts, forward/backward wrapping, no matches, clearing highlights, page isolation, and refresh after navigation. A pending CLI wait runs on the same pane while the test exercises native Command+F and the prompt; `find-counts.png` records its appearance. Public CLI tests distinguish attached, detached, visible, and hidden elements in background panes, including offscreen content, quoted selectors, invalid requests, and unchanged client selections.
 
-Browser-tool coverage uses local filter lists, userscripts/styles, and form fixtures. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, and profile/tab isolation.
+Browser-tool coverage uses local filter lists, userscripts/styles, and form fixtures. Tests exercise ad blocking and cosmetic selectors, Dark Reader settings, encrypted saved forms, and profile/page isolation.
 
 Historical CLI and password-popup checks below describe the former integration,
 which has been removed in favor of the browser extension.
@@ -63,7 +63,7 @@ The final integration run passed all 56 tests in 1.7 minutes
 Frame cosmetics coverage forces separate renderer processes and checks nested
 cross-origin frames, script-disabled sandbox frames, `srcdoc`, `about:blank`,
 strict CSP, host-specific rules, dynamic content, process swaps, and frame removal.
-Live site/profile changes also cover background tabs during a pending agent wait,
+Live site/profile changes also cover background panes during a pending agent wait,
 with unchanged client selections and native focus. Assertions use Electron's frame
 tree and frame locators for script-disabled documents; a screenshot is saved as
 `frame-cosmetics.png`. Unit checks cover stale document work, transient failures,
@@ -133,7 +133,7 @@ The full native suite then passed all 58 tests in one run (1.6 minutes):
 September 13 Bitwarden latency follow-up removes the pre-unlock status process
 for an explicit password unlock, overlaps item lookup with status validation,
 and retains popup lookup results privately for at most 30 seconds. A selected
-credential is consumed once by the matching client/tab/document/profile/URL fill
+credential is consumed once by the matching client/page/document/profile/URL fill
 within five seconds; that fill still validates vault status and account identity.
 Lock, expired entries, changed accounts, and mismatched contexts require a fresh
 lookup. No credentials are added to published state or persisted on disk.
