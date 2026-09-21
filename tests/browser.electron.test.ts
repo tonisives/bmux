@@ -265,6 +265,40 @@ test('automatic window names follow the active pane and tab and stop after an ex
   await cli('detach-client', { client: client.id })
 })
 
+test('session pane moves create windows, remove empty sources, and break panes into windows', async () => {
+  let source = await cli('new-session', { name: 'move-source' })
+  let target = await cli('new-session', { name: 'move-target' })
+  let sourceWindow = source.windows[0], movedPane = sourceWindow.panes[0]
+  let targetWindow = target.windows[0]
+  let client = await cli('attach-session', { session: source.id })
+
+  await cli('command-line', { client: client.id, line: 'movep -t move-target' })
+  await expect.poll(async () => (await cli('list-sessions')).some((session: { id: string }) => session.id === source.id)).toBe(false)
+  let targetWindows = await cli('list-windows', { session: target.id })
+  expect(targetWindows).toHaveLength(2)
+  expect(targetWindows.find((window: { id: string }) => window.id === targetWindow.id).panes).toHaveLength(1)
+  let movedWindow = targetWindows.find((window: { panes: { id: string }[] }) => window.panes.some(pane => pane.id === movedPane.id))
+  expect(movedWindow.id).not.toBe(targetWindow.id)
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id)).toMatchObject({ sessionId: target.id, windowId: movedWindow.id, paneId: movedPane.id })
+
+  let broken = await cli('split-window', { pane: movedPane.id, client: client.id })
+  await cli('activate-client', { client: client.id }); await cli('focus-page', { client: client.id })
+  await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, { keyCode: '!', modifiers: ['shift'] }])
+  targetWindows = await cli('list-windows', { session: target.id })
+  expect(targetWindows).toHaveLength(3)
+  expect(targetWindows.find((window: { id: string }) => window.id === movedWindow.id).panes.map((pane: { id: string }) => pane.id)).toEqual([movedPane.id])
+  expect(targetWindows.some((window: { panes: { id: string }[] }) => window.panes.length === 1 && window.panes[0].id === broken.id)).toBe(true)
+
+  await cli('activate-client', { client: client.id }); await cli('focus-page', { client: client.id })
+  await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, { keyCode: '.' }])
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let move = chrome.getByRole('textbox', { name: 'Move window to index', exact: true })
+  await expect(move).toBeFocused(); await move.fill('1'); await move.press('Enter')
+  expect((await cli('list-windows', { session: target.id }))[0].panes[0].id).toBe(broken.id)
+  await cli('detach-client', { client: client.id })
+  await cli('kill-session', { session: target.id, confirm: true })
+})
+
 test('Command+W closes an internal window or its session while the command and menu expose native window closing', async () => {
   let session = await cli('new-session', { name: 'window-closing' })
   let client = await cli('attach-session', { session: session.id })

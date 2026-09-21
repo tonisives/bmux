@@ -4,7 +4,7 @@ import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
 export let PANEL_COMMANDS = ['browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles'] as const
-export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'close-pane' | 'close-window'; shortcuts?: string[] }
+export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
   { command: 'browser-tools', description: 'Status and configuration for ad blocking, Dark Reader, and userscripts', action: 'browser-tools' },
@@ -44,6 +44,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'close-window', description: 'Close the current internal window', action: 'close-window', control: 'close-window' },
   { command: 'next-window', description: 'Switch to the next window', action: 'next-window' },
   { command: 'previous-window', description: 'Switch to the previous window', action: 'previous-window' },
+  { command: 'move-window', usage: 'move-window -t INDEX', description: 'Move the current window to an index', action: 'move-window', control: 'move-window' },
   { command: 'move-window-left', description: 'Move the current window left, wrapping at the start', action: 'move-window-left' },
   { command: 'move-window-right', description: 'Move the current window right, wrapping at the end', action: 'move-window-right' },
   { command: 'move-window-first', description: 'Move the current window to the first position', action: 'move-window-first' },
@@ -64,10 +65,10 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'toggle-pane-zoom', description: 'Expand or restore the selected pane', action: 'toggle-pane-zoom' },
   ...['left', 'down', 'up', 'right'].map(direction => ({ command: `pane-${direction}`, description: `Select the pane to the ${direction}`, action: `pane-${direction}` })),
   { command: 'select-pane -t ', usage: 'select-pane -t PANE_ID', description: 'Select a pane by ID', complete: true },
-  { command: 'movep -t ', usage: 'movep [-s PANE_ID] -t SESSION[:WINDOW]|PANE', description: 'Move a pane into another session or window', complete: true },
+  { command: 'movep -t ', usage: 'movep [-s PANE_ID] -t SESSION[:WINDOW]|PANE', description: 'Move a pane to a new window in a session, or join a specified window or pane', complete: true },
   { command: 'move-pane --window ', usage: 'move-pane --window WINDOW_ID', description: 'Move this pane into another window', complete: true },
   { command: 'new-pane', usage: 'new-pane [--url URL]', description: 'Open a floating pane' },
-  { command: 'break-pane --floating', usage: 'break-pane --floating', description: 'Float this pane' },
+  { command: 'break-pane', usage: 'break-pane [--floating]', description: 'Move this pane to a new window, or float it with --floating', action: 'break-pane' },
   { command: 'join-pane', usage: 'join-pane [--destination PANE] [-h|-v]', description: 'Return this floating pane to a split' },
   { command: 'joinp -t ', usage: 'joinp [-s PANE_ID] -t SESSION[:WINDOW]|PANE [-h|-v]', description: 'Join a pane into another session, window, or pane', complete: true },
   { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', action: 'close-pane', complete: true },

@@ -526,7 +526,7 @@ export let createRuntime = (dataDirectory: string) => {
       let behavior = windowCloseBehavior(session, window)
       if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
     }
-    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
+    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
     if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
@@ -1543,8 +1543,8 @@ export let createRuntime = (dataDirectory: string) => {
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let index = session.windows.findIndex(window => window.id === client.windowId)
       let position = args.position
-      if (position !== 'first' && position !== 'last') throw new Error('Window position must be first or last')
-      let destination = position === 'first' ? 0 : session.windows.length - 1
+      let destination = position === 'first' ? 0 : position === 'last' ? session.windows.length - 1 : Number(position) - 1
+      if (!Number.isInteger(destination) || destination < 0 || destination >= session.windows.length) throw new Error(`Window index must be between 1 and ${session.windows.length}`)
       if (index === destination) return session.windows[index]
       let [window] = session.windows.splice(index, 1)
       session.windows.splice(destination, 0, window)
@@ -1619,12 +1619,17 @@ export let createRuntime = (dataDirectory: string) => {
       client.zoomedPaneId = client.zoomedPaneId ? null : client.paneId
       changed(); await visualQueue; return client
     }
+    if (method === 'break-pane' && args.floating !== true) {
+      let parent = paneById(model, args.pane)
+      if (parent.window.panes.length === 1) throw new Error('Pane is already the only pane in its window')
+      return execute({ method: 'move-pane', args: { ...args, session: parent.session.id } })
+    }
     if (method === 'new-pane' || method === 'break-pane') {
       let parent = args.pane ? paneById(model, args.pane) : undefined
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let client = model.clients.find(client => client.id === args.client) ?? model.clients.find(client => client.windowId === window.id)
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
-      if (method === 'break-pane' && (!parent || args.floating !== true)) throw new Error('Use break-pane --floating with a pane')
+      if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
       let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url)) : undefined)
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
@@ -1668,7 +1673,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); return window.layout
     }
     if (method === 'move-pane' || method === 'join-pane') {
-      let { window: from, pane } = paneById(model, args.pane)
+      let { session: fromSession, window: from, pane } = paneById(model, args.pane)
       let placement = from.floating?.find(item => item.paneId === pane.id)
       if (args.x !== undefined || args.y !== undefined) {
         if (!placement) throw new Error('Pane is not floating')
@@ -1677,12 +1682,25 @@ export let createRuntime = (dataDirectory: string) => {
         Object.assign(placement, { x: Math.max(0, x), y: Math.max(0, y) })
         changed(); await visualQueue; return placement
       }
-      let to = args.destination ? paneById(model, args.destination).window : args.window ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : from
+      let targetSession = args.session ? resolve(model.sessions, args.session, 'Session') : undefined
+      let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true)
+        : args.destination ? paneById(model, args.destination).window : args.window ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : from
       if (to === from && !placement) throw new Error('Choose another internal window or a floating pane')
       if (args.destination && !layoutPaneIds(to.layout).includes(String(args.destination))) throw new Error('Destination must be a tiled pane')
       forgetPlacement(from, pane.id)
-      if (to !== from) { from.panes = from.panes.filter(item => item.id !== pane.id); to.panes.push(pane) }
-      dockPane(to, pane.id, to === from ? placement : undefined, args.destination ? String(args.destination) : undefined, args.axis === 'vertical' ? 'vertical' : args.axis === 'horizontal' ? 'horizontal' : undefined)
+      if (to !== from) {
+        from.panes = from.panes.filter(item => item.id !== pane.id)
+        if (targetSession) {
+          to.panes = [pane]; to.layout = { kind: 'pane', paneId: pane.id }
+          if (to.automaticName) updateAutomaticWindowName(to, pane.id)
+          targetSession.windows.push(to)
+        } else to.panes.push(pane)
+      }
+      if (!targetSession) dockPane(to, pane.id, to === from ? placement : undefined, args.destination ? String(args.destination) : undefined, args.axis === 'vertical' ? 'vertical' : args.axis === 'horizontal' ? 'horizontal' : undefined)
+      if (!from.panes.length) {
+        fromSession.windows = fromSession.windows.filter(window => window !== from)
+        if (!fromSession.windows.length) removeSession(model, fromSession)
+      }
       if (args.client) {
         let selected = resolve(model.clients, args.client, 'Client')
         selected.sessionId = model.sessions.find(session => session.windows.includes(to))!.id; selected.windowId = to.id; selected.paneId = pane.id; selected.zoomedPaneId = null

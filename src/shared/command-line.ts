@@ -25,7 +25,7 @@ let indexed = <T extends { id: string; name?: string }>(items: T[], value: strin
   return exact ?? (/^[1-9]\d*$/.test(value) ? items[Number(value) - 1] : undefined)
 }
 
-let moveDestination = (state: PublicState, currentSessionId: string, target: unknown) => {
+let moveDestination = (state: PublicState, currentSessionId: string, target: unknown, newWindowForSession = false) => {
   if (target === undefined) return {}
   let value = String(target), sessions = state.model.sessions
   let pane = sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === value)
@@ -34,13 +34,13 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
   if (value.startsWith(':')) {
     let selector = value.slice(1).replace(/^\{(.+)\}$/, '$1')
     let session = indexed(sessions, selector)
-    if (session) return { window: session.windows[0].id }
+    if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
     let window = indexed(currentSession.windows, selector)
     if (window) return { window: window.id }
   }
   if (value.endsWith(':')) {
     let session = indexed(sessions, value.slice(0, -1))
-    if (session) return { window: session.windows[0].id }
+    if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
   }
   if (value.includes(':')) {
     let [sessionSelector, windowSelector] = value.split(':', 2)
@@ -52,7 +52,7 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
     ?? sessions.flatMap(session => session.windows).find(window => window.id === value)
   if (window) return { window: window.id }
   let session = indexed(sessions, value)
-  return session ? { window: session.windows[0].id } : { destination: value }
+  return session ? newWindowForSession ? { session: session.id } : { window: session.windows[0].id } : { destination: value }
 }
 
 export let parseCommandLine = (line: string, state: PublicState): Command => {
@@ -120,6 +120,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'reopen-closed-tab') return { method: name, args: current }
   if (name === 'move-window-left' || name === 'move-window-right') return { method: 'swap-window', args: { ...current, direction: name === 'move-window-left' ? -1 : 1 } }
   if (name === 'move-window-first' || name === 'move-window-last') return { method: 'move-window', args: { ...current, position: name === 'move-window-first' ? 'first' : 'last' } }
+  if (name === 'move-window') return { method: name, args: { ...current, position: target ?? positional[0] } }
   if (name === 'swap-window') {
     let destination = String(target ?? positional[0] ?? '')
     if (!['-1', '+1'].includes(destination)) throw new Error('Use swap-window -t -1 or swap-window -t +1')
@@ -130,7 +131,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (tmuxPaneMove) {
     let source = options.source ?? pane?.id
     delete options.source
-    return { method: name, args: { ...current, pane: source, ...moveDestination(state, client.sessionId, target), ...options } }
+    return { method: name, args: { ...current, pane: source, ...moveDestination(state, client.sessionId, target, name === 'move-pane'), ...options } }
   }
   if (['split-window', 'select-pane', 'kill-pane', 'move-pane', 'join-pane', 'new-pane', 'break-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
   if (name === 'resize-pane') return { method: name, args: { ...current, ...(options.split ? { window: target ?? client.windowId } : { pane: target ?? pane?.id }), ...options } }

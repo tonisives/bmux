@@ -28,12 +28,14 @@ The command prompt (Control+B, then `:`) accepts:
 
 ```text
 new-pane
+break-pane
 break-pane -W
 join-pane
 ```
 
-`new-pane` creates a float; `break-pane -W` floats the selected pane;
-`join-pane` docks it. Scripts use explicit source pane IDs:
+`new-pane` creates a float; `break-pane` moves the selected pane into a new
+internal window; `break-pane -W` floats it; and `join-pane` docks it. Scripts
+use explicit source pane IDs:
 
 ```sh
 bmux move-pane -t PANE_ID --x 100 --y 80
@@ -45,12 +47,14 @@ Coordinates are pixels inside the workspace, excluding the status bar. `-t`
 remains the source pane. Replace the IDs with real IDs from your workspace.
 
 The tmux-style aliases use `-s` for the source and `-t` for the destination. For
-example, `movep -t work` moves the selected pane to the first window in the
-`work` session, and `joinp -s PANE_ID -t DESTINATION_PANE_ID` joins an explicit
-pane beside another pane. Like tmux, bmux resolves an unqualified destination as
-a pane, then a window in the current session, then a session. Session and window
-IDs, names, and one-based indices are accepted. Explicit targets may use
-`SESSION:WINDOW`, `SESSION:`, `:SESSION`, or `:{SESSION}`.
+example, `movep -t work` moves the selected pane into a new window in the
+`work` session, while `joinp -s PANE_ID -t work` joins the first window there
+and `joinp -s PANE_ID -t DESTINATION_PANE_ID` joins an explicit pane. Moving
+the only pane out of a window removes the empty source window. Like tmux, bmux
+resolves an unqualified destination as a pane, then a window in the current
+session, then a session. Session and window IDs, names, and one-based indices
+are accepted. Use `SESSION:WINDOW` to select a specific existing window.
+Explicit targets may also use `SESSION:`, `:SESSION`, or `:{SESSION}`.
 
 ## Close a float
 

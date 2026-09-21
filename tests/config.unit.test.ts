@@ -23,6 +23,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(defaults.shortcuts['Cmd+ShiftLeft']).toBe('move-window-left')
   expect(defaults.prefixBindings['1']).toBe('select-window-1')
   expect(defaults.prefixBindings['9']).toBe('select-window-9')
+  expect(defaults.prefixBindings['!']).toBe('break-pane')
+  expect(defaults.prefixBindings['.']).toBe('move-window')
   expect(defaults.prefixBindings.z).toBe('toggle-pane-zoom')
   expect(parseConfig('keyboard:\n  prefixBindings:\n    q: close-pane\n').keyboard.prefixBindings.q).toBe('close-pane')
   let custom = parseConfig('keyboard:\n  prefix: Ctrl+A\n  shortcuts:\n    cmd+r: hard-reload\n    Cmd+T: null\n  prefixBindings:\n    c: sessions\n').keyboard

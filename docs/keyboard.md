@@ -9,6 +9,8 @@ The default prefix is Control+B. Press the next key within 1.6 seconds.
 | n / p | Next / previous internal window |
 | % | Split pane side by side |
 | " | Split pane above and below |
+| ! | Break the selected pane into a new internal window |
+| . | Move the current internal window to an index |
 | o | Next pane |
 | z | Toggle the selected pane between split and full-window views |
 | s | Show sessions |
@@ -169,7 +171,7 @@ keyboard:
     gg: { action: scroll-top, when: pane-not-editing }
 ```
 
-Window reordering actions are `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window one position right and `Cmd+ShiftLeft` to move it one position left. Movement wraps to the opposite end at the boundary. The shortcuts run when the Shift key is released and are canceled if another key is pressed while it is held.
+Window reordering actions are `move-window`, `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Prefix then `.` prompts for the one-based destination index. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window one position right and `Cmd+ShiftLeft` to move it one position left. Directional movement wraps to the opposite end at the boundary. The shortcuts run when the Shift key is released and are canceled if another key is pressed while it is held.
 
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
 
