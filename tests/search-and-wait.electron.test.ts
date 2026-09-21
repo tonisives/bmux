@@ -409,7 +409,7 @@ test('bookmark folders and sessions use the same full-row selection style', asyn
 
 test('find reports counts, moves in both directions, and stays responsive during an agent wait', async () => {
   await page.evaluate(() => { (window as any).waitReady = false; (window as any).waitPolls = 0 })
-  let pending = cli('wait', '-t', original, '--expression', '(window.waitPolls++, window.waitReady)', '--timeout', '10000')
+  let pending = cli('wait', '-t', pane.id, '--expression', '(window.waitPolls++, window.waitReady)', '--timeout', '10000')
   let result = pending.then(value => ({ value }), error => ({ error }))
   try {
     await expect.poll(() => page.evaluate(() => (window as any).waitPolls)).toBeGreaterThan(0)
@@ -448,9 +448,9 @@ test('find results stay scoped to each tab and refresh after navigation', async 
   await rpc('navigate', { tab: original, url: `${url}/fixture` })
 })
 
-test('CLI waits distinguish attachment and visibility and reject invalid requests without changing selection', async () => {
-  let target = pane.tabs[1].id, before = (await state()).model.clients
-  let targetPage = application.context().pages().find(page => page.url() === `${url}/docs`)!
+test('CLI waits target panes, distinguish visibility, and reject invalid requests without changing selection', async () => {
+  let target = pane.id, before = (await state()).model.clients
+  let targetPage = application.context().pages().find(page => page.url() === `${url}/fixture`)!
   await targetPage.evaluate(() => { document.querySelector('#ready')!.setAttribute('hidden', '') })
   expect(await cli('wait', '-t', target, '--selector', '#ready')).toEqual({ matched: true })
   expect(await cli('wait', '-t', target, '--selector', '#ready', '--state', 'hidden')).toEqual({ matched: true })

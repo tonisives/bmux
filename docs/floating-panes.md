@@ -20,7 +20,7 @@ are visible. Positions, dimensions, and stacking order are persisted.
 
 Right-click the floating header and choose **Return to Split**. The former split
 position is restored when available. **Move to Window** moves the pane to another
-internal window. These operations preserve the pane, its fixed profile, tabs,
+internal window. These operations preserve the pane, its fixed profile,
 and live pages. A browser restart reloads pages and cannot restore arbitrary
 JavaScript state or unsaved forms.
 

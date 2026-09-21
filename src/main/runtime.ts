@@ -1131,7 +1131,9 @@ export let createRuntime = (dataDirectory: string) => {
     void scheduleVisuals()
   }
 
+  let paneTargetedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools', 'zoom', 'scroll', 'browser.set', 'plugin.run'])
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (paneTargetedMethods.has(method) && typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: paneById(model, args.pane).pane.activeTabId }
     if (method === 'pane.menu' || method === 'pane.close' || method === 'float.bounds') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let client = resolve(model.clients, sourceClientId, 'Client')

@@ -23,7 +23,7 @@ containing HTTP(S) document. Other frame URL schemes are excluded.
 The top-level page's profile and site settings control blocking throughout its
 frames, as they do for network filtering. A site exception for an embedded origin
 applies when that origin is opened as the top-level page. Frame navigation and
-live setting changes refresh hiding in background tabs too; dynamic DOM tokens
+live setting changes refresh hiding in background panes too; dynamic DOM tokens
 are rescanned every 2.5 seconds on visible pages.
 
 The panel shows blocked counts and the last 50 blocked resource hosts/types. It
@@ -94,11 +94,11 @@ browser:
 
 Custom network exceptions override bundled lists. Custom cosmetic rules add
 selectors; use a site's blocking toggle to exempt it from cosmetic hiding.
-CLI commands require explicit tab IDs and never activate clients:
+CLI commands require explicit pane IDs and never activate clients:
 
 ```sh
-bmux dark on -t TAB_ID
-bmux adblock off -t TAB_ID --scope profile
+bmux dark on -t PANE_ID
+bmux adblock off -t PANE_ID --scope profile
 bmux update-filters
 bmux rpc browser.status '{}'
 ```
@@ -181,7 +181,7 @@ vault and fill logins. The former bundled CLI integration has been removed.
 ## Plugin host additions
 
 `browser.forms` grants `forms.list`, `forms.save` (`name`), `forms.fill` (`id`), and
-`forms.delete` (`id`) for the captured tab/document/origin/profile. Responses
+`forms.delete` (`id`) for the captured page/document/origin/profile. Responses
 contain metadata or counts, never stored values. Calls bypass automation queues.
 
 Bundled plugins use bmux's embedded Node runtime, with no separate Node install.

@@ -86,7 +86,7 @@ explains why the lock must describe connection security rather than site trust.
 - [x] Show find-in-page match counts and support previous matches in the prompt,
   independently of pending agent waits.
 - [x] Add CLI selector waits for attached, detached, visible, and hidden states,
-  with validation and background-tab coverage.
+  with validation and background-page coverage.
 - [x] Refresh `verification.md` and document browser-tool and command-search coverage.
 - [x] Add fuzzy command search and slash search in help.
 - [x] Add ad blocking, Dark Reader, saved forms, Bitwarden CLI filling, and userscripts.
