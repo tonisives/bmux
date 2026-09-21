@@ -1417,7 +1417,11 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length + '/history-suggestion'.length })
   await address.press('Backspace')
   await expect(address).toHaveValue('127')
-  await address.fill('history-suggestion')
+  await address.fill('history suggestion')
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
+  await address.fill('suggestion history')
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
+  await address.fill('hstry sggstn')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await cli('focus-page', { client: client.id })
   await application.evaluate(({ webContents }) => {

@@ -427,10 +427,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection)
-  let normalized = query.trim().toLowerCase()
   let bookmarks = searchBookmarkPages(profile?.bookmarks ?? [], query).slice(0, 8)
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
-  let history = normalized ? (profile?.history ?? []).filter(entry => !bookmarkUrls.has(entry.url) && `${entry.title} ${entry.url}`.toLowerCase().includes(normalized)).slice(0, Math.min(4, 8 - bookmarks.length)) : []
+  let history = query.trim() ? searchHistory(profile?.history ?? [], query).filter(entry => !bookmarkUrls.has(entry.url)).slice(0, Math.min(4, 8 - bookmarks.length)) : []
   let results = [
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),

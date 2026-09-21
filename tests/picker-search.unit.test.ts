@@ -46,10 +46,14 @@ test('history search matches titles and URLs without changing recency order', ()
   let history = [
     { title: 'API reference', url: 'https://example.test/docs/api', visitedAt: 3 },
     { title: 'Project notes', url: 'https://notes.test/project', visitedAt: 2 },
+    { title: 'URL inspection', url: 'https://search.google.com/search-console/inspect?resource_id=sc-domain:trend-seeker.app', visitedAt: 1.5 },
     { title: 'Recipes', url: 'https://food.test/', visitedAt: 1 },
   ]
   expect(searchHistory(history, 'proj note')).toEqual([history[1]])
   expect(searchHistory(history, 'example api')).toEqual([history[0]])
+  expect(searchHistory(history, 'search trend')).toEqual([history[2]])
+  expect(searchHistory(history, 'trend search')).toEqual([history[2]])
+  expect(searchHistory(history, 'SRCH TRND')).toEqual([history[2]])
   expect(searchHistory(history, 'zzzz')).toEqual([])
   expect(searchHistory(history, '   ')).toBe(history)
 })
