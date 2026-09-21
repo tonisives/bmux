@@ -1,6 +1,6 @@
 # bmux
 
-<img src="design/app-icon.png" alt="bmux Little lantern icon" width="100" />
+<img src="https://cdn.digthree.tonis.dev/bmux/website-f6e4bc505084/icon-128.png" alt="bmux Little lantern icon" width="100" />
 
 ### tmux for your browser.
 
@@ -21,7 +21,7 @@ Split panes. Persistent sessions. Isolated profiles. bmux is a Chromium browser 
 - **Keyboard control** — A tmux-style prefix, native click hints, command prompt, and desktop shortcuts. See [Keyboard](docs/keyboard.md).
 - **Quiet interface** — Native Chromium page content above one status bar. Controls appear when needed.
 - **Background automation** — Navigate, inspect, click, type, evaluate JavaScript, and take screenshots through `bmux` without stealing focus.
-- **Find pages again** — Search profile-scoped browsing history, save pages into bookmark folders stored in `~/.config/bmux/bookmarks.yaml`, or import Brave profile names and bookmarks. See [Bookmarks](docs/bookmarks.md) and [Import from Brave](docs/brave.md).
+- **Find pages again** — Search profile-scoped browsing history, save pages into bookmark folders stored in `~/.config/bmux/bookmarks.yaml`, or import profiles and bookmarks from a Chromium browser. See [Bookmarks](docs/bookmarks.md) and [Import from Chrome](docs/chrome.md).
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app.
 - **Browser tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden browser extension, and local userscripts. See [Browser tools](docs/browser-tools.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](docs/plugins.md).
@@ -96,8 +96,6 @@ The renderer reloads during development. Browser content runs sandboxed, without
 
 See the [roadmap](docs/todo.md) for the development backlog and recently completed work.
 
-See [Local verification](docs/verification.md) for checks, test artifacts, and GUI test setup.
-
 The product website is at [bmux.cc](https://bmux.cc). Its source and deployment are maintained separately from this browser repository.
 
 Build and launch locally:
@@ -145,14 +143,13 @@ The `default` profile throttles inactive pages. The `bot` profile keeps backgrou
 
 - [Keyboard shortcuts and configuration](docs/keyboard.md)
 - [Bookmarks and YAML storage](docs/bookmarks.md)
-- [Import profiles and bookmarks from Brave](docs/brave.md)
+- [Import profiles and bookmarks from Chrome](docs/chrome.md)
 - [Downloads](docs/downloads.md)
 - [Browser tools](docs/browser-tools.md)
 - [Plugin authoring](docs/plugins.md)
 - [Browser automation](docs/agent.md)
 - [Packaging](docs/packaging.md)
 - [Platform notes](docs/platforms.md)
-- [Local verification](docs/verification.md)
 
 ## Data and permissions
 
@@ -168,7 +165,7 @@ The control socket is accessible only to the current OS user. No network debugge
 
 ## Current boundaries
 
-Local script plugins are available through the `plugins` command and `bmux plugin` CLI. They are explicitly enabled in YAML and run with your OS privileges. The example Bitwarden desktop plugin is experimental; see its [verification status](examples/plugins/experimental.bitwarden/README.md).
+Local script plugins are available through the `plugins` command and `bmux plugin` CLI. They are explicitly enabled in YAML and run with your OS privileges.
 
 Experimental Chrome extension support, including Bitwarden installation, is described in [Browser extensions](docs/extensions.md). External Chrome/Brave embedding and cloud synchronization are not supported. Website recoloring, ad blocking, and stored fills are described in [Browser tools](docs/browser-tools.md). JavaScript alert/confirm/prompt dialogs are disabled so pages cannot steal focus; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 

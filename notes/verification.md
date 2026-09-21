@@ -16,7 +16,7 @@ interruptions, missing-file errors, profile filtering, and CLI profile guards.
 The September 14 implementation passed this targeted Tart test, `pnpm test:ui`,
 all 111 unit tests with type/lint checks, and macOS packaging.
 
-Local GUI checks run through the [Tart runner](tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-page run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
+Local GUI checks run through the [Tart runner](../docs/tart-tests.md), which keeps focus and pointer changes inside the guest. Results and screenshots are copied to `artifacts/tart/<run-time>/`. Tests save `artifacts/client.png` for visual review and `artifacts/resource-sample.json` for a short idle sample inside that run. An earlier eight-page run with no clients open measured approximately 1.1 GB summed process working sets and 0.15% CPU. Working sets can double-count shared memory. This fixture sample is not a benchmark against another browser or a prediction for complex websites.
 
 The September 12 native-focus follow-up passed two consecutive full Tart suites
 (`pnpm test:electron --repeat-each=2 --max-failures=1 --trace=retain-on-failure`):

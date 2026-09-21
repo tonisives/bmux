@@ -46,4 +46,4 @@ Set `BMUX_OUTPUT_DIR` to change the installation folder. Set
 
 ## Verification
 
-Run `pnpm test:package` after packaging. See [Local verification](verification.md) for the full test setup and current results.
+Run `pnpm test:package` after packaging.

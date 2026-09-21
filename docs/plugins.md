@@ -18,16 +18,12 @@ Merge these entries into your existing config (preserve your keyboard edits):
 
 ```yaml
 keyboard:
-  shortcuts:
-    Cmd+Shift+L: plugin:experimental.bitwarden/fill
   prefixBindings:
     P: plugins
 plugins:
   local.page-tools:
     enabled: true
     hooks: false
-  experimental.bitwarden:
-    enabled: false
 ```
 
 Open `plugins` in the command prompt to search and run actions. `activity` shows
@@ -185,8 +181,6 @@ may collect parameters; CLI invocations have no interactive client. Shortcuts us
 
 `local.page-tools` demonstrates a shell title query, a Python heading picker,
 parameter collection, and an opt-in page hook scoped to local fixture paths.
-Bitwarden's [experimental plugin](../examples/plugins/experimental.bitwarden/README.md)
-demonstrates native desktop communication using the same host API.
 
 Test plugins in a disposable `BMUX_DATA_DIR` with local fixture pages. Never copy
 a personal browser profile into a test. Use explicit progress messages for safe

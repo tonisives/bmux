@@ -53,7 +53,7 @@ The live run exposed a response-format mismatch: Electron IPC strips the
 and authenticates either through the same HMAC check. Independent mock-peer
 regressions cover both representations.
 
-See the [disposable Tart setup](../../../docs/bitwarden-desktop-test.md) to repeat
+See the [disposable Tart setup](../../../notes/bitwarden-desktop-test.md) to repeat
 the check. Evidence is in `artifacts/tart/2026-09-12T11-19-19.762Z/`, including a
 sanitized JSON result and a screenshot with the input values masked. No personal
 vault was read. This remains an unofficial, opt-in experiment with the pairing

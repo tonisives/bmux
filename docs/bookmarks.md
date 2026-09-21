@@ -48,6 +48,6 @@ Select a result with Up/Down and Enter. History replaces the active page; bookma
 keep the previous page available. Deleting individual history entries and clearing history from
 the panel remain follow-up work.
 
-See [Import from Brave](brave.md) for existing folders and the
+See [Import from Chrome](chrome.md) for existing folders and the
 [bookmark walkthrough](https://bmux.cc/articles/bookmarks/) for parameter examples
 and a Tart demonstration.

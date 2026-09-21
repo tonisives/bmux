@@ -70,10 +70,6 @@ explains why the lock must describe connection security rather than site trust.
   password input focus, and accept popup selections after the original login
   field loses DOM focus. Preserve document, profile, and foreground fill checks.
 
-- [x] Verify experimental Bitwarden desktop pairing, locked/unlocked state, and
-  filling a visible local fixture without submission using a disposable vault.
-  Fix the released desktop's serialized encrypted-response format and document
-  the [repeatable Tart setup](bitwarden-desktop-test.md).
 - [x] Stabilize native focus checks in full Tart runs. Preserve current-client
   page/prompt focus during activation, wait for the fixture's own control socket
   and completed native handoffs, and send keys after confirming their focused
@@ -87,7 +83,6 @@ explains why the lock must describe connection security rather than site trust.
   independently of pending agent waits.
 - [x] Add CLI selector waits for attached, detached, visible, and hidden states,
   with validation and background-page coverage.
-- [x] Refresh `verification.md` and document browser-tool and command-search coverage.
 - [x] Add fuzzy command search and slash search in help.
 - [x] Add ad blocking, Dark Reader, saved forms, Bitwarden CLI filling, and userscripts.
 - [x] Add local script plugins and page hooks.
