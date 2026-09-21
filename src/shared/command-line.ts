@@ -16,11 +16,49 @@ export let tokenize = (line: string): string[] => {
   return words
 }
 
+export let COMMAND_ALIASES: Record<string, string> = {
+  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapw: 'swap-window',
+}
+
+let indexed = <T extends { id: string; name?: string }>(items: T[], value: string) => {
+  let exact = items.find(item => item.id === value || item.name === value)
+  return exact ?? (/^[1-9]\d*$/.test(value) ? items[Number(value) - 1] : undefined)
+}
+
+let moveDestination = (state: PublicState, currentSessionId: string, target: unknown) => {
+  if (target === undefined) return {}
+  let value = String(target), sessions = state.model.sessions
+  let pane = sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === value)
+  if (pane) return { destination: pane.id }
+  let currentSession = sessions.find(session => session.id === currentSessionId)!
+  if (value.startsWith(':')) {
+    let selector = value.slice(1).replace(/^\{(.+)\}$/, '$1')
+    let session = indexed(sessions, selector)
+    if (session) return { window: session.windows[0].id }
+    let window = indexed(currentSession.windows, selector)
+    if (window) return { window: window.id }
+  }
+  if (value.endsWith(':')) {
+    let session = indexed(sessions, value.slice(0, -1))
+    if (session) return { window: session.windows[0].id }
+  }
+  if (value.includes(':')) {
+    let [sessionSelector, windowSelector] = value.split(':', 2)
+    let session = indexed(sessions, sessionSelector)
+    let window = session && indexed(session.windows, windowSelector)
+    if (window) return { window: window.id }
+  }
+  let window = sessions.flatMap(session => session.windows).find(window => window.id === value)
+  return window ? { window: window.id } : { destination: value }
+}
+
 export let parseCommandLine = (line: string, state: PublicState): Command => {
   let words = tokenize(line)
   let name = words.shift()
   if (!name) throw new Error('Enter a command')
   name = normalizeKeyAction(name)
+  let tmuxPaneMove = name === 'movep' || name === 'joinp'
+  name = COMMAND_ALIASES[name] ?? name
   let client = state.model.clients.find(client => client.id === state.clientId)
   if (!client) throw new Error('Client is detached')
   let session = state.model.sessions.find(session => session.id === client.sessionId)!
@@ -28,7 +66,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let pane = window.panes.find(pane => pane.id === client.paneId)
   let positional: string[] = []
   let options: Record<string, unknown> = {}
-  let aliases: Record<string, string> = { t: 'target', s: 'name', n: 'name', c: 'client', W: 'floating' }
+  let aliases: Record<string, string> = { t: 'target', s: tmuxPaneMove ? 'source' : 'name', n: 'name', c: 'client', W: 'floating' }
   while (words.length) {
     let word = words.shift()!
     if (word === '--') { positional.push(...words); break }
@@ -86,6 +124,11 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   }
   if (['select-window', 'kill-window', 'rename-window', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget, name: options.name ?? positional[0] } }
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
+  if (tmuxPaneMove) {
+    let source = options.source ?? pane?.id
+    delete options.source
+    return { method: name, args: { ...current, pane: source, ...moveDestination(state, client.sessionId, target), ...options } }
+  }
   if (['split-window', 'select-pane', 'kill-pane', 'move-pane', 'join-pane', 'new-pane', 'break-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
   if (name === 'resize-pane') return { method: name, args: { ...current, ...(options.split ? { window: target ?? client.windowId } : { pane: target ?? pane?.id }), ...options } }
   if (name === 'next-window' || name === 'previous-window') return { method: 'cycle-window', args: { ...current, direction: name === 'next-window' ? 1 : -1 } }

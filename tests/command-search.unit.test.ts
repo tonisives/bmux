@@ -32,7 +32,7 @@ test('finder includes active shortcuts, enabled plugin actions, and deduplicated
 })
 
 test('typed command arguments and URL navigation remain literal', () => {
-  for (let value of ['new-window -n "two words"', 'open https://example.test/path', 'dark off --scope profile', 'https://example.test/', 'example.test', 'split --profile bot']) expect(literalCommand(value)).toBe(true)
+  for (let value of ['new-window -n "two words"', 'open https://example.test/path', 'dark off --scope profile', 'https://example.test/', 'example.test', 'split --profile bot', 'movep -t :work', 'joinp -t pane_target']) expect(literalCommand(value)).toBe(true)
   for (let value of ['brtls', 'browser tools', 'dark mode', 'tracker blocking', 'zzzzunmatched']) expect(literalCommand(value)).toBe(false)
 })
 

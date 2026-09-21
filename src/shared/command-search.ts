@@ -1,4 +1,5 @@
 import { shortcutAction, shortcutLabel } from './keyboard'
+import { COMMAND_ALIASES } from './command-line'
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
@@ -63,10 +64,12 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'toggle-pane-zoom', description: 'Expand or restore the selected pane', action: 'toggle-pane-zoom' },
   ...['left', 'down', 'up', 'right'].map(direction => ({ command: `pane-${direction}`, description: `Select the pane to the ${direction}`, action: `pane-${direction}` })),
   { command: 'select-pane -t ', usage: 'select-pane -t PANE_ID', description: 'Select a pane by ID', complete: true },
+  { command: 'movep -t :', usage: 'movep [-s PANE_ID] -t :SESSION', description: 'Move a pane into another session', complete: true },
   { command: 'move-pane --window ', usage: 'move-pane --window WINDOW_ID', description: 'Move this pane into another window', complete: true },
   { command: 'new-pane', usage: 'new-pane [--url URL]', description: 'Open a floating pane' },
   { command: 'break-pane --floating', usage: 'break-pane --floating', description: 'Float this pane' },
   { command: 'join-pane', usage: 'join-pane [--destination PANE] [-h|-v]', description: 'Return this floating pane to a split' },
+  { command: 'joinp -t :', usage: 'joinp [-s PANE_ID] -t :SESSION [-h|-v]', description: 'Join a pane into another session', complete: true },
   { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', action: 'close-pane', complete: true },
   ...['back', 'forward', 'reload', 'hard-reload', 'stop'].map(command => ({ command, description: ({ back: 'Go back in page history', forward: 'Go forward in page history', reload: 'Reload the page', 'hard-reload': 'Reload without cached resources', stop: 'Stop loading this page' })[command]!, action: command })),
   ...['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].map(command => ({ command, description: ({ 'scroll-up': 'Scroll up', 'scroll-down': 'Scroll down', 'scroll-half-up': 'Scroll half a page up', 'scroll-half-down': 'Scroll half a page down', 'scroll-top': 'Scroll to the top', 'scroll-bottom': 'Scroll to the bottom' })[command]!, action: command })),
@@ -124,7 +127,7 @@ export let searchCommands = (entries: CommandEntry[], query: string, history: st
   }).filter(item => item.score !== -Infinity).sort((a, b) => b.score - a.score).map(item => item.entry)
 }
 
-let commandNames = new Set([...COMMANDS.map(entry => entry.command.trim().split(' ')[0]), 'navigate', 'split', 'switch-client', 'attach-session', 'detach-client', 'kill-window'])
+let commandNames = new Set([...COMMANDS.map(entry => entry.command.trim().split(' ')[0]), 'navigate', 'split', 'switch-client', 'attach-session', 'detach-client', 'kill-window', ...Object.keys(COMMAND_ALIASES)])
 export let literalCommand = (line: string) => {
   let [name, argument] = line.trim().replace(/^:/, '').split(/\s+/)
   let choices: Record<string, string[]> = { dark: ['on', 'off', 'system', 'inherit'], adblock: ['on', 'off', 'inherit'], profile: ['create', 'rename'], plugin: ['list', 'run', 'runs', 'cancel', 'reload'] }
