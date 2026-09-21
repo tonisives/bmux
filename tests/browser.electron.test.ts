@@ -1435,7 +1435,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await cli('detach-client', { client: client.id })
 })
 
-test('dragging over the displayed URL preserves the selection when editing starts', async () => {
+test('dragging over the displayed URL preserves focus when released over the page', async () => {
   let session = await cli('new-session', { name: 'Address selection' })
   let first = session.windows[0].panes[0]
   let pane = await cli('split-window', { pane: first.id, url: `${url}/select-the-right-side-of-this-url` })
@@ -1449,10 +1449,13 @@ test('dragging over the displayed URL preserves the selection when editing start
   let selected = await displayed.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
   expect(selected.start).toBeGreaterThan(0)
   expect(selected.end).toBeGreaterThan(selected.start!)
+  await chrome.mouse.move(bounds.x + 210, bounds.y + bounds.height + 40, { steps: 2 })
   await chrome.mouse.up()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
-  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(selected)
+  let finalSelection = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
+  expect(finalSelection.start).toBe(selected.start)
+  expect(finalSelection.end).toBeGreaterThanOrEqual(selected.end!)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
   await application.evaluate(({ webContents }) => {
     let focused = webContents.getFocusedWebContents()!
