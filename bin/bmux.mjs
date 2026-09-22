@@ -39,6 +39,7 @@ Tools:    dark on|off|system|inherit -t PANE [--scope site|profile|global]
           update-filters | reload-scripts
 Other:    permission list | permission respond ID [--allow]
           settings prefix LETTER | downloads [--profile PROFILE_ID] | status | quit
+          memory [--history]
           download pause|resume|cancel|reveal ID --profile PROFILE_ID
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
@@ -65,7 +66,7 @@ let parse = () => {
   let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
-  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating'])
+  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history'])
   let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output', W: 'floating' }
   while (argv.length) {
     let item = argv.shift()

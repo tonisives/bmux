@@ -134,6 +134,10 @@ CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an 
 
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.
 
+Use `bmux memory` to inspect process memory and its tab/profile associations, or
+`bmux memory --history` to inspect recent growth. See [memory diagnostics](docs/memory.md)
+for sampling, units, and shared-process accounting.
+
 ## Guides
 
 - [Floating panes and docking](docs/floating-panes.md)

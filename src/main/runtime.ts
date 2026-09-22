@@ -36,6 +36,7 @@ import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
+import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -91,6 +92,22 @@ export let createRuntime = (dataDirectory: string) => {
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
   let hosts = new Map<string, BaseWindow>()
+  let memoryTimer: ReturnType<typeof setInterval> | undefined
+  let memory = createMemoryDiagnostics(previous => {
+    let owners = memoryOwners(webContents.getAllWebContents())
+    let tabDetails = walkPanes(model).flatMap(({ session, window, pane }) => pane.tabs.map(tab => {
+      let candidate = tabs.get(tab.id)
+      let live = candidate && !candidate.disposed && !candidate.contents.isDestroyed() ? candidate : undefined
+      return {
+        tabId: tab.id, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId,
+        webContentsId: live ? live.contents.id : null,
+        visible: Boolean(live && !live.parent.isDestroyed() && live.parent.isVisible() && !live.parent.isMinimized() && live.view.getVisible()),
+        backgroundThrottling: live ? live.contents.getBackgroundThrottling() : null,
+        busy: tabQueues.has(tab.id),
+      }
+    }))
+    return memorySample(app.getAppMetrics(), owners, tabDetails, previous)
+  })
   let configuredProfiles = new Set<string>()
   let defaultUserAgents = new Map<string, string>()
   let lastCacheChecks = new Map<string, number>()
@@ -1154,6 +1171,10 @@ export let createRuntime = (dataDirectory: string) => {
 
   let paneTargetedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools', 'zoom', 'scroll', 'browser.set', 'plugin.run'])
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'memory') {
+      if (args.history !== undefined && typeof args.history !== 'boolean') throw new Error('history must be a boolean')
+      return memory.report(args.history === true)
+    }
     if (paneTargetedMethods.has(method) && typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: paneById(model, args.pane).pane.activeTabId }
     if (method === 'pane.menu' || method === 'pane.close' || method === 'float.bounds') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1992,6 +2013,10 @@ export let createRuntime = (dataDirectory: string) => {
     refreshSettings()
     await scheduleVisuals()
     restoringTabs = false
+    let recordMemory = () => { try { memory.record() } catch (error) { reportError(error) } }
+    recordMemory()
+    memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)
+    memoryTimer.unref()
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]
     if (!restore.length) { await createClient(model.sessions[0].id); return }
@@ -2002,6 +2027,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let shutdown = () => {
     shuttingDown = true
+    clearInterval(memoryTimer)
     app.off('login', proxyLogin)
     void proxyRelays.closeAll()
     clickMode.cancel()
