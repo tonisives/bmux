@@ -27,12 +27,14 @@ let cli = async (method: string, args: Record<string, unknown> = {}) => {
   if (!response.ok) throw new Error(response.error)
   return response.result
 }
-let rendererForClient = async (clientId: string) => {
+let rendererForClient = async (clientId: string, expected?: { sessionId: string; windowId: string; paneId: string | null }) => {
   let selected: Page | undefined
   await expect.poll(async () => {
     for (let page of application.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) {
       try {
-        if ((await page.evaluate(() => (window as any).bmux.state())).clientId === clientId) { selected = page; return true }
+        let state = await page.evaluate(() => (window as any).bmux.state())
+        let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
+        if (state.clientId === clientId && (!expected || client?.sessionId === expected.sessionId && client.windowId === expected.windowId && client.paneId === expected.paneId)) { selected = page; return true }
       } catch {
         // The renderer may close while a client is being detached.
       }
@@ -940,7 +942,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let first = session.windows[0], tab = first.panes[0].tabs[0]
   let second = await cli('new-window', { session: session.id, name: 'second' })
   let client = await cli('attach-session', { session: session.id })
-  let chrome = await rendererForClient(client.id)
+  let chrome = await rendererForClient(client.id, client)
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(`${url}/slow`); await address.press('Enter')
