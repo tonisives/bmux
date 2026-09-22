@@ -147,6 +147,8 @@ export let createRuntime = (dataDirectory: string) => {
   let downloadItems = new Map<string, DownloadItem>()
   let downloadPaths = new Set<string>()
   let focusedClientId: string | null = null
+  let lastFocusedClientId: string | null = null
+  let preferredClient = () => model.clients.find(client => client.id === (focusedClientId ?? lastFocusedClientId)) ?? model.clients[0]
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
@@ -1097,6 +1099,7 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('resize', resizeChrome)
     window.on('focus', () => {
       focusedClientId = client.id
+      lastFocusedClientId = client.id
       save()
       void scheduleVisuals().then(() => {
         // Reattaching views after a blur can leave AppKit with no web first responder.
@@ -2014,5 +2017,5 @@ export let createRuntime = (dataDirectory: string) => {
     for (let tabId of tabs.keys()) disposeTab(tabId)
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
   }
-  return { execute, state, start, shutdown, sourceClient, setBounds, createClient, get model() { return model }, get tabCount() { return tabs.size } }
+  return { execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, get model() { return model }, get tabCount() { return tabs.size } }
 }

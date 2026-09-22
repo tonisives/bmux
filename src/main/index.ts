@@ -25,14 +25,22 @@ let server: net.Server | undefined
 
 let readyForLinks = false
 let pendingLinks: { url: string; allowFile: boolean }[] = []
+let pendingActivation = false
 let linkQueue = Promise.resolve()
+let existingClient = async () => runtime!.preferredClient() ?? await runtime!.createClient(runtime!.model.sessions[0].id)
+let activateExistingClient = () => {
+  if (!readyForLinks) { pendingActivation = true; return }
+  linkQueue = linkQueue.then(async () => {
+    let client = await existingClient()
+    await runtime!.execute({ method: 'activate-client', args: { client: client.id } })
+  }).catch(() => { console.error('Could not activate browser window') })
+}
 let receiveLink = (url: string, allowFile = false) => {
   try { if (!['http:', 'https:', ...(allowFile ? ['file:'] : [])].includes(new URL(url).protocol)) return } catch { return }
   if (!readyForLinks) { pendingLinks.push({ url, allowFile }); return }
   linkQueue = linkQueue.then(async () => {
     let browser = runtime!
-    let client = browser.model.clients.find(item => item.id === browser.state().focusedClientId) ?? browser.model.clients[0]
-    if (!client) client = await browser.createClient(browser.model.sessions[0].id)
+    let client = await existingClient()
     await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } })
     await browser.execute({ method: 'activate-client', args: { client: client.id } })
   }).catch(() => { console.error('Could not open external browser link') })
@@ -40,70 +48,76 @@ let receiveLink = (url: string, allowFile = false) => {
 app.on('open-url', (event, url) => { event.preventDefault(); receiveLink(url) })
 app.on('open-file', (event, filePath) => { event.preventDefault(); receiveLink(pathToFileURL(filePath).href, true) })
 
-if (!app.requestSingleInstanceLock()) app.quit()
-else {
-  app.on('second-instance', (_event, argv) => {
+// macOS delivers launch documents before ready. Let a second process receive
+// them before it hands its pending links to the existing process and exits.
+void app.whenReady().then(async () => {
+  if (!app.requestSingleInstanceLock({ links: pendingLinks })) { app.quit(); return }
+  app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
+    let forwarded = additionalData as { links?: typeof pendingLinks } | undefined
+    if (Array.isArray(forwarded?.links) && forwarded.links.length) {
+      for (let link of forwarded.links) if (typeof link?.url === 'string') receiveLink(link.url, link.allowFile === true)
+      return
+    }
     let links = argv.filter(value => /^https?:\/\//i.test(value))
     if (links.length) { links.forEach(link => receiveLink(link)); return }
-    if (!argv.includes('--background') && runtime) void runtime.createClient(runtime.model.sessions[0].id)
+    if (!argv.includes('--background')) activateExistingClient()
   })
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
-  app.on('activate', () => { if (runtime && !runtime.model.clients.length) void runtime.createClient(runtime.model.sessions[0].id) })
+  app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   app.on('before-quit', () => {
     runtime?.shutdown()
     server?.close()
     try { fs.unlinkSync(socketPath) } catch { /* Already removed. */ }
   })
-  void app.whenReady().then(async () => {
-    if (background) app.dock?.hide()
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
-      { role: 'editMenu' },
-      { role: 'windowMenu' },
-    ]))
-    runtime = createRuntime(dataDirectory)
-    ipcMain.handle('state', event => {
-      let clientId = runtime!.sourceClient(event.sender.id)
-      if (!clientId) throw new Error('Untrusted renderer')
-      return runtime!.state(clientId)
+  if (background) app.dock?.hide()
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]))
+  runtime = createRuntime(dataDirectory)
+  ipcMain.handle('state', event => {
+    let clientId = runtime!.sourceClient(event.sender.id)
+    if (!clientId) throw new Error('Untrusted renderer')
+    return runtime!.state(clientId)
+  })
+  ipcMain.handle('command', (event, command: Command) => {
+    let clientId = runtime!.sourceClient(event.sender.id)
+    if (!clientId) throw new Error('Untrusted renderer')
+    return runtime!.execute(command, clientId)
+  })
+  ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
+  await runtime.start(background)
+  readyForLinks = true
+  pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
+  if (pendingActivation) activateExistingClient()
+  fs.mkdirSync(socketDirectory, { recursive: true, mode: 0o700 })
+  if (fs.statSync(socketDirectory).uid !== process.getuid?.()) throw new Error('Socket directory belongs to another user')
+  fs.chmodSync(socketDirectory, 0o700)
+  try { fs.unlinkSync(socketPath) } catch { /* First launch. */ }
+  server = net.createServer(connection => {
+    let buffer = ''
+    connection.setEncoding('utf8')
+    connection.on('error', () => undefined)
+    connection.on('data', chunk => {
+      buffer += chunk
+      if (buffer.length > 1_048_576) { connection.end(`${JSON.stringify({ ok: false, error: 'Request exceeds 1MB' })}\n`); return }
+      let newline = buffer.indexOf('\n')
+      if (newline < 0) return
+      let request = buffer.slice(0, newline)
+      buffer = ''
+      void (async () => {
+        try {
+          let command = JSON.parse(request) as Command
+          if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
+          let result = await runtime!.execute(command)
+          connection.end(`${JSON.stringify({ ok: true, result })}\n`)
+        } catch (error) {
+          connection.end(`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })}\n`)
+        }
+      })()
     })
-    ipcMain.handle('command', (event, command: Command) => {
-      let clientId = runtime!.sourceClient(event.sender.id)
-      if (!clientId) throw new Error('Untrusted renderer')
-      return runtime!.execute(command, clientId)
-    })
-    ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
-    await runtime.start(background)
-    readyForLinks = true
-    pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
-    fs.mkdirSync(socketDirectory, { recursive: true, mode: 0o700 })
-    if (fs.statSync(socketDirectory).uid !== process.getuid?.()) throw new Error('Socket directory belongs to another user')
-    fs.chmodSync(socketDirectory, 0o700)
-    try { fs.unlinkSync(socketPath) } catch { /* First launch. */ }
-    server = net.createServer(connection => {
-      let buffer = ''
-      connection.setEncoding('utf8')
-      connection.on('error', () => undefined)
-      connection.on('data', chunk => {
-        buffer += chunk
-        if (buffer.length > 1_048_576) { connection.end(`${JSON.stringify({ ok: false, error: 'Request exceeds 1MB' })}\n`); return }
-        let newline = buffer.indexOf('\n')
-        if (newline < 0) return
-        let request = buffer.slice(0, newline)
-        buffer = ''
-        void (async () => {
-          try {
-            let command = JSON.parse(request) as Command
-            if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
-            let result = await runtime!.execute(command)
-            connection.end(`${JSON.stringify({ ok: true, result })}\n`)
-          } catch (error) {
-            connection.end(`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })}\n`)
-          }
-        })()
-      })
-    })
-    server.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600) })
-    server.on('error', error => { console.error(`bmux control socket: ${error.message}`); app.quit() })
-  }).catch(error => { console.error(`bmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })
-}
+  })
+  server.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600) })
+  server.on('error', error => { console.error(`bmux control socket: ${error.message}`); app.quit() })
+}).catch(error => { console.error(`bmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })

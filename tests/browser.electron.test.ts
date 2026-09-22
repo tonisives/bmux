@@ -65,7 +65,8 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
   return selected!
 }
 let launch = async () => {
-  application = await electron.launch({ args: [root, '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
+  let packaged = process.env.BMUX_TEST_PACKAGED === '1'
+  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await observeNativeFocus(application)
@@ -1695,16 +1696,47 @@ test('external web links open new internal windows without replacing the current
   await expect.poll(() => cli('eval', { tab: originalTab, expression: 'location.pathname' })).toBe('/original-first')
 })
 
-test('external HTML files open in new selected internal windows', async () => {
-  let file = path.join(directory, 'external file.html')
+for (let secondInstance of [false, true]) test(`external HTML files open in new selected internal windows${secondInstance ? ' through a second process' : ''}`, async () => {
+  test.skip(secondInstance && process.env.BMUX_TEST_PACKAGED !== '1', 'Requires a packaged macOS application')
+  let file = path.join(await fs.realpath(directory), `external file #${secondInstance ? 2 : 1}.html`)
   await fs.writeFile(file, '<!doctype html><title>External file</title><h1>External file</h1>')
-  let client = (await cli('list-clients'))[0] ?? await cli('attach-session', { session: (await cli('list-sessions'))[0].id })
+  let session = await cli('new-session', { name: `external-file-${secondInstance}` })
+  let client = await cli('attach-session', { session: session.id })
+  await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id)
+  await application.evaluate(({ app }) => app.hide())
+  await expect.poll(async () => (await cli('state')).focusedClientId).toBeNull()
   let before = await cli('list-windows', { session: client.sessionId })
-  await application.evaluate(({ app }, filePath) => {
-    app.emit('open-file', { preventDefault() {} }, filePath)
-  }, file)
+  let clientsBefore = await cli('list-clients')
+  if (process.env.BMUX_TEST_PACKAGED === '1') {
+    await exec('/usr/bin/open', [...(secondInstance ? ['-n'] : []), '-a', path.join(root, 'build/bmux.app'), '--env', `BMUX_DATA_DIR=${directory}`, '--env', `BMUX_CONFIG=${path.join(directory, 'config.yaml')}`, file])
+  } else {
+    await application.evaluate(({ app }, filePath) => {
+      app.emit('open-file', { preventDefault() {} }, filePath)
+    }, file)
+  }
   await expect.poll(async () => (await cli('list-windows', { session: client.sessionId })).length).toBe(before.length + 1)
   let created = (await cli('list-windows', { session: client.sessionId })).find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
   expect(created.panes[0].tabs[0].url).toBe(pathToFileURL(file).href)
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(created.id)
+  expect((await cli('list-clients')).map((item: { id: string }) => item.id)).toEqual(clientsBefore.map((item: { id: string }) => item.id))
+  await cli('wait', { tab: created.panes[0].activeTabId, selector: 'h1' })
+  expect(await cli('eval', { tab: created.panes[0].activeTabId, expression: 'document.querySelector("h1").textContent' })).toBe('External file')
+  let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
+  await expect.poll(() => application.evaluate(({ BaseWindow }, { nativeId, fileUrl }) => {
+    let window = BaseWindow.fromId(nativeId)
+    return window?.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === fileUrl && view.getBounds().height > 0)
+  }, { nativeId, fileUrl: pathToFileURL(file).href })).toBe(true)
+  await cli('detach-client', { client: client.id })
+})
+
+test('external relaunch without a document reuses the existing application window', async () => {
+  test.skip(process.env.BMUX_TEST_PACKAGED !== '1', 'Requires a packaged macOS application')
+  let client = (await cli('list-clients'))[0] ?? await cli('attach-session', { session: (await cli('list-sessions'))[0].id })
+  await cli('activate-client', { client: client.id })
+  let before = await cli('list-clients')
+  await application.evaluate(({ app }) => app.hide())
+  await expect.poll(async () => (await cli('state')).focusedClientId).toBeNull()
+  await exec('/usr/bin/open', ['-n', '-a', path.join(root, 'build/bmux.app'), '--env', `BMUX_DATA_DIR=${directory}`, '--env', `BMUX_CONFIG=${path.join(directory, 'config.yaml')}`])
+  await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id)
+  expect(await cli('list-clients')).toEqual(before)
 })
