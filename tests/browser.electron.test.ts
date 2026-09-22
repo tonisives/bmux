@@ -1493,6 +1493,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
   await address.fill('127')
   await expect(address).toHaveValue(url.replace(/^http:\/\//, '') + '/history-suggestion')
+  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(1)
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length + '/history-suggestion'.length })
   await address.press('Backspace')
   await expect(address).toHaveValue('127')

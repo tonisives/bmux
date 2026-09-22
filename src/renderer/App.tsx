@@ -9,7 +9,7 @@ import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS,
 import type { CommandEntry } from '../shared/command-search'
 import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
-import { inlineUrlCompletion } from '../shared/address-suggestions'
+import { inlineUrlCompletion, prioritizeInlineHistory } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
@@ -428,9 +428,14 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection)
-  let bookmarks = searchBookmarkPages(profile?.bookmarks ?? [], query).slice(0, 8)
+  let profileHistory = profile?.history ?? []
+  let inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
+  let bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
+  let inlineBookmark = inlineHistory && bookmarkMatches.slice(0, 8).some(bookmark => bookmark.url === inlineHistory.url)
+  let bookmarks = bookmarkMatches.slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
-  let history = query.trim() ? searchHistory(profile?.history ?? [], query).filter(entry => !bookmarkUrls.has(entry.url)).slice(0, Math.min(4, 8 - bookmarks.length)) : []
+  let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
+  let history = prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url).filter(entry => !bookmarkUrls.has(entry.url)).slice(0, Math.min(4, 8 - bookmarks.length))
   let results = [
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
@@ -450,7 +455,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
-    let completion = deletion ? undefined : (profile?.history ?? []).map(entry => inlineUrlCompletion(value, entry.url)).find(Boolean)
+    let completion = deletion ? undefined : profileHistory.map(entry => inlineUrlCompletion(value, entry.url)).find(Boolean)
     setQuery(value); setIndex(-1); setInlineUrl(completion); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
