@@ -32,9 +32,17 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
   await expect.poll(async () => {
     for (let page of application.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) {
       try {
-        let state = await page.evaluate(() => (window as any).bmux.state())
+        let state: any = await page.evaluate(() => (window as any).bmux.state())
         let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
-        if (state.clientId === clientId && (!expected || client?.sessionId === expected.sessionId && client.windowId === expected.windowId && client.paneId === expected.paneId)) { selected = page; return true }
+        if (state.clientId !== clientId || expected && (client?.sessionId !== expected.sessionId || client.windowId !== expected.windowId || client.paneId !== expected.paneId)) continue
+        let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
+        let window = session?.windows.find((item: { id: string }) => item.id === client.windowId)
+        let pane = window?.panes.find((item: { id: string }) => item.id === client.paneId)
+        let tab = pane?.tabs.find((item: { id: string }) => item.id === pane.activeTabId)
+        if (!tab) continue
+        let address = tab.url === 'about:blank' ? 'Cmd+L to open a URL' : state.pendingUrls[tab.id] ?? tab.url
+        if (await page.getByRole('button', { name: 'Address', exact: true }).inputValue() !== address) continue
+        selected = page; return true
       } catch {
         // The renderer may close while a client is being detached.
       }
