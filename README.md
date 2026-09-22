@@ -67,13 +67,13 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 
 ## Model
 
-| Term | Meaning |
-| --- | --- |
+| Term    | Meaning                                                         |
+| ------- | --------------------------------------------------------------- |
 | Profile | Persistent cookies, site storage, cache, and permission choices |
-| Session | Named collection of internal windows |
-| Window | Named layout of browser panes |
-| Pane | One browser page with a fixed profile |
-| Client | A desktop window attached to a session |
+| Session | Named collection of internal windows                            |
+| Window  | Named layout of browser panes                                   |
+| Pane    | One browser page with a fixed profile                           |
+| Client  | A desktop window attached to a session                          |
 
 Clients choose their current internal window independently. Visible clients keep their live browser views when the app loses focus. If multiple clients display the same page, focusing one transfers that page to it; the others show captured previews. Clients displaying different pages can render them simultaneously. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
 
@@ -114,8 +114,6 @@ Use the repository CLI without a global installation:
 ```
 
 Optionally add this checkout's `bin` directory to PATH; the `bmux` wrapper invokes the CLI. Browser commands silently start the server when needed. `attach-session` and `activate-client` intentionally show a client; navigation and screenshot commands do not. Activating an already-focused client preserves its focused page, text caret, or prompt.
-
-The previous `brmux` command remains as an alias for existing scripts.
 
 ## Basic workflow
 
