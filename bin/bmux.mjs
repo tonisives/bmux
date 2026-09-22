@@ -41,6 +41,7 @@ Other:    permission list | permission respond ID [--allow]
           settings prefix LETTER | downloads [--profile PROFILE_ID] | status | quit
           memory [--history]
           download pause|resume|cancel|reveal ID --profile PROFILE_ID
+          completions zsh (print shell completion script)
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
@@ -153,6 +154,11 @@ let start = async () => {
   throw new Error(`bmux did not start. Inspect ${path.join(dataDirectory, 'server.log')}`)
 }
 try {
+  if (argv[0] === 'completions') {
+    if (argv.length !== 2 || argv[1] !== 'zsh') throw new Error('Usage: bmux completions zsh')
+    process.stdout.write(fs.readFileSync(path.join(root, 'bin', '_bmux'), 'utf8'))
+    process.exit(0)
+  }
   if (argv[0] === 'plugin' && argv[1] === 'host') {
     let socket = process.env.BMUX_PLUGIN_SOCKET, token = process.env.BMUX_PLUGIN_TOKEN, runId = process.env.BMUX_PLUGIN_RUN_ID
     if (!socket || !token || !runId) throw new Error('Plugin host is available only inside an invocation')

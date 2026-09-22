@@ -1,0 +1,92 @@
+#compdef bmux brmux
+
+local -a commands subcommands
+
+if (( CURRENT == 2 )); then
+  commands=(
+    'status:Show browser status'
+    'memory:Show browser memory usage'
+    'profile:List and manage profiles'
+    'new-session:Create a session'
+    'list-sessions:List sessions'
+    'rename-session:Rename a session'
+    'attach-session:Attach a session to a client'
+    'list-clients:List clients'
+    'detach-client:Detach a client'
+    'activate-client:Activate a client'
+    'switch-client:Switch a client to a session'
+    'select-window:Select a window for a client'
+    'new-window:Create a window'
+    'list-windows:List windows in a session'
+    'rename-window:Rename a window'
+    'kill-window:Close a window'
+    'split-window:Split a pane'
+    'list-panes:List panes in a window'
+    'select-pane:Select a pane for a client'
+    'move-pane:Move a pane'
+    'kill-pane:Close a pane'
+    'new-pane:Create a pane'
+    'break-pane:Move a pane to a floating window'
+    'join-pane:Join a pane to another pane'
+    'resize-pane:Resize a pane'
+    'save-layout:Save a window layout'
+    'list-layouts:List saved layouts'
+    'restore-layout:Restore a saved layout'
+    'navigate:Navigate a pane to a URL'
+    'dom:Read a pane DOM'
+    'eval:Evaluate JavaScript in a pane'
+    'screenshot:Capture a pane screenshot'
+    'click:Click an element in a pane'
+    'type:Type into an element in a pane'
+    'key:Send a key to a pane'
+    'wait:Wait for a page condition'
+    'cdp:Send a Chrome DevTools Protocol command'
+    'back:Go back in a pane'
+    'forward:Go forward in a pane'
+    'reload:Reload a pane'
+    'dark:Control dark mode'
+    'adblock:Control ad blocking'
+    'update-filters:Update ad blocking filters'
+    'reload-scripts:Reload browser scripts'
+    'permission:List or respond to permissions'
+    'settings:Change browser settings'
+    'downloads:List downloads'
+    'download:Control a download'
+    'plugin:Manage and run plugins'
+    'extension:Manage extensions'
+    'import-brave:Import a Brave profile'
+    'rpc:Send a raw RPC command'
+    'quit:Quit the browser'
+    'completions:Print shell completion script'
+    'help:Show command help'
+  )
+  _describe -t commands 'bmux commands' commands
+  return
+fi
+
+if (( CURRENT == 3 )); then
+  case $words[2] in
+    profile)
+      subcommands=('list:List profiles' 'create:Create a profile' 'rename:Rename a profile') ;;
+    permission)
+      subcommands=('list:List pending permissions' 'respond:Respond to a permission request') ;;
+    settings)
+      subcommands=('prefix:Set the command prefix key') ;;
+    download)
+      subcommands=('pause:Pause a download' 'resume:Resume a download' 'cancel:Cancel a download' 'reveal:Reveal a download') ;;
+    plugin)
+      subcommands=('list:List plugins' 'run:Run a plugin action' 'runs:List plugin runs' 'cancel:Cancel a plugin run' 'reload:Reload plugins' 'host:Call the plugin host') ;;
+    extension)
+      subcommands=('list:List extensions' 'load:Load an extension' 'open:Open an extension' 'remove:Remove an extension' 'install-bitwarden:Install Bitwarden') ;;
+    completions)
+      subcommands=('zsh:Print zsh completion script') ;;
+    dark)
+      subcommands=('on:Enable dark mode' 'off:Disable dark mode' 'system:Use system setting' 'inherit:Use inherited setting') ;;
+    adblock)
+      subcommands=('on:Enable ad blocking' 'off:Disable ad blocking' 'inherit:Use inherited setting') ;;
+  esac
+  if (( ${#subcommands} )); then
+    _describe -t subcommands 'bmux subcommands' subcommands
+    return
+  fi
+fi

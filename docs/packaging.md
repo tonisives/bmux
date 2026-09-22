@@ -27,6 +27,16 @@ bmux attach-session -t main
 
 Without an override, the CLI checks `build/bmux.app` and then `~/workspace/_tools/bmux.app`.
 
+For zsh command hints, link the completion file from the installed app into a
+directory already in your `fpath` before `compinit`. For example:
+
+```sh
+ln -s "$HOME/workspace/_tools/bmux.app/Contents/Resources/bin/_bmux" ~/.zsh/completion/_bmux
+```
+
+The completion file is part of the app bundle, so subsequent packages update
+the hints. Run `bmux completions zsh` to print the script.
+
 ## Package after local merges
 
 The repository includes a tracked `post-merge` hook that packages the primary
