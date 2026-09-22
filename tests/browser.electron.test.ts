@@ -113,6 +113,39 @@ test.afterAll(async () => {
   await fs.rm(directory, { recursive: true, force: true })
 })
 
+test('memory diagnostics map background pages without changing selection or page state', async () => {
+  let initial = await cli('state')
+  let pane = initial.model.sessions[0].windows[0].panes[0]
+  let tabId = pane.activeTabId
+  await cli('navigate', { tab: tabId, url })
+  let identity = await cli('eval', { tab: tabId, expression: 'window.identity' })
+  let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url })
+  await cli('wait', { tab: bot.activeTabId, selector: '#text' })
+  let before = await cli('state')
+  let focused = await application.evaluate(({ BrowserWindow, webContents }) => ({ window: BrowserWindow.getFocusedWindow()?.id ?? null, contents: webContents.getFocusedWebContents()?.id ?? null }))
+  let output = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'memory', '--history'], { env: { ...process.env, BMUX_DATA_DIR: directory } })
+  let report = JSON.parse(output.stdout).result
+  let current = report.current
+  expect(report.metric).toBe('working-set-bytes')
+  expect(report.history.length).toBeGreaterThan(0)
+  expect(current.totalWorkingSetBytes).toBeGreaterThan(0)
+  expect(current.totalWorkingSetBytes).toBe(current.processes.reduce((sum: number, row: { workingSetBytes: number }) => sum + row.workingSetBytes, 0))
+  expect(new Set(current.processes.map((row: { pid: number }) => row.pid)).size).toBe(current.processes.length)
+  let mapped = current.tabs.find((row: { tabId: string }) => row.tabId === tabId)
+  expect(mapped).toMatchObject({ profileId: pane.profileId, visible: false, backgroundThrottling: true, busy: false })
+  expect(mapped.processIds.length).toBeGreaterThan(0)
+  expect(current.tabs.find((row: { tabId: string }) => row.tabId === bot.activeTabId)).toMatchObject({ visible: false, backgroundThrottling: false })
+  expect(JSON.stringify(report)).not.toContain(url)
+  expect((await cli('state')).model.clients).toEqual(before.model.clients)
+  expect(await application.evaluate(({ BrowserWindow, webContents }) => ({ window: BrowserWindow.getFocusedWindow()?.id ?? null, contents: webContents.getFocusedWebContents()?.id ?? null }))).toEqual(focused)
+  expect(await cli('eval', { tab: tabId, expression: 'window.identity' })).toBe(identity)
+  await cli('kill-pane', { pane: bot.id, confirm: true })
+  let after = (await cli('memory')).current
+  expect(after.tabs.some((row: { tabId: string }) => row.tabId === bot.activeTabId)).toBe(false)
+  expect(after.processes.every((row: { tabIds: string[] }) => !row.tabIds.includes(bot.activeTabId))).toBe(true)
+  await expect(cli('memory', { history: 'yes' })).rejects.toThrow('history must be a boolean')
+})
+
 test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(await application.evaluate(({ app }) => app.commandLine.getSwitchValue('force-webrtc-ip-handling-policy'))).toBe('disable_non_proxied_udp')
   let initial = await cli('state')
