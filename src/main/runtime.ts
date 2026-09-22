@@ -1842,7 +1842,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
       delete crashes[tabId]
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
-      if (method === 'reload') contents.reload()
+      if (method === 'reload') { contents.stop(); contents.reload() }
       if (method === 'hard-reload') contents.reloadIgnoringCache()
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()

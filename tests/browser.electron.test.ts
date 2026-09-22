@@ -19,6 +19,7 @@ let url: string
 let server: http.Server
 let heldResponses = new Set<http.ServerResponse>()
 let heldRequests = 0
+let slowFixture = 0
 let pendingPages = new Set<http.ServerResponse>()
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
@@ -29,19 +30,30 @@ let cli = async (method: string, args: Record<string, unknown> = {}) => {
 }
 let rendererForClient = async (clientId: string, expected?: { sessionId: string; windowId: string; paneId: string | null }) => {
   let selected: Page | undefined
+  let rendererState = async (page: Page) => {
+    let state: any = await page.evaluate(() => (window as any).bmux.state())
+    let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
+    if (state.clientId !== clientId || expected && (client?.sessionId !== expected.sessionId || client.windowId !== expected.windowId || client.paneId !== expected.paneId)) return
+    if (!expected) return { state, client }
+    let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
+    let window = session?.windows.find((item: { id: string }) => item.id === client.windowId)
+    let pane = window?.panes.find((item: { id: string }) => item.id === client.paneId)
+    let tab = pane?.tabs.find((item: { id: string }) => item.id === pane.activeTabId)
+    if (!tab) return
+    let address = tab.url === 'about:blank' ? 'Cmd+L to open a URL' : state.pendingUrls[tab.id] ?? tab.url
+    if (await page.getByRole('button', { name: 'Address', exact: true }).inputValue() !== address) return
+    return { state, client, address }
+  }
   await expect.poll(async () => {
     for (let page of application.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) {
       try {
-        let state: any = await page.evaluate(() => (window as any).bmux.state())
-        let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
-        if (state.clientId !== clientId || expected && (client?.sessionId !== expected.sessionId || client.windowId !== expected.windowId || client.paneId !== expected.paneId)) continue
-        let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
-        let window = session?.windows.find((item: { id: string }) => item.id === client.windowId)
-        let pane = window?.panes.find((item: { id: string }) => item.id === client.paneId)
-        let tab = pane?.tabs.find((item: { id: string }) => item.id === pane.activeTabId)
-        if (!tab) continue
-        let address = tab.url === 'about:blank' ? 'Cmd+L to open a URL' : state.pendingUrls[tab.id] ?? tab.url
-        if (await page.getByRole('button', { name: 'Address', exact: true }).inputValue() !== address) continue
+        let match = await rendererState(page)
+        if (!match) continue
+        if (expected) {
+          await page.waitForTimeout(75)
+          let stable = await rendererState(page)
+          if (!stable || stable.address !== match.address) continue
+        }
         selected = page; return true
       } catch {
         // The renderer may close while a client is being detached.
@@ -79,8 +91,8 @@ test.beforeAll(async () => {
   server = http.createServer((request, response) => {
     if (request.url === '/pending-tab') { pendingPages.add(response); response.on('close', () => pendingPages.delete(response)); return }
     if (request.url === '/tab-icon.svg') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#588e73"/></svg>'); return }
-    if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js"></script>'); return }
-    if (request.url === '/held.js') { heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
+    if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }); response.end(`<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js?fixture=${++slowFixture}"></script>`); return }
+    if (request.url?.startsWith('/held.js?')) { response.writeHead(200, { 'Cache-Control': 'no-store' }); heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
     if (request.url === '/download') { response.writeHead(200, { 'Content-Disposition': 'attachment; filename="fixture.txt"', 'Content-Type': 'text/plain' }); response.end('download fixture'); return }
     response.writeHead(200, { 'Content-Type': 'text/html' })
     response.end(fixture)
@@ -895,6 +907,7 @@ test('pane address bars navigate independently and leave window switching availa
   await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { value: input.value, start: input.selectionStart, end: input.selectionEnd } })).toEqual({ value: `${url}/edited-second-pane`, start: 4, end: `${url}/edited-second-pane`.length })
   await address.press('ArrowRight')
   await expect(address).toHaveValue(`${url}/edited-second-pane`)
+  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd } })).toEqual({ start: `${url}/edited-second-pane`.length, end: `${url}/edited-second-pane`.length })
   await address.press('Backspace')
   await expect(address).toHaveValue(`${url}/edited-second-pan`)
   await application.evaluate(({ webContents }) => {
@@ -953,13 +966,14 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   let chrome = await rendererForClient(client.id, client)
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
-  await address.fill(`${url}/slow`); await address.press('Enter')
+  await address.fill(`${url}/slow-stalled`); await address.press('Enter')
   await expect(address).toHaveCount(0, { timeout: 1500 })
-  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/slow`)
+  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/slow-stalled`)
   await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(true)
-  let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
+  let nativeKeys = async (events: Omit<Electron.KeyboardInputEvent, 'type'>[], expectedPageUrl?: string) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
+    if (expectedPageUrl) await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL(), expectedPageUrl), { intervals: [10, 20, 50] }).toBe(expectedPageUrl)
     await sendNativeKeys(application, events)
   }
   await cli('focus-page', { client: client.id })
@@ -968,20 +982,20 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   expect((await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).focused).toBe(true)
   let third = (await cli('list-windows', { session: session.id }))[2]
   await expect.poll(async () => (await cli('list-clients'))[0].windowId).toBe(third.id)
-  await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow'))), { timeout: 1500 }).toBe(false)
+  await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow-stalled'))), { timeout: 1500 }).toBe(false)
   await expect(address).toBeFocused()
   await address.fill(`${url}/independent`); await address.press('Enter')
   await cli('wait', { tab: third.panes[0].activeTabId, selector: '#text' })
   let windows = await cli('list-windows', { session: session.id })
-  expect(windows.map((window: { panes: { tabs: { url: string }[] }[] }) => window.panes[0].tabs[0].url)).toEqual([`${url}/slow`, 'about:blank', `${url}/independent`])
+  expect(windows.map((window: { panes: { tabs: { url: string }[] }[] }) => window.panes[0].tabs[0].url)).toEqual([`${url}/slow-stalled`, 'about:blank', `${url}/independent`])
   let start = Date.now()
   await cli('select-window', { client: client.id, window: first.id })
   expect(Date.now() - start).toBeLessThan(1500)
   await cli('activate-client', { client: client.id })
-  await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow')))).toBe(true)
+  await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow-stalled')))).toBe(true)
   await cli('focus-page', { client: client.id })
   let requests = heldRequests
-  await nativeKeys([{ keyCode: 'r', modifiers: ['meta'] }])
+  await nativeKeys([{ keyCode: 'r', modifiers: ['meta'] }], `${url}/slow-stalled`)
   await expect.poll(() => heldRequests).toBeGreaterThan(requests)
   await nativeKeys([{ keyCode: 'b', modifiers: ['control'] }, { keyCode: '?', modifiers: ['shift'] }])
   await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
@@ -989,7 +1003,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await cli('stop', { tab: tab.id })
   await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(false)
   // A load started through the agent API also must not block human controls.
-  let pending = cli('navigate', { tab: tab.id, url: `${url}/slow?agent=1` }).catch(() => undefined)
+  let pending = cli('navigate', { tab: tab.id, url: `${url}/slow-stalled?agent=1` }).catch(() => undefined)
   await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(true)
   await cli('select-window', { client: client.id, window: second.id })
   await cli('stop', { tab: tab.id }); await pending
