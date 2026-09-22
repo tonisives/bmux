@@ -1,3 +1,5 @@
+import { ConnectionIndicator } from './ConnectionIndicator'
+import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
@@ -18,7 +20,7 @@ import { CloseButton } from './CloseButton'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
@@ -90,7 +92,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousHistoryPopup.current || ['sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousHistoryPopup.current || ['site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
@@ -624,7 +626,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
   let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
-  let url = tab ? state.pendingUrls[tab.id] ?? tab.url : undefined
+  let security = tab ? state.security?.[tab.id] : undefined
+  let url = tab ? state.pendingUrls[tab.id] ?? (security?.status === 'certificate-error' ? security.url : tab.url) : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
   let addressSelection = useRef<AddressSelection | undefined>(undefined)
   let takeAddressSelection = useCallback(() => {
@@ -663,6 +666,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [popup, setHistoryPopup])
   let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
+  let openSiteInfo = () => show('site-info', paneId)
   let openProfile = () => show('profiles', paneId)
   let openProxy = () => show('proxy', paneId)
   let customProfile = profile && session && profile.id !== session.defaultProfileId ? profile : undefined
@@ -680,6 +684,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
         {(popup.direction === 'back' ? back : forward).map(entry => <NavigationMenuItem key={entry.index} entry={entry} select={selectHistory} />)}
       </div>}
     </div>}
+    {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : clickState ? <ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
     {customProfile && <div className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteLabel}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /></button>{customProfile.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}</div>}
@@ -746,7 +751,7 @@ let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
-  let title = type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={css.panel} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><CloseButton label="Close" onClick={dismiss} /></header>
@@ -755,6 +760,7 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'plugins' && <PluginList />}
       {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
       {type === 'browser-tools' && <BrowserTools />}
+      {type === 'site-info' && <SiteInformation />}
       {type === 'settings' && <KeyboardSettings />}
       {type === 'sessions' && <SessionPicker />}
       {type === 'profiles' && <ProfileInfo />}
@@ -767,6 +773,24 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
+}
+let SiteInformation = () => {
+  let { state } = useUI()
+  let { tab, profile } = selection(state)
+  if (!tab) return <p>Open a page to see its connection.</p>
+  let security = state.security?.[tab.id] ?? initialSecurity(tab.url)
+  let origin = (() => { try { let parsed = new URL(security.url); return parsed.origin === 'null' ? parsed.protocol : parsed.origin } catch { return security.url } })()
+  let certificate = security.certificate
+  let date = (seconds: number) => Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : 'Unavailable'
+  return <section aria-label="Connection details">
+    <p><strong>{origin}</strong><br />{profile?.name}</p>
+    <p role="status">{connectionLabels[security.status]}</p>
+    {security.error && <p>{security.error}</p>}
+    {security.status === 'certificate-error' && <p>This connection was blocked because its certificate could not be verified.</p>}
+    {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
+    <p>Encryption protects the connection. It does not establish that a website is trustworthy.</p>
+    {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
+  </section>
 }
 let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()

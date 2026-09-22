@@ -1,0 +1,4 @@
+.indicator { display: flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; padding: 4px; border: 0; background: transparent; color: inherit; cursor: pointer; opacity: .75; }
+.indicator:hover, .indicator:focus-visible { opacity: 1; background: #ffffff12; }
+.indicator svg { width: 16px; height: 16px; }
+.indicator[data-connection="certificate-error"], .indicator[data-connection="mixed"], .indicator[data-connection="insecure"] { color: #e6ac73; opacity: 1; }

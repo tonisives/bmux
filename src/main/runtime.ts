@@ -36,6 +36,9 @@ import { contextLinkExpression, resolvedContextLink } from './context-link'
 import { createClickMode } from './click-mode'
 import { createDoubleTapTracker, DEFAULT_CLICK_MODE } from '../shared/click-mode'
 import { createSerialNavigationQueue, startNavigationCrashRecovery } from './crash-recovery'
+import { trackSiteSecurity } from './site-security'
+import type { SiteSecurity } from '../shared/site-security'
+import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
@@ -152,6 +155,7 @@ export let createRuntime = (dataDirectory: string) => {
     removeWindow: window => { if (extensionWindows.has(window as BrowserWindow)) window.close() },
     requestPermissions: async () => false,
   }))
+  let security: Record<string, SiteSecurity> = {}
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
@@ -237,7 +241,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -687,13 +691,14 @@ export let createRuntime = (dataDirectory: string) => {
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
     let serializedRestore = restoringTabs
     tabs.set(tabId, live)
+    let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
     extensions.track(pane.profileId, contents, parent)
     let bootstrapping = !popupOptions
     live.ready = Promise.all([
       profileNetworkReady.get(pane.profileId),
       (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)),
-    ]).then(() => undefined).finally(() => { bootstrapping = false })
+    ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
@@ -891,6 +896,7 @@ export let createRuntime = (dataDirectory: string) => {
       tabs.delete(tabId)
     }
     for (let [requestId, request] of permissions) if (request.tabId === tabId) { request.reply(false); permissions.delete(requestId) }
+    delete security[tabId]
     delete snapshots[tabId]
     delete crashes[tabId]
     delete loading[tabId]
@@ -1171,6 +1177,16 @@ export let createRuntime = (dataDirectory: string) => {
 
   let paneTargetedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools', 'zoom', 'scroll', 'browser.set', 'plugin.run'])
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'site-info.open') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      let { pane, window } = paneById(model, args.pane ?? client.paneId)
+      if (window.id !== client.windowId) throw new Error('Pane is not in this client window')
+      await execute({ method: 'select-pane', args: { client: client.id, pane: pane.id, focus: false } })
+      let chrome = clients.get(client.id)!.chrome.webContents
+      chrome.focus(); chrome.send('focus-control', 'site-info')
+      return null
+    }
     if (method === 'memory') {
       if (args.history !== undefined && typeof args.history !== 'boolean') throw new Error('history must be a boolean')
       return memory.report(args.history === true)
@@ -1901,7 +1917,7 @@ export let createRuntime = (dataDirectory: string) => {
       let navigation = Symbol()
       live.pendingNavigation = navigation
       live.pendingUrl = url
-      delete crashes[tabId]; delete snapshots[tabId]; loading[tabId] = true
+      delete crashes[tabId]; delete snapshots[tabId]; security[tabId] = initialSecurity(url, true); loading[tabId] = true
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.

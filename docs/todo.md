@@ -8,12 +8,12 @@ limitations.
 These are proposed additions, ordered by priority. Keep controls keyboard
 accessible and use the existing address bars and transient panels.
 
-- [ ] Show connection security beside each pane's address. Use a lock icon only
+- [x] Show connection security beside each pane's address. Use a lock icon only
   for a verified encrypted connection, with distinct states for HTTP, certificate
   errors, mixed content, loading/unknown, and local/internal pages. Derive the
   state from Chromium's connection information, not just the URL scheme; clear
   stale state on navigation and keep it scoped to the correct pane.
-- [ ] Open a site-information panel from the connection indicator or a command.
+- [x] Open a site-information panel from the connection indicator or a command.
   Show the current origin, connection status, certificate subject, issuer, and
   validity dates when available. Explain that encryption does not establish
   website trustworthiness. Keep certificate failures blocked by default. Verify

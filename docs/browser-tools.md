@@ -5,6 +5,23 @@ The panel is also available from Settings. It contains ad blocking, website dark
 mode, filter updates, and userscripts. Controls show settings for the selected
 scope; site overrides still take precedence over profile and global defaults.
 
+## Connection security
+
+Select the connection indicator beside a pane's address, or enter `site-info`
+in the command prompt, to see the current origin, profile, connection status,
+and certificate subject, issuer, and validity dates. Floating panes offer the
+same control. Escape closes the panel and returns focus to the page.
+
+A lock appears only when Chromium reports a secure main-document connection
+with certificate details. HTTP, mixed content, certificate errors, loading,
+unknown status, and local pages have separate states. Certificate failures
+remain blocked; the panel does not offer a bypass. Encryption protects the
+connection and does not establish that a website is trustworthy.
+
+Security details clear on navigation and follow the pane's active tab. When
+Chromium has no connection evidence for a restored document, the indicator shows
+an unavailable status; reloading obtains a fresh connection report.
+
 ## Ad and tracker blocking
 
 Blocking is on by default in every profile. bmux bundles an offline
