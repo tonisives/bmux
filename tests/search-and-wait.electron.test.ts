@@ -144,18 +144,36 @@ test('session picker reaches creation by keyboard and confirms session closing',
   await expect.poll(async () => (await state()).model.sessions.some((session: { name: string }) => session.name === 'Fresh workspace')).toBe(false)
 })
 
-test('picker arrows expose panel content beyond the first and last rows', async () => {
+test('picker arrows wrap between the first and last rows', async () => {
   await open('sessions')
   let panel = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+  let rows = panel.getByRole('group', { name: 'Choose session', exact: true }).locator('button:not([data-picker-action])')
   let scroll = () => panel.evaluate(element => ({ top: element.scrollTop, bottom: element.scrollHeight - element.clientHeight }))
   await chrome.keyboard.press('End')
-  await expect.poll(async () => (await scroll()).top).toBeLessThan((await scroll()).bottom)
+  await expect(rows.last()).toBeFocused()
   await chrome.keyboard.press('ArrowDown')
+  await expect(rows.first()).toBeFocused()
+  await expect.poll(async () => (await scroll()).top).toBe(0)
+  await chrome.keyboard.press('ArrowUp')
+  await expect(rows.last()).toBeFocused()
   await expect.poll(async () => { let position = await scroll(); return position.bottom - position.top }).toBeLessThan(2)
   await chrome.keyboard.press('Home')
-  await expect.poll(async () => (await scroll()).top).toBeGreaterThan(0)
+  await expect(rows.first()).toBeFocused()
   await chrome.keyboard.press('ArrowUp')
-  await expect.poll(async () => (await scroll()).top).toBe(0)
+  await expect(rows.last()).toBeFocused()
+})
+
+test('bookmark arrows wrap across visible selectable rows', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  let rows = group.locator('button[data-bookmark-id]:not(:disabled)')
+  let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.press('ArrowUp')
+  await expect(rows.last()).toBeFocused()
+  await chrome.keyboard.press('ArrowDown')
+  await expect(rows.first()).toBeFocused()
+  await chrome.keyboard.press('ArrowUp')
+  await expect(rows.last()).toBeFocused()
 })
 
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {

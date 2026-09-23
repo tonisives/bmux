@@ -374,7 +374,7 @@ let CommandPrompt = () => {
     if (['ArrowUp', 'ArrowDown'].includes(event.key) || (event.ctrlKey && ['p', 'n'].includes(key))) {
       event.preventDefault(); setSelected(true)
       let direction = event.key === 'ArrowUp' || key === 'p' ? -1 : 1
-      setIndex(Math.max(0, Math.min(results.length - 1, index + direction)))
+      if (results.length) setIndex((index + direction + results.length) % results.length)
     }
   }
   return <><form className={css.prompt} onSubmit={submit}><label htmlFor="command">:</label><input id="command" ref={input} aria-label="Command" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={active ? `command-result-${results.indexOf(active)}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'running…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
@@ -495,7 +495,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      setIndex(current => Math.max(-1, Math.min(results.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1))))
+      if (results.length) setIndex(current => current < 0 ? (event.key === 'ArrowDown' ? 0 : results.length - 1) : (current + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
@@ -855,7 +855,8 @@ let PluginDialog = () => {
   let submit = (event: FormEvent) => { event.preventDefault(); if (request.kind === 'pick') { if (items[index]) void respond(items[index].id) } else void respond(value) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (request.kind !== 'pick' || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
-    event.preventDefault(); setIndex(index => Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1))))
+    event.preventDefault()
+    if (items.length) setIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
   }
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
     {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
@@ -900,12 +901,13 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
     event.preventDefault()
     let index = editing && query ? 0 : rows.findIndex(row => row === document.activeElement)
-    let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
-    let nextIndex = Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
+    let next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : index < 0 && event.key === 'ArrowUp' ? -1 : index + ({ ArrowUp: -1, ArrowDown: 1, PageUp: -10, PageDown: 10 }[event.key] ?? 0)
+    let arrow = event.key === 'ArrowUp' || event.key === 'ArrowDown'
+    let nextIndex = arrow && rows.length ? (next + rows.length) % rows.length : Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
     let panel = ref.current?.closest<HTMLElement>('[role="dialog"]')
-    if (event.key === 'ArrowUp' && nextIndex === 0 && panel) panel.scrollTop = 0
-    if (event.key === 'ArrowDown' && nextIndex === rows.length - 1 && panel) panel.scrollTop = panel.scrollHeight
+    if (panel && nextIndex === 0) panel.scrollTop = 0
+    else if (panel && nextIndex === rows.length - 1) panel.scrollTop = panel.scrollHeight
   }
   return { ref, keys, input, query, setQuery, change }
 }
