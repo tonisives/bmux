@@ -705,21 +705,21 @@ export let createRuntime = (dataDirectory: string) => {
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
-    contents.debugger.on('message', (_event, method, params, sessionId) => {
+    contents.debugger.on('message', (_event, method, params) => {
       if (method !== 'Page.fileChooserOpened' || live.disposed) return
       let choose = async () => {
         let backendNodeId = params.backendNodeId as number | undefined
         if (!backendNodeId || contents.isDestroyed()) return
         let owner = [...clients.values()].find(client => client.window === live.parent)
         if (!owner || live.parent.isDestroyed() || !live.parent.isVisible()) return
-        let node = await contents.debugger.sendCommand('DOM.describeNode', { backendNodeId }, sessionId)
+        let node = await contents.debugger.sendCommand('DOM.describeNode', { backendNodeId })
         let attributes = (node.node.attributes ?? []) as string[]
         let directory = attributes.includes('webkitdirectory')
         let properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = directory ? ['openDirectory'] : ['openFile']
         if (params.mode === 'selectMultiple' && !directory) properties.push('multiSelections')
         let selected = await dialog.showOpenDialog(live.parent, { properties })
         if (selected.canceled || !selected.filePaths.length || contents.isDestroyed() || live.disposed) return
-        await contents.debugger.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: selected.filePaths }, sessionId)
+        await contents.debugger.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: selected.filePaths })
       }
       void choose().catch(reportError)
     })

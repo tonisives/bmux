@@ -38,6 +38,7 @@ test('page file input uses the visible bmux window and receives the chosen file'
       }) as typeof dialog.showOpenDialog
     }, file)
     await chrome.evaluate(tabId => (window as any).bmux.command({ method: 'click', args: { tab: tabId, selector: '#file' } }), tab)
+    await expect.poll(() => application!.evaluate(() => (globalThis as any).filePickerCalls.length)).toBe(1)
     await expect(page.locator('#selection')).toHaveText('sample.txt')
     expect(await application.evaluate(() => (globalThis as any).filePickerCalls)).toEqual([{ visible: true, properties: ['openFile', 'multiSelections'] }])
   } finally {
