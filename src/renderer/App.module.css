@@ -234,13 +234,18 @@
 .toolStatus { padding-bottom: 16px; border-bottom: 1px solid #444b59; margin-bottom: 16px; }
 .toolStatus dl > div { flex-wrap: wrap; padding: 5px 0; }
 .toolActions { display: flex; flex-wrap: wrap; gap: 8px; }
-.settings { min-height: 260px; }
+.settingsPanel { height: min(420px, 85%); display: flex; flex-direction: column; overflow: hidden; }
+.settingsPanel .panelBody { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.settings { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .settingsTabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid #444b59; }
 .panel .settingsTabs button { flex: 0 0 auto; padding: 7px 10px; border-radius: 0; color: #aab4bf; border-bottom: 2px solid transparent; }
 .panel .settingsTabs button:hover { background: transparent; color: #eceef2; }
 .panel .settingsTabs button[aria-selected="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
-.settingsContent { min-height: 180px; padding: 16px 0; }
+.settingsContent { flex: 1; min-height: 0; padding: 16px 0; overflow-y: auto; }
 .settingsContent > button { display: block; margin: 12px 0; color: #bdc9b4; }
+.settingsGroup + .settingsGroup { margin-top: 20px; }
+.settingsGroup h3 { margin: 0 0 4px; color: #aab4bf; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.settingsContent .settingsHint { margin: 6px 0 16px; }
 .settingsRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; border-bottom: 1px solid #303640; }
 .settingsRow select, .settingsRow input[type="text"] { min-width: 120px; max-width: 55%; padding: 5px 7px; border: 1px solid #444b59; background: #20242d; color: #eceef2; font: inherit; }
 .settingsRow input[type="checkbox"] { accent-color: #a7b69c; }
