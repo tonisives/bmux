@@ -1379,6 +1379,41 @@ test('window management shortcuts and keyboard session selection', async () => {
   expect((await cli('list-sessions')).some((session: { id: string }) => session.id === gamma.id)).toBe(true)
 })
 
+test('right clicking a background window tab opens actions for that window', async () => {
+  let session = await cli('new-session', { name: 'tab-menu' })
+  let client = await cli('attach-session', { session: session.id })
+  let first = session.windows[0]
+  let second = await cli('new-window', { session: session.id, client: client.id, name: 'second' })
+  let chrome = await rendererForClient(client.id)
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restoreTabMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      if (template.some(item => item.label === 'Duplicate Window')) {
+        ;(globalThis as any).tabMenu = menu
+        menu.popup = () => undefined
+      }
+      return menu
+    }
+  })
+  try {
+    await chrome.locator(`[data-window-id="${first.id}"]`).click({ button: 'right' })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).tabMenu?.items.map((item: any) => item.label))).toContain('Close Window')
+    expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(second.id)
+    await application.evaluate(() => (globalThis as any).tabMenu.items.find((item: any) => item.label === 'Duplicate Window').click())
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((item: { name: string }) => item.name)).toEqual([first.name, `${first.name} copy`, second.name])
+    let copy = (await cli('list-windows', { session: session.id }))[1]
+    expect(copy.panes[0].id).not.toBe(first.panes[0].id)
+    await chrome.locator(`[data-window-id="${first.id}"]`).click({ button: 'right' })
+    await application.evaluate(() => (globalThis as any).tabMenu.items.find((item: any) => item.label === 'Close Window').click())
+    await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((item: { id: string }) => item.id)).toEqual([copy.id, second.id])
+  } finally {
+    await application.evaluate(() => (globalThis as any).restoreTabMenu())
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 
 test('accessibility preferences and custom window and pane shortcuts reload and survive restart', async () => {
   let config = path.join(directory, 'config.yaml')

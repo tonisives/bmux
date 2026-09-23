@@ -1192,6 +1192,26 @@ export let createRuntime = (dataDirectory: string) => {
       return memory.report(args.history === true)
     }
     if (paneTargetedMethods.has(method) && typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: paneById(model, args.pane).pane.activeTabId }
+    if (method === 'window.menu') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let window = resolve(session.windows, args.window, 'Window')
+      let index = session.windows.indexOf(window)
+      let invoke = (action: string, actionArgs: Record<string, unknown> = {}) => { void execute({ method: action, args: actionArgs }).catch(reportError) }
+      Menu.buildFromTemplate([
+        { label: 'Open Window', enabled: client.windowId !== window.id, click: () => invoke('select-window', { client: client.id, window: window.id }) },
+        { type: 'separator' },
+        { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
+        { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
+        { type: 'separator' },
+        { label: 'Move Left', enabled: index > 0, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
+        { label: 'Move Right', enabled: index < session.windows.length - 1, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
+        { type: 'separator' },
+        { label: 'Close Window', click: () => invoke('kill-window', { window: window.id, confirm: true }) },
+      ]).popup({ window: clients.get(client.id)!.window })
+      return null
+    }
     if (method === 'pane.menu' || method === 'pane.close' || method === 'float.bounds') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let client = resolve(model.clients, sourceClientId, 'Client')
@@ -1564,6 +1584,19 @@ export let createRuntime = (dataDirectory: string) => {
       session.windows.push(window)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = window.panes[0].id }
       changed(); await visualQueue; return window
+    }
+    if (method === 'duplicate-window') {
+      let original = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      let session = resolve(model.sessions, model.sessions.find(item => item.windows.includes(original))?.id, 'Session')
+      let copy = cloneWindow(original)
+      copy.name = `${original.name} copy`
+      copy.automaticName = false
+      session.windows.splice(session.windows.indexOf(original) + 1, 0, copy)
+      if (args.client) {
+        let client = resolve(model.clients, args.client, 'Client')
+        client.sessionId = session.id; client.windowId = copy.id; client.paneId = copy.panes[0]?.id ?? null
+      }
+      changed(); await visualQueue; return copy
     }
     if (method === 'reopen-closed-tab') {
       let closed = closedTabs.at(-1)
