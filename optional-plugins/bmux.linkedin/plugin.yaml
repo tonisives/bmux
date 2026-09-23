@@ -6,7 +6,7 @@ actions:
   - id: browse
     title: Browse LinkedIn URLs
     description: Pace a bounded list of LinkedIn pages, with optional capped likes.
-    command: [node, ../bmux.x/browse.mjs, linkedin]
+    command: [node, ./browse.mjs, linkedin]
     capabilities: [browser.read, browser.write, browser.cdp]
     timeout_seconds: 3600
     parameters:

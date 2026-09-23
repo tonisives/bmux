@@ -32,6 +32,16 @@ let done = async (plugins: ReturnType<typeof createPlugins>, id: string) => {
   return plugins.runs().find(run => run.id === id)!
 }
 describe('plugin definitions', () => {
+  test('keeps social plugins optional and independently installable', () => {
+    for (let [id, site] of [['bmux.x', 'x'], ['bmux.linkedin', 'linkedin']]) {
+      let folder = path.resolve('optional-plugins', id)
+      let manifest = parsePluginManifest(fs.readFileSync(path.join(folder, 'plugin.yaml'), 'utf8'))
+      expect(fs.existsSync(path.resolve('bundled-plugins', id))).toBe(false)
+      expect(manifest.id).toBe(id)
+      expect(manifest.actions[0].command).toEqual(['node', './browse.mjs', site])
+      expect(fs.existsSync(path.join(folder, 'browse.mjs'))).toBe(true)
+    }
+  })
   test('validates capability, parameter, timeout and hook contracts', () => {
     let { manifest } = fixture('')
     expect(parsePluginManifest(stringify(manifest)).actions[0].timeout_seconds).toBe(120)

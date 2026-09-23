@@ -101,7 +101,13 @@ plugins:
 
 The `likesPerDay` entries explicitly enable automatic likes for those sites;
 omitting a site keeps liking disabled. Use profile IDs from `bmux profile list`.
-The X and LinkedIn plugins accept `urls` as a JSON array string and `topic` as a
+The X and LinkedIn plugins are optional and are not included in bmux.app. Copy
+either folder from `optional-plugins/` in the source checkout to
+`~/.config/bmux/plugins/` before enabling it. Each folder works independently;
+see [Plugin installation](plugins.md#install-and-enable) if you use a custom
+config location.
+
+The plugins accept `urls` as a JSON array string and `topic` as a
 phrase. They visit at most 20 supplied HTTPS URLs, pause and scroll during the
 run, and may like one visible, unliked post per page whose text contains the
 topic phrase. Like reservations count toward a rolling 24-hour cap even if the

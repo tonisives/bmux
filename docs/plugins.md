@@ -14,6 +14,11 @@ normally `~/.config/bmux/plugins/`. Examples live in `examples/plugins/` in the
 checkout and `bmux.app/Contents/Resources/plugins/` in packaged builds. There is
 no automatic download or execution of bundled examples.
 
+The X and LinkedIn browsing plugins live in `optional-plugins/` in the source
+checkout. They are not included in bmux.app. Copy either plugin folder into the
+active `plugins/` directory to install it; each folder is self-contained. Enable
+the copied plugin in config as described below.
+
 Merge these entries into your existing config (preserve your keyboard edits):
 
 ```yaml
