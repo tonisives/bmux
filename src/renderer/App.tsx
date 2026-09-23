@@ -762,7 +762,7 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
       {type === 'browser-tools' && <BrowserTools />}
       {type === 'site-info' && <SiteInformation />}
-      {type === 'settings' && <KeyboardSettings />}
+      {type === 'settings' && <SettingsContent />}
       {type === 'sessions' && <SessionPicker />}
       {type === 'profiles' && <ProfileInfo />}
       {type === 'proxy' && <ProxyInfo />}
@@ -817,18 +817,18 @@ let ExtensionManager = () => {
     {listing?.errors.map(error => <p key={`${error.path}:${error.error}`} className={css.error}>{error.error}</p>)}
   </section>
 }
-let PluginList = () => {
+let PluginList = ({ compact = false }: { compact?: boolean }) => {
   let { state, run, dismiss } = useUI()
   let [query, setQuery] = useState('')
   let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
-  return <><ToolStatus /><h2>Installed plugins</h2><SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus />
-    {!state.plugins?.length && <p>No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.</p>}
+  return <>{!compact && <ToolStatus />}{!compact && <h2>Installed plugins</h2>}<SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
+    {!state.plugins?.length && <p>{compact ? 'No plugins installed.' : 'No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
     {state.plugins?.map(plugin => <div key={plugin.id}><label><input type="checkbox" data-id={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
-    <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p><button onClick={reload}>Reload plugins</button></>
+    {!compact && <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p>}<button onClick={reload}>Reload plugins</button></>
 }
 let PluginActivity = () => {
   let { state, run } = useUI()
@@ -1370,7 +1370,7 @@ let ToolStatus = () => {
   </section>
 }
 
-let BrowserTools = () => {
+let BrowserTools = ({ compact = false }: { compact?: boolean }) => {
   let { state, run, show } = useUI()
   let { tab, profile } = selection(state)
   let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
@@ -1385,32 +1385,69 @@ let BrowserTools = () => {
   let edit = () => { void run('settings.open') }
   let plugins = () => show('plugins')
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
-  return <><ToolStatus /><h2>Browser tool settings</h2><p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>
+  return <>{!compact && <ToolStatus />}{!compact && <h2>Browser tool settings</h2>}<p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>
     <div className={css.toolOptions}><label>Apply changes to<select value={scope} onChange={changeScope}><option value="site">This site in this profile</option><option value="profile">This profile</option><option value="global">All profiles</option></select></label>
       <button onClick={adblock} disabled={!tab || (scope === 'site' && !current?.origin)} aria-pressed={settings?.adblock}>Ad and tracker blocking: {settings?.adblock ? 'on' : 'off'}</button>
       <label>Website dark mode<select value={settings?.darkMode ?? 'off'} onChange={dark} disabled={!tab || (scope === 'site' && !current?.origin)}><option value="off">Off</option><option value="dark">Dark Reader</option><option value="system">Follow system</option></select></label>
       <button onClick={inherit} disabled={!tab || (scope === 'site' && !current?.origin)}>Reset to inherited settings</button>
     </div>
-    {scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
+    {!compact && scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
     {current?.error && <p className={css.error}>{current.error}</p>}
-    <p>{current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.</p>
+    <p>{compact ? `Blocked requests: ${current?.blocked ?? 0}` : `${current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.`}</p>
     {!!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
-    <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>
+    {!compact && <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>}
     {tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
     <button onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>
     <p>Userscripts and styles</p>
-    {tools?.scripts.length ? tools.scripts.map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : <p>Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.</p>}
-    <button onClick={reload}>Reload scripts</button><button onClick={edit}>Edit config</button>
-    <p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button>
+    {tools?.scripts.length ? tools.scripts.map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : <p>{compact ? 'No userscripts' : 'Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.'}</p>}
+    <button onClick={reload}>Reload scripts</button>{!compact && <><button onClick={edit}>Edit config</button><p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button></>}
   </>
 }
 
-let KeyboardSettings = () => {
-  let { state, run, show, onMessage } = useUI()
+type SettingsTab = 'general' | 'appearance' | 'browser-tools' | 'keyboard' | 'plugins'
+let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
+  let { state } = useUI()
+  return <>
+    <label className={css.settingsRow}><span>Status bar</span><select name="statusBar" value={state.statusBar ?? 'top'} onChange={changeSetting}><option value="top">Top</option><option value="bottom">Bottom</option></select></label>
+    <label className={css.settingsRow}><span>Tab close buttons</span><input type="checkbox" name="showTabCloseButtons" checked={state.showTabCloseButtons === true} onChange={changeSetting} /></label>
+    <label className={css.settingsRow}><span>Click mode</span><input type="checkbox" name="clickMode.enabled" checked={state.clickMode?.enabled !== false} onChange={changeSetting} /></label>
+    <label className={css.settingsRow}><span>Double tap to activate</span><select name="clickMode.doubleTapModifier" value={state.clickMode?.doubleTapModifier ?? 'none'} onChange={changeSetting} disabled={state.clickMode?.enabled === false}><option value="none">Off</option><option value="Option">Option</option><option value="Command">Command</option><option value="Control">Control</option><option value="Shift">Shift</option><option value="Escape">Escape</option></select></label>
+  </>
+}
+let SettingsContent = () => {
+  let { state, run, onMessage } = useUI()
+  let [tab, setTab] = useState<SettingsTab>('general')
+  let [prefix, setPrefix] = useState(state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
+  useEffect(() => setPrefix(state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix), [state.keyboard?.prefix])
   let makeDefault = async () => { if (await run('settings.default-browser')) onMessage('Default browser requested. Confirm any macOS prompt; you can also choose bmux in System Settings > Desktop & Dock.') }
-  let tools = () => show('browser-tools')
-  let keyboard = state.keyboard ?? DEFAULT_KEYBOARD
+  let changeTab = (event: MouseEvent<HTMLButtonElement>) => setTab(event.currentTarget.dataset.tab as SettingsTab)
+  let moveTab = (event: KeyboardEvent<HTMLDivElement>) => {
+    let index = tabs.findIndex(item => item.id === (event.target as HTMLElement).dataset.tab)
+    if (index < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    let next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    setTab(tabs[next].id)
+    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+  }
+  let changeSetting = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    let target = event.currentTarget
+    void run('settings.set', { key: target.name, value: target instanceof HTMLInputElement ? target.checked : target.value === 'none' ? null : target.value })
+  }
+  let changePrefix = (event: ChangeEvent<HTMLInputElement>) => setPrefix(event.target.value)
+  let savePrefix = () => { void run('settings.set', { key: 'keyboard.prefix', value: prefix }) }
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  return <><ToolStatus /><button onClick={makeDefault}>Make bmux the default browser</button><button onClick={tools}>Browser tools</button><p>{state.configPath}</p><p>Changes reload automatically. Set a binding to null to disable it. Invalid edits keep the last working configuration. Use an action and <code>when: pane-not-editing</code> to limit a shortcut to page content outside text fields.</p>{state.configError && <p className={css.error}>{state.configError}</p>}<p>Status bar: {state.statusBar ?? 'top'}. Set <code>statusBar: top</code> or <code>statusBar: bottom</code>.</p><p>Tab close buttons: {state.showTabCloseButtons ? 'enabled' : 'hidden'}. Set <code>showTabCloseButtons: true</code> to show them.</p><p>Click mode: {state.clickMode?.enabled === false ? 'disabled' : `${state.clickMode?.doubleTapModifier ?? 'no double-tap'} activation`}.</p><p>Accessibility: {state.accessibility ? 'enabled' : 'automatic'}. Set <code>accessibility: true</code> in the config to expose page controls to oVim and other accessibility tools.</p><p>Prefix: {keyboard.prefix}</p><pre>{'statusBar: top\nshowTabCloseButtons: false\nclickMode:\n  enabled: true\n  doubleTapModifier: Option\nkeyboard:\n  prefix: Ctrl+B\n  shortcuts:\n    Cmd+R: reload\n    Cmd+,: settings\n  prefixBindings:\n    ":": command'}</pre><button onClick={edit}>Edit config</button><button onClick={reload}>Reload config</button></>
+  let tabs: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'browser-tools', label: 'Browser tools' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
+  return <div className={css.settings}>
+    <div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{tabs.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
+    <section id="settings-panel" role="tabpanel" aria-label={tabs.find(item => item.id === tab)?.label} className={css.settingsContent}>
+      {tab === 'general' && <><label className={css.settingsRow}><span>Accessibility</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label><button onClick={makeDefault}>Make bmux the default browser</button></>}
+      {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
+      {tab === 'browser-tools' && <BrowserTools compact />}
+      {tab === 'keyboard' && <><label className={css.settingsRow}><span>Prefix</span><input type="text" aria-label="Keyboard prefix" value={prefix} onChange={changePrefix} /></label><button onClick={savePrefix} disabled={prefix === state.keyboard?.prefix}>Save prefix</button><button onClick={edit}>Edit shortcuts in config</button></>}
+      {tab === 'plugins' && <PluginList compact />}
+    </section>
+    {state.configError && <p className={css.error}>{state.configError}</p>}
+    <footer className={css.settingsFooter}><button onClick={edit}>Edit config</button><button onClick={reload}>Reload</button></footer>
+  </div>
 }

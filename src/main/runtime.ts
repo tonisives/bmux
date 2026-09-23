@@ -1348,6 +1348,15 @@ export let createRuntime = (dataDirectory: string) => {
       return { requested: true }
     }
     if (method === 'settings.reload') { configuration?.reload(); if (configuration?.error) throw new Error(configuration.error); return { path: configuration?.path } }
+    if (method === 'settings.set') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      if (!configuration) throw new Error('Configuration is not ready')
+      let key = required(args, 'key')
+      let allowed = new Set(['accessibility', 'statusBar', 'showTabCloseButtons', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
+      if (!allowed.has(key)) throw new Error('Unknown setting')
+      configuration.update(key.split('.'), args.value)
+      return { key, value: args.value }
+    }
     if (method === 'scroll') { let tabId = required(args, 'tab'); tabById(model, tabId); scrollTab(tabId, required(args, 'action')); return { tab: tabId } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {

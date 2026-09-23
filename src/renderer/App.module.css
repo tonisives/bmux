@@ -234,6 +234,18 @@
 .toolStatus { padding-bottom: 16px; border-bottom: 1px solid #444b59; margin-bottom: 16px; }
 .toolStatus dl > div { flex-wrap: wrap; padding: 5px 0; }
 .toolActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings { min-height: 260px; }
+.settingsTabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid #444b59; }
+.panel .settingsTabs button { flex: 0 0 auto; padding: 7px 10px; border-radius: 0; color: #aab4bf; border-bottom: 2px solid transparent; }
+.panel .settingsTabs button:hover { background: transparent; color: #eceef2; }
+.panel .settingsTabs button[aria-selected="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
+.settingsContent { min-height: 180px; padding: 16px 0; }
+.settingsContent > button { display: block; margin: 12px 0; color: #bdc9b4; }
+.settingsRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; border-bottom: 1px solid #303640; }
+.settingsRow select, .settingsRow input[type="text"] { min-width: 120px; max-width: 55%; padding: 5px 7px; border: 1px solid #444b59; background: #20242d; color: #eceef2; font: inherit; }
+.settingsRow input[type="checkbox"] { accent-color: #a7b69c; }
+.settingsFooter { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 10px; border-top: 1px solid #444b59; }
+.settingsFooter button { flex: 0 0 auto; color: #bdc9b4; }
 
 .download { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-bottom: 1px solid #444; overflow-wrap: anywhere; }
 .download > span { color: #aaa; font-size: 12px; }
