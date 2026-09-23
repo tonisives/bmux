@@ -1587,8 +1587,11 @@ export let createRuntime = (dataDirectory: string) => {
       return profileCaches[profile.id]
     }
     if (method === 'new-session') {
-      let name = required(args, 'name')
       if (args.private !== undefined && typeof args.private !== 'boolean') throw new Error('private must be a boolean')
+      let prefix = args.private === true ? 'private' : 'session'
+      let number = 1
+      while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
+      let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
       let profile = resolve(model.profiles, args.profile ?? 'default', 'Profile')
       let session = newSession(name, profile.id, args.private === true)

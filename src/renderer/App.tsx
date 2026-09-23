@@ -914,25 +914,21 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
 let PrivateIcon = () => <svg className={css.privateIcon} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Private session" role="img"><path d="M4 8.5h12M7 8.5l1-5h4l1 5M3 12h3m8 0h3M6 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Zm5 0a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Z" /></svg>
 let SessionPicker = () => {
   let { state, run } = useUI()
-  let [creating, setCreating] = useState(false), [privateSession, setPrivateSession] = useState(false), [name, setName] = useState(''), [busy, setBusy] = useState(false)
+  let [busy, setBusy] = useState(false)
   let { ref, keys, input, query, change } = usePickerNavigation()
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
-  let begin = (privateSession = false) => { setPrivateSession(privateSession); setCreating(true) }
-  let cancel = () => { setCreating(false); setName(''); setPrivateSession(false) }
-  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
-  let creationKeys = (event: KeyboardEvent<HTMLFormElement>) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancel() } }
-  let create = async (event: FormEvent) => {
-    event.preventDefault()
-    let sessionName = name.trim()
-    if (!sessionName || busy) return
+  let create = async (privateSession = false) => {
+    if (busy) return
     setBusy(true)
-    if (await run('new-session', { name: sessionName, client: state.clientId, private: privateSession }) === undefined) setBusy(false)
+    if (await run('new-session', { client: state.clientId, private: privateSession }) === undefined) setBusy(false)
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>{privateSession ? 'Private session name' : 'Session name'}<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <><button className={`${css.listRow} ${css.newSession}`} onClick={() => begin()}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={() => begin(true)}>new private session</button></>}</div>
+  let createRegular = () => { void create() }
+  let createPrivate = () => { void create(true) }
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}<button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button></div>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()
