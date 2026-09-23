@@ -85,7 +85,7 @@ let launch = async () => {
   await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
-let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank" rel="noopener">Popup</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
+let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank" rel="noopener">Popup</a><a id="background-link" href="/popup">Background link</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-electron-'))
@@ -448,7 +448,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
         selection?.addRange(range)
       })
       await website.locator('#popup').click({ button: 'right' })
-      await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(expect.arrayContaining(['Open Link in New bmux Window', 'Open Link in Background bmux Window', 'Open Link in This Tab', 'Copy Link Address', 'Back', 'Forward', 'Reload']))
+      await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(['Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address'])
       await expect.poll(() => website.evaluate(() => globalThis.getSelection()?.toString())).toBe('')
     } finally {
       await application.evaluate(({ Menu }) => {
@@ -485,6 +485,29 @@ test('links show their target, offer browser actions, and open popups in bmux wi
     expect(await cli('tab.list', { pane: sourceWindow.panes[0].id })).toHaveLength(1)
   } finally {
     if (createdWindow) await cli('kill-window', { window: createdWindow.id, confirm: true })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
+test('middle and Command clicks load links in background bmux windows', async () => {
+  let session = await cli('new-session', { name: 'background-links' })
+  let source = session.windows[0].panes[0].tabs[0]
+  await cli('navigate', { tab: source.id, url: `${url}/background-links` })
+  let client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('activate-client', { client: client.id })
+    let website = application.context().pages().find(page => page.url() === `${url}/background-links`)!
+    for (let click of [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
+      let before = await cli('list-windows', { session: session.id })
+      await website.locator('#background-link').click(click)
+      await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
+      let opened = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((item: { id: string }) => item.id === window.id))
+      let tab = opened.panes[0].tabs[0]
+      await expect.poll(async () => (await cli('tab.list')).find((item: { id: string }) => item.id === tab.id)?.url).toBe(`${url}/popup`)
+      await cli('wait', { tab: tab.id, selector: '#text' })
+      expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(session.windows[0].id)
+    }
+  } finally {
     await cli('detach-client', { client: client.id })
   }
 })

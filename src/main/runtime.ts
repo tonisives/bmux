@@ -698,10 +698,10 @@ export let createRuntime = (dataDirectory: string) => {
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
     extensions.track(pane.profileId, contents, parent)
-    let bootstrapping = !popupOptions
+    let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
       profileNetworkReady.get(pane.profileId),
-      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions)),
+      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)),
     ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
@@ -815,7 +815,7 @@ export let createRuntime = (dataDirectory: string) => {
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
       let added = created.panes[0].tabs[0]
       added.openerTabId = tabId
-      if (!options) { added.url = url; added.title = url }
+      if (!options?.webContents) { added.url = url; added.title = url }
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
@@ -862,29 +862,30 @@ export let createRuntime = (dataDirectory: string) => {
         }
         if (linkUrl && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
         if (contents.isDestroyed() || owner.window.isDestroyed()) return
-        let navigation = contents.navigationHistory
         let template: Electron.MenuItemConstructorOptions[] = []
-        if (linkUrl) template.push(
-          { label: 'Open Link in Floating Pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
-          { label: 'Open Link in New bmux Window', click: () => { openLinkWindow(linkUrl, true) } },
-          { label: 'Open Link in Background bmux Window', click: () => { openLinkWindow(linkUrl, false) } },
-          { label: 'Open Link in This Tab', click: () => { void contents.loadURL(linkUrl).catch(reportError) } },
-          { label: 'Copy Link Address', click: () => clipboard.writeText(linkUrl) },
-          { type: 'separator' },
-        )
-        template.push(
-          ...paneMenu(tabById(model, tabId).pane.id, [...clients].find(([, live]) => live === owner)![0]),
-          { type: 'separator' },
-          { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
-          { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
-          { label: 'Reload', click: () => contents.reload() },
-        )
-        if (params.selectionText || params.isEditable) template.push(
-          { type: 'separator' },
-          ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
-          { role: 'copy' },
-          { role: 'selectAll' },
-        )
+        if (linkUrl) {
+          template.push(
+            { label: 'Open link', click: () => { void contents.loadURL(linkUrl).catch(reportError) } },
+            { label: 'Open link in floating pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
+            { label: 'Open link in new window', click: () => { openLinkWindow(linkUrl, true) } },
+            { label: 'Copy link address', click: () => clipboard.writeText(linkUrl) },
+          )
+        } else {
+          let navigation = contents.navigationHistory
+          template.push(
+            ...paneMenu(tabById(model, tabId).pane.id, [...clients].find(([, live]) => live === owner)![0]),
+            { type: 'separator' },
+            { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
+            { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
+            { label: 'Reload', click: () => contents.reload() },
+          )
+          if (params.selectionText || params.isEditable) template.push(
+            { type: 'separator' },
+            ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
+            { role: 'copy' },
+            { role: 'selectAll' },
+          )
+        }
         Menu.buildFromTemplate(template).popup({ window: owner.window })
       }
       void show().catch(reportError)
