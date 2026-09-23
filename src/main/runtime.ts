@@ -45,7 +45,7 @@ import { matchingAutomationGroup } from '../shared/automation'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
-type PendingPermission = Permission & { reply: (allowed: boolean) => void }
+type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -319,10 +319,11 @@ export let createRuntime = (dataDirectory: string) => {
     hosts.set(profileId, host)
     return host
   }
-  let configureSessionIdentity = (profileId: string, persona?: DevicePersona) => {
-    let browser = electronSession.fromPartition(`persist:${profileId}`)
-    if (!defaultUserAgents.has(profileId)) defaultUserAgents.set(profileId, browser.getUserAgent())
-    browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(profileId)!, persona?.locale)
+  let configureSessionIdentity = (profileId: string, persona?: DevicePersona, privateSessionId?: string) => {
+    let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
+    let browser = electronSession.fromPartition(privateSessionId ? key : `persist:${profileId}`)
+    if (!defaultUserAgents.has(key)) defaultUserAgents.set(key, browser.getUserAgent())
+    browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(key)!, persona?.locale)
     return browser
   }
   let maintainCache = async (profileId: string, force = false) => {
@@ -402,32 +403,43 @@ export let createRuntime = (dataDirectory: string) => {
     publish()
     return result
   }
-  let browserSession = (profileId: string) => {
+  let browserSession = (profileId: string, privateSessionId?: string) => {
     let profile = resolve(model.profiles, profileId, 'Profile')
-    let session = configureSessionIdentity(profile.id, profile.device)
-    if (configuredProfiles.has(profileId)) return session
-    configuredProfiles.add(profileId)
+    let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
+    let session = configureSessionIdentity(profile.id, profile.device, privateSessionId)
+    if (configuredProfiles.has(key)) return session
+    configuredProfiles.add(key)
     let networkReady = (async () => {
       try {
-        await applyProfileNetwork(profileId)
-        if (profile.proxy) await verifyProfileProxy(profileId)
+        if (privateSessionId) {
+          if (profile.proxy) {
+            browserSession(profileId)
+            await profileNetworkReady.get(profileId)
+            let relay = proxyRelays.get(profileId)
+            if (!relay) throw new Error('Profile proxy is unavailable')
+            await session.setProxy({ mode: 'fixed_servers', proxyRules: `http://${relay.host}:${relay.port}`, proxyBypassRules: '<-loopback>' })
+          } else await session.setProxy({ mode: 'system' })
+        } else {
+          await applyProfileNetwork(profileId)
+          if (profile.proxy) await verifyProfileProxy(profileId)
+        }
       } catch (error) {
-        if (!profile.proxy) throw error
+        if (!profile.proxy || privateSessionId) throw error
         await waitForProfileProxyRecovery(profileId, error)
       }
     })()
-    let ready = Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
-    profileNetworkReady.set(profileId, ready)
+    let ready = privateSessionId ? networkReady : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
+    profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
     filters?.attach(session, profileId)
-    session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${profileId}|${origin}|${permission}`) === true)
+    session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${key}|${origin}|${permission}`) === true)
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
       let origin = details.requestingUrl ? new URL(details.requestingUrl).origin : new URL(contents.getURL()).origin
-      let key = `${profileId}|${origin}|${permission}`
-      let known = permissionGrants.get(key)
+      let grantKey = `${key}|${origin}|${permission}`
+      let known = permissionGrants.get(grantKey)
       if (known !== undefined) { reply(known); return }
       let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''
-      let request = { id: id('permission'), profileId, origin, permission, tabId, reply }
+      let request = { id: id('permission'), profileId, origin, permission, tabId, reply, privateSessionId }
       permissions.set(request.id, request)
       publish()
     })
@@ -687,7 +699,7 @@ export let createRuntime = (dataDirectory: string) => {
     let { tab, pane, session } = tabById(model, tabId)
     let initialUrl = tab.url
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
-    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
+    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId, session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
@@ -697,10 +709,10 @@ export let createRuntime = (dataDirectory: string) => {
     tabs.set(tabId, live)
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
-    extensions.track(pane.profileId, contents, parent)
+    if (!session.private) extensions.track(pane.profileId, contents, parent)
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
-      profileNetworkReady.get(pane.profileId),
+      profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
       (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)),
     ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
@@ -726,7 +738,7 @@ export let createRuntime = (dataDirectory: string) => {
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
       catch { contents.stop() }
     })
-    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -736,8 +748,8 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('render-process-gone', () => { delete findResults[tabId] })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
-    contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
-    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
+    contents.on('dom-ready', () => { if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
+    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
     contents.once('destroyed', () => {
       if (live.disposed || shuttingDown || tabs.get(tabId) !== live) return
       let { tab, pane, window } = tabById(model, tabId)
@@ -751,7 +763,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       tab.url = contents.getURL() || tab.url
       tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
-      if (/^https?:\/\//.test(tab.url)) {
+      if (!session.private && /^https?:\/\//.test(tab.url)) {
         let profile = model.profiles.find(profile => profile.id === pane.profileId)!
         profile.history = [{ url: tab.url, title: tab.title, visitedAt: Date.now() }, ...(profile.history ?? []).filter(entry => entry.url !== tab.url)].slice(0, 1000)
       }
@@ -808,7 +820,7 @@ export let createRuntime = (dataDirectory: string) => {
     })
     contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
     contents.on('did-navigate-in-page', () => update())
-    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); void maintainCache(pane.profileId).catch(reportError) })
+    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
@@ -894,7 +906,7 @@ export let createRuntime = (dataDirectory: string) => {
       let navigate = async () => {
         await live.ready
         if (live.disposed) return
-        navigationCrashMarker.mark(pane.id, tabId, initialUrl)
+        if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
         await contents.loadURL(initialUrl)
       }
       let result = serializedRestore ? queueRestoredNavigation(navigate) : navigate()
@@ -1314,6 +1326,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method.startsWith('forms.')) {
       if (!savedForms) throw new Error('Saved forms are not ready')
       let context = (args._formsContext as PluginContext | undefined) ?? pluginContext({ tabId: required(args, 'tab') })
+      if (context.tabId && tabById(model, context.tabId).session.private) throw new Error('Saved forms are unavailable in private sessions')
       return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
     }
     if (method === 'plugin.enable') {
@@ -1575,9 +1588,10 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'new-session') {
       let name = required(args, 'name')
+      if (args.private !== undefined && typeof args.private !== 'boolean') throw new Error('private must be a boolean')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
       let profile = resolve(model.profiles, args.profile ?? 'default', 'Profile')
-      let session = newSession(name, profile.id)
+      let session = newSession(name, profile.id, args.private === true)
       model.sessions.push(session)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
       changed(); await visualQueue; return session
@@ -1591,6 +1605,10 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
+      if (session.private) {
+        closedTabs = closedTabs.filter(item => item.kind === 'window' ? item.sessionId !== session.id : !session.windows.some(window => window.panes.some(pane => pane.id === item.paneId)))
+        for (let key of permissionGrants.keys()) if (key.startsWith(`private:${session.id}:`)) permissionGrants.delete(key)
+      }
       let next = removeSession(model, session)
       changed(); await visualQueue; return { closed: session.id, selected: next.id }
     }
@@ -1830,6 +1848,8 @@ export let createRuntime = (dataDirectory: string) => {
       let targetSession = args.session ? resolve(model.sessions, args.session, 'Session') : undefined
       let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true)
         : args.destination ? paneById(model, args.destination).window : args.window ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : from
+      let destinationSession = targetSession ?? model.sessions.find(session => session.windows.includes(to))!
+      if (destinationSession.id !== fromSession.id && (fromSession.private || destinationSession.private)) throw new Error('Cannot move panes between private and other sessions')
       if (to === from && !placement) throw new Error('Choose another internal window or a floating pane')
       if (args.destination && !layoutPaneIds(to.layout).includes(String(args.destination))) throw new Error('Destination must be a tiled pane')
       forgetPlacement(from, pane.id)
@@ -1866,8 +1886,10 @@ export let createRuntime = (dataDirectory: string) => {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (window.panes.reduce((count, pane) => count + pane.tabs.length, 0) > 1 && args.confirm !== true) throw new Error('Window contains multiple tabs; pass --confirm')
       let session = model.sessions.find(session => session.windows.includes(window))!
-      closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })
-      if (closedTabs.length > 25) closedTabs.shift()
+      if (!session.private) {
+        closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })
+        if (closedTabs.length > 25) closedTabs.shift()
+      }
       session.windows = session.windows.filter(item => item !== window)
       if (!session.windows.length) removeSession(model, session)
       changed(); await visualQueue; return { closed: window.id }
@@ -1875,6 +1897,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'save-layout') {
       let name = required(args, 'name')
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      if (model.sessions.some(session => session.private && session.windows.includes(window))) throw new Error('Private session layouts cannot be saved')
       let saved = { name, window: structuredClone(window) }
       model.layouts = [...model.layouts.filter(layout => layout.name !== name), saved]; save(); return saved
     }
@@ -1898,10 +1921,9 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; return tab }
     if (method === 'tab.close') {
-      let { tab, pane } = tabById(model, args.tab)
+      let { tab, pane, session } = tabById(model, args.tab)
       let closed: Extract<(typeof closedTabs)[number], { kind: 'tab' }> = { kind: 'tab', paneId: pane.id, index: pane.tabs.indexOf(tab), tab: structuredClone(tab) }
-      closedTabs.push(closed)
-      if (closedTabs.length > 25) closedTabs.shift()
+      if (!session.private) { closedTabs.push(closed); if (closedTabs.length > 25) closedTabs.shift() }
       pane.tabs = pane.tabs.filter(item => item.id !== tab.id)
       if (!pane.tabs.length) { let replacement = newTab(); pane.tabs.push(replacement); closed.replacementTabId = replacement.id }
       if (pane.activeTabId === tab.id) pane.activeTabId = pane.tabs[0].id
@@ -1919,9 +1941,10 @@ export let createRuntime = (dataDirectory: string) => {
       let request = permissions.get(required(args, 'id'))
       if (!request) throw new Error('Permission request no longer exists')
       let allowed = args.allow === true
-      permissionGrants.set(`${request.profileId}|${request.origin}|${request.permission}`, allowed)
+      permissionGrants.set(`${request.privateSessionId ? `private:${request.privateSessionId}:` : ''}${request.profileId}|${request.origin}|${request.permission}`, allowed)
       request.reply(allowed); permissions.delete(request.id)
-      await fs.writeFile(grantFile, JSON.stringify([...permissionGrants]), { mode: 0o600 }); publish(); return { allowed }
+      if (!request.privateSessionId) await fs.writeFile(grantFile, JSON.stringify([...permissionGrants].filter(([key]) => !key.startsWith('private:'))), { mode: 0o600 })
+      publish(); return { allowed }
     }
     if (method === 'downloads') return args.profile ? downloads.filter(item => item.profileId === required(args, 'profile')) : downloads
     if (['download.pause', 'download.resume', 'download.cancel', 'download.reveal'].includes(method)) {

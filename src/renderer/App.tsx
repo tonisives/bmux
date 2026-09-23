@@ -259,7 +259,7 @@ let Status = () => {
     observer.observe(list); reveal()
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows.length])
-  return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}]</button>
+  return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}{session!.private && <PrivateIcon />}]</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
@@ -911,17 +911,18 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
   }
   return { ref, keys, input, query, setQuery, change }
 }
+let PrivateIcon = () => <svg className={css.privateIcon} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Private session" role="img"><path d="M4 8.5h12M7 8.5l1-5h4l1 5M3 12h3m8 0h3M6 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Zm5 0a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Z" /></svg>
 let SessionPicker = () => {
   let { state, run } = useUI()
-  let [creating, setCreating] = useState(false), [name, setName] = useState(''), [busy, setBusy] = useState(false)
+  let [creating, setCreating] = useState(false), [privateSession, setPrivateSession] = useState(false), [name, setName] = useState(''), [busy, setBusy] = useState(false)
   let { ref, keys, input, query, change } = usePickerNavigation()
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
-  let begin = () => setCreating(true)
-  let cancel = () => { setCreating(false); setName('') }
+  let begin = (privateSession = false) => { setPrivateSession(privateSession); setCreating(true) }
+  let cancel = () => { setCreating(false); setName(''); setPrivateSession(false) }
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
   let creationKeys = (event: KeyboardEvent<HTMLFormElement>) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); cancel() } }
   let create = async (event: FormEvent) => {
@@ -929,11 +930,11 @@ let SessionPicker = () => {
     let sessionName = name.trim()
     if (!sessionName || busy) return
     setBusy(true)
-    if (await run('new-session', { name: sessionName, client: state.clientId }) === undefined) setBusy(false)
+    if (await run('new-session', { name: sessionName, client: state.clientId, private: privateSession }) === undefined) setBusy(false)
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>Session name<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <button className={`${css.listRow} ${css.newSession}`} onClick={begin}>new session</button>}</div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}{creating ? <form className={css.sessionCreate} onSubmit={create} onKeyDown={creationKeys}><label>{privateSession ? 'Private session name' : 'Session name'}<input className={css.pluginInput} value={name} onChange={changeName} autoFocus autoComplete="off" spellCheck={false} required /></label><div><button type="submit" disabled={busy}>Create session</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form> : <><button className={`${css.listRow} ${css.newSession}`} onClick={() => begin()}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={() => begin(true)}>new private session</button></>}</div>
 }
-let SessionRow = ({ id, name }: { id: string; name: string }) => {
+let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let active = selection(state).client?.sessionId === id
@@ -946,7 +947,7 @@ let SessionRow = ({ id, name }: { id: string; name: string }) => {
     if (await run('kill-session', { session: id, confirm: true }) === undefined) setBusy(false)
   }
   if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow}><button className={css.listRow} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  return <div className={css.sessionRow}><button className={css.listRow} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined}>{name}{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 type DeviceSettingsProps = { profile: Profile; paneCount: number }
 let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
