@@ -30,9 +30,10 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 let directory = process.env.BMUX_RUNNER_FIXTURE
 let args = process.argv.slice(2)
-if (args[0] === 'list') console.log(JSON.stringify([{ Name: 'bmux-tests', Running: process.env.BMUX_RUNNER_STOPPED !== '1' || fs.existsSync(path.join(directory, 'running')) }]))
+if (args[0] === 'list') console.log(JSON.stringify([{ Name: 'bmux-tests', Running: fs.existsSync(path.join(directory, 'running')) || (process.env.BMUX_RUNNER_STOPPED !== '1' && !fs.existsSync(path.join(directory, 'stopped'))) }]))
 else if (args[0] === 'set') fs.appendFileSync(path.join(directory, 'settings'), args.slice(2).join(' ') + '\\n')
-else if (args[0] === 'run') fs.writeFileSync(path.join(directory, 'running'), '')
+else if (args[0] === 'run') { fs.rmSync(path.join(directory, 'stopped'), { force: true }); fs.writeFileSync(path.join(directory, 'running'), '') }
+else if (args[0] === 'stop') { fs.rmSync(path.join(directory, 'running'), { force: true }); fs.writeFileSync(path.join(directory, 'stopped'), ''); fs.appendFileSync(path.join(directory, 'stops'), 'stop\\n') }
 else if (args.includes('/usr/bin/id')) console.log('admin')
 else if (args.includes('/usr/bin/tar')) {
   let result = spawnSync('/usr/bin/tar', ['-cf', '-', '-C', path.join(directory, 'results'), 'artifacts', 'test-results'], { stdio: ['ignore', 'inherit', 'inherit'] })
@@ -77,15 +78,17 @@ it('sends current source edits without ignored or environment files and retrieve
     expect((await exec('/usr/bin/tar', ['-xOf', archive, 'tracked.txt'])).stdout).toBe('edited')
     let runs = await fs.readdir(path.join(current.source, 'artifacts/tart'))
     expect(await fs.readFile(path.join(current.source, 'artifacts/tart', runs[0], 'artifacts/proof.txt'), 'utf8')).toBe('guest result')
+    expect(await fs.readFile(path.join(current.directory, 'stops'), 'utf8')).toBe('stop\n')
   } finally { await current.cleanup() }
 }, 15000)
 
 it('serializes simultaneous GUI runs and releases the queue after a failure', async () => {
   let current = await fixture()
   try {
-    let results = await Promise.all([current.run(9), current.run()])
+    let results = await Promise.all([current.run(9), current.run(0, ['ui'])])
     expect(results.map(result => result.code)).toEqual([9, 0])
     expect(await fs.readFile(path.join(current.directory, 'events'), 'utf8')).toBe('start\nend\nstart\nend\n')
+    expect(await fs.readFile(path.join(current.directory, 'stops'), 'utf8')).toBe('stop\n')
     expect(results.some(result => result.output.includes('Waiting for the other'))).toBe(true)
   } finally { await current.cleanup() }
 }, 15000)
@@ -100,11 +103,27 @@ it('uses the GUI lock for ad hoc guest commands', async () => {
   } finally { await current.cleanup() }
 }, 15000)
 
-it('sets the CPU limit before starting a stopped VM', async () => {
+it('sets the CPU and memory limits before starting a stopped VM', async () => {
   let current = await fixture()
   try {
     let result = await current.run(0, ['start'], { BMUX_RUNNER_STOPPED: '1' })
     expect(result.code, result.output).toBe(0)
-    expect(await fs.readFile(path.join(current.directory, 'settings'), 'utf8')).toBe('--cpu 2\n')
+    expect(await fs.readFile(path.join(current.directory, 'settings'), 'utf8')).toBe('--cpu 2 --memory 6144\n')
+  } finally { await current.cleanup() }
+}, 15000)
+
+it('replaces an older identical queued test with the latest request', async () => {
+  let current = await fixture()
+  try {
+    let hold = current.run(0, ['exec', 'hold'])
+    await new Promise(resolve => setTimeout(resolve, 100))
+    let older = current.run(0, ['electron'])
+    await new Promise(resolve => setTimeout(resolve, 100))
+    let newer = current.run(0, ['electron'])
+    let results = await Promise.all([hold, older, newer])
+    expect(results.map(result => result.code)).toEqual([0, 0, 0])
+    expect(results[1].output).toContain('replaced this queued run')
+    expect(await fs.readFile(path.join(current.directory, 'events'), 'utf8')).toBe('start\nend\nstart\nend\n')
+    expect(await fs.readFile(path.join(current.directory, 'stops'), 'utf8')).toBe('stop\n')
   } finally { await current.cleanup() }
 }, 15000)

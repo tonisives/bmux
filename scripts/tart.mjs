@@ -3,7 +3,7 @@ import { createReadStream, writeSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 
 let root = process.cwd()
@@ -11,6 +11,7 @@ let tartHome = process.env.TART_HOME ?? '/Volumes/sam/tart'
 let binary = process.env.BMUX_TART_BIN ?? '/Volumes/sam/apps/tart/tart.app/Contents/MacOS/tart'
 let vm = process.env.BMUX_TART_VM ?? 'bmux-tests'
 let cpus = process.env.BMUX_TART_CPUS ?? '2'
+let memory = process.env.BMUX_TART_MEMORY ?? '6144'
 let env = { ...process.env, TART_HOME: tartHome, COPYFILE_DISABLE: '1' }
 let stateDirectory = path.join(tartHome, 'bmux-runner')
 let [mode = 'status', ...args] = process.argv.slice(2)
@@ -50,10 +51,50 @@ let guest = (argv, options) => tart(['exec', ...(options?.input ? ['-i'] : []), 
 let shell = (script, options) => guest(['/bin/bash', '-c', script], options)
 let status = async () => JSON.parse((await tart(['list', '--source', 'local', '--format', 'json'], { capture: true })).stdout).find(item => item.Name === vm)
 
-let lock = async task => {
+let queued = async () => {
+  let directory = path.join(stateDirectory, `${vm}.queue`)
+  await fs.mkdir(directory, { recursive: true })
+  let requests = []
+  for (let name of (await fs.readdir(directory)).filter(name => name.endsWith('.json')).sort()) {
+    let file = path.join(directory, name)
+    let request
+    try { request = JSON.parse(await fs.readFile(file, 'utf8')) } catch { continue }
+    try { process.kill(request.pid, 0) } catch (error) {
+      if (error.code === 'ESRCH') { await fs.unlink(file).catch(() => {}); continue }
+      throw error
+    }
+    requests.push({ ...request, name, file })
+  }
+  return requests
+}
+
+let lock = async (task, requestKey) => {
   await fs.mkdir(stateDirectory, { recursive: true })
+  let requestFile
+  if (requestKey) {
+    let directory = path.join(stateDirectory, `${vm}.queue`)
+    await fs.mkdir(directory, { recursive: true })
+    let name = `${String(Date.now()).padStart(16, '0')}-${randomUUID()}.json`
+    let temporary = path.join(directory, `${name}.pending`)
+    await fs.writeFile(temporary, JSON.stringify({ pid: process.pid, key: requestKey }), { mode: 0o600 })
+    requestFile = path.join(directory, name)
+    await fs.rename(temporary, requestFile)
+  }
   let lockPath = path.join(stateDirectory, `${vm}.lock`), waiting = false
-  for (;;) {
+  try { for (;;) {
+    if (requestFile) {
+      let requests = await queued()
+      let own = requests.find(request => request.file === requestFile)
+      if (requests.some(request => request.key === requestKey && request.name > own.name)) {
+        console.log(`A newer ${mode} request replaced this queued run.`)
+        return { code: 0 }
+      }
+      if (requests[0].file !== requestFile) {
+        if (!waiting) { console.log(`Waiting for the other ${vm} operation to finish.`); waiting = true }
+        await delay(2000)
+        continue
+      }
+    }
     try {
       let file = await fs.open(lockPath, 'wx', 0o600)
       await file.writeFile(String(process.pid)); await file.close()
@@ -75,7 +116,19 @@ let lock = async task => {
       await delay(2000)
     }
   }
-  try { return await task() } finally { await fs.unlink(lockPath) }
+  try {
+    if (requestFile) {
+      let requests = await queued()
+      if (requests.some(request => request.key === requestKey && request.name > path.basename(requestFile))) {
+        console.log(`A newer ${mode} request replaced this queued run.`)
+        return { code: 0 }
+      }
+      await fs.unlink(requestFile)
+      requestFile = undefined
+    }
+    return await task()
+  } finally { await fs.unlink(lockPath) }
+  } finally { if (requestFile) await fs.unlink(requestFile).catch(() => {}) }
 }
 
 let start = async () => {
@@ -83,7 +136,8 @@ let start = async () => {
   if (!current) throw new Error(`VM ${vm} is missing. Follow docs/tart-tests.md to install it.`)
   if (!current.Running) {
     if (!/^\d+$/.test(cpus) || Number(cpus) < 1) throw new Error('BMUX_TART_CPUS must be a positive integer.')
-    await tart(['set', vm, '--cpu', cpus])
+    if (!/^\d+$/.test(memory) || Number(memory) < 4096) throw new Error('BMUX_TART_MEMORY must be at least 4096 MiB.')
+    await tart(['set', vm, '--cpu', cpus, '--memory', memory])
     await fs.mkdir(stateDirectory, { recursive: true })
     let log = await fs.open(path.join(stateDirectory, `${vm}.log`), 'a', 0o600)
     let child = spawn(binary, ['run', vm, '--no-audio', '--no-clipboard', ...(process.env.BMUX_TART_HEADLESS === '1' ? ['--no-graphics'] : [])], { cwd: tartHome, detached: true, env, stdio: ['ignore', log.fd, log.fd] })
@@ -160,10 +214,20 @@ ${forwarded} node scripts/tart.mjs ${[mode, ...args].map(quote).join(' ')}
   } finally { await fs.rm(temporary, { recursive: true, force: true }) }
 }
 
+let queuedTest = async () => {
+  try { return await vmTest() } finally {
+    if (!(await queued()).length && (await status())?.Running) {
+      await tart(['stop', vm])
+      console.log(`Stopped ${vm} after the test queue finished.`)
+    }
+  }
+}
+
 try {
   if (testModes.includes(mode)) {
     let native = process.env.BMUX_TEST_NATIVE === '1' || process.env.GITHUB_ACTIONS === 'true'
-    process.exitCode = (await (native ? nativeTest() : lock(vmTest))).code
+    let key = JSON.stringify([await fs.realpath(root), mode, args, ...['BMUX_TEST_PACKAGED', 'BMUX_TEST_INSTALLED', 'BMUX_TEST_URL', 'BMUX_TEST_SELECTOR', 'BMUX_TEST_SECOND_URL', 'BROWMUX_TEST_URL', 'BROWMUX_TEST_SELECTOR', 'BROWMUX_TEST_SECOND_URL'].map(name => process.env[name] ?? '')])
+    process.exitCode = (await (native ? nativeTest() : lock(queuedTest, key))).code
   } else if (mode === 'start') await lock(start)
   else if (mode === 'stop') await lock(() => tart(['stop', vm]))
   else if (mode === 'status') console.log(JSON.stringify(await status(), null, 2))

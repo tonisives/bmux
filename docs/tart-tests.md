@@ -2,7 +2,7 @@
 
 Local GUI tests run in the `bmux-tests` macOS VM. Its viewer is assigned to
 AeroSpace workspace `bot`. Focus and pointer changes happen inside the guest.
-The guest uses two CPUs, 8 GB of memory, and a fixed 1440 by 1000 display. The
+The guest uses two CPUs, 6 GB of memory, and a fixed 1440 by 1000 display. The
 CPU count limits how much host CPU the VM can consume while it is busy.
 
 Tart is installed at `/Volumes/sam/apps/tart/tart.app`. Its VM disks, image cache,
@@ -25,8 +25,8 @@ Tools, an automatically logged-in desktop, and automation permissions.
 
 The runner uses Tart's guest agent. No SSH password or host browser profile is
 needed. Audio and clipboard sharing are disabled. The VM viewer may be hidden
-without stopping tests. Closing the viewer stops the VM, so leave it open on
-`bot` while tests are running. Use `BMUX_TART_HEADLESS=1 pnpm vm:start` to start
+without stopping tests. The runner stops the VM after the last queued test, so
+the viewer closes automatically. Use `BMUX_TART_HEADLESS=1 pnpm vm:start` to start
 without a viewer; this choice takes effect when starting a stopped VM.
 
 ## Run tests
@@ -43,8 +43,10 @@ These commands start the VM if needed, copy a snapshot of the current worktree
 including uncommitted source edits, install locked dependencies in the guest,
 and run the tests there. Git-ignored files, environment files, host dependencies,
 and browser profiles are excluded. Each worktree has its own guest checkout;
-the runner serializes GUI tests across worktrees so they cannot steal each
-other's focus. Ad hoc `vm:exec`, start, and stop operations use the same lock,
+the runner queues GUI tests across worktrees so they cannot steal each
+other's focus. A newer pending request from the same worktree with identical
+test arguments replaces an older pending request. Ad hoc `vm:exec`, start, and
+stop operations use the same lock,
 so they also wait for the active test. Tests continue to use temporary browser
 data and configuration.
 
@@ -69,13 +71,14 @@ pnpm vm:stop
 ```
 
 `vm:stop` waits for any running test to finish. VM launch diagnostics are stored
-in `/Volumes/sam/tart/bmux-runner/bmux-tests.log`. The VM persists between runs.
+in `/Volumes/sam/tart/bmux-runner/bmux-tests.log`.
 Do not interact with the guest desktop during tests that check keyboard focus.
 
 `TART_HOME`, `BMUX_TART_BIN`, and `BMUX_TART_VM` override the storage location,
-executable, and VM name. `BMUX_TART_CPUS` overrides the two-CPU limit and
-`BMUX_TART_IMAGE` selects the initial image during setup. CPU changes take effect
-the next time the runner starts a stopped VM. The defaults keep this machine's
+executable, and VM name. `BMUX_TART_CPUS` overrides the two-CPU limit,
+`BMUX_TART_MEMORY` overrides the memory allocation in MiB (minimum 4096), and
+`BMUX_TART_IMAGE` selects the initial image during setup. CPU and memory changes
+take effect the next time the runner starts a stopped VM. The defaults keep this machine's
 installation on `/Volumes/sam`.
 
 GitHub Actions runs the native tests directly on its disposable macOS runner.
