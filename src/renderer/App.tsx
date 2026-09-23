@@ -423,6 +423,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
   let [query, setQuery] = useState('')
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
+  let [expandedHistory, setExpandedHistory] = useState(false)
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null)
   let form = useRef<HTMLFormElement>(null)
@@ -438,17 +439,20 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let bookmarks = bookmarkMatches.slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
-  let history = prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url).filter(entry => !bookmarkUrls.has(entry.url)).slice(0, Math.min(4, 8 - bookmarks.length))
+  let availableHistory = prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url).filter(entry => !bookmarkUrls.has(entry.url))
+  let history = availableHistory.slice(0, expandedHistory ? undefined : Math.min(4, 8 - bookmarks.length))
   let results = [
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
+    ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
   ]
   let selectedResult = results[index]
-  let selectedCompletion = selectedResult ? inlineUrlCompletion(query, selectedResult.value) : undefined
-  let previewText = selectedResult ? selectedCompletion?.value ?? selectedResult.value : text
+  let selectedCompletion = selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
+  useEffect(() => { if (index >= 0) suggestionList.current?.children[index]?.scrollIntoView({ block: 'nearest' }) }, [index])
   useLayoutEffect(() => {
     if (!ref.current || (!inlineUrl && !selectedResult)) return
     let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
@@ -459,7 +463,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
     let completion = deletion ? undefined : profileHistory.map(entry => inlineUrlCompletion(value, entry.url)).find(Boolean)
-    setQuery(value); setIndex(-1); setInlineUrl(completion); setText(completion?.value ?? value)
+    setQuery(value); setIndex(-1); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
   let navigate = async (url: string) => {
@@ -476,8 +480,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
     finish()
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { void navigate(event.currentTarget.dataset.value!) }
+  let submit = (event: FormEvent) => { event.preventDefault(); if (selectedResult?.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { if (event.currentTarget.dataset.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(event.currentTarget.dataset.value!) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {

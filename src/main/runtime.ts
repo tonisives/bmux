@@ -42,6 +42,7 @@ import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
 import { matchingAutomationGroup } from '../shared/automation'
+import { recordHistory } from '../shared/history'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -765,7 +766,7 @@ export let createRuntime = (dataDirectory: string) => {
       tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
       if (!session.private && /^https?:\/\//.test(tab.url)) {
         let profile = model.profiles.find(profile => profile.id === pane.profileId)!
-        profile.history = [{ url: tab.url, title: tab.title, visitedAt: Date.now() }, ...(profile.history ?? []).filter(entry => entry.url !== tab.url)].slice(0, 1000)
+        profile.history = recordHistory(profile.history ?? [], tab.url, tab.title, Date.now())
       }
       save()
       void scheduleVisuals()
