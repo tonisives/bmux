@@ -77,7 +77,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     if (!word.startsWith('-')) { positional.push(word); continue }
     let [raw, ...rest] = word.replace(/^-+/, '').split('=')
     let key = aliases[raw] ?? raw
-    let value = rest.length ? rest.join('=') : ['confirm', 'background', 'floating'].includes(key) ? true : words.shift()
+    let value = rest.length ? rest.join('=') : ['confirm', 'background', 'floating', 'private'].includes(key) ? true : words.shift()
     if (value === undefined) throw new Error(`Missing value for ${word}`)
     options[key] = value
   }

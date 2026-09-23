@@ -83,6 +83,23 @@ describe('session layouts and persistence', () => {
       expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).toBe('{broken')
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
+  it('keeps private sessions and their client selections out of saved state', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-private-unit-'))
+    try {
+      let model = initialModel(), privateSession = newSession('secret', model.profiles[0].id, true)
+      model.sessions.push(privateSession)
+      model.clients.push({ id: 'private_client', sessionId: privateSession.id, windowId: privateSession.windows[0].id, paneId: privateSession.windows[0].panes[0].id, width: 800, height: 600, sessionHistory: [privateSession.id, model.sessions[0].id] })
+      writeModel(directory, model)
+      let saved = fs.readFileSync(path.join(directory, 'state.json'), 'utf8')
+      expect(saved).not.toContain('secret')
+      expect(saved).not.toContain(privateSession.id)
+      expect(saved).not.toContain('private_client')
+      expect(readModel(directory).sessions).toEqual([model.sessions[0]])
+      model.sessions.shift()
+      writeModel(directory, model)
+      expect(readModel(directory).sessions[0]).toMatchObject({ name: 'main', defaultProfileId: model.profiles[0].id })
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('stores bookmarks beside config and migrates embedded state bookmarks', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-bookmarks-unit-'))
     let bookmarkFile = path.join(directory, 'config', 'bookmarks.yaml')

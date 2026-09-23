@@ -13,6 +13,7 @@ it('parses quoted names and URL arguments without shell interpretation', () => {
   let current = state()
   expect(parseCommandLine('open https://example.test/?a=1&b=$HOME', current)).toEqual({ method: 'navigate', args: { tab: current.model.sessions[0].windows[0].panes[0].activeTabId, url: 'https://example.test/?a=1&b=$HOME' } })
   expect(parseCommandLine('new-session -s "work space" --profile professional', current)).toMatchObject({ method: 'new-session', args: { name: 'work space', client: 'client', profile: 'professional' } })
+  expect(parseCommandLine('new-session -s secret --private', current)).toMatchObject({ method: 'new-session', args: { name: 'secret', client: 'client', private: true } })
   expect(() => tokenize('open "unfinished')).toThrow('Unfinished quote')
 })
 it('resolves current targets, numeric indices, and confirmation flags', () => {

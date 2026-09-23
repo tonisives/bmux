@@ -13,7 +13,7 @@ export let newWindow = (name: string, profileId: string, automaticName = false):
   let pane = newPane(profileId)
   return { id: id('win'), name, automaticName, panes: [pane], layout: { kind: 'pane', paneId: pane.id } }
 }
-export let newSession = (name: string, profileId: string): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, windows: [newWindow('main', profileId, true)] })
+export let newSession = (name: string, profileId: string, privateSession = false): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, ...(privateSession ? { private: true } : {}), windows: [newWindow('main', profileId, true)] })
 export let initialModel = (): Model => {
   let profiles: Profile[] = [{ id: 'profile_default', name: 'default', background: false }, { id: 'profile_bot', name: 'bot', background: true }]
   return { version: 1, profiles, sessions: [newSession('main', profiles[0].id)], clients: [], layouts: [] }
@@ -154,6 +154,7 @@ export let validateModel = (value: unknown): Model => {
   }
   for (let session of model.sessions) {
     checkId(session.id)
+    if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
     for (let window of session.windows) {
       checkId(window.id)

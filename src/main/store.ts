@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseDocument, stringify } from 'yaml'
-import { initialModel, validateModel } from './model'
+import { initialModel, newSession, validateModel } from './model'
 import type { Bookmark, Model } from '../shared/types'
 
 export let bookmarksPath = (configFile: string) => path.join(path.dirname(configFile), 'bookmarks.yaml')
@@ -56,6 +56,10 @@ export let writeModel = (directory: string, model: Model, bookmarkFile = path.jo
   let profiles = bookmarkProfiles(model)
   // Leave hand-edited formatting and comments intact when only session state changed.
   if (!fs.existsSync(bookmarkFile) || JSON.stringify(parseBookmarks(fs.readFileSync(bookmarkFile, 'utf8'))) !== JSON.stringify(profiles)) writeAtomic(bookmarkFile, stringify({ profiles }))
-  let state: Model = { ...model, profiles: model.profiles.map(({ bookmarks: _bookmarks, ...profile }) => profile) }
+  let sessions = model.sessions.filter(session => !session.private)
+  if (!sessions.length) sessions = [newSession('main', model.profiles[0].id)]
+  let sessionIds = new Set(sessions.map(session => session.id))
+  let clients = model.clients.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)) }))
+  let state: Model = { ...model, sessions, clients, profiles: model.profiles.map(({ bookmarks: _bookmarks, ...profile }) => profile) }
   writeAtomic(path.join(directory, 'state.json'), JSON.stringify(state, null, 2))
 }
