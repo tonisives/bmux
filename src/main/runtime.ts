@@ -40,6 +40,8 @@ import { trackSiteSecurity } from './site-security'
 import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
+import { createAutomationPolicy } from './automation-policy'
+import { matchingAutomationGroup } from '../shared/automation'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -215,6 +217,8 @@ export let createRuntime = (dataDirectory: string) => {
     })),
   } : undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
+  let automation: ReturnType<typeof createAutomationPolicy> | undefined
+  let tabAutomation = new Map<string, string>()
   let documents = new Map<string, number>()
   let pluginContext = (target: PluginContext): PluginContext => {
     let client = target.clientId ? model.clients.find(client => client.id === target.clientId) : undefined
@@ -701,6 +705,27 @@ export let createRuntime = (dataDirectory: string) => {
     ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
+    let lastCountedUrl = initialUrl
+    let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
+    let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.activeTabId === tabId)
+    contents.on('will-navigate', (event, url) => {
+      if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? { groups: {} }, pane.profileId, url)) return
+      try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation', record: false }) }
+      catch { event.preventDefault() }
+    })
+    contents.on('did-navigate', (_event, url) => {
+      lastCountedUrl = url
+      if (!automation || !tabAutomation.has(tabId)) return
+      try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
+      catch { contents.stop() }
+    })
+    contents.on('did-navigate-in-page', (_event, url, mainFrame) => {
+      if (!mainFrame || route(url) === route(lastCountedUrl)) return
+      lastCountedUrl = url
+      if (!automation || !tabAutomation.has(tabId)) return
+      try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
+      catch { contents.stop() }
+    })
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
@@ -883,6 +908,9 @@ export let createRuntime = (dataDirectory: string) => {
     }
   }
   let disposeTab = (tabId: string) => {
+    let automationToken = tabAutomation.get(tabId)
+    if (automationToken) { try { automation?.release(automationToken) } catch { /* Lease already expired. */ } }
+    tabAutomation.delete(tabId)
     pageTools?.dispose(tabId)
     filters?.reset(tabId)
     documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId)
@@ -1177,6 +1205,19 @@ export let createRuntime = (dataDirectory: string) => {
 
   let paneTargetedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools', 'zoom', 'scroll', 'browser.set', 'plugin.run'])
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (method === 'automation.status') return automation?.status() ?? []
+    if (method === 'automation.acquire') {
+      let paneId = required(args, 'pane'), { pane } = paneById(model, paneId), tabId = pane.activeTabId
+      if (!automation) throw new Error('Automation policy unavailable')
+      let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url')) })
+      tabAutomation.set(tabId, lease.token)
+      return lease
+    }
+    if (method === 'automation.release') {
+      let token = required(args, 'token')
+      for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId)
+      return automation?.release(token)
+    }
     if (method === 'site-info.open') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let client = resolve(model.clients, sourceClientId, 'Client')
@@ -1192,6 +1233,18 @@ export let createRuntime = (dataDirectory: string) => {
       return memory.report(args.history === true)
     }
     if (paneTargetedMethods.has(method) && typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: paneById(model, args.pane).pane.activeTabId }
+    let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
+    if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
+      let { pane } = tabById(model, args.tab)
+      let url = method === 'navigate' ? normalizeUrl(required(args, 'url')) : tabs.get(args.tab)?.contents.getURL() ?? ''
+      let token = typeof args._automationLease === 'string' ? args._automationLease : undefined
+      automation.authorize({ profileId: pane.profileId, tabId: args.tab, url, token, kind: ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) ? 'navigation' : ['click', 'type', 'key', 'scroll'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: !['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) })
+      if (token) tabAutomation.set(args.tab, token)
+    }
+    if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
+      let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
+      if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+    }
     if (method === 'window.menu') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let client = resolve(model.clients, sourceClientId, 'Client')
@@ -2066,7 +2119,8 @@ export let createRuntime = (dataDirectory: string) => {
     } })
     pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
+    automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -2095,6 +2149,7 @@ export let createRuntime = (dataDirectory: string) => {
     pageTools?.close()
     filters?.close()
     plugins?.close()
+    automation?.close()
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
     writeModel(dataDirectory, model, bookmarkFile)

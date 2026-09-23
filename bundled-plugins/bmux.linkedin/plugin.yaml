@@ -1,0 +1,14 @@
+schema_version: 1
+id: bmux.linkedin
+name: LinkedIn browsing
+version: 1.0.0
+actions:
+  - id: browse
+    title: Browse LinkedIn URLs
+    description: Pace a bounded list of LinkedIn pages, with optional capped likes.
+    command: [node, ../bmux.x/browse.mjs, linkedin]
+    capabilities: [browser.read, browser.write, browser.cdp]
+    timeout_seconds: 3600
+    parameters:
+      - { name: urls, title: JSON array of LinkedIn URLs, kind: text, required: true }
+      - { name: topic, title: Topic phrase, kind: text, required: true }

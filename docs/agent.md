@@ -69,6 +69,57 @@ bmux kill-pane -t <pane-id>
 bmux kill-window -t <window-id>
 ```
 
-Panes are persistent by default and do not have automatic agent leases in v1.
+Panes are persistent by default. Automation policies may require a lease before
+agent commands can access selected websites.
+
+## Automation policies
+
+Policies are optional and apply to the profile IDs and website hosts listed in
+`automation.groups` in `config.yaml`. A group may contain several websites; they
+share its concurrency and rolling hourly and daily budgets. Human commands from
+the bmux window are exempt. Automation through the CLI and plugins needs an
+active lease. `automation status` shows usage without exposing lease tokens.
+
+```yaml
+automation:
+  groups:
+    social:
+      profiles: [profile_bot]
+      hosts: [x.com, linkedin.com]
+      maxConcurrent: 1
+      hourly: { runs: 2, navigations: 30, activeMinutes: 20 }
+      daily: { runs: 6, navigations: 100, activeMinutes: 60 }
+      requiredPlugins:
+        x.com: bmux.x
+        linkedin.com: bmux.linkedin
+      likesPerDay:
+        x.com: 1
+plugins:
+  bmux.x: { enabled: true, hooks: false }
+  bmux.linkedin: { enabled: true, hooks: false }
+```
+
+The `likesPerDay` entries explicitly enable automatic likes for those sites;
+omitting a site keeps liking disabled. Use profile IDs from `bmux profile list`.
+The X and LinkedIn plugins accept `urls` as a JSON array string and `topic` as a
+phrase. They visit at most 20 supplied HTTPS URLs, pause and scroll during the
+run, and may like one visible, unliked post per page whose text contains the
+topic phrase. Like reservations count toward a rolling 24-hour cap even if the
+page click fails. Neither plugin follows, reposts, comments, or messages.
+
+```sh
+bmux plugin run bmux.x/browse -t PANE_ID --parameters '{"urls":"[\"https://x.com/home\"]","topic":"customer discovery"}'
+bmux plugin runs
+bmux automation status
+```
+
+For a group without `requiredPlugins`, a script may acquire a lease on an
+existing blank pane, then pass its token through `BMUX_AUTOMATION_LEASE` on each
+browser command and release it when finished. The lease expires after five
+minutes without a successful authorized command. The token is private; do not
+include it in logs or shared output. Policies count a run on acquisition,
+committed main-frame and same-document navigations, and active time through 30
+seconds after automated navigation, scroll or click. A limit stops further
+automation commands; start a new run after the rolling window permits it.
 
 Use `BMUX_DATA_DIR` for a separate instance when testing. Never point bmux at a Chrome or Brave profile directory.

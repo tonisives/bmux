@@ -1,0 +1,14 @@
+schema_version: 1
+id: bmux.x
+name: X browsing
+version: 1.0.0
+actions:
+  - id: browse
+    title: Browse X URLs
+    description: Pace a bounded list of X pages, with optional capped likes.
+    command: [node, ./browse.mjs, x]
+    capabilities: [browser.read, browser.write, browser.cdp]
+    timeout_seconds: 3600
+    parameters:
+      - { name: urls, title: JSON array of X URLs, kind: text, required: true }
+      - { name: topic, title: Topic phrase, kind: text, required: true }

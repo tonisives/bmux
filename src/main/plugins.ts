@@ -9,7 +9,7 @@ import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   settings: () => PluginSettings
@@ -19,6 +19,7 @@ type Options = {
   selected?: (context: PluginContext) => boolean
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
+  automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
 }
 let live = (run: Run) => ['queued', 'running'].includes(run.public.status)
 let record = (value: unknown): Record<string, unknown> => {
@@ -50,7 +51,8 @@ export let createPlugins = (options: Options) => {
   }
   let finish = (run: Run, status: PluginRun['status'], error?: string) => {
     if (!live(run)) return
-    run.public.status = status; run.public.error = error
+    run.public.status = status; run.public.error = status === 'failed' ? run.policyError ?? error : error
+    if (run.automationToken) { try { options.automation?.release(run.automationToken) } catch { /* Lease already expired. */ }; run.automationToken = undefined }
     run.token = ''; run.parameters = {}; run.controller.abort()
     clearTimeout(run.timer)
     let pending = run.pending; run.pending = undefined
@@ -100,6 +102,7 @@ export let createPlugins = (options: Options) => {
     let run = runs.get(String(request.runId))
     if (!run || !live(run) || !run.token || request.token !== run.token) throw new Error('Invalid plugin invocation')
     let method = String(request.method), args = record(request.args ?? {})
+    let policyCall = <T>(operation: () => T): T => { try { return operation() } catch (error) { run.policyError = error instanceof Error ? error.message : 'Automation policy failed'; throw error } }
       if (method === 'context') {
       if (args.refresh === true) run.context = options.context(run.context)
       return { ...run.context, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
@@ -108,14 +111,32 @@ export let createPlugins = (options: Options) => {
       if (typeof args.percent !== 'number' || !Number.isFinite(args.percent) || args.percent < 0 || args.percent > 100) throw new Error('Invalid progress')
       run.public.progress = { percent: args.percent, message: shortText(args.message) }; options.changed(); return null
     }
-    if (method === 'result') { if (JSON.stringify(args).length > 65536) throw new Error('Result too large'); run.public.result = args; options.changed(); return null }
+    if (method === 'result') {
+      if (JSON.stringify(args).length > 65536) throw new Error('Result too large')
+      if (run.automationToken && run.context.profileId && run.context.tabId && run.context.url) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.tabId!, url: run.context.url!, token: run.automationToken }))
+      run.public.result = args; options.changed(); return null
+    }
+    if (method === 'automation.acquire') {
+      if (!run.context.profileId || !run.context.tabId || run.automationToken) throw new Error('Automation lease unavailable')
+      let lease = policyCall(() => options.automation?.acquire({ profileId: run.context.profileId!, tabId: run.context.tabId!, url: shortText(args.url), pluginId: run.public.pluginId }))
+      if (!lease) throw new Error('Automation policy unavailable')
+      run.automationToken = lease.token
+      return { group: lease.group }
+    }
+    if (method === 'automation.status') return options.automation?.status() ?? []
+    if (method === 'automation.like') {
+      if (!run.context.profileId || !run.context.tabId || !run.automationToken) throw new Error('Automation lease unavailable')
+      return policyCall(() => options.automation?.like({ profileId: run.context.profileId!, tabId: run.context.tabId!, url: shortText(args.url), token: run.automationToken! }))
+    }
     if (method === 'ui') { if (!run.action.capabilities.includes('ui')) throw new Error('Capability ui required'); return requestUI(run, args) }
     let capability = methods[method]
     if (!capability || !run.action.capabilities.includes(capability)) throw new Error('Browser capability required or unknown method')
     if (method === 'wait' && args.expression !== undefined && !run.action.capabilities.includes('browser.write')) throw new Error('JavaScript waits require browser.write')
     if (capability !== 'browser.manage' && args.tab !== undefined && args.tab !== run.context.tabId) throw new Error('Invocation is bound to its original page')
     if (run.public.hook && ['select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
-    try { return await options.browser(method, args, { ...run.context }, run.controller.signal) }
+    let url = method === 'navigate' ? String(args.url) : run.context.url
+    if (url && run.context.profileId && run.context.tabId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.tabId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
+    try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context }, run.controller.signal) }
     catch { throw new Error('Browser operation failed or target document changed') }
   }
   let server = net.createServer(connection => {

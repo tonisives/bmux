@@ -140,6 +140,14 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 | `cdp` | `browser.cdp` | `method` and `params`; page-scoped DOM, Runtime, Page, Input, Network, CSS, Accessibility, Emulation domains. No target/session routing. Raw CDP is an advanced trusted capability; use `fill` for document-bound credentials. |
 | `ui` | `ui` | `kind`, `title`, optional `required`. Kinds: `text`, `password`, `confirm`, `pick`. Pickers take `items: [{id,label,description?}]` and return the selected ID. Confirm returns a boolean; text/password return strings. |
 
+Site automation actions can call `automation.acquire` with a matching HTTPS
+`url` before browsing. The lease is bound to the invocation's profile and tab,
+and is released when the invocation ends. `automation.status` reports group
+usage. `automation.like` reserves one like for a verified site post URL after
+the user has set a positive `likesPerDay` cap. These calls work only when an
+automation group covers the profile and site. If `requiredPlugins` names a
+plugin for the site, only that plugin ID may acquire its lease.
+
 `browser.manage` allows `profile.list`, `list-sessions/windows/panes`,
 `new-window`, `split-window`, `select-pane/window`,
 and `activate-client`, with the normal CLI RPC argument names and explicit IDs.

@@ -10,10 +10,12 @@ import type { PluginSettings } from '../shared/plugins'
 import { parseBrowserSettings } from './browser-config'
 import { DEFAULT_BROWSER } from '../shared/browser-tools'
 import type { BrowserSettings } from '../shared/browser-tools'
+import { DEFAULT_AUTOMATION, parseAutomationSettings } from '../shared/automation'
+import type { AutomationSettings } from '../shared/automation'
 import { DEFAULT_CLICK_MODE, usableHintCharacters } from '../shared/click-mode'
 import type { ClickModeSettings, DoubleTapModifier } from '../shared/click-mode'
 
-type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings }
+type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -113,10 +115,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, plugins, browser: parseBrowserSettings(value.browser) }
+  return { keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, plugins: {}, browser: structuredClone(DEFAULT_BROWSER) }, error: string | null = null
+  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -137,6 +139,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
   }
   return {
     get plugins() { return settings.plugins },
+    get automation() { return settings.automation },
     get browser() { return settings.browser }, update,
     get keyboard() { return settings.keyboard }, get clickMode() { return settings.clickMode }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get showTabCloseButtons() { return settings.showTabCloseButtons }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {

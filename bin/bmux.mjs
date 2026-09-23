@@ -45,6 +45,8 @@ Other:    permission list | permission respond ID [--allow]
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
+Automation: automation status | automation acquire -t PANE --url URL | automation release
+            Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
 Extensions: extension list|load PATH|open ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
 Advanced: rpc METHOD JSON_ARGS
@@ -64,7 +66,7 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 let parse = () => {
   let command = argv.shift()
   if (command === 'tab') throw new Error('Unknown command: tab')
-  let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension'].includes(command) ? argv.shift() : null
+  let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history'])
@@ -113,6 +115,8 @@ let parse = () => {
   if (method === 'settings.prefix') args.key = positional[0] ?? args.key
   if (method === 'plugin.run') { args.action = positional[0]; args.parameters = JSON.parse(args.parameters ?? '{}') }
   if (method === 'plugin.cancel') args.id = positional[0]
+  if (method === 'automation.release') args.token = process.env.BMUX_AUTOMATION_LEASE
+  if (process.env.BMUX_AUTOMATION_LEASE && !method.startsWith('automation.')) args._automationLease = process.env.BMUX_AUTOMATION_LEASE
   return { method, args }
 }
 
