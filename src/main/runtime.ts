@@ -699,7 +699,7 @@ export let createRuntime = (dataDirectory: string) => {
     let { tab, pane, session } = tabById(model, tabId)
     let initialUrl = tab.url
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
-    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId, session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: true } })
+    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { ...popupOptions?.webPreferences, session: browserSession(pane.profileId, session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
