@@ -95,20 +95,28 @@ jobs:
 
   update-homebrew:
     needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
     steps:
-      - name: Download release DMGs
+      - name: Download exact release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          mkdir release-assets
           version="${RELEASE_TAG#v}"
-          gh release download "$RELEASE_TAG" \
-            --pattern "bmux-${version}-*.dmg" \
-            --repo "$GITHUB_REPOSITORY"
-          echo "BMUX_VERSION=$version" >> "$GITHUB_ENV"
-          echo "BMUX_SHA256_ARM=$(sha256sum "bmux-${version}-arm64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-          echo "BMUX_SHA256_INTEL=$(sha256sum "bmux-${version}-x64.dmg" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          for name in bmux-${version}-arm64.dmg bmux-${version}-x64.dmg; do
+            gh release download "$RELEASE_TAG" --pattern "$name" --dir release-assets --repo "$GITHUB_REPOSITORY"
+            test -s "release-assets/$name"
+            case "$name" in
+              *.dmg) hdiutil verify "release-assets/$name" ;;
+              *.tar.gz) tar -tzf "release-assets/$name" >/dev/null ;;
+            esac
+          done
 
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
@@ -117,12 +125,26 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
-      - name: Update cask
+      - name: Update tap from verified assets
+        run: |
+          python3 homebrew-tap/scripts/update_release.py \
+            --product bmux --tag "$RELEASE_TAG" \
+            --assets release-assets --tap homebrew-tap
+
+      - name: Verify Homebrew entries before publishing
+        run: |
+          set -euo pipefail
+          brew tap tonisives/tap
+          if brew help trust >/dev/null 2>&1; then brew trust --tap tonisives/tap; fi
+          tap_dir="$(brew --repository tonisives/tap)"
+          cp homebrew-tap/Casks/bmux.rb "$tap_dir/Casks/bmux.rb"
+          brew style homebrew-tap/Casks/bmux.rb
+          brew audit --cask --strict tonisives/tap/bmux
+          brew fetch --cask tonisives/tap/bmux
+
+      - name: Commit and push
         working-directory: homebrew-tap
         run: |
-          sed -E -i "s/^  version .*/  version \"$BMUX_VERSION\"/" Casks/bmux.rb
-          sed -E -i "s/^  sha256 arm:.*/  sha256 arm:   \"$BMUX_SHA256_ARM\",/" Casks/bmux.rb
-          sed -E -i "s/^[[:space:]]+intel:.*/         intel: \"$BMUX_SHA256_INTEL\"/" Casks/bmux.rb
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/bmux.rb
