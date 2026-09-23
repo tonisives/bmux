@@ -99,18 +99,19 @@ test('session search filters by name without changing selection until confirmed'
   expect((await state()).model.clients[0].sessionId).toBe(model.sessions[1].id)
 })
 
-test('session picker creates and attaches a named session', async () => {
+test('session picker creates and attaches sessions with default names', async () => {
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
   let create = sessions.getByRole('button', { name: 'new session', exact: true })
   await expect(sessions.getByRole('button').last()).toHaveText('new private session')
   await create.click()
-  let name = sessions.getByRole('textbox', { name: 'Session name', exact: true })
-  await expect(name).toBeFocused(); await name.fill('Fresh workspace')
-  await sessions.getByRole('button', { name: 'Create session', exact: true }).click()
   await expect(sessions).toHaveCount(0)
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
-  expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('Fresh workspace')
+  expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('session-1')
+  await open('sessions')
+  await chrome.getByRole('group', { name: 'Choose session', exact: true }).getByRole('button', { name: 'new session', exact: true }).click()
+  current = await state(); client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('session-2')
 })
 
 test('session picker goes back to the previously selected session', async () => {
@@ -133,11 +134,9 @@ test('session picker creates a private session with an indicator', async () => {
   await open('sessions')
   let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
   await picker.getByRole('button', { name: 'new private session', exact: true }).click()
-  await picker.getByRole('textbox', { name: 'Private session name' }).fill('Private workspace')
-  await picker.getByRole('button', { name: 'Create session' }).click()
   await expect(picker).toHaveCount(0)
   let current = await state()
-  let privateSession = current.model.sessions.find((item: { name: string }) => item.name === 'Private workspace')
+  let privateSession = current.model.sessions.find((item: { name: string }) => item.name === 'private-1')
   expect(privateSession.private).toBe(true)
   await expect(chrome.getByRole('button', { name: 'Sessions', exact: true }).getByRole('img', { name: 'Private session' })).toBeVisible()
   let tabId = privateSession.windows[0].panes[0].activeTabId
@@ -153,24 +152,27 @@ test('session picker creates a private session with an indicator', async () => {
   expect(isolated.regularCookies.some(cookie => cookie.name === 'private-test')).toBe(false)
   await expect.poll(async () => fs.readFile(path.join(directory, 'state.json'), 'utf8').then(text => text.includes(privateSession.id))).toBe(false)
   await open('sessions')
-  await expect(chrome.getByRole('group', { name: 'Choose session' }).getByRole('button', { name: 'Private workspace' }).getByRole('img', { name: 'Private session' })).toBeVisible()
+  await expect(chrome.getByRole('group', { name: 'Choose session' }).getByRole('button', { name: 'private-1' }).getByRole('img', { name: 'Private session' })).toBeVisible()
   await chrome.keyboard.press('Escape')
 })
 
-test('session picker reaches creation by keyboard and confirms session closing', async () => {
+test('session picker creates by keyboard and confirms session closing', async () => {
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
   let create = sessions.getByRole('button', { name: 'new session', exact: true })
   await chrome.keyboard.press('End'); await expect(sessions.getByRole('button', { name: 'new private session', exact: true })).toBeFocused()
   await chrome.keyboard.press('ArrowUp'); await expect(create).toBeFocused()
-  await chrome.keyboard.press('Enter'); await expect(sessions.getByRole('textbox', { name: 'Session name', exact: true })).toBeFocused()
-  await chrome.keyboard.press('Escape')
-  let close = sessions.getByRole('button', { name: 'Close session Fresh workspace', exact: true })
+  await chrome.keyboard.press('Enter'); await expect(sessions).toHaveCount(0)
+  let current = await state(), created = current.model.sessions.find((item: { name: string }) => item.name === 'session-3')
+  expect(current.model.clients.find((item: { id: string }) => item.id === current.clientId).sessionId).toBe(created.id)
+  await open('sessions')
+  sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  let close = sessions.getByRole('button', { name: 'Close session session-3', exact: true })
   await close.click()
-  let confirmation = sessions.getByRole('alertdialog', { name: 'Close session Fresh workspace?', exact: true })
+  let confirmation = sessions.getByRole('alertdialog', { name: 'Close session session-3?', exact: true })
   await expect(confirmation).toBeVisible(); await confirmation.getByRole('button', { name: 'no', exact: true }).click()
   await close.click(); await confirmation.getByRole('button', { name: 'yes', exact: true }).click()
-  await expect.poll(async () => (await state()).model.sessions.some((session: { name: string }) => session.name === 'Fresh workspace')).toBe(false)
+  await expect.poll(async () => (await state()).model.sessions.some((session: { name: string }) => session.name === 'session-3')).toBe(false)
 })
 
 test('picker arrows wrap between the first and last rows', async () => {

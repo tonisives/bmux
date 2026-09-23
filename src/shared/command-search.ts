@@ -52,7 +52,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'move-window-last', description: 'Move the current window to the last position', action: 'move-window-last' },
   { command: 'swap-window -t ', usage: 'swap-window -t -1|+1', description: 'Move the current window left or right, wrapping at the ends', complete: true },
   { command: 'select-window -t ', usage: 'select-window -t INDEX', description: 'Switch to a window by index or ID', complete: true },
-  { command: 'new-session -s ', usage: 'new-session -s NAME [--profile PROFILE]', description: 'Create a persistent session', complete: true },
+  { command: 'new-session', usage: 'new-session [-s NAME] [--profile PROFILE] [--private]', description: 'Create a session' },
   { command: 'session ', usage: 'session NAME', description: 'Switch this client to a session', complete: true },
   { command: 'rename-session', usage: 'rename-session -n NAME', description: 'Rename the current session', action: 'rename-session', control: 'rename-session' },
   { command: 'next-session', description: 'Switch to the next session', action: 'next-session' },

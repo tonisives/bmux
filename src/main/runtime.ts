@@ -706,6 +706,24 @@ export let createRuntime = (dataDirectory: string) => {
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
+    contents.debugger.on('message', (_event, method, params) => {
+      if (method !== 'Page.fileChooserOpened' || live.disposed) return
+      let choose = async () => {
+        let backendNodeId = params.backendNodeId as number | undefined
+        if (!backendNodeId || contents.isDestroyed()) return
+        let owner = [...clients.values()].find(client => client.window === live.parent)
+        if (!owner || live.parent.isDestroyed() || !live.parent.isVisible()) return
+        let node = await contents.debugger.sendCommand('DOM.describeNode', { backendNodeId })
+        let attributes = (node.node.attributes ?? []) as string[]
+        let directory = attributes.includes('webkitdirectory')
+        let properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = directory ? ['openDirectory'] : ['openFile']
+        if (params.mode === 'selectMultiple' && !directory) properties.push('multiSelections')
+        let selected = await dialog.showOpenDialog(live.parent, { properties })
+        if (selected.canceled || !selected.filePaths.length || contents.isDestroyed() || live.disposed) return
+        await contents.debugger.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: selected.filePaths })
+      }
+      void choose().catch(reportError)
+    })
     let serializedRestore = restoringTabs
     tabs.set(tabId, live)
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
@@ -714,7 +732,11 @@ export let createRuntime = (dataDirectory: string) => {
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
       profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
-      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)),
+      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(async () => {
+        await pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)
+        if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+        await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
+      }),
     ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
@@ -1588,8 +1610,11 @@ export let createRuntime = (dataDirectory: string) => {
       return profileCaches[profile.id]
     }
     if (method === 'new-session') {
-      let name = required(args, 'name')
       if (args.private !== undefined && typeof args.private !== 'boolean') throw new Error('private must be a boolean')
+      let prefix = args.private === true ? 'private' : 'session'
+      let number = 1
+      while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
+      let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
       let profile = resolve(model.profiles, args.profile ?? 'default', 'Profile')
       let session = newSession(name, profile.id, args.private === true)
