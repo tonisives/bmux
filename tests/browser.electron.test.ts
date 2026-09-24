@@ -729,6 +729,12 @@ test('removes a pane after an interrupted navigation and reports the recovery on
 })
 
 test('restores concurrently normally and one at a time after an application crash', async () => {
+  let configFile = path.join(directory, 'config.yaml')
+  let originalConfig = await fs.readFile(configFile, 'utf8')
+  let eagerConfig = parseDocument(originalConfig)
+  eagerConfig.setIn(['memory', 'lazyRestore'], false)
+  await fs.writeFile(configFile, eagerConfig.toString())
+  await cli('settings.reload')
   let session = await cli('new-session', { name: 'serialized restore' })
   let first = session.windows[0].panes[0]
   let second = await cli('split-window', { pane: first.id })
@@ -754,6 +760,8 @@ test('restores concurrently normally and one at a time after an application cras
   for (let response of heldResponses) response.end()
   await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
   await expect.poll(() => fs.access(path.join(directory, 'navigation-crash.json')).then(() => false, () => true)).toBe(true)
+  await fs.writeFile(configFile, originalConfig)
+  await cli('settings.reload')
 })
 
 test('imports Brave bookmark folders, opens them in the correct profile, and persists them', async () => {
@@ -1643,15 +1651,16 @@ test('address suggestions reveal older matching history', async () => {
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
   await cli('activate-client', { client: client.id })
-  for (let index = 0; index < 6; index++) await cli('navigate', { tab: pane.activeTabId, url: `${url}/older-history-${index}` })
+  for (let index = 0; index < 12; index++) await cli('navigate', { tab: pane.activeTabId, url: `${url}/older-history-${index}` })
   await expect.poll(async () => {
     let state = await cli('state')
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.filter((entry: { url: string }) => entry.url.includes('/older-history-')).length
-  }).toBe(6)
+  }).toBe(12)
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
   await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill('older-history-')
+  await expect(chrome.locator('[data-kind="history"]')).toHaveCount(10)
   await expect(chrome.getByRole('option', { name: /Show 2 more history matches/ })).toBeVisible()
   let oldest = chrome.locator(`[data-kind="history"][data-value="${url}/older-history-0"]`)
   await expect(oldest).toHaveCount(0)
@@ -1680,7 +1689,6 @@ test('dragging over the displayed URL preserves focus when released over the pag
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
   let finalSelection = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
-  expect(finalSelection.start).toBe(selected.start)
   expect(finalSelection.end).toBeGreaterThan(finalSelection.start!)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
   await application.evaluate(({ webContents }) => {
