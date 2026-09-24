@@ -69,7 +69,7 @@ export let App = () => {
       }
       accept(current)
     }
-    if (control === 'address') { void run('focus-ui'); setAddressFocusVersion(version => version + 1) }
+    if (control === 'address') { void run('focus-ui', { pane: paneId }); setAddressFocusVersion(version => version + 1) }
     setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {

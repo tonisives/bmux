@@ -1453,7 +1453,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let owner = clients.get(sourceClientId)
-      let chrome = typeof args.pane === 'string' ? owner?.floats.get(args.pane) : owner?.chrome
+      let chrome = typeof args.pane === 'string' ? owner?.floats.get(args.pane) ?? owner?.chrome : owner?.chrome
       if (sourceClientId === focusedClientId && owner?.window.isFocused()) chrome?.webContents.focus()
       return null
     }
