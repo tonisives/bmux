@@ -1107,6 +1107,28 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
 })
 
 
+test('CLI page navigation keys scroll an unselected pane without moving selection', async () => {
+  let session = await cli('new-session', { name: 'agent-scroll' })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('navigate', { pane: pane.id, url: `${url}/agent-scroll` })
+  await cli('wait', { pane: pane.id, selector: 'body' })
+  await cli('eval', { pane: pane.id, expression: "document.body.style.minHeight = '6000px'" })
+  let other = await cli('split-window', { pane: pane.id, url: `${url}/human-page` })
+  await cli('select-pane', { client: client.id, pane: other.id })
+  let scroll = () => cli('eval', { pane: pane.id, expression: 'scrollY' }) as Promise<number>
+  await cli('key', { pane: pane.id, key: 'PageDown' })
+  await expect.poll(scroll).toBeGreaterThan(100)
+  await cli('key', { pane: pane.id, key: 'PageUp' })
+  await expect.poll(scroll).toBe(0)
+  await cli('key', { pane: pane.id, key: 'End' })
+  await expect.poll(scroll).toBeGreaterThan(4000)
+  await cli('key', { pane: pane.id, key: 'Home' })
+  await expect.poll(scroll).toBe(0)
+  expect((await cli('state')).model.clients.find((item: { id: string }) => item.id === client.id).paneId).toBe(other.id)
+  await cli('detach-client', { client: client.id })
+})
+
 test('configured Vim page keys scroll, reload, and open find outside text fields', async () => {
   let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
   await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Shift+H: { action: back, when: pane-not-editing }\n    Shift+L: { action: forward, when: pane-not-editing }\n    j: { action: scroll-down, when: pane-not-editing }\n    k: { action: scroll-up, when: pane-not-editing }\n    d: { action: scroll-half-down, when: pane-not-editing }\n    u: { action: scroll-half-up, when: pane-not-editing }\n    Shift+G: { action: scroll-bottom, when: pane-not-editing }\n    r: { action: reload, when: pane-not-editing }\n    Shift+R: { action: hard-reload, when: pane-not-editing }\n    /: { action: find, when: pane-not-editing }\n  sequences:\n    gg: { action: scroll-top, when: pane-not-editing }\n')

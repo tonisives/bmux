@@ -2312,7 +2312,7 @@ export let createRuntime = (dataDirectory: string) => {
           let key = parts.pop()!
           let modifierFlags: Record<string, number> = { Alt: 1, Control: 2, Ctrl: 2, Meta: 4, Command: 4, Cmd: 4, Shift: 8 }
           let modifiers = parts.reduce((value, part) => { if (!modifierFlags[part]) throw new Error(`Unknown modifier ${part}`); return value | modifierFlags[part] }, 0)
-          let codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, Backspace: 8, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46 }
+          let codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, Backspace: 8, PageUp: 33, PageDown: 34, End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46 }
           // CDP bypasses AppKit's key binding translation on macOS.
           let editing: Record<string, string> = { a: 'selectAll', c: 'copy', x: 'cut', v: 'paste', z: 'undo' }
           let command = modifiers === 4 ? editing[key.toLowerCase()] : modifiers === 12 && key.toLowerCase() === 'z' ? 'redo' : undefined
