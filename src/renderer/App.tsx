@@ -440,7 +440,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url).filter(entry => !bookmarkUrls.has(entry.url))
-  let history = availableHistory.slice(0, expandedHistory ? undefined : Math.min(4, 8 - bookmarks.length))
+  let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length)
   let results = [
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
