@@ -920,6 +920,14 @@ export let createRuntime = (dataDirectory: string) => {
         if (linkUrl && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
         if (contents.isDestroyed() || owner.window.isDestroyed()) return
         let template: Electron.MenuItemConstructorOptions[] = []
+        if (params.isEditable && params.misspelledWord) {
+          template.push(
+            ...params.dictionarySuggestions.map(suggestion => ({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) })),
+            ...(params.dictionarySuggestions.length ? [{ type: 'separator' as const }] : []),
+            { label: 'Add to dictionary', click: () => { contents.session.addWordToSpellCheckerDictionary(params.misspelledWord) } },
+            { type: 'separator' },
+          )
+        }
         if (linkUrl) {
           template.push(
             { label: 'Open link', click: () => { void contents.loadURL(linkUrl).catch(reportError) } },

@@ -66,7 +66,7 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+W: close-pane-or-window\nbrowser:\n  autoUpdateFilters: false\n')
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
+    response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><textarea id="spelling" spellcheck="true"></textarea><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await launch()
@@ -256,6 +256,36 @@ test('page context menu opens links in a float using the source profile', async 
     await rpc('wait', { tab: added.activeTabId, selector: '#counter' })
     expect((await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/linked`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
+})
+
+test('page context menu replaces a misspelled word', async () => {
+  let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('select-pane', { client: client.id, pane: pane.id })
+  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/spelling` })
+  await rpc('wait', { tab: pane.activeTabId, selector: '#spelling' })
+  let page = application.context().pages().find(page => page.url() === `${url}/spelling`)!
+  let spelling = page.locator('#spelling')
+  await spelling.fill('recieve')
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restoreSpellingMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      ;(globalThis as any).spellingMenu = menu
+      menu.popup = () => undefined
+      return menu
+    }
+  })
+  try {
+    await expect(async () => {
+      await spelling.click({ button: 'right', position: { x: 28, y: 12 } })
+      let labels = await application.evaluate(() => (globalThis as any).spellingMenu?.items.map((item: any) => item.label) ?? [])
+      expect(labels).toContain('receive')
+      expect(labels).toContain('Add to dictionary')
+    }).toPass({ timeout: 10000 })
+    await application.evaluate(() => (globalThis as any).spellingMenu.items.find((item: any) => item.label === 'receive').click())
+    await expect(spelling).toHaveValue('receive')
+  } finally { await application.evaluate(() => (globalThis as any).restoreSpellingMenu()) }
 })
 
 test('reopens a closed float at its remembered position and adapts after window resizing', async () => {
