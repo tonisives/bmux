@@ -32,7 +32,7 @@ let directory = process.env.BMUX_RUNNER_FIXTURE
 let args = process.argv.slice(2)
 if (args[0] === 'list') console.log(JSON.stringify([{ Name: 'bmux-tests', Running: fs.existsSync(path.join(directory, 'running')) || (process.env.BMUX_RUNNER_STOPPED !== '1' && !fs.existsSync(path.join(directory, 'stopped'))) }]))
 else if (args[0] === 'set') fs.appendFileSync(path.join(directory, 'settings'), args.slice(2).join(' ') + '\\n')
-else if (args[0] === 'run') { fs.rmSync(path.join(directory, 'stopped'), { force: true }); fs.writeFileSync(path.join(directory, 'running'), '') }
+else if (args[0] === 'run') { fs.appendFileSync(path.join(directory, 'launches'), args.join(' ') + '\\n'); fs.rmSync(path.join(directory, 'stopped'), { force: true }); fs.writeFileSync(path.join(directory, 'running'), '') }
 else if (args[0] === 'stop') { fs.rmSync(path.join(directory, 'running'), { force: true }); fs.writeFileSync(path.join(directory, 'stopped'), ''); fs.appendFileSync(path.join(directory, 'stops'), 'stop\\n') }
 else if (args.includes('/usr/bin/id')) console.log('admin')
 else if (args.includes('/usr/bin/tar')) {
@@ -109,6 +109,17 @@ it('sets the CPU and memory limits before starting a stopped VM', async () => {
     let result = await current.run(0, ['start'], { BMUX_RUNNER_STOPPED: '1' })
     expect(result.code, result.output).toBe(0)
     expect(await fs.readFile(path.join(current.directory, 'settings'), 'utf8')).toBe('--cpu 2 --memory 6144\n')
+    expect(await fs.readFile(path.join(current.directory, 'launches'), 'utf8')).toBe('run bmux-tests --no-audio --no-clipboard\n')
+  } finally { await current.cleanup() }
+}, 15000)
+
+it('starts test VMs without a viewer and stops them after collecting results', async () => {
+  let current = await fixture()
+  try {
+    let result = await current.run(0, ['ui'], { BMUX_RUNNER_STOPPED: '1' })
+    expect(result.code, result.output).toBe(0)
+    expect(await fs.readFile(path.join(current.directory, 'launches'), 'utf8')).toBe('run bmux-tests --no-audio --no-clipboard --no-graphics\n')
+    expect(await fs.readFile(path.join(current.directory, 'stops'), 'utf8')).toBe('stop\n')
   } finally { await current.cleanup() }
 }, 15000)
 
