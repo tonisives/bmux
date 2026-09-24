@@ -619,7 +619,7 @@ let ClickModeActions = ({ action, input, backgroundColor, textColor }: { action:
       return <span key={definition.action} className={css.clickModeActionGroup}>
         {index === 4 && <span className={css.clickModeDivider} />}
         <span className={css.clickModeAction} data-click-action={definition.action} data-selected={selected} aria-label={`${definition.label} (${definition.key})`} style={selected ? { color: textColor, backgroundColor, borderColor: backgroundColor } : undefined}>
-          <strong style={{ color: selected ? textColor : backgroundColor }}>{definition.key}</strong><ClickModeActionIcon action={definition.action} /><span>{definition.label}</span>
+          <strong style={{ color: selected ? textColor : backgroundColor }}>{definition.key}</strong><ClickModeActionIcon action={definition.action} /><span className={css.clickModeLabel}>{definition.label}</span>
         </span>
       </span>
     })}
@@ -684,6 +684,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
   let proxyRouteTitle = customProfile?.proxy ? `${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
   let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
+  if (clickState && !editing) return <div className={css.addressBar} role="group" aria-label="Pane address"><ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /></div>
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -694,7 +695,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
       </div>}
     </div>}
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : clickState ? <ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
     {customProfile && <div className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteLabel}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /></button>{customProfile.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}</div>}
   </div>

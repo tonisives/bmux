@@ -1212,6 +1212,9 @@ test('native click mode activates with Option taps and performs each click actio
     await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
     await expect(chrome.locator('[data-bmux-click-mode]')).toHaveCount(0)
     await expect(chrome.getByRole('group', { name: 'Click mode actions' })).toHaveCount(1)
+    let bar = chrome.getByRole('group', { name: 'Click mode actions' }).locator('..')
+    await expect(bar.getByRole('button')).toHaveCount(0)
+    expect(await bar.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
   let keys = async (...keyCodes: string[]) => sendNativeKeys(application, keyCodes.map(keyCode => ({ keyCode })))
   try {

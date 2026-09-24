@@ -63,7 +63,7 @@
 .gutter:hover { background: #a7b69c; }
 .branch[data-axis="vertical"] > .gutter { width: auto; height: 3px; cursor: row-resize; }
 .pane { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; }
-.addressBar { display: flex; align-items: center; flex: 0 0 auto; min-height: 28px; min-width: 0; gap: 10px; padding: 0 8px; background: #191d23; border-bottom: 1px solid #343b45; color: #8e98a4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.addressBar { container-type: inline-size; display: flex; align-items: center; flex: 0 0 auto; min-height: 28px; min-width: 0; gap: 10px; padding: 0 8px; background: #191d23; border-bottom: 1px solid #343b45; color: #8e98a4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .addressBar:has(.navigationMenu) { z-index: 10; }
 .pane[data-focused-pane="true"] { border-color: #83917b; }
 .pane[data-focused-pane="true"] > .addressBar { color: #c2ceb9; }
@@ -255,3 +255,6 @@
 .download > span { color: #aaa; font-size: 12px; }
 .download progress { width: 100%; accent-color: #9dc5ee; }
 .download > div { display: flex; gap: 8px; }
+
+@container (max-width: 560px) { .clickModeLabel { display: none; } }
+@container (max-width: 300px) { .clickModeAction { padding: 3px 2px; } .clickModeActionGroup { gap: 2px; } .clickModeActions { gap: 2px; } }
