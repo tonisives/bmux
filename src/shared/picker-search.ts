@@ -49,5 +49,18 @@ export let searchBookmarkPages = (bookmarks: Bookmark[], query: string): Bookmar
 
 export let searchHistory = (history: HistoryEntry[], query: string): HistoryEntry[] => {
   if (!query.trim()) return history
+  let terms = query.trim().toLocaleLowerCase().split(/\s+/)
+  let ranked = history.map(entry => {
+    let title = entry.title.toLocaleLowerCase(), url = entry.url.toLocaleLowerCase()
+    let address = url.split(/[?#]/, 1)[0]
+    let priority = 0
+    if (terms.every(term => address.includes(term))) priority = 4
+    else if (terms.every(term => title.includes(term))) priority = 3
+    else if (terms.every(term => url.includes(term))) priority = 2
+    else if (terms.every(term => title.includes(term) || url.includes(term))) priority = 1
+    return { entry, priority }
+  })
+  let wordMatches = ranked.filter(result => result.priority > 0)
+  if (wordMatches.length) return wordMatches.sort((a, b) => b.priority - a.priority).map(result => result.entry)
   return history.filter(entry => fuzzyMatch(query, `${entry.title} ${entry.url}`))
 }

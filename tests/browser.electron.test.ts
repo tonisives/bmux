@@ -1655,6 +1655,12 @@ test('address suggestions reveal older matching history', async () => {
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
   await cli('activate-client', { client: client.id })
+  await cli('navigate', { tab: pane.activeTabId, url: `${url}/github/bmux` })
+  await expect.poll(async () => {
+    let state = await cli('state')
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/github/bmux`)
+  }).toBe(true)
+  for (let index = 0; index < 2; index++) await cli('navigate', { tab: pane.activeTabId, url: `${url}/g-i-t-h-u-b/b-m-u-x-${index}` })
   for (let index = 0; index < 12; index++) await cli('navigate', { tab: pane.activeTabId, url: `${url}/older-history-${index}` })
   await expect.poll(async () => {
     let state = await cli('state')
@@ -1671,6 +1677,10 @@ test('address suggestions reveal older matching history', async () => {
   await chrome.getByRole('option', { name: /Show 2 more history matches/ }).click()
   await oldest.click()
   await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(`${url}/older-history-0`)
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+  await address.fill('github bmux')
+  await expect(chrome.locator('[data-kind="history"]')).toHaveCount(1)
+  await expect(chrome.locator('[data-kind="history"]').first()).toHaveAttribute('data-value', `${url}/github/bmux`)
   await cli('detach-client', { client: client.id })
 })
 
