@@ -318,7 +318,7 @@ test('profile device identity is applied before requests and cache status is pub
   await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('pixel-8')
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toHaveCount(0)
   current = await state()
-  let tab = current.model.sessions[0].windows[0].panes[0].activeTabId
+  let tab = current.model.sessions[0].windows[0].panes[0].id
   await rpc('navigate', { tab, url: `${url}/device-android` })
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('Android 10')
   expect(identityRequests.get('/device-android')?.['accept-language']).toContain('fr-FR')
@@ -345,7 +345,7 @@ test('profile device identity is applied before requests and cache status is pub
   expect((await state()).model.profiles[1].device).toBeUndefined()
   await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles[0].device?.geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
-  let contentBounds = await chrome.locator(`[data-browser-content][data-tab-id="${tab}"]`).boundingBox()
+  let contentBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${tab}"]`).boundingBox()
   await expect.poll(() => application.evaluate(({ BaseWindow }, path) => {
     for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
   }, '/device-android')).toMatchObject({ width: 800, height: 400 })

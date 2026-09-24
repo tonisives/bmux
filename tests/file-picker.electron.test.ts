@@ -29,7 +29,7 @@ test('page file input uses the visible bmux window and receives the chosen file'
     let page = application.context().pages().find(page => page.url() === url) as Page
     await expect(page.locator('#file')).toBeVisible()
     let state = await chrome.evaluate(() => (window as any).bmux.state())
-    let tab = state.model.sessions[0].windows[0].panes[0].activeTabId as string
+    let tab = state.model.sessions[0].windows[0].panes[0].id as string
     await application.evaluate(({ dialog }, filePath) => {
       ;(globalThis as any).filePickerCalls = []
       dialog.showOpenDialog = (async (owner: any, options: any) => {

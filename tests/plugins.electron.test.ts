@@ -57,8 +57,8 @@ test.beforeEach(async ({}, info) => {
   let current = await state(), first = current.model.sessions[0].windows[0]
   await rpc('select-window', { client: current.clientId, window: first.id }); await activate()
   if (!info.title.startsWith('typed URLs')) {
-    await rpc('navigate', { tab: first.panes[0].activeTabId, url })
-    await rpc('wait', { tab: first.panes[0].activeTabId, selector: '#username' })
+    await rpc('navigate', { tab: first.panes[0].id, url })
+    await rpc('wait', { tab: first.panes[0].id, selector: '#username' })
     await activate()
   }
 })
@@ -121,12 +121,12 @@ test('bundled shell/Python examples run from the plugin panel with prompts and r
   await activate()
   let annotation = await rpc('plugin.run', { action: 'local.page-tools/annotate' })
   let note = chrome.getByRole('textbox', { name: 'Note', exact: true }); await note.fill('Fixture annotation'); await note.press('Enter'); await completed(annotation.id)
-  let tab = (await state()).model.sessions[0].windows[0].panes[0].activeTabId
+  let tab = (await state()).model.sessions[0].windows[0].panes[0].id
   expect(await rpc('eval', { tab, expression: 'document.querySelector("aside").textContent' })).toBe('Fixture annotation')
 })
 test('navigation rejects stale fills and hidden fields; plugin waits do not block shortcuts or attachment', async () => {
   await activate()
-  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0], tab = pane.activeTabId
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0], tab = pane.id
   let stale = await run('stale')
   await expect.poll(async () => (await rpc('plugin.runs')).find((item: any) => item.id === stale)?.progress?.percent).toBe(10)
   await rpc('navigate', { tab, url: `${url}/replacement`, waitUntil: 'none' }); await completed(stale)

@@ -22,6 +22,7 @@ Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t 
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           list-panes -t WINDOW | select-pane -c CLIENT -t PANE
+          pane keep-alive -t PANE --enabled[=true|false]
           move-pane -t PANE --window WINDOW | kill-pane -t PANE [--confirm]
           new-pane -t PANE [--url URL] | break-pane -t PANE --floating (or -W)
           join-pane -t PANE [--destination PANE] [-h|-v]
@@ -66,10 +67,10 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 let parse = () => {
   let command = argv.shift()
   if (command === 'tab') throw new Error('Unknown command: tab')
-  let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation'].includes(command) ? argv.shift() : null
+  let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'pane'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
-  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history'])
+  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled'])
   let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output', W: 'floating' }
   while (argv.length) {
     let item = argv.shift()
@@ -82,7 +83,7 @@ let parse = () => {
     key = aliases[key] ?? key
     let value = equal >= 0 ? raw.slice(equal + 1) : boolean.has(key) ? true : argv.shift()
     if (value === undefined) throw new Error(`Missing value for ${item}`)
-    args[key] = value
+    args[key] = key === 'enabled' && (value === 'true' || value === 'false') ? value === 'true' : value
   }
   if (command === 'dark' || command === 'adblock') {
     let value = positional[0] ?? 'toggle'

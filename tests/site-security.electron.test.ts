@@ -13,7 +13,7 @@ import { initialModel } from '../src/main/model'
 let application: ElectronApplication, chrome: Page, directory: string, rootFingerprint: string
 let servers: (http.Server | https.Server)[] = [], urls: Record<string, string> = {}
 let execute = promisify(execFile)
-let model = initialModel(), pane = model.sessions[0].windows[0].panes[0], tab = pane.tabs[0]
+let model = initialModel(), pane = model.sessions[0].windows[0].panes[0], tab = pane
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let security = async (id = tab.id) => (await state()).security[id]
@@ -116,7 +116,7 @@ test('shows verified TLS details, rejects invalid certificates, and follows redi
   expect((await security()).certificate).toBeUndefined()
   await rpc('split-window', { pane: pane.id, axis: 'horizontal', url: urls.valid })
   let second = (await state()).model.sessions[0].windows[0].panes.find((item: any) => item.id !== pane.id)
-  await expect.poll(async () => (await security(second.activeTabId))?.status).toBe('secure')
+  await expect.poll(async () => (await security(second.id))?.status).toBe('secure')
   await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Site information: Connection is not encrypted' }).click()
   await expect(panel).toContainText(urls.http)
   await expect(panel).not.toContainText('Valid until')
@@ -125,10 +125,10 @@ test('shows verified TLS details, rejects invalid certificates, and follows redi
   await expect(panel).toContainText(urls.valid)
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   await open('about:blank', second.id)
-  await expect.poll(async () => (await security(second.activeTabId))?.status).toBe('local')
-  expect((await security(second.activeTabId)).certificate).toBeUndefined()
+  await expect.poll(async () => (await security(second.id))?.status).toBe('local')
+  expect((await security(second.id)).certificate).toBeUndefined()
   await open(urls.valid, second.id)
-  await expect.poll(async () => (await security(second.activeTabId))?.status).toBe('secure')
+  await expect.poll(async () => (await security(second.id))?.status).toBe('secure')
   await rpc('break-pane', { pane: second.id, floating: true })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith(`#float=${second.id}`))).toBe(true)
   let floating = application.context().pages().find(page => page.url().endsWith(`#float=${second.id}`))!

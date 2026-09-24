@@ -34,7 +34,7 @@ test('blocks restored pages when a saved proxy is unavailable and lets the user 
 
     application = await launch()
     let chrome = await chromeFor(application)
-    let current = await currentState(chrome), profile = current.model.profiles[0], tab = current.model.sessions[0].windows[0].panes[0].tabs[0]
+    let current = await currentState(chrome), profile = current.model.profiles[0], tab = current.model.sessions[0].windows[0].panes[0]
     await command(chrome, 'navigate', { tab: tab.id, url: `${origin}/page` })
     await command(chrome, 'profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'saved-user', password: 'saved-password' })
     await expect.poll(() => proxyRequests).toBeGreaterThan(0)

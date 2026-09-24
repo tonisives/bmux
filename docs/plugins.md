@@ -146,7 +146,7 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 | `ui` | `ui` | `kind`, `title`, optional `required`. Kinds: `text`, `password`, `confirm`, `pick`. Pickers take `items: [{id,label,description?}]` and return the selected ID. Confirm returns a boolean; text/password return strings. |
 
 Site automation actions can call `automation.acquire` with a matching HTTPS
-`url` before browsing. The lease is bound to the invocation's profile and tab,
+`url` before browsing. The lease is bound to the invocation's profile and pane,
 and is released when the invocation ends. `automation.status` reports group
 usage. `automation.like` reserves one like for a verified site post URL after
 the user has set a positive `likesPerDay` cap. These calls work only when an

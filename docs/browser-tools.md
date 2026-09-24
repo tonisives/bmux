@@ -18,7 +18,7 @@ unknown status, and local pages have separate states. Certificate failures
 remain blocked; the panel does not offer a bypass. Encryption protects the
 connection and does not establish that a website is trustworthy.
 
-Security details clear on navigation and follow the pane's active tab. When
+Security details clear on navigation and follow the pane's page. When
 Chromium has no connection evidence for a restored document, the indicator shows
 an unavailable status; reloading obtains a fresh connection report.
 

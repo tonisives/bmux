@@ -6,10 +6,11 @@ import os from 'node:os'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { initialModel, newSession, newTab } from '../src/main/model'
+import { initialModel, newSession, newWindow } from '../src/main/model'
 
 let application: ElectronApplication, chrome: Page, page: Page, directory: string, url: string, server: http.Server
-let model = initialModel(), session = model.sessions[0], pane = session.windows[0].panes[0], original = pane.activeTabId
+let model = initialModel(), session = model.sessions[0], pane = session.windows[0].panes[0], original = pane.id
+let docsWindow = newWindow('docs', pane.profileId), notesWindow = newWindow('notes', pane.profileId)
 let exec = promisify(execFile)
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
@@ -47,7 +48,9 @@ test.beforeAll(async () => {
     response.end(`<!doctype html><title>${title}</title><style>body{font:24px sans-serif;background:#e8eef8;color:#173353;padding:30px}p{margin:32px 0}</style><h1>${title}</h1><p>First lantern</p><p>Second lantern</p><p>Third lantern</p><div id="ready" hidden>Ready</div><div id="offscreen" style="position:absolute;top:3000px">Offscreen</div><div data-label="a'b">Quoted selector</div>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
-  pane.tabs.push(newTab(`${url}/docs`), newTab(`${url}/notes`))
+  docsWindow.panes[0].url = `${url}/docs`; docsWindow.panes[0].title = 'Documentation'
+  notesWindow.panes[0].url = `${url}/notes`; notesWindow.panes[0].title = 'Research notes'
+  session.windows.push(docsWindow, notesWindow)
   model.profiles[0].bookmarks = [{ id: 'work', title: 'Work', children: [{ id: 'docs', title: 'Guides', children: [
     { id: 'api', title: 'API reference', url: `${url}/docs` }, { id: 'unsupported', title: 'Disabled bookmarklet', url: 'javascript:void(0)' },
   ] }, { id: 'notes', title: 'Research notes', url: `${url}/notes` },
@@ -80,7 +83,7 @@ test.beforeAll(async () => {
 test.beforeEach(async () => {
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
   await rpc('switch-client', { client: (await state()).clientId, session: session.id })
-  await rpc('tab.select', { tab: original }); await rpc('navigate', { tab: original, url: `${url}/fixture` }); await activate()
+  await rpc('navigate', { pane: original, url: `${url}/fixture` }); await activate()
 })
 test.afterAll(async () => {
   await application?.close()
@@ -139,9 +142,9 @@ test('session picker creates a private session with an indicator', async () => {
   let privateSession = current.model.sessions.find((item: { name: string }) => item.name === 'private-1')
   expect(privateSession.private).toBe(true)
   await expect(chrome.getByRole('button', { name: 'Sessions', exact: true }).getByRole('img', { name: 'Private session' })).toBeVisible()
-  let tabId = privateSession.windows[0].panes[0].activeTabId
+  let tabId = privateSession.windows[0].panes[0].id
   await rpc('navigate', { tab: tabId, url: `${url}/private-visit` })
-  await expect.poll(async () => (await state()).model.sessions.find((item: { id: string }) => item.id === privateSession.id).windows[0].panes[0].tabs[0].url).toBe(`${url}/private-visit`)
+  await expect.poll(async () => (await state()).model.sessions.find((item: { id: string }) => item.id === privateSession.id).windows[0].panes[0].url).toBe(`${url}/private-visit`)
   expect((await state()).model.profiles[0].history.some((entry: { url: string }) => entry.url === `${url}/private-visit`)).toBe(false)
   let isolated = await application.evaluate(async ({ session }, { privateId, origin }) => {
     let privateBrowser = session.fromPartition(`private:${privateId}:profile_default`)
@@ -222,25 +225,25 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await search.fill('API reference')
   await chrome.screenshot({ path: path.resolve('artifacts/bookmark-search.png') })
   await search.press('ArrowDown'); await expect(group.getByRole('button', { name: 'API reference', exact: true })).toBeFocused()
-  let before = (await state()).model.sessions[0].windows[0].panes[0]
+  let before = (await state()).model.sessions[0].windows.length
   await chrome.keyboard.press('Enter'); await expect(group).toHaveCount(0)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
-  let after = (await state()).model.sessions[0].windows[0].panes[0]
-  expect(after.tabs).toHaveLength(before.tabs.length + 1)
-  expect(after.activeTabId).not.toBe(before.activeTabId)
+  let after = await state()
+  expect(after.model.sessions[0].windows).toHaveLength(before + 1)
+  expect(after.model.sessions[0].windows.find((item: { id: string }) => item.id === after.model.clients.find((item: { id: string }) => item.id === after.clientId).windowId).panes[0].url).toBe(`${url}/docs`)
   expect((await state()).model.sessions[0].windows[0].panes[0].profileId).toBe('profile_default')
 
   await open('bookmarks')
   let newGroup = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), newSearch = newGroup.getByRole('textbox', { name: 'Search bookmarks', exact: true })
   await expect(newSearch).toHaveValue('API reference')
   await newSearch.fill('API reference')
-  let beforeMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
+  let beforeMetaEnter = (await state()).model.sessions[0].windows.length
   await newSearch.press('Meta+Enter')
   await expect(newGroup).toHaveCount(0)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/docs`)
-  let afterMetaEnter = (await state()).model.sessions[0].windows[0].panes[0]
-  expect(afterMetaEnter.tabs).toHaveLength(beforeMetaEnter.tabs.length + 1)
-  expect(afterMetaEnter.activeTabId).not.toBe(beforeMetaEnter.activeTabId)
+  let afterMetaEnter = await state()
+  expect(afterMetaEnter.model.sessions[0].windows).toHaveLength(beforeMetaEnter + 1)
+  expect(afterMetaEnter.model.sessions[0].windows.find((item: { id: string }) => item.id === afterMetaEnter.model.clients.find((item: { id: string }) => item.id === afterMetaEnter.clientId).windowId).panes[0].url).toBe(`${url}/docs`)
 
   await open('bookmarks')
   let remembered = chrome.getByRole('textbox', { name: 'Search bookmarks', exact: true })
@@ -274,7 +277,10 @@ test('bookmark parameter controls customize the opened URL and persist removed k
   await group.getByRole('button', { name: 'Remove tracking parameter' }).click()
   await expect(group.getByRole('textbox', { name: 'tracking' })).toHaveCount(0)
   await group.getByRole('button', { name: 'Open', exact: true }).click()
-  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].tabs.at(-1).url).toBe(`${url}/search?q=new+words&limit=25`)
+  await expect.poll(async () => {
+    let current = await state()
+    return current.model.sessions[0].windows.find((item: { id: string }) => item.id === current.model.clients.find((item: { id: string }) => item.id === current.clientId).windowId).panes[0].url
+  }).toBe(`${url}/search?q=new+words&limit=25`)
   let stored = await fs.readFile(path.join(directory, 'bookmark-parameters.yaml'), 'utf8')
   expect(stored).toContain('tracking')
   expect(stored).toContain('new words')
@@ -480,7 +486,7 @@ test('find reports counts, moves in both directions, and stays responsive during
 })
 
 test('find results stay scoped to each tab and refresh after navigation', async () => {
-  let other = pane.tabs[1].id
+  let other = notesWindow.panes[0].id
   await rpc('find', { tab: other, text: 'lantern' })
   await expect.poll(async () => (await state()).findResults[other]?.matches).toBe(3)
   await openFind()

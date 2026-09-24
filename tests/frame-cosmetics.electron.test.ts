@@ -65,7 +65,7 @@ test.beforeAll(async () => {
   await address.fill(`${url}/fixture`); await address.press('Enter')
   await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/fixture`)).toBe(true)
   page = application.context().pages().find(page => page.url() === `${url}/fixture`)!
-  tabId = (await state()).model.sessions[0].windows[0].panes[0].activeTabId
+  tabId = (await state()).model.sessions[0].windows[0].panes[0].id
   await expect(page.locator('h1')).toBeVisible()
 })
 test.afterAll(async () => {
@@ -156,7 +156,7 @@ test('applies live site toggles to all frames while background operations preser
   await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true)
   let focused = await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.id)
   let session = await rpc('new-session', { name: 'Frame background', profile: 'default' })
-  let tab = session.windows[0].panes[0].activeTabId
+  let tab = session.windows[0].panes[0].id
   await rpc('navigate', { tab, url: `${url}/fixture?background` })
   await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/fixture?background`)).toBe(true)
   let background = application.context().pages().find(page => page.url() === `${url}/fixture?background`)!
@@ -179,7 +179,7 @@ test('applies live site toggles to all frames while background operations preser
 
 test('respects profile defaults and top-level site exemptions on first load', async () => {
   let session = await rpc('new-session', { name: 'Frame bot', profile: 'bot' })
-  let tab = session.windows[0].panes[0].activeTabId
+  let tab = session.windows[0].panes[0].id
   await rpc('navigate', { tab, url: `${url}/fixture?bot` })
   await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/fixture?bot`)).toBe(true)
   let bot = application.context().pages().find(page => page.url() === `${url}/fixture?bot`)!

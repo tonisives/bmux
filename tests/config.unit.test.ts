@@ -16,7 +16,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(defaults.shortcuts['Cmd+Ctrl+Alt+Shift+W']).toBe('sessions')
   expect(defaults.shortcuts['Cmd+T']).toBe('new-window')
   expect(defaults.shortcuts['Cmd+W']).toBe('close-window')
-  expect(defaults.shortcuts['CmdOrCtrl+Shift+T']).toBe('reopen-closed-tab')
+  expect(defaults.shortcuts['CmdOrCtrl+Shift+T']).toBe('reopen-closed')
   expect(defaults.shortcuts['CmdOrCtrl+F']).toBe('find')
   expect(defaults.shortcuts['Cmd+1']).toBe('select-window-1')
   expect(defaults.shortcuts['Cmd+9']).toBe('select-window-9')

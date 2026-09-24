@@ -42,10 +42,10 @@ test.beforeAll(async () => {
   await address.fill(`${url}/fixture`); await address.press('Enter')
   await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/fixture`)).toBe(true)
   page = application.context().pages().find(page => page.url() === `${url}/fixture`)!
-  tabId = (await state()).model.sessions[0].windows[0].panes[0].activeTabId
+  tabId = (await state()).model.sessions[0].windows[0].panes[0].id
   await expect(page.locator('h1')).toBeVisible()
 })
-test.afterAll(async () => { await application?.close(); await new Promise<void>(resolve => server?.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) })
+test.afterAll(async () => { await application?.close().catch(() => undefined); server?.closeAllConnections(); await new Promise<void>(resolve => server?.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) })
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return
   let current = await state().catch(() => undefined)
@@ -109,9 +109,9 @@ test('settings tabs change preferences without editing YAML', async () => {
   await chrome.screenshot({ path: path.resolve('artifacts/settings-panel.png') })
   await panel.getByRole('combobox', { name: 'Status bar' }).selectOption('bottom')
   await expect.poll(async () => (await state()).statusBar).toBe('bottom')
-  await panel.getByRole('checkbox', { name: 'Tab close buttons' }).click()
+  await panel.getByRole('checkbox', { name: 'Window close buttons' }).click()
   await expect.poll(async () => (await state()).showTabCloseButtons).toBe(true)
-  await panel.getByRole('checkbox', { name: 'Tab close buttons' }).click()
+  await panel.getByRole('checkbox', { name: 'Window close buttons' }).click()
   await expect.poll(async () => (await state()).showTabCloseButtons).toBe(false)
   await panel.getByRole('combobox', { name: 'Status bar' }).selectOption('top')
   await expect.poll(async () => (await state()).statusBar).toBe('top')
@@ -182,9 +182,9 @@ test('request exceptions are profile scoped; userscript changes and exclusions r
   await expect(page.locator('.bmux-ad')).toBeVisible()
   let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
   let bot = await rpc('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot` })
-  await rpc('wait', { tab: bot.activeTabId, selector: 'h1' })
-  expect(await rpc('eval', { tab: bot.activeTabId, expression: 'window.startObserved' })).toBe('missing')
-  expect(await rpc('eval', { tab: bot.activeTabId, expression: '!!window.adLoaded' })).toBe(false)
+  await rpc('wait', { tab: bot.id, selector: 'h1' })
+  expect(await rpc('eval', { tab: bot.id, expression: 'window.startObserved' })).toBe('missing')
+  expect(await rpc('eval', { tab: bot.id, expression: '!!window.adLoaded' })).toBe(false)
   await fs.writeFile(path.join(directory, 'style.css'), '.custom { color: rgb(10, 100, 30) !important }')
   await expect(page.locator('.custom')).toHaveCSS('color', 'rgb(10, 100, 30)')
   await fs.writeFile(path.join(directory, 'early.js'), "globalThis.earlyFlag = 'changed'")
@@ -222,11 +222,11 @@ test('bundled form actions save encrypted data and reject profile, document, and
   if (!bot) {
     let pane = current.model.sessions[0].windows[0].panes[0]
     bot = await rpc('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot` })
-    await rpc('wait', { tab: bot.activeTabId, selector: 'h1' })
+    await rpc('wait', { tab: bot.id, selector: 'h1' })
     await rpc('select-pane', { client: current.clientId, pane: pane.id })
   }
-  expect(await rpc('forms.list', { tab: bot.activeTabId })).toEqual([])
-  await expect(rpc('forms.fill', { tab: bot.activeTabId, id: form.id })).rejects.toThrow('not found')
+  expect(await rpc('forms.list', { tab: bot.id })).toEqual([])
+  await expect(rpc('forms.fill', { tab: bot.id, id: form.id })).rejects.toThrow('not found')
   await page.locator('#name').evaluate(node => node.setAttribute('type', 'password'))
   await expect(rpc('forms.fill', { tab: tabId, id: form.id })).rejects.toThrow()
   await rpc('navigate', { tab: tabId, url: `${url.replace('127.0.0.1', 'localhost')}/fixture` })

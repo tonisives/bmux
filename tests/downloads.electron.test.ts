@@ -120,7 +120,7 @@ test('download manager controls real transfers and isolates profiles', async () 
   // The selected default profile never shows the other profile's transfer.
   await expect(complete).toHaveCount(1)
   let state = await chrome.evaluate(() => (window as any).bmux.state())
-  expect(state.model.sessions[0].windows[0].panes[0].activeTabId).toBe(pane.activeTabId)
+  expect(state.model.sessions[0].windows[0].panes[0].id).toBe(pane.id)
   await fs.mkdir(path.resolve('artifacts'), { recursive: true })
   await chrome.screenshot({ path: path.resolve('artifacts/download-manager.png') })
 })

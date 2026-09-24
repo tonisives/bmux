@@ -11,24 +11,24 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
   let validate = () => {
     signal.throwIfAborted()
     let current = options.context(context)
-    if (!context.tabId || !context.documentId || current.documentId !== context.documentId || current.url !== context.url) throw new Error('Document changed')
+    if (!context.paneId || !context.documentId || current.documentId !== context.documentId || current.url !== context.url) throw new Error('Document changed')
   }
   let evaluate = async (expression: string) => {
     validate()
-    let reference = await options.cdp(context.tabId!, 'Runtime.evaluate', { expression: 'globalThis', returnByValue: false })
+    let reference = await options.cdp(context.paneId!, 'Runtime.evaluate', { expression: 'globalThis', returnByValue: false })
     let objectId = reference.result.objectId
     try {
       validate()
-      let response = await options.cdp(context.tabId!, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(source) { return (0, eval)(source) }', arguments: [{ value: expression }], returnByValue: true, awaitPromise: true, timeout: 15000 })
+      let response = await options.cdp(context.paneId!, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(source) { return (0, eval)(source) }', arguments: [{ value: expression }], returnByValue: true, awaitPromise: true, timeout: 15000 })
       if (response.exceptionDetails) throw new Error('Page script failed')
       return response.result.value ?? null
-    } finally { if (objectId) void options.cdp(context.tabId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
+    } finally { if (objectId) void options.cdp(context.paneId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
   }
-  if (method === 'dom') return { tab: context.tabId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }
+  if (method === 'dom') return { pane: context.paneId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }
   if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return evaluate(args.expression) }
   if (method.startsWith('forms.')) {
     validate()
-    return options.execute({ method, args: { ...args, tab: context.tabId, _formsContext: context, _formsSignal: signal } })
+    return options.execute({ method, args: { ...args, pane: context.paneId, _formsContext: context, _formsSignal: signal } })
   }
   if (method === 'wait') {
     let timeout = Math.min(60000, Math.max(1, Number(args.timeout) || 15000)), end = Date.now() + timeout
@@ -64,11 +64,11 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
     validate()
     // Raw CDP is a trusted advanced capability. Exclude browser/target routing.
     if (typeof args.method !== 'string' || !/^(DOM|Runtime|Page|Input|Network|CSS|Accessibility|Emulation)\./.test(args.method) || args.sessionId !== undefined) throw new Error('Only tab-scoped CDP is supported')
-    return options.cdp(context.tabId!, args.method, (args.params ?? {}) as Record<string, unknown>)
+    return options.cdp(context.paneId!, args.method, (args.params ?? {}) as Record<string, unknown>)
   }
   if (['navigate', 'back', 'forward', 'reload', 'key', 'screenshot'].includes(method)) {
     validate()
-    return options.execute({ method, args: { ...args, tab: context.tabId, ...(method === 'navigate' ? { waitUntil: 'none' } : {}), _pluginGuard: validate } })
+    return options.execute({ method, args: { ...args, pane: context.paneId, ...(method === 'navigate' ? { waitUntil: 'none' } : {}), _pluginGuard: validate } })
   }
   signal.throwIfAborted()
   return options.execute({ method, args: { ...args } })

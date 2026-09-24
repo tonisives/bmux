@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import type { ProcessMetric, WebContents } from 'electron'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_HISTORY_LIMIT } from '../src/main/memory'
-import type { MemoryTab } from '../src/main/memory'
+import type { MemoryPane } from '../src/main/memory'
 
 let metric = (pid: number, size: number, creationTime = 1): ProcessMetric => ({ pid, creationTime, type: 'Tab', memory: { workingSetSize: size, peakWorkingSetSize: size }, cpu: { percentCPUUsage: 0, cumulativeCPUUsage: 0, idleWakeupsPerSecond: 0 } })
-let tab = (tabId: string, webContentsId: number, profileId = 'personal'): MemoryTab => ({ tabId, webContentsId, profileId, paneId: 'pane', windowId: 'window', sessionId: 'session', visible: false, backgroundThrottling: true, busy: false })
+let pane = (paneId: string, webContentsId: number, profileId = 'personal'): MemoryPane => ({ paneId, webContentsId, profileId, windowId: 'window', sessionId: 'session', visible: false, backgroundThrottling: true, busy: false })
 
 describe('memory diagnostics', () => {
   it('counts shared renderers once, includes subframes and keeps unmapped processes', () => {
     let sample = memorySample([metric(10, 100), metric(11, 40), metric(12, 20)], [
       { webContentsId: 1, type: 'browserView', processIds: [10, 11, 11, 99] },
       { webContentsId: 2, type: 'browserView', processIds: [10] },
-    ], [tab('one', 1), tab('two', 2)])
+    ], [pane('one', 1), pane('two', 2)])
     expect(sample.totalWorkingSetBytes).toBe(160 * 1024)
-    expect(sample.processes[0].tabIds).toEqual(['one', 'two'])
-    expect(sample.tabs[0].processIds).toEqual([10, 11])
+    expect(sample.processes[0].paneIds).toEqual(['one', 'two'])
+    expect(sample.panes[0].processIds).toEqual([10, 11])
     expect(sample.profiles[0].workingSetBytes).toBe(140 * 1024)
-    expect(sample.processes[2].tabIds).toEqual([])
+    expect(sample.processes[2].paneIds).toEqual([])
   })
 
   it('compares process identities, includes exits in totals, and marks new processes', () => {

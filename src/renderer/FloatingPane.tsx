@@ -14,7 +14,7 @@ export let FloatingPane = () => {
   let editing = useRef(false)
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
-  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let tab = pane
   let placement = windowState?.floating?.find(item => item.paneId === paneId)
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args: { client: state?.clientId, pane: paneId, ...args } }) }

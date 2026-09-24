@@ -11,7 +11,7 @@ let state = (): PublicState => {
 it('parses quoted names and URL arguments without shell interpretation', () => {
   expect(tokenize(':new-session -s "work space" --profile professional')).toEqual(['new-session', '-s', 'work space', '--profile', 'professional'])
   let current = state()
-  expect(parseCommandLine('open https://example.test/?a=1&b=$HOME', current)).toEqual({ method: 'navigate', args: { tab: current.model.sessions[0].windows[0].panes[0].activeTabId, url: 'https://example.test/?a=1&b=$HOME' } })
+  expect(parseCommandLine('open https://example.test/?a=1&b=$HOME', current)).toEqual({ method: 'navigate', args: { pane: current.model.sessions[0].windows[0].panes[0].id, url: 'https://example.test/?a=1&b=$HOME' } })
   expect(parseCommandLine('new-session -s "work space" --profile professional', current)).toMatchObject({ method: 'new-session', args: { name: 'work space', client: 'client', profile: 'professional' } })
   expect(parseCommandLine('new-session -s secret --private', current)).toMatchObject({ method: 'new-session', args: { name: 'secret', client: 'client', private: true } })
   expect(() => tokenize('open "unfinished')).toThrow('Unfinished quote')
@@ -25,8 +25,8 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })
   expect(parseCommandLine('pane-left', current)).toEqual({ method: 'select-pane-direction', args: { client: 'client', direction: 'left' } })
   expect(parseCommandLine('toggle-pane-zoom', current)).toEqual({ method: 'toggle-pane-zoom', args: { client: 'client' } })
-  expect(parseCommandLine('reopen-closed-tab', current)).toEqual({ method: 'reopen-closed-tab', args: { client: 'client' } })
-  expect(parseCommandLine('scroll-half-down', current)).toEqual({ method: 'scroll', args: { tab: window.panes[0].activeTabId, action: 'scroll-half-down' } })
+  expect(parseCommandLine('reopen-closed', current)).toEqual({ method: 'reopen-closed', args: { client: 'client' } })
+  expect(parseCommandLine('scroll-half-down', current)).toEqual({ method: 'scroll', args: { pane: window.panes[0].id, action: 'scroll-half-down' } })
   expect(parseCommandLine('move-window-left', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: -1 } })
   expect(parseCommandLine('move-window-right', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: 1 } })
   expect(parseCommandLine('move-window-first', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'first' } })
@@ -78,5 +78,5 @@ it('parses tmux pane command aliases and session targets', () => {
 })
 
 it('parses Bitwarden fill, lock, and tab-scoped cancellation', () => {
-  let current = state(), tab = current.model.sessions[0].windows[0].panes[0].activeTabId
+  let current = state(), tab = current.model.sessions[0].windows[0].panes[0].id
 })

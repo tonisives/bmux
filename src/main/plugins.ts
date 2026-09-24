@@ -113,29 +113,29 @@ export let createPlugins = (options: Options) => {
     }
     if (method === 'result') {
       if (JSON.stringify(args).length > 65536) throw new Error('Result too large')
-      if (run.automationToken && run.context.profileId && run.context.tabId && run.context.url) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.tabId!, url: run.context.url!, token: run.automationToken }))
+      if (run.automationToken && run.context.profileId && run.context.paneId && run.context.url) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: run.context.url!, token: run.automationToken }))
       run.public.result = args; options.changed(); return null
     }
     if (method === 'automation.acquire') {
-      if (!run.context.profileId || !run.context.tabId || run.automationToken) throw new Error('Automation lease unavailable')
-      let lease = policyCall(() => options.automation?.acquire({ profileId: run.context.profileId!, tabId: run.context.tabId!, url: shortText(args.url), pluginId: run.public.pluginId }))
+      if (!run.context.profileId || !run.context.paneId || run.automationToken) throw new Error('Automation lease unavailable')
+      let lease = policyCall(() => options.automation?.acquire({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: shortText(args.url), pluginId: run.public.pluginId }))
       if (!lease) throw new Error('Automation policy unavailable')
       run.automationToken = lease.token
       return { group: lease.group }
     }
     if (method === 'automation.status') return options.automation?.status() ?? []
     if (method === 'automation.like') {
-      if (!run.context.profileId || !run.context.tabId || !run.automationToken) throw new Error('Automation lease unavailable')
-      return policyCall(() => options.automation?.like({ profileId: run.context.profileId!, tabId: run.context.tabId!, url: shortText(args.url), token: run.automationToken! }))
+      if (!run.context.profileId || !run.context.paneId || !run.automationToken) throw new Error('Automation lease unavailable')
+      return policyCall(() => options.automation?.like({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: shortText(args.url), token: run.automationToken! }))
     }
     if (method === 'ui') { if (!run.action.capabilities.includes('ui')) throw new Error('Capability ui required'); return requestUI(run, args) }
     let capability = methods[method]
     if (!capability || !run.action.capabilities.includes(capability)) throw new Error('Browser capability required or unknown method')
     if (method === 'wait' && args.expression !== undefined && !run.action.capabilities.includes('browser.write')) throw new Error('JavaScript waits require browser.write')
-    if (capability !== 'browser.manage' && args.tab !== undefined && args.tab !== run.context.tabId) throw new Error('Invocation is bound to its original page')
+    if (capability !== 'browser.manage' && ((args.pane !== undefined && args.pane !== run.context.paneId) || (args.tab !== undefined && args.tab !== run.context.paneId))) throw new Error('Invocation is bound to its original pane')
     if (run.public.hook && ['select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
     let url = method === 'navigate' ? String(args.url) : run.context.url
-    if (url && run.context.profileId && run.context.tabId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.tabId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
+    if (url && run.context.profileId && run.context.paneId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
     try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context }, run.controller.signal) }
     catch { throw new Error('Browser operation failed or target document changed') }
   }
@@ -197,7 +197,7 @@ export let createPlugins = (options: Options) => {
   }
   let enqueue = (definition: Definition, action: PluginAction, context: PluginContext, parameters: Record<string, unknown>, hook: boolean, interactive: boolean) => {
     if (closed) throw new Error('Plugin host is closed')
-    if (hook) for (let prior of runs.values()) if (prior.public.hook && prior.public.status === 'queued' && prior.public.pluginId === definition.manifest.id && prior.public.actionId === action.id && prior.context.tabId === context.tabId) finish(prior, 'cancelled')
+    if (hook) for (let prior of runs.values()) if (prior.public.hook && prior.public.status === 'queued' && prior.public.pluginId === definition.manifest.id && prior.public.actionId === action.id && prior.context.paneId === context.paneId) finish(prior, 'cancelled')
     if ([...runs.values()].filter(run => live(run)).length >= 256) throw new Error('Plugin queue is full')
     for (let [id, run] of runs) if (!live(run) && runs.size >= 200) runs.delete(id)
     let id = randomUUID()
@@ -222,8 +222,8 @@ export let createPlugins = (options: Options) => {
       }
     }
   }
-  let invalidate = (tabId: string) => {
-    for (let run of runs.values()) if (run.context.tabId === tabId && (run.public.hook || run.pending)) finish(run, 'cancelled')
+  let invalidate = (paneId: string) => {
+    for (let run of runs.values()) if (run.context.paneId === paneId && (run.public.hook || run.pending)) finish(run, 'cancelled')
   }
   let reload = () => {
     if (closed || scanning) return

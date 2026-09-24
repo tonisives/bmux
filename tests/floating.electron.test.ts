@@ -86,8 +86,8 @@ test('floating frame border stays visible around square composited pages after r
   let floatingFrame = await frame(floating.id)
   let address = floatingFrame.getByRole('textbox', { name: 'Address', exact: true })
   await address.fill(`${url}/composited`); await address.press('Enter')
-  await rpc('wait', { tab: floating.activeTabId, selector: '#counter' })
-  let paint = () => rpc('eval', { tab: floating.activeTabId, expression: `(() => {
+  await rpc('wait', { tab: floating.id, selector: '#counter' })
+  let paint = () => rpc('eval', { tab: floating.id, expression: `(() => {
     let canvas = document.createElement('canvas');
     canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:2147483647;transform:translateZ(0)';
     document.body.append(canvas);
@@ -102,17 +102,17 @@ test('floating frame border stays visible around square composited pages after r
   await expectCoveredCorners(`${url}/composited`, info.outputPath('floating-webgl.png'), [255, 0, 255])
   await rpc('float.bounds', { client: client.id, pane: floating.id, x: 150, y: 100, width: 530, height: 360, commit: true })
   await rpc('client.overlay', { client: client.id, visible: true })
-  await expect.poll(async () => !!(await state()).snapshots[floating.activeTabId]).toBe(true)
+  await expect.poll(async () => !!(await state()).snapshots[floating.id]).toBe(true)
   await rpc('client.overlay', { client: client.id, visible: false })
   await expect(floatingFrame.locator('img')).toBeVisible()
   await expectCoveredCorners(`${url}/composited`, info.outputPath('floating-webgl-resized.png'), [255, 0, 255])
-  await rpc('reload', { tab: floating.activeTabId })
-  await rpc('wait', { tab: floating.activeTabId, selector: '#counter' })
+  await rpc('reload', { tab: floating.id })
+  await rpc('wait', { tab: floating.id, selector: '#counter' })
   await paint()
   await expectCoveredCorners(`${url}/composited`, info.outputPath('floating-webgl-reloaded.png'), [255, 0, 255])
   let otherOrigin = url.replace('127.0.0.1', 'localhost')
-  await rpc('navigate', { tab: floating.activeTabId, url: `${otherOrigin}/composited` })
-  await rpc('wait', { tab: floating.activeTabId, selector: '#counter' })
+  await rpc('navigate', { tab: floating.id, url: `${otherOrigin}/composited` })
+  await rpc('wait', { tab: floating.id, selector: '#counter' })
   await paint()
   await expectCoveredCorners(`${otherOrigin}/composited`, info.outputPath('floating-webgl-new-origin.png'), [255, 0, 255])
   await rpc('kill-pane', { pane: floating.id, confirm: true })
@@ -124,10 +124,10 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(`${url}/tiled`); await address.press('Enter')
-  await rpc('wait', { tab: tiled.activeTabId, selector: '#counter' })
+  await rpc('wait', { tab: tiled.id, selector: '#counter' })
   let right = await rpc('split-window', { pane: tiled.id, url: `${url}/right` })
-  await rpc('wait', { tab: right.activeTabId, selector: '#counter' })
-  let identity = await rpc('eval', { tab: right.activeTabId, expression: 'window.identity' })
+  await rpc('wait', { tab: right.id, selector: '#counter' })
+  let identity = await rpc('eval', { tab: right.id, expression: 'window.identity' })
   let systemWindows = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)
   await rpc('break-pane', { pane: right.id, floating: true, client: client.id })
   let firstFrame = await frame(right.id)
@@ -152,7 +152,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   })
   expect(dragSpace!.x - floatingAddressBox!.x - textWidth).toBeLessThan(12)
   expect(await firstFrame.locator('header').count()).toBe(0)
-  expect(await rpc('eval', { tab: right.activeTabId, expression: 'window.identity' })).toBe(identity)
+  expect(await rpc('eval', { tab: right.id, expression: 'window.identity' })).toBe(identity)
   expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(systemWindows)
   await rpc('activate-client', { client: client.id })
   let before = (await views())[0], rect = before.children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
@@ -172,13 +172,13 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   let secondFrame = await frame(second.id)
   let floatingAddress = secondFrame.getByRole('textbox', { name: 'Address', exact: true })
   await floatingAddress.fill(`${url}/float`); await floatingAddress.press('Enter')
-  await rpc('wait', { tab: second.activeTabId, selector: '#counter' })
+  await rpc('wait', { tab: second.id, selector: '#counter' })
   await expect.poll(async () => (await views())[0].children.some(view => view.url === `${url}/float` && view.bounds.width > 300)).toBe(true)
   let native = (await views())[0]
   let page = native.children.find(view => view.url === `${url}/float`)!
   await click(native.bounds.x + page.bounds.x + 45, native.bounds.y + page.bounds.y + 40)
-  await expect.poll(() => rpc('eval', { tab: second.activeTabId, expression: 'window.count' })).toBe(1)
-  expect(await rpc('eval', { tab: tiled.activeTabId, expression: 'window.count' })).toBe(0)
+  await expect.poll(() => rpc('eval', { tab: second.id, expression: 'window.count' })).toBe(1)
+  expect(await rpc('eval', { tab: tiled.id, expression: 'window.count' })).toBe(0)
   await rpc('select-pane', { client: client.id, pane: right.id })
   await expect.poll(async () => (await views())[0].children.filter(view => [url + '/right', url + '/float'].includes(view.url)).at(-1)?.url).toBe(url + '/right')
   await firstFrame.screenshot({ path: info.outputPath('floating-frame.png') })
@@ -199,7 +199,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   expect((await views())[0].children.filter(view => view.visible && (view.url.startsWith(url) || view.url.includes('#float=')))).toHaveLength(0)
   await rpc('client.overlay', { client: client.id, visible: false })
   await rpc('join-pane', { pane: right.id, client: client.id })
-  expect(await rpc('eval', { tab: right.activeTabId, expression: 'window.identity' })).toBe(identity)
+  expect(await rpc('eval', { tab: right.id, expression: 'window.identity' })).toBe(identity)
   let saved = (await state()).model.sessions[0].windows[0].floating
   expect(saved).toHaveLength(1)
   await rpc('save-layout', { window: window.id, name: 'floats' })
@@ -233,7 +233,8 @@ test('configured Command+W closes a selected float before its window', async () 
 test('page context menu opens links in a float using the source profile', async () => {
   let current = await state(), client = current.model.clients[0], window = current.model.sessions[0].windows[0], pane = window.panes[0]
   await rpc('select-window', { client: client.id, window: window.id })
-  await rpc('wait', { tab: pane.activeTabId, selector: 'a' })
+  await rpc('navigate', { pane: pane.id, url: `${url}/tiled` })
+  await rpc('wait', { pane: pane.id, selector: 'a' })
   // Observe the native menu, then invoke the actual menu item's click handler.
   await application.evaluate(({ Menu }) => {
     let build = Menu.buildFromTemplate
@@ -253,16 +254,16 @@ test('page context menu opens links in a float using the source profile', async 
     await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating.length).toBe(1)
     let added = (await state()).model.sessions[0].windows[0].panes.at(-1)
     expect(added.profileId).toBe(pane.profileId)
-    await rpc('wait', { tab: added.activeTabId, selector: '#counter' })
-    expect((await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/linked`)
+    await rpc('wait', { tab: added.id, selector: '#counter' })
+    expect((await state()).model.sessions[0].windows[0].panes.at(-1).url).toBe(`${url}/linked`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
 })
 
 test('page context menu replaces a misspelled word', async () => {
   let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
   await rpc('select-pane', { client: client.id, pane: pane.id })
-  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/spelling` })
-  await rpc('wait', { tab: pane.activeTabId, selector: '#spelling' })
+  await rpc('navigate', { tab: pane.id, url: `${url}/spelling` })
+  await rpc('wait', { tab: pane.id, selector: '#spelling' })
   let page = application.context().pages().find(page => page.url() === `${url}/spelling`)!
   let spelling = page.locator('#spelling')
   await spelling.click()
@@ -373,8 +374,8 @@ test('reopens a closed float at its remembered position and adapts after window 
 test('page context menu resolves JavaScript-driven links', async () => {
   let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
   await rpc('select-pane', { client: client.id, pane: pane.id })
-  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/script-link` })
-  await rpc('wait', { tab: pane.activeTabId, selector: '#script-link' })
+  await rpc('navigate', { tab: pane.id, url: `${url}/script-link` })
+  await rpc('wait', { tab: pane.id, selector: '#script-link' })
   await application.evaluate(({ Menu }) => {
     let build = Menu.buildFromTemplate
     ;(globalThis as any).restoreFloatingMenu = () => { Menu.buildFromTemplate = build }
@@ -390,15 +391,15 @@ test('page context menu resolves JavaScript-driven links', async () => {
     await page.locator('#script-link').click({ button: 'right' })
     await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open link in floating pane'))).toBe(true)
     await application.evaluate(() => { let item = (globalThis as any).floatingMenu.items.find((item: any) => item.label === 'Open link in floating pane'); item.click() })
-    await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/resolved-post`)
+    await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.at(-1).url).toBe(`${url}/resolved-post`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
 })
 
 test('page context menu falls back to the hovered target and main frame', async () => {
   let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
   await rpc('select-pane', { client: client.id, pane: pane.id })
-  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/hovered-script-link` })
-  await rpc('wait', { tab: pane.activeTabId, selector: '#script-link' })
+  await rpc('navigate', { tab: pane.id, url: `${url}/hovered-script-link` })
+  await rpc('wait', { tab: pane.id, selector: '#script-link' })
   let page = application.context().pages().find(page => page.url() === `${url}/hovered-script-link`)!
   await page.locator('#script-link').hover()
   await application.evaluate(({ Menu }) => {
@@ -425,9 +426,9 @@ test('only-floating windows support saved layouts, window switching and competin
   let session = await rpc('new-session', { name: 'floating-only', profile: 'bot' })
   let window = session.windows[0], pane = window.panes[0]
   await rpc('switch-client', { client: client.id, session: session.id })
-  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/only` })
-  await rpc('wait', { tab: pane.activeTabId, selector: '#counter' })
-  let identity = await rpc('eval', { tab: pane.activeTabId, expression: 'window.identity' })
+  await rpc('navigate', { tab: pane.id, url: `${url}/only` })
+  await rpc('wait', { tab: pane.id, selector: '#counter' })
+  let identity = await rpc('eval', { tab: pane.id, expression: 'window.identity' })
   await rpc('break-pane', { client: client.id, pane: pane.id, floating: true })
   await frame(pane.id)
   expect((await rpc('list-windows', { session: session.id }))[0].layout).toBeNull()
@@ -440,8 +441,8 @@ test('only-floating windows support saved layouts, window switching and competin
   let secondClient = await rpc('attach-session', { session: session.id })
   await rpc('activate-client', { client: secondClient.id })
   await expect.poll(async () => (await views()).flatMap(window => window.children).filter(view => view.url === `${url}/only`).length).toBe(1)
-  expect(await rpc('eval', { tab: pane.activeTabId, expression: 'window.identity' })).toBe(identity)
-  await expect.poll(async () => !!(await state()).snapshots[pane.activeTabId]).toBe(true)
+  expect(await rpc('eval', { tab: pane.id, expression: 'window.identity' })).toBe(identity)
+  await expect.poll(async () => !!(await state()).snapshots[pane.id]).toBe(true)
   await rpc('detach-client', { client: secondClient.id })
   await rpc('activate-client', { client: client.id })
   await rpc('restore-layout', { window: window.id, name: 'only-floating', confirm: true })

@@ -136,5 +136,5 @@ export let createClickMode = (options: Options) => {
     if (mode.input.length === 1 && !mode.wrongSecondKey) { mode.wrongSecondKey = true; render(mode, true); return true }
     cancel(); return true
   }
-  return { activate, cancel, handle, active: () => !!active, status: (clientId: string) => active?.clientId === clientId ? { tabId: active.tabId, input: active.input, action: active.action } : undefined, cancelTab: (tabId: string) => { if (active?.tabId === tabId) cancel() }, cancelClient: (clientId: string) => { if (active?.clientId === clientId) cancel() } }
+  return { activate, cancel, handle, active: () => !!active, status: (clientId: string) => active?.clientId === clientId ? { paneId: active.tabId, input: active.input, action: active.action } : undefined, cancelTab: (tabId: string) => { if (active?.tabId === tabId) cancel() }, cancelClient: (clientId: string) => { if (active?.clientId === clientId) cancel() } }
 }

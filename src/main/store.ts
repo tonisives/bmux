@@ -38,7 +38,10 @@ export let writeAtomic = (file: string, content: string) => {
 export let readModel = (directory: string, bookmarkFile = path.join(directory, 'bookmarks.yaml')): Model => {
   let file = path.join(directory, 'state.json')
   // Never overwrite an unreadable state with an empty session.
-  let model = fs.existsSync(file) ? validateModel(JSON.parse(fs.readFileSync(file, 'utf8'))) : initialModel()
+  let source = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined
+  let parsed = source === undefined ? undefined : JSON.parse(source)
+  let upgraded = parsed?.version === 1
+  let model = parsed === undefined ? initialModel() : validateModel(parsed)
   if (fs.existsSync(bookmarkFile)) {
     let profiles = parseBookmarks(fs.readFileSync(bookmarkFile, 'utf8'))
     for (let profileId of Object.keys(profiles)) if (!model.profiles.some(profile => profile.id === profileId)) throw new Error(`Unknown bookmark profile: ${profileId}`)
@@ -49,6 +52,11 @@ export let readModel = (directory: string, bookmarkFile = path.join(directory, '
   } else if (model.profiles.some(profile => profile.bookmarks?.length)) {
     // Create the YAML copy before the next state save removes embedded bookmarks.
     writeAtomic(bookmarkFile, stringify({ profiles: bookmarkProfiles(model) }))
+  }
+  if (upgraded) {
+    let backup = `${file}.v1-backup`
+    if (!fs.existsSync(backup)) writeAtomic(backup, source!)
+    writeModel(directory, model, bookmarkFile)
   }
   return model
 }

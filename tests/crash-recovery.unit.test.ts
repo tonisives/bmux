@@ -23,7 +23,7 @@ it('removes the pane whose navigation was interrupted by an application crash', 
   window.panes.push(crashed)
   window.layout = { kind: 'split', id: id('split'), axis: 'horizontal', ratio: 0.5, first: { kind: 'pane', paneId: retained.id }, second: { kind: 'pane', paneId: crashed.id } }
   model.clients.push({ id: id('client'), sessionId: session.id, windowId: window.id, paneId: crashed.id, zoomedPaneId: crashed.id, width: 900, height: 700 })
-  createNavigationCrashMarker(dataDirectory).mark(crashed.id, crashed.activeTabId, crashed.tabs[0].url)
+  createNavigationCrashMarker(dataDirectory).mark(crashed.id, crashed.id, crashed.url)
 
   expect(recoverNavigationCrash(dataDirectory, model)).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
   expect(window.panes.map(pane => pane.id)).toEqual([retained.id])
@@ -35,17 +35,17 @@ it('removes the pane whose navigation was interrupted by an application crash', 
 
 it('replaces the final pane with a blank session and ignores clean navigation state', () => {
   let dataDirectory = directory(), model = initialModel(), pane = model.sessions[0].windows[0].panes[0], originalSession = model.sessions[0].id
-  fs.writeFileSync(path.join(dataDirectory, 'navigation-crash.json'), JSON.stringify({ version: 1, paneId: pane.id, tabId: pane.activeTabId, url: 'https://example.com/stale' }))
+  fs.writeFileSync(path.join(dataDirectory, 'navigation-crash.json'), JSON.stringify({ version: 1, paneId: pane.id, tabId: pane.id, url: 'https://example.com/stale' }))
   expect(recoverNavigationCrash(dataDirectory, model)).toBeUndefined()
   let marker = createNavigationCrashMarker(dataDirectory)
-  marker.mark(pane.id, pane.activeTabId, 'https://example.com/failing')
+  marker.mark(pane.id, pane.id, 'https://example.com/failing')
   marker.close()
   expect(recoverNavigationCrash(dataDirectory, model)).toBeUndefined()
 
-  marker.mark(pane.id, pane.activeTabId, 'https://example.com/failing')
+  marker.mark(pane.id, pane.id, 'https://example.com/failing')
   expect(recoverNavigationCrash(dataDirectory, model)).toBe('Removed a pane after example.com crashed bmux during navigation.')
   expect(model.sessions[0].id).not.toBe(originalSession)
-  expect(model.sessions[0].windows[0].panes[0].tabs[0].url).toBe('about:blank')
+  expect(model.sessions[0].windows[0].panes[0].url).toBe('about:blank')
 })
 
 it('serializes restored navigations so the crash marker cannot be overwritten', async () => {
@@ -69,12 +69,12 @@ it('uses serialized restoration only after an unclean normal run', () => {
 
   let normal = startNavigationCrashRecovery(dataDirectory, model)
   expect(normal.serializeRestores).toBe(false)
-  normal.marker.mark(safe.id, safe.activeTabId, 'https://example.com/safe')
+  normal.marker.mark(safe.id, safe.id, 'https://example.com/safe')
 
   let recovery = startNavigationCrashRecovery(dataDirectory, model)
   expect(recovery.serializeRestores).toBe(true)
   expect(recovery.startupNotice).toBeUndefined()
-  recovery.marker.mark(crashed.id, crashed.activeTabId, crashed.tabs[0].url)
+  recovery.marker.mark(crashed.id, crashed.id, crashed.url)
 
   let recovered = startNavigationCrashRecovery(dataDirectory, model)
   expect(recovered.serializeRestores).toBe(false)

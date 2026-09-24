@@ -7,7 +7,7 @@ export type PluginProxyProvider = { id: string; title: string; help?: string; au
 export type PluginManifest = { schema_version: 1; id: string; name: string; version: string; actions: PluginAction[]; hooks: PluginHook[]; proxyProviders: PluginProxyProvider[] }
 export type PluginSettings = Record<string, { enabled: boolean; hooks: boolean }>
 export type PluginInfo = { id: string; name: string; version: string; enabled: boolean; hooks: boolean; error?: string; actions: Pick<PluginAction, 'id' | 'title' | 'description'>[]; proxyProviders: PluginProxyProvider[] }
-export type PluginContext = { clientId?: string; sessionId?: string; windowId?: string; paneId?: string; profileId?: string; tabId?: string; documentId?: string; url?: string }
+export type PluginContext = { clientId?: string; sessionId?: string; windowId?: string; paneId?: string; profileId?: string; documentId?: string; url?: string }
 export type PluginRun = { id: string; pluginId: string; actionId: string; title: string; hook: boolean; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'; progress?: { percent: number; message: string }; result?: unknown; error?: string }
 export type PluginPrompt = { id: string; runId: string; pluginName: string; kind: 'pick' | 'text' | 'password' | 'confirm'; title: string; required?: boolean; items?: { id: string; label: string; description?: string }[] }
 export let pluginBinding = (value: string) => /^plugin:[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)

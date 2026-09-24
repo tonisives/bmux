@@ -2,8 +2,8 @@ import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSes
 import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Permission, PublicState, Snapshot, Tab } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newTab, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot } from '../shared/types'
+import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -93,7 +93,7 @@ export let createRuntime = (dataDirectory: string) => {
   let navigationCrashMarker = crashRecovery.marker
   let queueRestoredNavigation = createSerialNavigationQueue()
   let restoringTabs = crashRecovery.serializeRestores
-  let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'tab'; paneId: string; index: number; tab: Tab; replacementTabId?: string })[] = []
+  let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'pane'; windowId: string; index: number; pane: Pane; layout: InternalWindow['layout']; floating: InternalWindow['floating']; remainingPaneIds: string[] })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
@@ -111,17 +111,17 @@ export let createRuntime = (dataDirectory: string) => {
   let idleUnloadTimer: ReturnType<typeof setInterval> | undefined
   let memory = createMemoryDiagnostics(previous => {
     let owners = memoryOwners(webContents.getAllWebContents())
-    let tabDetails = walkPanes(model).flatMap(({ session, window, pane }) => pane.tabs.map(tab => {
-      let candidate = tabs.get(tab.id)
+    let tabDetails = walkPanes(model).map(({ session, window, pane }) => {
+      let candidate = tabs.get(pane.id)
       let live = candidate && !candidate.disposed && !candidate.contents.isDestroyed() ? candidate : undefined
       return {
-        tabId: tab.id, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId,
+        paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId,
         webContentsId: live ? live.contents.id : null,
         visible: Boolean(live && !live.parent.isDestroyed() && live.parent.isVisible() && !live.parent.isMinimized() && live.view.getVisible()),
         backgroundThrottling: live ? live.contents.getBackgroundThrottling() : null,
-        busy: tabQueues.has(tab.id),
+        busy: tabQueues.has(pane.id),
       }
-    }))
+    })
     return memorySample(app.getAppMetrics(), owners, tabDetails, previous)
   })
   let configuredProfiles = new Set<string>()
@@ -142,7 +142,8 @@ export let createRuntime = (dataDirectory: string) => {
     },
     selectTab: contents => {
       let target = [...tabs].find(([, live]) => live.contents === contents)
-      if (target) { let { pane } = tabById(model, target[0]); if (pane.activeTabId !== target[0]) void execute({ method: 'tab.select', args: { tab: target[0] } }).catch(() => undefined) }
+      let client = model.clients.find(client => client.id === focusedClientId)
+      if (target && client) { let { window } = paneById(model, target[0]); if (client.windowId !== window.id) void execute({ method: 'select-window', args: { client: client.id, window: window.id } }).catch(() => undefined) }
     },
     removeTab: contents => {
       let target = [...tabs].find(([, live]) => live.contents === contents)
@@ -207,7 +208,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
       if (!client || !owner || client.id !== focusedClientId || !owner.window.isFocused() || overlays.has(clientId) || !client.paneId) return false
       let pane = paneById(model, client.paneId).pane
-      return pane.activeTabId === tabId && tabs.get(tabId)?.contents === contents && tabs.get(tabId)?.parent === owner.window
+      return pane.id === tabId && tabs.get(tabId)?.contents === contents && tabs.get(tabId)?.parent === owner.window
     },
     openLink: async (clientId, tabId, url, action) => {
       let pane = tabById(model, tabId).pane
@@ -233,16 +234,16 @@ export let createRuntime = (dataDirectory: string) => {
   let documents = new Map<string, number>()
   let pluginContext = (target: PluginContext): PluginContext => {
     let client = target.clientId ? model.clients.find(client => client.id === target.clientId) : undefined
-    let tabId = target.tabId ?? (client?.paneId ? paneById(model, client.paneId).pane.activeTabId : undefined)
+    let tabId = target.paneId ?? (client?.paneId ? paneById(model, client.paneId).pane.id : undefined)
     if (!tabId) return { clientId: client?.id }
     let { tab, pane, window, session } = tabById(model, tabId)
     let contents = tabs.get(tabId)?.contents
-    return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, tabId: tab.id, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
+    return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
   }
   let pluginSelected = (context: PluginContext) => {
     let client = model.clients.find(client => client.id === context.clientId)
     if (!client || client.windowId !== context.windowId || client.paneId !== context.paneId) return false
-    return !!client.paneId && paneById(model, client.paneId).pane.activeTabId === context.tabId
+    return !!client.paneId && paneById(model, client.paneId).pane.id === context.paneId
   }
   let pluginInteractive = (context: PluginContext) => pluginSelected(context) && context.clientId === focusedClientId && clients.get(context.clientId!)?.window.isFocused() === true
   let accessibilityPreference = false
@@ -265,7 +266,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (!visible) {
       if (live.permissionPopup.webContents.isFocused() && live.window.isFocused()) {
         let client = model.clients.find(client => client.id === clientId)
-        let tab = client?.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
+        let tab = client?.paneId ? tabs.get(paneById(model, client.paneId).pane.id) : undefined
         if (tab?.parent === live.window && !overlays.has(clientId)) tab.contents.focus()
         else live.chrome.webContents.focus()
       }
@@ -280,10 +281,10 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
-    let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.tabs.some(tab => tab.id === live.linkTabId)) : undefined
-    let bounds = live.linkTabId ? (client && target ? floatBounds(client, target.pane.id) : undefined) ?? live.bounds.find(bounds => bounds.tabId === live.linkTabId) : undefined
+    let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
+    let bounds = live.linkTabId ? (client && target ? floatBounds(client, target.pane.id) : undefined) ?? live.bounds.find(bounds => bounds.paneId === live.linkTabId) : undefined
     let page = live.linkTabId ? tabs.get(live.linkTabId) : undefined
-    let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.activeTabId === live.linkTabId && !!bounds
+    let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.id === live.linkTabId && !!bounds
     if (!visible || !bounds) { live.linkPreview.setVisible(false); return }
     live.linkPreview.webContents.send('link-preview', live.linkUrl)
     let inset = client && target && floatBounds(client, target.pane.id) ? FLOAT_CONTENT_INSET : 0
@@ -450,7 +451,7 @@ export let createRuntime = (dataDirectory: string) => {
       let known = permissionGrants.get(grantKey)
       if (known !== undefined) { reply(known); return }
       let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''
-      let request = { id: id('permission'), profileId, origin, permission, tabId, reply, privateSessionId }
+      let request = { id: id('permission'), profileId, origin, permission, paneId: tabId, reply, privateSessionId }
       permissions.set(request.id, request)
       publish()
     })
@@ -551,17 +552,17 @@ export let createRuntime = (dataDirectory: string) => {
     if (!clientId || overlays.has(clientId)) return Promise.resolve(false)
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
     let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-    let live = pane?.activeTabId ? tabs.get(pane.activeTabId) : undefined
+    let live = pane?.id ? tabs.get(pane.id) : undefined
     if (!client || !owner || client.id !== focusedClientId || !owner.window.isFocused() || !pane || !live || live.parent !== owner.window) return Promise.resolve(false)
     prefixUntil = 0; pendingSequence = undefined; pendingModifierShortcut = undefined
-    return clickMode.activate(client.id, pane.activeTabId, live.contents, configuration?.clickMode ?? DEFAULT_CLICK_MODE)
+    return clickMode.activate(client.id, pane.id, live.contents, configuration?.clickMode ?? DEFAULT_CLICK_MODE)
   }
   let dispatchShortcut = (action: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
     let focused = clients.get(client.id)!
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
-    let tab = pane?.activeTabId
+    let tab = pane?.id
     let control = (name: string) => { pointerTarget = undefined; let chrome = name === 'address' && pane && !client.zoomedPaneId ? focused.floats.get(pane.id) ?? focused.chrome : focused.chrome; chrome.webContents.focus(); chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
@@ -623,9 +624,9 @@ export let createRuntime = (dataDirectory: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     let owner = client ? clients.get(client.id) : undefined
     let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-    let live = pane?.activeTabId ? tabs.get(pane.activeTabId) : undefined
+    let live = pane?.id ? tabs.get(pane.id) : undefined
     let paneFocused = !!owner?.window.isFocused() && contents.isFocused() && live?.contents === contents && live?.parent === owner.window && !overlays.has(client!.id)
-    return shortcutMatchesContext(binding, paneFocused, paneFocused ? pageTools?.editing(pane!.activeTabId!) : undefined)
+    return shortcutMatchesContext(binding, paneFocused, paneFocused ? pageTools?.editing(pane!.id!) : undefined)
   }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
@@ -637,7 +638,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (clickMode.handle(focusedClientId, input)) { event.preventDefault(); return }
       let clickSettings = configuration?.clickMode ?? DEFAULT_CLICK_MODE
       let selected = model.clients.find(client => client.id === focusedClientId)?.paneId
-      let selectedContents = selected ? tabs.get(paneById(model, selected).pane.activeTabId)?.contents : undefined
+      let selectedContents = selected ? tabs.get(paneById(model, selected).pane.id)?.contents : undefined
       if (doubleTap.update(input, clickSettings.enabled && selectedContents === contents ? clickSettings.doubleTapModifier : null)) { event.preventDefault(); void activateClickMode().catch(reportError); return }
       if (pendingModifierShortcut && (pendingModifierShortcut.clientId !== focusedClientId || pendingModifierShortcut.contentsId !== contents.id)) pendingModifierShortcut = undefined
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
@@ -698,7 +699,7 @@ export let createRuntime = (dataDirectory: string) => {
       let tabId = [...tabs].find(([, tab]) => tab.contents === contents)?.[0]
       if (!tabId) {
         let client = model.clients.find(client => clients.get(client.id) === owner)
-        tabId = client?.paneId ? paneById(model, client.paneId).pane.activeTabId : undefined
+        tabId = client?.paneId ? paneById(model, client.paneId).pane.id : undefined
       }
       if (!tabId) return
       event.preventDefault()
@@ -764,7 +765,7 @@ export let createRuntime = (dataDirectory: string) => {
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     let lastCountedUrl = initialUrl
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
-    let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.activeTabId === tabId)
+    let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
     contents.on('will-navigate', (event, url) => {
       if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? { groups: {} }, pane.profileId, url)) return
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation', record: false }) }
@@ -793,12 +794,12 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('render-process-gone', () => { delete findResults[tabId] })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
-    contents.on('dom-ready', () => { if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
-    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
+    contents.on('dom-ready', () => { if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ paneId: tabId })) })
+    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ paneId: tabId })) })
     contents.once('destroyed', () => {
       if (live.disposed || live.closing || shuttingDown || tabs.get(tabId) !== live) return
       let { tab, pane, window } = tabById(model, tabId)
-      if (tab.openerTabId && pane.tabs.length === 1 && window.panes.length === 1) void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError)
+      if (tab.openerPaneId && window.panes.length === 1) void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError)
       else void execute({ method: 'tab.close', args: { tab: tab.id } }).catch(reportError)
     })
     contents.on('render-process-gone', () => { invalidate() })
@@ -807,7 +808,7 @@ export let createRuntime = (dataDirectory: string) => {
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       tab.url = contents.getURL() || tab.url
-      tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New tab' : tab.url)
+      tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New window' : tab.url)
       if (!session.private && /^https?:\/\//.test(tab.url)) {
         let profile = model.profiles.find(profile => profile.id === pane.profileId)!
         profile.history = recordHistory(profile.history ?? [], tab.url, tab.title, Date.now())
@@ -870,8 +871,8 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
-      let added = created.panes[0].tabs[0]
-      added.openerTabId = tabId
+      let added = created.panes[0]
+      added.openerPaneId = tabId
       if (!options?.webContents) { added.url = url; added.title = url }
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
@@ -948,7 +949,7 @@ export let createRuntime = (dataDirectory: string) => {
             { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
             { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
             { label: 'Reload', click: () => contents.reload() },
-            { label: 'Keep Page Loaded', type: 'checkbox', checked: tabById(model, tabId).tab.keepAlive === true, click: item => { void execute({ method: 'tab.keep-alive', args: { tab: tabId, enabled: item.checked } }).catch(reportError) } },
+            { label: 'Keep Page Loaded', type: 'checkbox', checked: paneById(model, tabId).pane.keepAlive === true, click: item => { void execute({ method: 'pane.keep-alive', args: { pane: tabId, enabled: item.checked } }).catch(reportError) } },
           )
           if (params.selectionText || params.isEditable) template.push(
             { type: 'separator' },
@@ -995,7 +996,7 @@ export let createRuntime = (dataDirectory: string) => {
     let { pane, tab, session } = tabById(model, tabId)
     let contents = live.contents
     if (tab.keepAlive || scriptTouchedTabs.has(tabId) || session.private || resolve(model.profiles, pane.profileId, 'Profile').background || live.disposed || live.closing || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) return false
-    if (tabAutomation.has(tabId) || permissions.size && [...permissions.values()].some(request => request.tabId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)) return false
+    if (tabAutomation.has(tabId) || permissions.size && [...permissions.values()].some(request => request.paneId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)) return false
     if (contents.mainFrame.framesInSubtree.length !== 1) return false
     let url = contents.getURL() || tab.url
     if (!url || !['about:', 'http:', 'https:'].includes(new URL(url).protocol)) return false
@@ -1024,7 +1025,7 @@ export let createRuntime = (dataDirectory: string) => {
         if (Date.now() - last < minutes * 60_000 || tabQueues.has(tabId)) continue
         let visible = model.clients.some(client => {
           let owner = clients.get(client.id)
-          return owner && owner.window.isVisible() && !owner.window.isMinimized() && visiblePaneIds(client).some(paneId => paneById(model, paneId).pane.activeTabId === tabId)
+          return owner && owner.window.isVisible() && !owner.window.isMinimized() && visiblePaneIds(client).some(paneId => paneById(model, paneId).pane.id === tabId)
         })
         if (visible) { lastTabUse.set(tabId, Date.now()); continue }
         try {
@@ -1094,7 +1095,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
     }
-    for (let [requestId, request] of permissions) if (request.tabId === tabId) { request.reply(false); permissions.delete(requestId) }
+    for (let [requestId, request] of permissions) if (request.paneId === tabId) { request.reply(false); permissions.delete(requestId) }
     delete security[tabId]
     delete snapshots[tabId]
     delete crashes[tabId]
@@ -1108,18 +1109,13 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let visiblePaneIds = (client: Client) => client.zoomedPaneId ? [client.zoomedPaneId] : model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
   let paneMenu = (paneId: string, clientId: string): Electron.MenuItemConstructorOptions[] => {
-    let { window, pane } = paneById(model, paneId)
+    let { window } = paneById(model, paneId)
     let floating = window.floating?.some(item => item.paneId === paneId)
     let invoke = (method: string, args: Record<string, unknown> = {}) => { void execute({ method, args: { pane: paneId, client: clientId, ...args } }).catch(reportError) }
     return [
       { label: floating ? 'Return to Split' : 'Float Pane', click: () => invoke(floating ? 'join-pane' : 'break-pane', { floating: true }) },
       ...(floating ? [{ label: 'Move to Window', submenu: model.sessions.flatMap(session => session.windows.filter(candidate => candidate !== window).map(candidate => ({ label: `${session.name}: ${candidate.name}`, click: () => invoke('move-pane', { window: candidate.id }) }))) }] : []),
-      { label: 'Close Pane', click: () => {
-        if (pane.tabs.length > 1) {
-          let owner = clients.get(clientId)
-          if (owner) { void execute({ method: 'select-pane', args: { client: clientId, pane: paneId, focus: false } }).then(() => { owner.chrome.webContents.focus(); owner.chrome.webContents.send('focus-control', 'close-pane') }).catch(reportError) }
-        } else invoke('kill-pane')
-      } },
+      { label: 'Close Pane', click: () => invoke('kill-pane') },
     ]
   }
   let floatRect = (client: Client, placement: NonNullable<InternalWindow['floating']>[number]) => {
@@ -1132,7 +1128,7 @@ export let createRuntime = (dataDirectory: string) => {
     let placement = window.floating?.find(item => item.paneId === paneId)
     if (!placement) return
     let rect = floatRect(client, placement)
-    return { tabId: pane.activeTabId, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_VERTICAL_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_VERTICAL_INSET * 2) }
+    return { paneId: pane.id, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_VERTICAL_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_VERTICAL_INSET * 2) }
   }
   let prepareFloats = (client: Client, live: LiveClient) => {
     let window = model.sessions.flatMap(session => session.windows).find(window => window.id === client.windowId)
@@ -1157,7 +1153,7 @@ export let createRuntime = (dataDirectory: string) => {
         void ready.then(() => {
           publish()
           let pane = window?.panes.find(pane => pane.id === placement.paneId)
-          if (!contents.isDestroyed() && pane?.tabs.find(tab => tab.id === pane.activeTabId)?.url === 'about:blank' && client.paneId === pane.id && focusedClientId === client.id && live.window.isFocused()) contents.focus()
+          if (!contents.isDestroyed() && pane?.url === 'about:blank' && client.paneId === pane.id && focusedClientId === client.id && live.window.isFocused()) contents.focus()
         }).catch(reportError)
       }
       let { x, y, width, height } = floatRect(client, placement)
@@ -1190,7 +1186,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let singlePaneBounds = (tabId: string, live: LiveClient, exact?: Bounds) => {
     // Popup and session changes can reconcile before the renderer publishes the
-    // selected tab. A single tiled pane fills the chrome, so its last content
+    // selected pane. A single tiled pane fills the chrome, so its last content
     // region is a safe fallback and split-sized horizontal insets are stale.
     let candidates = exact ? [exact] : live.bounds.filter(bounds => bounds.width > 0 && bounds.height > 0)
     if (!candidates.length) return
@@ -1203,16 +1199,16 @@ export let createRuntime = (dataDirectory: string) => {
     let staleHorizontal = left < 0 || left > 8 || rightInset < 0 || rightInset > 8
     let leftInset = staleHorizontal ? 1 : Math.round(left)
     if (staleHorizontal) rightInset = 1
-    return { tabId, x: leftInset, y: Math.round(top), width: Math.max(1, chrome.width - leftInset - Math.round(rightInset)), height: Math.max(1, Math.round(bottom - top)) }
+    return { paneId: tabId, x: leftInset, y: Math.round(top), width: Math.max(1, chrome.width - leftInset - Math.round(rightInset)), height: Math.max(1, Math.round(bottom - top)) }
   }
   let reconcile = () => {
     if (shuttingDown) return
-    let liveIds = new Set(walkPanes(model).flatMap(({ pane }) => pane.tabs.map(tab => tab.id)))
+    let liveIds = new Set(walkPanes(model).map(({ pane }) => pane.id))
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
     for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
     for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
-    let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.activeTabId)))
-    let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.activeTabId)))
+    let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
+    let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
     for (let tabId of liveIds) if (!tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
     for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) lastTabUse.set(tabId, Date.now())
     for (let tabId of visibleSelected) lastTabUse.set(tabId, Date.now())
@@ -1226,9 +1222,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (!live || !live.window.isVisible() || live.window.isMinimized() || overlays.has(candidate.id)) continue
       let paneIds = visiblePaneIds(candidate)
       for (let paneId of paneIds) {
-        let tabId = paneById(model, paneId).pane.activeTabId
+        let tabId = paneById(model, paneId).pane.id
         let floatingBounds = floatBounds(candidate, paneId)
-        let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.tabId === tabId)
+        let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.paneId === tabId)
         if (!floatingBounds && paneIds.length === 1) bounds = singlePaneBounds(tabId, live, bounds)
         if (!bounds) continue
         let entries = viewers.get(tabId) ?? []
@@ -1248,7 +1244,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
-      extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.activeTabId === tabId)
+      extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
         let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
@@ -1266,13 +1262,13 @@ export let createRuntime = (dataDirectory: string) => {
       let ordered: View[] = []
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
-        let page = tabs.get(paneById(model, paneId).pane.activeTabId)
+        let page = tabs.get(paneById(model, paneId).pane.id)
         if (page?.parent === live.window) ordered.push(page.view)
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
         if (frame) ordered.push(frame)
-        let page = tabs.get(paneById(model, placement.paneId).pane.activeTabId)
+        let page = tabs.get(paneById(model, placement.paneId).pane.id)
         if (page?.parent === live.window) {
           ordered.push(page.view)
         }
@@ -1285,11 +1281,11 @@ export let createRuntime = (dataDirectory: string) => {
       if (!client || client.id !== pointerTarget.clientId || client.paneId !== pointerTarget.paneId || Date.now() > pointerTarget.expires || cursor.x !== pointerTarget.origin.x || cursor.y !== pointerTarget.origin.y) pointerTarget = undefined
       else if (owner?.window.isFocused()) {
         let pane = paneById(model, client.paneId).pane
-        let bounds = floatBounds(client, pane.id) ?? owner.bounds.find(bounds => bounds.tabId === pane.activeTabId)
+        let bounds = floatBounds(client, pane.id) ?? owner.bounds.find(bounds => bounds.paneId === pane.id)
         // A zoomed pane's new content bounds arrive from the renderer after selection.
         if (bounds && bounds.width > 0 && bounds.height > 0) {
           pointerTarget = undefined
-          let live = tabs.get(pane.activeTabId)
+          let live = tabs.get(pane.id)
           if (live?.parent === owner.window) live.contents.focus()
           let content = owner.window.getContentBounds()
           try { movePointer({ x: Math.round(content.x + bounds.x + bounds.width / 2), y: Math.round(content.y + bounds.y + bounds.height / 2) }) }
@@ -1309,21 +1305,8 @@ export let createRuntime = (dataDirectory: string) => {
   let repairClients = () => repairClientSelections(model)
   let changed = () => { clickMode.cancel(); doubleTap.reset(); repairClients(); save(); void scheduleVisuals() }
   let closeTabsBeforeRemoval = async (tabIds: string[]) => {
-    let closed: string[] = []
     for (let tabId of tabIds) {
-      if (await closeLiveTab(tabId)) { closed.push(tabId); continue }
-      if (closed.length) {
-        for (let id of closed) {
-          let { tab, pane, session } = tabById(model, id)
-          let entry: Extract<(typeof closedTabs)[number], { kind: 'tab' }> = { kind: 'tab', paneId: pane.id, index: pane.tabs.indexOf(tab), tab: structuredClone(tab) }
-          if (!session.private) { closedTabs.push(entry); if (closedTabs.length > 25) closedTabs.shift() }
-          pane.tabs = pane.tabs.filter(item => item.id !== id)
-          if (!pane.tabs.length) { let replacement = newTab(); pane.tabs.push(replacement); entry.replacementTabId = replacement.id }
-          if (pane.activeTabId === id) pane.activeTabId = pane.tabs[0].id
-        }
-        changed(); await visualQueue
-      }
-      return false
+      if (!await closeLiveTab(tabId)) return false
     }
     return true
   }
@@ -1356,7 +1339,7 @@ export let createRuntime = (dataDirectory: string) => {
         // Reattaching views after a blur can leave AppKit with no web first responder.
         if (window.isDestroyed() || !window.isFocused()) return
         if (webContents.getFocusedWebContents()) return
-        let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
+        let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.id) : undefined
         if (owner.pageFocused && live?.parent === window) live.contents.focus()
         else chrome.webContents.focus()
       }).catch(reportError)
@@ -1403,11 +1386,11 @@ export let createRuntime = (dataDirectory: string) => {
     void scheduleVisuals()
   }
 
-  let paneTargetedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools', 'zoom', 'scroll', 'browser.set', 'plugin.run'])
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+    if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.acquire') {
-      let paneId = required(args, 'pane'), { pane } = paneById(model, paneId), tabId = pane.activeTabId
+      let paneId = required(args, 'pane'), { pane } = paneById(model, paneId), tabId = pane.id
       if (!automation) throw new Error('Automation policy unavailable')
       let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url')) })
       tabAutomation.set(tabId, lease.token)
@@ -1432,7 +1415,6 @@ export let createRuntime = (dataDirectory: string) => {
       if (args.history !== undefined && typeof args.history !== 'boolean') throw new Error('history must be a boolean')
       return memory.report(args.history === true)
     }
-    if (paneTargetedMethods.has(method) && typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: paneById(model, args.pane).pane.activeTabId }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab } = tabById(model, args.tab)
@@ -1471,12 +1453,7 @@ export let createRuntime = (dataDirectory: string) => {
       let { window, pane } = paneById(model, args.pane)
       if (client.windowId !== window.id) throw new Error('Pane is not in this client window')
       if (method === 'pane.menu') { Menu.buildFromTemplate(paneMenu(pane.id, client.id)).popup({ window: clients.get(client.id)!.window }); return null }
-      if (method === 'pane.close') {
-        if (pane.tabs.length <= 1) return execute({ method: 'kill-pane', args: { pane: pane.id } })
-        await execute({ method: 'select-pane', args: { pane: pane.id, client: client.id, focus: false } })
-        let chrome = clients.get(client.id)!.chrome.webContents
-        chrome.focus(); chrome.send('focus-control', 'close-pane'); return null
-      }
+      if (method === 'pane.close') return execute({ method: 'kill-pane', args: { pane: pane.id } })
       let placement = window.floating?.find(item => item.paneId === pane.id)
       if (!placement || client.zoomedPaneId) throw new Error('Pane is not floating')
       let values = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
@@ -1505,15 +1482,15 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'extension.open') {
         let client = sourceClientId ? model.clients.find(client => client.id === sourceClientId) : undefined
         let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-        let activeTab = pane?.profileId === profile.id ? tabs.get(pane.activeTabId) : undefined
+        let activeTab = pane?.profileId === profile.id ? tabs.get(pane.id) : undefined
         return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent })
       }
       throw new Error('Unknown extension command')
     }
     if (method.startsWith('forms.')) {
       if (!savedForms) throw new Error('Saved forms are not ready')
-      let context = (args._formsContext as PluginContext | undefined) ?? pluginContext({ tabId: required(args, 'tab') })
-      if (context.tabId && tabById(model, context.tabId).session.private) throw new Error('Saved forms are unavailable in private sessions')
+      let context = (args._formsContext as PluginContext | undefined) ?? pluginContext({ paneId: required(args, 'tab') })
+      if (context.paneId && tabById(model, context.paneId).session.private) throw new Error('Saved forms are unavailable in private sessions')
       return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
     }
     if (method === 'plugin.enable') {
@@ -1577,7 +1554,7 @@ export let createRuntime = (dataDirectory: string) => {
       let index = configuration.browser.userscripts.findIndex(script => script.id === args.id)
       if (index < 0) throw new Error('Userscript not found')
       configuration.update(['browser', 'userscripts', String(index), 'enabled'], args.enabled)
-      await pageTools?.readyForScripts()
+      await pageTools?.reload()
       return pageTools?.list()
     }
     if (method === 'plugin.list') return plugins?.list() ?? []
@@ -1587,7 +1564,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'plugin.respond') { if (!sourceClientId) throw new Error('Trusted UI required'); return plugins?.respond(sourceClientId, args) }
     if (method === 'plugin.run') {
       if (!plugins) throw new Error('Plugin host unavailable')
-      return plugins.run(required(args, 'action'), { clientId: sourceClientId, tabId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
+      return plugins.run(required(args, 'action'), { clientId: sourceClientId, paneId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
     }
     if (method === 'command-line') {
       let command = parseCommandLine(required(args, 'line'), state(required(args, 'client')))
@@ -1612,7 +1589,7 @@ export let createRuntime = (dataDirectory: string) => {
       configuration.update(key.split('.'), args.value)
       return { key, value: args.value }
     }
-    if (method === 'scroll') { let tabId = required(args, 'tab'); await ensureLiveTab(tabId); scrollTab(tabId, required(args, 'action')); return { tab: tabId } }
+    if (method === 'scroll') { let tabId = required(args, 'tab'); await ensureLiveTab(tabId); scrollTab(tabId, required(args, 'action')); return { pane: tabId } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1624,7 +1601,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'focus-page') {
       let client = resolve(model.clients, args.client, 'Client')
       await visualQueue
-      let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.activeTabId) : undefined
+      let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.id) : undefined
       if (client.id === focusedClientId) {
         let owner = clients.get(client.id)!
         if (live?.parent === owner.window) live.contents.focus()
@@ -1796,9 +1773,9 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
-      if (!(await closeTabsBeforeRemoval(session.windows.flatMap(window => window.panes.flatMap(pane => pane.tabs.map(tab => tab.id)))))) return { cancelled: session.id }
+      if (!(await closeTabsBeforeRemoval(session.windows.flatMap(window => window.panes.map(pane => pane.id))))) return { cancelled: session.id }
       if (session.private) {
-        closedTabs = closedTabs.filter(item => item.kind === 'window' ? item.sessionId !== session.id : !session.windows.some(window => window.panes.some(pane => pane.id === item.paneId)))
+        closedTabs = closedTabs.filter(item => item.kind === 'window' ? item.sessionId !== session.id : !session.windows.some(window => window.id === item.windowId))
         for (let key of permissionGrants.keys()) if (key.startsWith(`private:${session.id}:`)) permissionGrants.delete(key)
       }
       let next = removeSession(model, session)
@@ -1833,7 +1810,7 @@ export let createRuntime = (dataDirectory: string) => {
       owner.chrome.webContents.focus()
       return client
     }
-    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), tabs: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
@@ -1843,14 +1820,14 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'list-windows') return resolve(model.sessions, args.session, 'Session').windows
     if (method === 'list-panes') {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
-      return window.panes.map(pane => ({ ...pane, floating: window.floating?.find(item => item.paneId === pane.id) ?? null }))
+      return window.panes.map(pane => ({ ...pane, floating: window.floating?.find(item => item.paneId === pane.id) ?? null, runtimeState: !tabs.has(pane.id) ? 'unloaded' : (loading[pane.id] || tabs.get(pane.id)?.pendingNavigation ? 'loading' : 'live') }))
     }
     if (method === 'new-window') {
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
       if (args.url) {
-        let tab = window.panes[0].tabs[0]
+        let tab = window.panes[0]
         tab.url = normalizeUrl(String(args.url))
         tab.title = tab.url
       }
@@ -1871,7 +1848,7 @@ export let createRuntime = (dataDirectory: string) => {
       }
       changed(); await visualQueue; return copy
     }
-    if (method === 'reopen-closed-tab') {
+    if (method === 'reopen-closed' || method === 'reopen-closed-tab') {
       let closed = closedTabs.at(-1)
       if (!closed) return null
       if (closed.kind === 'window') {
@@ -1884,13 +1861,15 @@ export let createRuntime = (dataDirectory: string) => {
         closedTabs.pop()
         changed(); await visualQueue; return closed.window
       }
-      let { session, window, pane } = paneById(model, closed.paneId)
-      if (closed.replacementTabId && pane.tabs.length === 1 && pane.tabs[0].id === closed.replacementTabId && pane.tabs[0].url === 'about:blank') pane.tabs = []
-      pane.tabs.splice(Math.min(closed.index, pane.tabs.length), 0, closed.tab)
-      pane.activeTabId = closed.tab.id
-      if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = pane.id }
+      let window = resolve(model.sessions.flatMap(session => session.windows), closed.windowId, 'Window')
+      let session = model.sessions.find(session => session.windows.includes(window))!
+      let sameLayout = window.panes.length === closed.remainingPaneIds.length && window.panes.every(pane => closed.remainingPaneIds.includes(pane.id))
+      window.panes.splice(Math.min(closed.index, window.panes.length), 0, closed.pane)
+      if (sameLayout) { window.layout = closed.layout; window.floating = closed.floating }
+      else window.layout = splitLayout(window.layout, window.panes.find(pane => pane.id !== closed.pane.id)?.id ?? '', closed.pane.id, 'horizontal')
+      if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = window.id; client.paneId = closed.pane.id }
       closedTabs.pop()
-      changed(); await visualQueue; return closed.tab
+      changed(); await visualQueue; return closed.pane
     }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'move-window') {
@@ -1951,7 +1930,7 @@ export let createRuntime = (dataDirectory: string) => {
         let direction = required(args, 'direction')
         if (!['left', 'right', 'up', 'down'].includes(direction)) throw new Error(`Unknown pane direction: ${direction}`)
         let rectangles = window.floating?.length && !client.zoomedPaneId ? window.panes.flatMap(pane => {
-          let bounds = floatBounds(client, pane.id) ?? clients.get(client.id)?.bounds.find(bounds => bounds.tabId === pane.activeTabId)
+          let bounds = floatBounds(client, pane.id) ?? clients.get(client.id)?.bounds.find(bounds => bounds.paneId === pane.id)
           return bounds ? [{ ...bounds, paneId: pane.id }] : []
         }) : undefined
         client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down', rectangles) ?? client.paneId
@@ -1962,7 +1941,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (client.zoomedPaneId) client.zoomedPaneId = client.paneId
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {
         let pane = paneById(model, client.paneId).pane
-        let live = tabs.get(pane.activeTabId), owner = clients.get(client.id)!
+        let live = tabs.get(pane.id), owner = clients.get(client.id)!
         if (live?.parent === owner.window) live.contents.focus()
         else owner.chrome.webContents.focus()
         if (args.movePointer === true && client.paneId !== previousPaneId) pointerTarget = { clientId: client.id, paneId: client.paneId, expires: Date.now() + 1000, origin: screen.getCursorScreenPoint() }
@@ -1994,7 +1973,7 @@ export let createRuntime = (dataDirectory: string) => {
       }
       changed(); await visualQueue
       if (args.client && args.background !== true && focusedClientId === args.client) {
-        let owner = clients.get(String(args.client)), page = tabs.get(pane.activeTabId)
+        let owner = clients.get(String(args.client)), page = tabs.get(pane.id)
         if (owner?.window.isFocused() && page?.parent === owner.window) page.contents.focus()
       }
       return pane
@@ -2065,20 +2044,23 @@ export let createRuntime = (dataDirectory: string) => {
       changed(); await visualQueue; return pane
     }
     if (method === 'kill-pane') {
-      let { window, pane } = paneById(model, args.pane)
-      if (pane.tabs.length > 1 && args.confirm !== true) throw new Error('Pane contains multiple tabs; pass --confirm')
+      let { window, pane, session } = paneById(model, args.pane)
       if (window.panes.length === 1) {
         let result = await execute({ method: 'kill-window', args: { window: window.id, confirm: true } }) as { cancelled?: string }
         return result.cancelled ? { cancelled: pane.id } : { closed: pane.id }
       }
-      if (!(await closeTabsBeforeRemoval(pane.tabs.map(tab => tab.id)))) return { cancelled: pane.id }
+      if (!(await closeTabsBeforeRemoval([pane.id]))) return { cancelled: pane.id }
+      if (!session.private) {
+        closedTabs.push({ kind: 'pane', windowId: window.id, index: window.panes.indexOf(pane), pane: structuredClone(pane), layout: structuredClone(window.layout), floating: structuredClone(window.floating), remainingPaneIds: window.panes.filter(item => item !== pane).map(item => item.id) })
+        if (closedTabs.length > 25) closedTabs.shift()
+      }
       forgetPlacement(window, pane.id); window.panes = window.panes.filter(item => item.id !== pane.id)
       changed(); await visualQueue; return { closed: pane.id }
     }
     if (method === 'kill-window') {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
-      if (window.panes.reduce((count, pane) => count + pane.tabs.length, 0) > 1 && args.confirm !== true) throw new Error('Window contains multiple tabs; pass --confirm')
-      if (!(await closeTabsBeforeRemoval(window.panes.flatMap(pane => pane.tabs.map(tab => tab.id))))) return { cancelled: window.id }
+      if (window.panes.length > 1 && args.confirm !== true) throw new Error('Window contains multiple panes; pass --confirm')
+      if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
       let session = model.sessions.find(session => session.windows.includes(window))!
       if (!session.private) {
         closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })
@@ -2101,36 +2083,34 @@ export let createRuntime = (dataDirectory: string) => {
       let saved = model.layouts.find(layout => layout.name === args.name)
       if (!saved) throw new Error('Saved layout not found')
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
-      if (!(await closeTabsBeforeRemoval(window.panes.flatMap(pane => pane.tabs.map(tab => tab.id))))) return { cancelled: window.id }
+      if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
       let replacement = cloneWindow(saved.window)
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
       changed(); await visualQueue; return window
     }
-    if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).flatMap(({ session, window, pane }) => pane.tabs.map(tab => ({ ...tab, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId, active: tab.id === pane.activeTabId, runtimeState: !tabs.has(tab.id) ? 'unloaded' : (loading[tab.id] || tabs.get(tab.id)?.pendingNavigation ? 'loading' : 'live') })))
-    if (method === 'tab.keep-alive') {
-      let { tab } = tabById(model, required(args, 'tab'))
+    if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).map(({ session, window, pane }) => ({ ...pane, paneId: pane.id, windowId: window.id, sessionId: session.id, active: model.clients.some(client => client.id === focusedClientId && client.windowId === window.id && client.paneId === pane.id), runtimeState: !tabs.has(pane.id) ? 'unloaded' : (loading[pane.id] || tabs.get(pane.id)?.pendingNavigation ? 'loading' : 'live') }))
+    if (method === 'pane.keep-alive' || method === 'tab.keep-alive') {
+      let { pane } = paneById(model, required(args, method === 'pane.keep-alive' ? 'pane' : 'tab'))
       if (typeof args.enabled !== 'boolean') throw new Error('enabled must be a boolean')
-      tab.keepAlive = args.enabled
-      if (tab.keepAlive) await ensureLiveTab(tab.id)
-      save(); return { tab: tab.id, enabled: tab.keepAlive }
+      pane.keepAlive = args.enabled
+      if (pane.keepAlive) await ensureLiveTab(pane.id)
+      save(); return { pane: pane.id, enabled: pane.keepAlive }
     }
     if (method === 'tab.create') {
-      let { pane } = paneById(model, args.pane)
-      let tab = newTab(args.url ? normalizeUrl(String(args.url)) : undefined)
-      pane.tabs.push(tab)
-      if (args.client) pane.activeTabId = tab.id
-      changed(); await visualQueue; return tab
+      let { session, pane } = paneById(model, args.pane)
+      let client = args.client === true ? focusedClientId : args.client
+      let window = await execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: args.url, ...(client ? { client } : {}) } }) as InternalWindow
+      return window.panes[0]
     }
-    if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; void ensureLiveTab(tab.id).catch(reportError); return tab }
+    if (method === 'tab.select') {
+      let { pane, window } = paneById(model, args.tab)
+      let client = args.client ?? focusedClientId
+      if (client) await execute({ method: 'select-window', args: { client, window: window.id } })
+      void ensureLiveTab(pane.id).catch(reportError)
+      return pane
+    }
     if (method === 'tab.close') {
-      let { tab, pane, session } = tabById(model, args.tab)
-      if (!(await closeLiveTab(tab.id))) return { cancelled: tab.id }
-      let closed: Extract<(typeof closedTabs)[number], { kind: 'tab' }> = { kind: 'tab', paneId: pane.id, index: pane.tabs.indexOf(tab), tab: structuredClone(tab) }
-      if (!session.private) { closedTabs.push(closed); if (closedTabs.length > 25) closedTabs.shift() }
-      pane.tabs = pane.tabs.filter(item => item.id !== tab.id)
-      if (!pane.tabs.length) { let replacement = newTab(); pane.tabs.push(replacement); closed.replacementTabId = replacement.id }
-      if (pane.activeTabId === tab.id) pane.activeTabId = pane.tabs[0].id
-      changed(); await visualQueue; return { closed: tab.id }
+      return execute({ method: 'kill-pane', args: { pane: required(args, 'tab') } })
     }
     if (method === 'permission.dismiss') {
       let owner = sourceClientId ? clients.get(sourceClientId) : undefined
@@ -2207,19 +2187,23 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
         else {
-          let { tab, pane } = tabById(model, tabId)
-          let openerTabId = tab.openerTabId
-          if (openerTabId && pane.tabs.some(tab => tab.id === openerTabId)) {
-            if (!(await closeLiveTab(tabId))) return { cancelled: tabId }
-            pane.tabs = pane.tabs.filter(tab => tab.id !== tabId)
-            pane.activeTabId = openerTabId
+          let { pane, window } = paneById(model, tabId)
+          let opener = pane.openerPaneId ? walkPanes(model).find(item => item.pane.id === pane.openerPaneId) : undefined
+          if (opener) {
+            let affected = model.clients.filter(client => client.windowId === window.id).map(client => client.id)
+            let result = await execute({ method: 'kill-pane', args: { pane: pane.id } }) as { cancelled?: string }
+            if (result.cancelled) return result
+            for (let clientId of affected) {
+              let client = model.clients.find(client => client.id === clientId)
+              if (client) { client.sessionId = opener.session.id; client.windowId = opener.window.id; client.paneId = opener.pane.id }
+            }
             changed(); await visualQueue
-            return { closed: tabId, tab: openerTabId }
+            return { closed: tabId, pane: opener.pane.id }
           }
         }
       }
       if (method === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
-      publish(); return { tab: tabId }
+      publish(); return { pane: tabId }
     }
     if (method === 'history.go-to') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
@@ -2228,7 +2212,7 @@ export let createRuntime = (dataDirectory: string) => {
       let history = contents.navigationHistory
       if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= history.length()) throw new Error('Invalid history entry')
       history.goToIndex(index)
-      publish(); return { tab: tabId, index }
+      publish(); return { pane: tabId, index }
     }
     if (method === 'navigate' && args.waitUntil === 'none') {
       let tabId = required(args, 'tab'), url = normalizeUrl(required(args, 'url'))
@@ -2266,7 +2250,7 @@ export let createRuntime = (dataDirectory: string) => {
       try {
         if (method === 'navigate') { await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
-        if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { tab: tabId } }
+        if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { pane: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
         if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
         if (method === 'eval') {
@@ -2276,7 +2260,7 @@ export let createRuntime = (dataDirectory: string) => {
         }
         if (method === 'dom') {
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true }, undefined, true)
-          return { tab: tabId, url: contents.getURL(), content: result.result.value }
+          return { pane: tabId, url: contents.getURL(), content: result.result.value }
         }
         if (method === 'cdp') return cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined)
         if (method === 'screenshot') {
@@ -2291,7 +2275,7 @@ export let createRuntime = (dataDirectory: string) => {
           let result = await cdp(tabId, 'Page.captureScreenshot', params)
           await fs.mkdir(path.dirname(target), { recursive: true })
           await fs.writeFile(target, Buffer.from(result.data, 'base64'), { mode: 0o600 })
-          return { tab: tabId, path: target, fullPage: args.fullPage !== false }
+          return { pane: tabId, path: target, fullPage: args.fullPage !== false }
         }
         if (method === 'wait') {
           let { timeout, ms, expression } = waitOptions(args)
@@ -2321,7 +2305,7 @@ export let createRuntime = (dataDirectory: string) => {
             for (let type of ['mousePressed', 'mouseReleased']) await cdp(tabId, 'Input.dispatchMouseEvent', { type, x: Number(args.x), y: Number(args.y), button: 'left', clickCount: 1 })
           }
           if (method === 'type') await cdp(tabId, 'Input.insertText', { text: String(args.text ?? '') })
-          return { tab: tabId }
+          return { pane: tabId }
         }
         if (method === 'key') {
           let parts = required(args, 'key').split('+')
@@ -2334,7 +2318,7 @@ export let createRuntime = (dataDirectory: string) => {
           let command = modifiers === 4 ? editing[key.toLowerCase()] : modifiers === 12 && key.toLowerCase() === 'z' ? 'redo' : undefined
           let code = /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : key
           for (let type of ['keyDown', 'keyUp']) await cdp(tabId, 'Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(type === 'keyDown' && command ? { commands: [command] } : {}), ...(type === 'keyDown' && key === 'Enter' && !modifiers ? { text: '\r' } : {}) })
-          return { tab: tabId }
+          return { pane: tabId }
         }
       } finally { lastTabUse.set(tabId, Date.now()); if (syntheticInput) automatedContents.delete(contents.id); if (!contents.isDestroyed()) { if (syntheticInput) contents.setIgnoreMenuShortcuts(false); contents.setBackgroundThrottling(!background) } }
       return null
@@ -2343,7 +2327,7 @@ export let createRuntime = (dataDirectory: string) => {
   let start = async (background: boolean) => {
     await settingsReady
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
-    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background) for (let tab of pane.tabs) if (!tab.keepAlive) deferredTabs.add(tab.id)
+    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       return entry && !entry[1].contents.isDestroyed() ? { tabId: entry[0], url: entry[1].contents.getURL() } : undefined

@@ -29,38 +29,35 @@ describe('session layouts and persistence', () => {
     tree = splitLayout(tree, 'right', 'left', 'horizontal', true)
     expect(tree).toMatchObject({ kind: 'split', axis: 'horizontal', first: { paneId: 'left' }, second: { paneId: 'right' } })
   })
-  it('clones mixed-profile layouts with fresh page IDs and preserves the selected tabs', () => {
+  it('clones mixed-profile layouts with fresh pane IDs and preserves opener links', () => {
     let model = initialModel()
     let window = model.sessions[0].windows[0]
     let bot = newPane('profile_bot', 'https://example.com')
-    bot.tabs.push({ id: 'tab_popup', url: 'https://example.com/popup', title: 'Popup', zoom: 1, openerTabId: bot.tabs[0].id })
-    bot.activeTabId = 'tab_popup'
+    bot.openerPaneId = window.panes[0].id
     window.layout = splitLayout(window.layout, window.panes[0].id, bot.id, 'vertical')
     window.panes.push(bot)
     let clone = cloneWindow(window)
     expect(clone.panes.map(pane => pane.profileId)).toEqual(['profile_default', 'profile_bot'])
-    expect(clone.panes[1].tabs[0].url).toBe('https://example.com')
-    expect(clone.panes[1].activeTabId).toBe(clone.panes[1].tabs[1].id)
-    expect(clone.panes[1].tabs[1].openerTabId).toBe(clone.panes[1].tabs[0].id)
+    expect(clone.panes[1].url).toBe('https://example.com')
+    expect(clone.panes[1].openerPaneId).toBe(clone.panes[0].id)
     expect(clone.panes[1].id).not.toBe(bot.id)
-    expect(clone.panes[1].tabs[0].id).not.toBe(bot.tabs[0].id)
     let leaves: string[] = []
     mapLayout(clone.layout, node => { if (node.kind === 'pane') leaves.push(node.paneId); return node })
     expect(leaves).toEqual(clone.panes.map(pane => pane.id))
   })
-  it('names automatic windows from the selected pane and tab, preserving explicit names', () => {
+  it('names automatic windows from the selected pane, preserving explicit names', () => {
     let window = initialModel().sessions[0].windows[0]
-    window.panes[0].tabs[0].url = 'https://www.example.com/first'
+    window.panes[0].url = 'https://www.example.com/first'
     expect(updateAutomaticWindowName(window)).toBe(true)
     expect(window.name).toBe('example.com')
-    window.panes[0].tabs[0].url = 'https://docs.example.test/latest'
+    window.panes[0].url = 'https://docs.example.test/latest'
     updateAutomaticWindowName(window)
     expect(window.name).toBe('docs.example.test')
-    window.panes[0].tabs.push({ id: 'tab_second', url: 'https://second.test', title: 'Second', zoom: 1 })
+    let second = newPane('profile_default', 'https://second.test')
+    window.panes.push(second)
     updateAutomaticWindowName(window)
     expect(window.name).toBe('docs.example.test')
-    window.panes[0].activeTabId = 'tab_second'
-    updateAutomaticWindowName(window)
+    updateAutomaticWindowName(window, second.id)
     expect(window.name).toBe('second.test')
     let pane = newPane('profile_default', 'https://third.test')
     window.panes.push(pane)
@@ -81,6 +78,42 @@ describe('session layouts and persistence', () => {
       fs.writeFileSync(path.join(directory, 'state.json'), '{broken')
       expect(() => readModel(directory)).toThrow()
       expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).toBe('{broken')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('migrates hidden legacy tabs into separate windows without dropping pages', () => {
+    let old = initialModel() as unknown as { version: number; sessions: { windows: { panes: Record<string, unknown>[] }[] }[] }
+    let pane = old.sessions[0].windows[0].panes[0]
+    let paneId = pane.id
+    old.version = 1
+    old.sessions[0].windows[0].panes[0] = { id: paneId, profileId: 'profile_default', activeTabId: 'tab_active', tabs: [
+      { id: 'tab_active', url: 'https://active.test', title: 'Active', zoom: 1 },
+      { id: 'tab_hidden', url: 'https://hidden.test', title: 'Hidden', zoom: 1, keepAlive: true, openerTabId: 'tab_active' },
+    ] }
+    let upgraded = validateModel(old)
+    expect(upgraded.version).toBe(2)
+    expect(upgraded.sessions[0].windows).toHaveLength(2)
+    expect(upgraded.sessions[0].windows[0].panes[0]).toMatchObject({ id: paneId, url: 'https://active.test' })
+    let restored = upgraded.sessions[0].windows[1].panes[0]
+    expect(restored).toMatchObject({ url: 'https://hidden.test', keepAlive: true, openerPaneId: paneId })
+    expect(restored.id).toMatch(/^pane_/)
+    expect('tabs' in restored).toBe(false)
+  })
+  it('backs up and persists the migrated state so new pane IDs remain stable', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-migrate-unit-'))
+    try {
+      let old = initialModel() as unknown as { version: number; sessions: { windows: { panes: Record<string, unknown>[] }[] }[] }
+      let pane = old.sessions[0].windows[0].panes[0]
+      old.version = 1
+      old.sessions[0].windows[0].panes[0] = { id: pane.id, profileId: 'profile_default', activeTabId: 'tab_one', tabs: [
+        { id: 'tab_one', url: 'about:blank', title: 'One', zoom: 1 },
+        { id: 'tab_two', url: 'https://two.test', title: 'Two', zoom: 1 },
+      ] }
+      let source = JSON.stringify(old)
+      fs.writeFileSync(path.join(directory, 'state.json'), source)
+      let first = readModel(directory)
+      expect(readModel(directory)).toEqual(first)
+      expect(fs.readFileSync(path.join(directory, 'state.json.v1-backup'), 'utf8')).toBe(source)
+      expect(JSON.parse(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).version).toBe(2)
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
   it('keeps private sessions and their client selections out of saved state', () => {

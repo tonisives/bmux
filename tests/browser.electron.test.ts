@@ -39,7 +39,7 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
     let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
     let window = session?.windows.find((item: { id: string }) => item.id === client.windowId)
     let pane = window?.panes.find((item: { id: string }) => item.id === client.paneId)
-    let tab = pane?.tabs.find((item: { id: string }) => item.id === pane.activeTabId)
+    let tab = pane
     if (!tab) return
     let address = tab.url === 'about:blank' ? 'Cmd+L to open a URL' : state.pendingUrls[tab.id] ?? tab.url
     if (await page.getByRole('button', { name: 'Address', exact: true }).inputValue() !== address) return
@@ -118,11 +118,11 @@ test.afterAll(async () => {
 test('memory diagnostics map background pages without changing selection or page state', async () => {
   let initial = await cli('state')
   let pane = initial.model.sessions[0].windows[0].panes[0]
-  let tabId = pane.activeTabId
-  await cli('navigate', { tab: tabId, url })
-  let identity = await cli('eval', { tab: tabId, expression: 'window.identity' })
+  let paneId = pane.id
+  await cli('navigate', { pane: paneId, url })
+  let identity = await cli('eval', { pane: paneId, expression: 'window.identity' })
   let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url })
-  await cli('wait', { tab: bot.activeTabId, selector: '#text' })
+  await cli('wait', { pane: bot.id, selector: '#text' })
   let before = await cli('state')
   let focused = await application.evaluate(({ BrowserWindow, webContents }) => ({ window: BrowserWindow.getFocusedWindow()?.id ?? null, contents: webContents.getFocusedWebContents()?.id ?? null }))
   let output = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'memory', '--history'], { env: { ...process.env, BMUX_DATA_DIR: directory } })
@@ -133,18 +133,18 @@ test('memory diagnostics map background pages without changing selection or page
   expect(current.totalWorkingSetBytes).toBeGreaterThan(0)
   expect(current.totalWorkingSetBytes).toBe(current.processes.reduce((sum: number, row: { workingSetBytes: number }) => sum + row.workingSetBytes, 0))
   expect(new Set(current.processes.map((row: { pid: number }) => row.pid)).size).toBe(current.processes.length)
-  let mapped = current.tabs.find((row: { tabId: string }) => row.tabId === tabId)
+  let mapped = current.panes.find((row: { paneId: string }) => row.paneId === paneId)
   expect(mapped).toMatchObject({ profileId: pane.profileId, visible: false, backgroundThrottling: true, busy: false })
   expect(mapped.processIds.length).toBeGreaterThan(0)
-  expect(current.tabs.find((row: { tabId: string }) => row.tabId === bot.activeTabId)).toMatchObject({ visible: false, backgroundThrottling: false })
+  expect(current.panes.find((row: { paneId: string }) => row.paneId === bot.id)).toMatchObject({ visible: false, backgroundThrottling: false })
   expect(JSON.stringify(report)).not.toContain(url)
   expect((await cli('state')).model.clients).toEqual(before.model.clients)
   expect(await application.evaluate(({ BrowserWindow, webContents }) => ({ window: BrowserWindow.getFocusedWindow()?.id ?? null, contents: webContents.getFocusedWebContents()?.id ?? null }))).toEqual(focused)
-  expect(await cli('eval', { tab: tabId, expression: 'window.identity' })).toBe(identity)
+  expect(await cli('eval', { pane: paneId, expression: 'window.identity' })).toBe(identity)
   await cli('kill-pane', { pane: bot.id, confirm: true })
   let after = (await cli('memory')).current
-  expect(after.tabs.some((row: { tabId: string }) => row.tabId === bot.activeTabId)).toBe(false)
-  expect(after.processes.every((row: { tabIds: string[] }) => !row.tabIds.includes(bot.activeTabId))).toBe(true)
+  expect(after.panes.some((row: { paneId: string }) => row.paneId === bot.id)).toBe(false)
+  expect(after.processes.every((row: { paneIds: string[] }) => !row.paneIds.includes(bot.id))).toBe(true)
   await expect(cli('memory', { history: 'yes' })).rejects.toThrow('history must be a boolean')
 })
 
@@ -155,17 +155,17 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   let session = initial.model.sessions[0]
   let mainWindow = session.windows[0]
   let mainPane = mainWindow.panes[0]
-  let mainTab = mainPane.tabs[0]
+  let mainTab = mainPane
   await cli('navigate', { tab: mainTab.id, url })
   await cli('eval', { tab: mainTab.id, expression: 'localStorage.setItem("profile", "personal"); document.cookie="profile=personal;path=/"' })
   let botPane = await cli('split-window', { pane: mainPane.id, profile: 'bot', url })
-  let botTab = botPane.tabs[0]
+  let botTab = botPane
   await cli('wait', { tab: botTab.id, selector: '#text' })
   expect(await cli('eval', { tab: botTab.id, expression: '({storage:localStorage.getItem("profile"),cookie:document.cookie})' })).toEqual({ storage: null, cookie: '' })
   await cli('eval', { tab: botTab.id, expression: 'localStorage.setItem("profile", "bot"); document.cookie="profile=bot;path=/"' })
   let another = await cli('split-window', { pane: botPane.id, profile: 'default', url })
-  await cli('wait', { tab: another.tabs[0].id, selector: '#text' })
-  expect(await cli('eval', { tab: another.tabs[0].id, expression: 'localStorage.getItem("profile")' })).toBe('personal')
+  await cli('wait', { tab: another.id, selector: '#text' })
+  expect(await cli('eval', { tab: another.id, expression: 'localStorage.getItem("profile")' })).toBe('personal')
 
   let clientA = await cli('attach-session', { session: session.id })
   let clientB = await cli('attach-session', { session: session.id })
@@ -175,7 +175,7 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(state.model.clients.find((client: { id: string }) => client.id === clientA.id).windowId).toBe(mainWindow.id)
   expect(state.model.clients.find((client: { id: string }) => client.id === clientB.id).windowId).toBe(secondWindow.id)
 
-  let secondTab = secondWindow.panes[0].activeTabId
+  let secondTab = secondWindow.panes[0].id
   await cli('navigate', { tab: secondTab, url: `${url}/other-visible` })
   let visibleOwners = () => application.evaluate(({ BaseWindow }, urls) => urls.map(url => BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some((view: any) => view.webContents?.getURL() === url))?.id), [`${url}/`, `${url}/other-visible`])
   await expect.poll(async () => (await visibleOwners()).every(Boolean)).toBe(true)
@@ -242,7 +242,7 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   await cli('eval', { tab: botTab.id, expression: `window.open(${JSON.stringify(`${url}/popup`)}, '_blank'); true` })
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
   let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
-  let popup = popupWindow.panes[0].tabs[0]
+  let popup = popupWindow.panes[0]
   await cli('wait', { tab: popup.id, selector: '#text' })
   expect(await cli('eval', { tab: popup.id, expression: '({profile:localStorage.getItem("profile"),opener:!!window.opener})' })).toEqual({ profile: 'bot', opener: true })
   expect(await cli('tab.list', { pane: botPane.id })).toHaveLength(1)
@@ -279,13 +279,13 @@ test('a renderer-closed popup does not crash background page polling', async () 
   })
   try {
     let session = await cli('new-session', { name: 'renderer-close' })
-    let opener = session.windows[0].panes[0].tabs[0]
+    let opener = session.windows[0].panes[0]
     await cli('navigate', { tab: opener.id, url })
     let before = await cli('list-windows', { session: session.id })
     await cli('eval', { tab: opener.id, expression: `window.open(${JSON.stringify(`${url}/popup`)}, '_blank'); true` })
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
     let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
-    let popup = popupWindow.panes[0].tabs[0]
+    let popup = popupWindow.panes[0]
     await cli('wait', { tab: popup.id, selector: '#text' })
     await cli('eval', { tab: popup.id, expression: 'setTimeout(() => window.close(), 0); true' })
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length)
@@ -303,32 +303,31 @@ test('a renderer-closed popup does not crash background page polling', async () 
   }
 })
 
-test('automatic window names follow the active pane and tab and stop after an explicit rename', async () => {
+test('automatic window names follow the selected pane and stop after an explicit rename', async () => {
   let session = await cli('new-session', { name: 'automatic-window-names' })
-  let window = session.windows[0], tab = window.panes[0].tabs[0]
+  let window = session.windows[0], tab = window.panes[0]
   await cli('navigate', { tab: tab.id, url: `${url}/first` })
   await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
   await cli('navigate', { tab: tab.id, url: `${url.replace('127.0.0.1', 'localhost')}/latest` })
   await expect.poll(async () => (await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
-  let background = await cli('tab.create', { pane: window.panes[0].id, url: `${url}/background-name` })
-  await cli('wait', { tab: background.id, selector: '#text' })
+  let background = await cli('new-window', { session: session.id, url: `${url}/background-name` })
+  await cli('wait', { pane: background.panes[0].id, selector: '#text' })
   expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
-  await cli('tab.select', { tab: background.id })
-  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
-  let lower = await cli('split-window', { pane: window.panes[0].id, axis: 'vertical', url: `${url.replace('127.0.0.1', 'localhost')}/lower-name` })
-  await cli('wait', { tab: lower.activeTabId, selector: '#text' })
+  expect((await cli('list-windows', { session: session.id }))[1].name).toBe('127.0.0.1')
+  let lower = await cli('split-window', { pane: window.panes[0].id, axis: 'vertical', url: `${url}/lower-name` })
+  await cli('wait', { tab: lower.id, selector: '#text' })
   let client = await cli('attach-session', { session: session.id })
   await cli('select-pane', { client: client.id, pane: lower.id })
-  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
-  await cli('select-pane', { client: client.id, pane: window.panes[0].id })
   expect((await cli('list-windows', { session: session.id }))[0].name).toBe('127.0.0.1')
-  await cli('tab.close', { tab: background.id })
+  await cli('select-pane', { client: client.id, pane: window.panes[0].id })
+  expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
+  await cli('kill-window', { window: background.id, confirm: true })
   expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
   let destination = await cli('new-window', { session: session.id })
   await cli('move-pane', { pane: lower.id, window: destination.id })
   await cli('select-window', { client: client.id, window: destination.id })
   await cli('select-pane', { client: client.id, pane: lower.id })
-  await cli('navigate', { tab: lower.activeTabId, url: `${url}/moved-name` })
+  await cli('navigate', { tab: lower.id, url: `${url}/moved-name` })
   expect((await cli('list-windows', { session: session.id }))[1].name).toBe('127.0.0.1')
   expect((await cli('list-windows', { session: session.id }))[0].name).toBe('localhost')
   await cli('rename-window', { window: window.id, name: 'research' })
@@ -409,7 +408,7 @@ test('Command+W closes an internal window or its session while the command and m
 test('links show their target, offer browser actions, and open popups in bmux windows', async () => {
   let session = await cli('new-session', { name: 'link-behavior' })
   let sourceWindow = session.windows[0]
-  let tab = sourceWindow.panes[0].tabs[0]
+  let tab = sourceWindow.panes[0]
   await cli('navigate', { tab: tab.id, url: `${url}/link-behavior` })
   let client = await cli('attach-session', { session: session.id })
   let createdWindow: { id: string } | undefined
@@ -467,14 +466,14 @@ test('links show their target, offer browser actions, and open popups in bmux wi
     createdWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
     let openedTab = (await cli('tab.list')).find((candidate: { windowId: string }) => candidate.windowId === createdWindow!.id)
     await cli('wait', { tab: openedTab.id, selector: '#text' })
-    expect(openedTab).toMatchObject({ url: `${url}/popup`, openerTabId: tab.id })
+    expect(openedTab).toMatchObject({ url: `${url}/popup`, openerPaneId: tab.id })
     expect((await cli('list-clients')).find((candidate: { id: string }) => candidate.id === client.id).windowId).toBe(createdWindow!.id)
     let nativeBounds = () => application.evaluate(({ BaseWindow }, target) => {
       let window = BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target))
       let page = window?.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)
       return page?.getBounds()
     }, `${url}/popup`)
-    let expectedBounds = await chrome.locator(`[data-browser-content][data-tab-id="${openedTab.id}"]`).evaluate(element => {
+    let expectedBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${openedTab.id}"]`).evaluate(element => {
       let rect = element.getBoundingClientRect()
       return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
     })
@@ -492,7 +491,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
 
 test('middle and Command clicks load links in background bmux windows', async () => {
   let session = await cli('new-session', { name: 'background-links' })
-  let source = session.windows[0].panes[0].tabs[0]
+  let source = session.windows[0].panes[0]
   await cli('navigate', { tab: source.id, url: `${url}/background-links` })
   let client = await cli('attach-session', { session: session.id })
   try {
@@ -503,7 +502,7 @@ test('middle and Command clicks load links in background bmux windows', async ()
       await website.locator('#background-link').click(click)
       await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
       let opened = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((item: { id: string }) => item.id === window.id))
-      let tab = opened.panes[0].tabs[0]
+      let tab = opened.panes[0]
       await expect.poll(async () => (await cli('tab.list')).find((item: { id: string }) => item.id === tab.id)?.url).toBe(`${url}/popup`)
       await cli('wait', { tab: tab.id, selector: '#text' })
       expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(session.windows[0].id)
@@ -516,7 +515,7 @@ test('middle and Command clicks load links in background bmux windows', async ()
 test('address controls navigate, refresh, and open the per-tab history on hold', async () => {
   let session = await cli('new-session', { name: 'address-navigation' })
   let pane = session.windows[0].panes[0]
-  let tabId = pane.activeTabId
+  let tabId = pane.id
   await cli('navigate', { tab: tabId, url: `${url}/address-one` })
   await cli('navigate', { tab: tabId, url: `${url}/address-two` })
   await cli('navigate', { tab: tabId, url: `${url}/address-three` })
@@ -574,11 +573,11 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
   await expect.poll(async () => (await cli('state')).keyboard.shortcuts['Cmd+J']).toBe('pane-down')
   let session = await cli('new-session', { name: 'native-navigation' })
   let upper = session.windows[0].panes[0]
-  await cli('navigate', { tab: upper.activeTabId, url: `${url}/history-one` })
-  await cli('navigate', { tab: upper.activeTabId, url: `${url}/history-two` })
-  await cli('navigate', { tab: upper.activeTabId, url: `${url}/history-three` })
+  await cli('navigate', { tab: upper.id, url: `${url}/history-one` })
+  await cli('navigate', { tab: upper.id, url: `${url}/history-two` })
+  await cli('navigate', { tab: upper.id, url: `${url}/history-three` })
   let lower = await cli('split-window', { pane: upper.id, axis: 'vertical', url: `${url}/lower-scroll` })
-  await cli('wait', { tab: lower.activeTabId, selector: '#text' })
+  await cli('wait', { tab: lower.id, selector: '#text' })
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let otherClient: string | undefined
@@ -592,20 +591,20 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     }, { button, target: `${url}/${currentPath}` })
     await cli('select-pane', { client: client.id, pane: lower.id })
     await mouse('back', 'history-three')
-    await expect.poll(() => cli('eval', { tab: upper.activeTabId, expression: 'location.pathname' })).toBe('/history-two')
-    expect(await cli('eval', { tab: lower.activeTabId, expression: 'location.pathname' })).toBe('/lower-scroll')
+    await expect.poll(() => cli('eval', { tab: upper.id, expression: 'location.pathname' })).toBe('/history-two')
+    expect(await cli('eval', { tab: lower.id, expression: 'location.pathname' })).toBe('/lower-scroll')
     await mouse('forward', 'history-two')
-    await expect.poll(() => cli('eval', { tab: upper.activeTabId, expression: 'location.pathname' })).toBe('/history-three')
+    await expect.poll(() => cli('eval', { tab: upper.id, expression: 'location.pathname' })).toBe('/history-three')
     let windowsBeforePopup = await cli('list-windows', { session: session.id })
-    await cli('click', { tab: upper.activeTabId, selector: '#popup' })
+    await cli('click', { tab: upper.id, selector: '#popup' })
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
     let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
-    let popup = popupWindow.panes[0].tabs[0]
+    let popup = popupWindow.panes[0]
     expect(popup.url).toBe(`${url}/popup`)
     expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(popupWindow.id)
     await cli('kill-window', { window: popupWindow.id, confirm: true })
     await cli('select-window', { client: client.id, window: session.windows[0].id })
-    expect((await cli('tab.list', { pane: upper.id }))[0]).toMatchObject({ id: upper.activeTabId, active: true })
+    expect((await cli('list-panes', { window: session.windows[0].id })).find((item: { id: string }) => item.id === upper.id)).toMatchObject({ id: upper.id })
     await cli('select-pane', { client: client.id, pane: upper.id })
     let focusedUrl = () => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())
     let key = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
@@ -613,11 +612,11 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     }
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
     // Repeated activation must preserve the page's first responder and text caret.
-    await cli('eval', { tab: upper.activeTabId, expression: 'document.querySelector("#text").focus()' })
+    await cli('eval', { tab: upper.id, expression: 'document.querySelector("#text").focus()' })
     for (let attempt = 0; attempt < 3; attempt++) {
       await cli('activate-client', { client: client.id })
       expect(await focusedUrl()).toBe(`${url}/history-three`)
-      expect(await cli('eval', { tab: upper.activeTabId, expression: 'document.hasFocus() && document.activeElement.id === "text"' })).toBe(true)
+      expect(await cli('eval', { tab: upper.id, expression: 'document.hasFocus() && document.activeElement.id === "text"' })).toBe(true)
     }
     // Hand off the views to another native client, then refocus without a page click.
     let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
@@ -642,8 +641,8 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     await key('j', ['meta'])
     expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(lower.id)
     await key('Down')
-    await expect.poll(() => cli('eval', { tab: lower.activeTabId, expression: 'scrollY' })).toBeGreaterThan(0)
-    expect(await cli('eval', { tab: upper.activeTabId, expression: 'scrollY' })).toBe(0)
+    await expect.poll(() => cli('eval', { tab: lower.id, expression: 'scrollY' })).toBeGreaterThan(0)
+    expect(await cli('eval', { tab: upper.id, expression: 'scrollY' })).toBe(0)
   } finally {
     if (otherClient) await cli('detach-client', { client: otherClient })
     await cli('detach-client', { client: client.id })
@@ -657,7 +656,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   let window = session.windows[0]
   let profile = await cli('profile.create', { name: 'recovery', background: true })
   let pane = await cli('split-window', { pane: window.panes[0].id, profile: profile.id, url: `${url}/recovery` })
-  let tab = pane.tabs[0]
+  let tab = pane
   await cli('wait', { tab: tab.id, selector: '#text' })
   await cli('eval', { tab: tab.id, expression: 'window.permissionResult="pending"; Notification.requestPermission().then(result=>window.permissionResult=result); true' })
   await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
@@ -678,9 +677,9 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   await cli('wait', { tab: tab.id, selector: '#text' })
   expect((await cli('state')).crashes[tab.id]).toBeUndefined()
 
-  let before = (await cli('diagnostics')).tabs
+  let before = (await cli('diagnostics')).panes
   await cli('kill-pane', { pane: pane.id })
-  expect((await cli('diagnostics')).tabs).toBe(before - 1)
+  expect((await cli('diagnostics')).panes).toBe(before - 1)
   let sourceWindow = await cli('new-window', { session: session.id, name: 'move source' })
   let source = await cli('split-window', { pane: sourceWindow.panes[0].id })
   await cli('move-pane', { pane: source.id, window: window.id })
@@ -698,18 +697,18 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   await new Promise(resolve => setTimeout(resolve, 2000))
   let metrics = await cli('diagnostics')
   let totalWorkingSetKB = metrics.processes.reduce((sum: number, process: { memory: { workingSetSize: number } }) => sum + process.memory.workingSetSize, 0)
-  await fs.writeFile(path.join(root, 'artifacts/resource-sample.json'), JSON.stringify({ liveTabs: metrics.tabs, clients: metrics.visibleClients, workingSetMB: Math.round(totalWorkingSetKB / 1024), processes: metrics.processes }, null, 2))
+  await fs.writeFile(path.join(root, 'artifacts/resource-sample.json'), JSON.stringify({ livePanes: metrics.panes, clients: metrics.visibleClients, workingSetMB: Math.round(totalWorkingSetKB / 1024), processes: metrics.processes }, null, 2))
 })
 
 test('removes a pane after an interrupted navigation and reports the recovery on restart', async () => {
   let session = await cli('new-session', { name: 'navigation crash recovery' })
   let retained = session.windows[0].panes[0]
   let crashed = await cli('split-window', { pane: retained.id, url: `${url}/crash-candidate` })
-  await cli('wait', { tab: crashed.activeTabId, selector: '#text' })
+  await cli('wait', { tab: crashed.id, selector: '#text' })
   let client = await cli('attach-session', { session: session.id })
   await cli('select-pane', { client: client.id, pane: crashed.id })
   await application.close()
-  await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.activeTabId, url: 'https://chromewebstore.google.com/detail/example' }))
+  await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.id, url: 'https://chromewebstore.google.com/detail/example' }))
   await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: true }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
@@ -743,8 +742,8 @@ test('restores concurrently normally and one at a time after an application cras
     let stateFile = path.join(directory, 'state.json')
     let persisted = JSON.parse(await fs.readFile(stateFile, 'utf8'))
     let saved = persisted.sessions.find((item: { id: string }) => item.id === session.id)
-    saved.windows[0].panes.find((pane: { id: string }) => pane.id === first.id).tabs[0].url = `${url}/slow-serialized-restore`
-    saved.windows[0].panes.find((pane: { id: string }) => pane.id === second.id).tabs[0].url = `${url}/serialized-restore-second`
+    saved.windows[0].panes.find((pane: { id: string }) => pane.id === first.id).url = `${url}/slow-serialized-restore`
+    saved.windows[0].panes.find((pane: { id: string }) => pane.id === second.id).url = `${url}/serialized-restore-second`
     await fs.writeFile(stateFile, JSON.stringify(persisted, null, 2))
     let before = heldRequests
     await launch()
@@ -756,7 +755,7 @@ test('restores concurrently normally and one at a time after an application cras
     before = heldRequests
     await launch()
     await expect.poll(() => heldRequests).toBeGreaterThan(before)
-    await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'navigation-crash.json'), 'utf8')).tabId).toBe(first.activeTabId)
+    await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'navigation-crash.json'), 'utf8')).paneId).toBe(first.id)
     expect(await application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(false)
     for (let response of heldResponses) response.end()
     await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
@@ -791,11 +790,11 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await expect(chrome.getByRole('button', { name: 'Unsupported bookmarklet' })).toHaveCount(0)
   await expect(chrome.getByText('Profile: Imported work', { exact: true })).toHaveCount(0)
   await chrome.getByRole('button', { name: 'Imported fixture', exact: true }).click()
-  let pane = session.windows[0].panes[0]
-  let tab = (await cli('tab.list', { pane: pane.id })).find((tab: { url: string }) => tab.url === `${url}/imported`)
-  expect(tab.profileId).toBe(profileId)
-  expect(tab.active).toBe(true)
-  await cli('wait', { tab: tab.id, selector: '#text' })
+  let opened = (await cli('list-windows', { session: session.id })).find((window: { panes: { url: string }[] }) => window.panes[0].url === `${url}/imported`)
+  let pane = opened.panes[0]
+  expect(pane.profileId).toBe(profileId)
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(opened.id)
+  await cli('wait', { pane: pane.id, selector: '#text' })
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill('Imported fixture')
@@ -806,7 +805,7 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await address.press('ArrowDown')
   await address.press('Enter')
   await expect(address).toHaveCount(0)
-  expect(await cli('eval', { tab: tab.id, expression: 'localStorage.getItem("profile")' })).toBeNull()
+  expect(await cli('eval', { pane: pane.id, expression: 'localStorage.getItem("profile")' })).toBeNull()
   await cli('detach-client', { client: client.id })
   await application.close()
   await launch()
@@ -817,7 +816,7 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
 
 test('URL entry after import attaches the live page; native shortcuts and commands work', async () => {
   let session = await cli('new-session', { name: 'UI regression' })
-  let pane = session.windows[0].panes[0], tab = pane.tabs[0]
+  let pane = session.windows[0].panes[0], tab = pane
   await cli('import-brave', { source: path.join(directory, 'brave-fixture') })
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
@@ -882,7 +881,7 @@ test('pane address bars navigate independently and leave window switching availa
   let window = session.windows[0], first = window.panes[0]
   let second = await cli('split-window', { pane: first.id, url: `${url}/second-pane` })
   let third = await cli('split-window', { pane: second.id, axis: 'vertical', url: `${url}/third-pane` })
-  await cli('navigate', { tab: first.activeTabId, url: `${url}/first-pane` })
+  await cli('navigate', { tab: first.id, url: `${url}/first-pane` })
   let other = await cli('new-window', { session: session.id, name: 'other' })
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -898,8 +897,8 @@ test('pane address bars navigate independently and leave window switching availa
   await expect(status.getByRole('button', { name: '1:127.0.0.1*', exact: true })).toBeVisible()
   await address.fill(`${url}/edited-second-pane`); await address.press('Enter')
   await expect(address).toHaveCount(0)
-  await cli('wait', { tab: second.activeTabId, selector: '#text' })
-  expect((await cli('list-panes', { window: window.id })).map((pane: { tabs: { url: string }[] }) => pane.tabs[0].url)).toEqual([`${url}/first-pane`, `${url}/edited-second-pane`, `${url}/third-pane`])
+  await cli('wait', { tab: second.id, selector: '#text' })
+  expect((await cli('list-panes', { window: window.id })).map((pane: { url: string }) => pane.url)).toEqual([`${url}/first-pane`, `${url}/edited-second-pane`, `${url}/third-pane`])
   await cli('select-pane', { client: client.id, pane: third.id })
   await expect.poll(async () => chrome.locator(`[data-pane-id="${third.id}"]`).getAttribute('data-focused-pane')).toBe('true')
   let activeBorder = await chrome.locator(`[data-pane-id="${third.id}"]`).evaluate(element => {
@@ -988,7 +987,7 @@ test('pane address bars navigate independently and leave window switching availa
   await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd, length: input.value.length } })).toEqual({ start: 0, end: `${url}/edited-second-pan`.length, length: `${url}/edited-second-pan`.length })
   await address.press('Enter')
   await expect(address).toHaveCount(0)
-  await expect.poll(async () => (await cli('tab.list', { pane: second.id })).find((tab: { id: string }) => tab.id === second.activeTabId)?.url).toBe(`${url}/edited-second-pan`)
+  await expect.poll(async () => (await cli('tab.list', { pane: second.id })).find((tab: { id: string }) => tab.id === second.id)?.url).toBe(`${url}/edited-second-pan`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill(`${url}/unsaved`)
   await status.getByRole('button', { name: '2:other', exact: true }).click()
@@ -1001,7 +1000,7 @@ test('pane address bars navigate independently and leave window switching availa
 
 test('Command+L shows and replaces the URL during pending navigations', async () => {
   let session = await cli('new-session', { name: 'pending-address' })
-  let tab = session.windows[0].panes[0].tabs[0]
+  let tab = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -1030,7 +1029,7 @@ test('Command+L shows and replaces the URL during pending navigations', async ()
 
 test('stalled loads cannot block shortcuts, independent windows, or live keyboard settings', async () => {
   let session = await cli('new-session', { name: 'slow-loading' })
-  let first = session.windows[0], tab = first.panes[0].tabs[0]
+  let first = session.windows[0], tab = first.panes[0]
   let second = await cli('new-window', { session: session.id, name: 'second' })
   let client = await cli('attach-session', { session: session.id })
   let chrome = await rendererForClient(client.id, client)
@@ -1055,9 +1054,9 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await expect.poll(async () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.filter(view => 'webContents' in view).map(view => (view as Electron.WebContentsView).webContents.getURL())).some(url => url.endsWith('/slow-stalled'))), { timeout: 1500 }).toBe(false)
   await expect(address).toBeFocused()
   await address.fill(`${url}/independent`); await address.press('Enter')
-  await cli('wait', { tab: third.panes[0].activeTabId, selector: '#text' })
+  await cli('wait', { tab: third.panes[0].id, selector: '#text' })
   let windows = await cli('list-windows', { session: session.id })
-  expect(windows.map((window: { panes: { tabs: { url: string }[] }[] }) => window.panes[0].tabs[0].url)).toEqual([`${url}/slow-stalled`, 'about:blank', `${url}/independent`])
+  expect(windows.map((window: { panes: { url: string }[] }) => window.panes[0].url)).toEqual([`${url}/slow-stalled`, 'about:blank', `${url}/independent`])
   let start = Date.now()
   await cli('select-window', { client: client.id, window: first.id })
   expect(Date.now() - start).toBeLessThan(1500)
@@ -1113,7 +1112,7 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Shift+H: { action: back, when: pane-not-editing }\n    Shift+L: { action: forward, when: pane-not-editing }\n    j: { action: scroll-down, when: pane-not-editing }\n    k: { action: scroll-up, when: pane-not-editing }\n    d: { action: scroll-half-down, when: pane-not-editing }\n    u: { action: scroll-half-up, when: pane-not-editing }\n    Shift+G: { action: scroll-bottom, when: pane-not-editing }\n    r: { action: reload, when: pane-not-editing }\n    Shift+R: { action: hard-reload, when: pane-not-editing }\n    /: { action: find, when: pane-not-editing }\n  sequences:\n    gg: { action: scroll-top, when: pane-not-editing }\n')
   await cli('settings.reload')
   let session = await cli('new-session', { name: 'vim-page-keys' })
-  let tab = session.windows[0].panes[0].activeTabId
+  let tab = session.windows[0].panes[0].id
   let client = await cli('attach-session', { session: session.id })
   await cli('navigate', { tab, url: `${url}/vim-page-keys` })
   let page = application.context().pages().find(page => page.url() === `${url}/vim-page-keys`)!
@@ -1191,7 +1190,7 @@ test('native click mode activates with Option taps and performs each click actio
   await fs.writeFile(config, 'clickMode:\n  enabled: true\n  doubleTapModifier: Option\nkeyboard: {}\n')
   await cli('settings.reload')
   let session = await cli('new-session', { name: 'click-mode' })
-  let tab = session.windows[0].panes[0].activeTabId
+  let tab = session.windows[0].panes[0].id
   let client = await cli('attach-session', { session: session.id })
   await cli('navigate', { tab, url: `${url}/click-mode` })
   let page = application.context().pages().find(page => page.url() === `${url}/click-mode`)!
@@ -1249,7 +1248,7 @@ test('native click mode activates with Option taps and performs each click actio
       let current = await cli('state')
       let window = current.model.sessions.find((item: { id: string }) => item.id === session.id).windows.find((item: { id: string }) => item.id === windowId)
       let created = window.panes.find((item: { id: string }) => item.id !== sourcePaneId)
-      expect(created.tabs[0].url).toBe(`${url}/click-mode-pane-target`)
+      expect(created.url).toBe(`${url}/click-mode-pane-target`)
       await cli('select-pane', { client: client.id, pane: sourcePaneId })
       return { created, window }
     }
@@ -1301,34 +1300,32 @@ test('native click mode activates with Option taps and performs each click actio
   }
 })
 
-test('reopen closed internal windows and pane tabs', async () => {
+test('reopen closed internal windows and panes', async () => {
   let session = await cli('new-session', { name: 'reopen-shortcut' })
   let client = await cli('attach-session', { session: session.id })
   let first = session.windows[0]
   let pane = first.panes[0]
   let second = await cli('new-window', { session: session.id, client: client.id, url })
-  await cli('wait', { tab: second.panes[0].activeTabId, selector: '#text' })
-  await cli('activate-client', { client: client.id })
-  await cli('focus-page', { client: client.id })
-  await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+  await cli('wait', { tab: second.panes[0].id, selector: '#text' })
+  await cli('kill-window', { window: second.id, confirm: true })
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(1)
-  await sendNativeKeys(application, [{ keyCode: 't', modifiers: ['meta', 'shift'] }])
+  await cli('reopen-closed', { client: client.id })
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([first.id, second.id])
   expect((await cli('list-clients'))[0].windowId).toBe(second.id)
-  await cli('wait', { tab: second.panes[0].activeTabId, selector: '#text' })
-  let extra = await cli('tab.create', { pane: pane.id, url, client: client.id })
-  await cli('wait', { tab: extra.id, selector: '#text' })
-  await cli('tab.close', { tab: extra.id })
-  expect((await cli('tab.list', { pane: pane.id })).map((tab: { id: string }) => tab.id)).not.toContain(extra.id)
-  await cli('reopen-closed-tab', { client: client.id })
-  expect((await cli('tab.list', { pane: pane.id })).map((tab: { id: string }) => tab.id)).toContain(extra.id)
-  await cli('wait', { tab: extra.id, selector: '#text' })
-  let onlyTab = second.panes[0].tabs[0]
-  await cli('tab.close', { tab: onlyTab.id })
-  expect((await cli('tab.list', { pane: second.panes[0].id })).map((tab: { url: string }) => tab.url)).toEqual(['about:blank'])
-  await cli('reopen-closed-tab', { client: client.id })
-  expect((await cli('tab.list', { pane: second.panes[0].id })).map((tab: { id: string }) => tab.id)).toEqual([onlyTab.id])
-  await cli('wait', { tab: onlyTab.id, selector: '#text' })
+  await cli('wait', { tab: second.panes[0].id, selector: '#text' })
+  let extra = await cli('split-window', { pane: pane.id, url })
+  await cli('wait', { pane: extra.id, selector: '#text' })
+  await cli('kill-pane', { pane: extra.id })
+  expect((await cli('list-panes', { window: first.id })).map((item: { id: string }) => item.id)).not.toContain(extra.id)
+  await cli('reopen-closed', { client: client.id })
+  expect((await cli('list-panes', { window: first.id })).map((item: { id: string }) => item.id)).toContain(extra.id)
+  await cli('wait', { pane: extra.id, selector: '#text' })
+  let onlyPane = second.panes[0]
+  await cli('kill-pane', { pane: onlyPane.id })
+  expect((await cli('list-windows', { session: session.id })).map((item: { id: string }) => item.id)).not.toContain(second.id)
+  await cli('reopen-closed', { client: client.id })
+  expect((await cli('list-windows', { session: session.id })).map((item: { id: string }) => item.id)).toContain(second.id)
+  await cli('wait', { pane: onlyPane.id, selector: '#text' })
   await cli('detach-client', { client: client.id })
 })
 
@@ -1338,7 +1335,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   let gamma = await cli('new-session', { name: 'keyboard-gamma' })
   let client = await cli('attach-session', { session: alpha.id })
   let first = alpha.windows[0]
-  await cli('navigate', { tab: first.panes[0].activeTabId, url })
+  await cli('navigate', { tab: first.panes[0].id, url })
   let temporary = await cli('new-window', { session: alpha.id, client: client.id, name: 'temporary' })
   let chrome = await rendererForClient(client.id)
   let shortcut = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = [], prefix = true) => {
@@ -1354,7 +1351,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   let createdByCmdT = windowsAfterCmdT.find((window: { id: string }) => ![first.id, temporary.id].includes(window.id))
   expect(createdByCmdT).toBeTruthy()
   await expect.poll(async () => (await cli('list-clients')).find((item: { id: string }) => item.id === client.id)?.windowId).toBe(createdByCmdT.id)
-  expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('bmux fixture')
+  expect(await cli('eval', { tab: first.panes[0].id, expression: 'document.title' })).toBe('bmux fixture')
   await cli('kill-window', { window: createdByCmdT.id, confirm: true })
   await cli('select-window', { client: client.id, window: temporary.id })
   await shortcut('1')
@@ -1382,7 +1379,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   await cli('select-window', { client: client.id, window: temporary.id })
   await shortcut('&', ['shift'])
   await expect.poll(async () => (await cli('list-windows', { session: alpha.id })).map((window: { id: string }) => window.id)).toEqual([first.id])
-  expect(await cli('eval', { tab: first.panes[0].activeTabId, expression: 'document.title' })).toBe('bmux fixture')
+  expect(await cli('eval', { tab: first.panes[0].id, expression: 'document.title' })).toBe('bmux fixture')
   // Closing the last internal window removes its session and selects the next one.
   await shortcut('&', ['shift'])
   await expect.poll(async () => (await cli('list-sessions')).some((session: { id: string }) => session.id === alpha.id)).toBe(false)
@@ -1504,7 +1501,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   await modifierKey('ShiftLeft', false, true)
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([session.windows[0].id, second.id, third.id])
   await cli('select-window', { client: client.id, window: session.windows[0].id })
-  let historyTabs = [session.windows[0].panes[0].activeTabId, second.panes[0].activeTabId]
+  let historyTabs = [session.windows[0].panes[0].id, second.panes[0].id]
   for (let tab of historyTabs) {
     await cli('navigate', { tab, url: `${url}/shortcut-history-one` })
     await cli('navigate', { tab, url: `${url}/shortcut-history-two` })
@@ -1541,7 +1538,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
 test('permission corner popup leaves the native page interactive and reopens for new requests', async () => {
   let profile = await cli('profile.create', { name: 'permission-popup', background: true })
   let session = await cli('new-session', { name: 'permission-popup', profile: profile.id })
-  let tab = session.windows[0].panes[0].tabs[0]
+  let tab = session.windows[0].panes[0]
   await cli('navigate', { tab: tab.id, url: `${url}/permission-popup` })
   await cli('wait', { tab: tab.id, selector: '#text' })
   await cli('eval', { tab: tab.id, expression: 'Notification.requestPermission(); true' })
@@ -1593,8 +1590,8 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
   await cli('activate-client', { client: client.id })
-  await cli('navigate', { tab: pane.activeTabId, url: `${url}/history-suggestion` })
-  await cli('eval', { tab: pane.activeTabId, expression: "document.title = 'Long term metrics - Dashboards - Grafana'" })
+  await cli('navigate', { tab: pane.id, url: `${url}/history-suggestion` })
+  await cli('eval', { tab: pane.id, expression: "document.title = 'Long term metrics - Dashboards - Grafana'" })
   await expect.poll(async () => {
     let state = await cli('state')
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.find((entry: { url: string }) => entry.url === `${url}/history-suggestion`)?.title
@@ -1656,13 +1653,13 @@ test('address suggestions reveal older matching history', async () => {
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
   await cli('activate-client', { client: client.id })
-  await cli('navigate', { tab: pane.activeTabId, url: `${url}/github/bmux` })
+  await cli('navigate', { tab: pane.id, url: `${url}/github/bmux` })
   await expect.poll(async () => {
     let state = await cli('state')
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/github/bmux`)
   }).toBe(true)
-  for (let index = 0; index < 2; index++) await cli('navigate', { tab: pane.activeTabId, url: `${url}/g-i-t-h-u-b/b-m-u-x-${index}` })
-  for (let index = 0; index < 12; index++) await cli('navigate', { tab: pane.activeTabId, url: `${url}/older-history-${index}` })
+  for (let index = 0; index < 2; index++) await cli('navigate', { tab: pane.id, url: `${url}/g-i-t-h-u-b/b-m-u-x-${index}` })
+  for (let index = 0; index < 12; index++) await cli('navigate', { tab: pane.id, url: `${url}/older-history-${index}` })
   await expect.poll(async () => {
     let state = await cli('state')
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.filter((entry: { url: string }) => entry.url.includes('/older-history-')).length
@@ -1819,7 +1816,7 @@ test('external web links open new internal windows without replacing the current
   let session = await cli('new-session', { name: 'external-web-links' })
   let client = await cli('attach-session', { session: session.id })
   let original = session.windows[0]
-  let originalTab = original.panes[0].activeTabId
+  let originalTab = original.panes[0].id
   await cli('navigate', { tab: originalTab, url: `${url}/original-first` })
   await cli('navigate', { tab: originalTab, url: `${url}/original-second` })
   let before = await cli('list-windows', { session: session.id })
@@ -1834,9 +1831,9 @@ test('external web links open new internal windows without replacing the current
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
   let after = await cli('list-windows', { session: session.id })
   let created = after.find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
-  expect(created.panes[0].tabs[0].url).toBe(`${url}/external-link`)
+  expect(created.panes[0].url).toBe(`${url}/external-link`)
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(created.id)
-  expect(after.find((window: { id: string }) => window.id === original.id).panes[0].tabs.map((tab: { id: string }) => tab.id)).toEqual([originalTab])
+  expect(after.find((window: { id: string }) => window.id === original.id).panes.map((pane: { id: string }) => pane.id)).toEqual([originalTab])
   expect(await cli('eval', { tab: originalTab, expression: 'location.pathname' })).toBe('/original-second')
   await cli('back', { tab: originalTab })
   await expect.poll(() => cli('eval', { tab: originalTab, expression: 'location.pathname' })).toBe('/original-first')
@@ -1862,11 +1859,11 @@ for (let secondInstance of [false, true]) test(`external HTML files open in new 
   }
   await expect.poll(async () => (await cli('list-windows', { session: client.sessionId })).length).toBe(before.length + 1)
   let created = (await cli('list-windows', { session: client.sessionId })).find((window: { id: string }) => !before.some((existing: { id: string }) => existing.id === window.id))
-  expect(created.panes[0].tabs[0].url).toBe(pathToFileURL(file).href)
+  expect(created.panes[0].url).toBe(pathToFileURL(file).href)
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(created.id)
   expect((await cli('list-clients')).map((item: { id: string }) => item.id)).toEqual(clientsBefore.map((item: { id: string }) => item.id))
-  await cli('wait', { tab: created.panes[0].activeTabId, selector: 'h1' })
-  expect(await cli('eval', { tab: created.panes[0].activeTabId, expression: 'document.querySelector("h1").textContent' })).toBe('External file')
+  await cli('wait', { tab: created.panes[0].id, selector: 'h1' })
+  expect(await cli('eval', { tab: created.panes[0].id, expression: 'document.querySelector("h1").textContent' })).toBe('External file')
   let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
   await expect.poll(() => application.evaluate(({ BaseWindow }, { nativeId, fileUrl }) => {
     let window = BaseWindow.fromId(nativeId)
@@ -1890,24 +1887,27 @@ test('external relaunch without a document reuses the existing application windo
 test('restored inactive pages wake when addressed by an agent', async () => {
   let session = (await cli('list-sessions'))[0]
   let pane = session.windows[0].panes[0]
-  let inactive = await cli('tab.create', { pane: pane.id, url: `${url}/lazy-restore` })
-  let protectedTab = await cli('tab.create', { pane: pane.id })
-  await cli('tab.keep-alive', { tab: protectedTab.id, enabled: true })
+  let inactiveWindow = await cli('new-window', { session: session.id, url: `${url}/lazy-restore` })
+  let inactive = inactiveWindow.panes[0]
+  let protectedWindow = await cli('new-window', { session: session.id })
+  let protectedPane = protectedWindow.panes[0]
+  let kept = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'pane', 'keep-alive', '-t', protectedPane.id, '--enabled'], { env: { ...process.env, BMUX_DATA_DIR: directory } })
+  expect(JSON.parse(kept.stdout).result).toEqual({ pane: protectedPane.id, enabled: true })
   let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot-restore` })
-  await cli('wait', { tab: inactive.id, selector: '#text' })
-  await cli('wait', { tab: bot.activeTabId, selector: '#text' })
+  await cli('wait', { pane: inactive.id, selector: '#text' })
+  await cli('wait', { pane: bot.id, selector: '#text' })
   await application.close()
   await launch()
-  let before = (await cli('memory')).current.tabs
-  expect(before.find((tab: { tabId: string }) => tab.tabId === inactive.id).webContentsId).toBeNull()
-  expect(before.find((tab: { tabId: string }) => tab.tabId === protectedTab.id).webContentsId).not.toBeNull()
-  expect(before.find((tab: { tabId: string }) => tab.tabId === bot.activeTabId).webContentsId).not.toBeNull()
-  expect((await cli('tab.list', { pane: pane.id })).find((tab: { id: string }) => tab.id === inactive.id).runtimeState).toBe('unloaded')
-  expect((await cli('dom', { tab: inactive.id })).content).toContain('Fixture top')
-  expect((await cli('memory')).current.tabs.find((tab: { tabId: string }) => tab.tabId === inactive.id).webContentsId).not.toBeNull()
+  let before = (await cli('memory')).current.panes
+  expect(before.find((item: { paneId: string }) => item.paneId === inactive.id).webContentsId).toBeNull()
+  expect(before.find((item: { paneId: string }) => item.paneId === protectedPane.id).webContentsId).not.toBeNull()
+  expect(before.find((item: { paneId: string }) => item.paneId === bot.id).webContentsId).not.toBeNull()
+  expect((await cli('list-panes', { window: inactiveWindow.id }))[0].runtimeState).toBe('unloaded')
+  expect((await cli('dom', { pane: inactive.id })).content).toContain('Fixture top')
+  expect((await cli('memory')).current.panes.find((item: { paneId: string }) => item.paneId === inactive.id).webContentsId).not.toBeNull()
 })
 
-test('idle unloading keeps protected tabs and wakes safe tabs on demand', async () => {
+test('idle unloading keeps protected panes and wakes safe panes on demand', async () => {
   test.setTimeout(120000)
   let configFile = path.join(directory, 'config.yaml')
   let config = await fs.readFile(configFile, 'utf8')
@@ -1915,17 +1915,20 @@ test('idle unloading keeps protected tabs and wakes safe tabs on demand', async 
   document.setIn(['memory', 'idleUnloadMinutes'], 1)
   await fs.writeFile(configFile, document.toString())
   await cli('settings.reload')
-  let pane = (await cli('list-sessions'))[0].windows[0].panes[0]
-  let safe = await cli('tab.create', { pane: pane.id })
-  let protectedTab = await cli('tab.create', { pane: pane.id })
-  await cli('tab.keep-alive', { tab: protectedTab.id, enabled: true })
+  let session = (await cli('list-sessions'))[0]
+  let pane = session.windows[0].panes[0]
+  let safeWindow = await cli('new-window', { session: session.id })
+  let safe = safeWindow.panes[0]
+  let protectedWindow = await cli('new-window', { session: session.id })
+  let protectedPane = protectedWindow.panes[0]
+  await cli('pane.keep-alive', { pane: protectedPane.id, enabled: true })
   let bot = await cli('split-window', { pane: pane.id, profile: 'bot' })
-  await expect.poll(async () => (await cli('memory')).current.tabs.find((tab: { tabId: string }) => tab.tabId === safe.id).webContentsId, { timeout: 105000, intervals: [5000] }).toBeNull()
-  let tabs = (await cli('memory')).current.tabs
-  expect(tabs.find((tab: { tabId: string }) => tab.tabId === protectedTab.id).webContentsId).not.toBeNull()
-  expect(tabs.find((tab: { tabId: string }) => tab.tabId === bot.activeTabId).webContentsId).not.toBeNull()
-  expect(await cli('eval', { tab: safe.id, expression: 'document.URL' })).toBe('about:blank')
-  expect((await cli('tab.list', { pane: pane.id })).find((tab: { id: string }) => tab.id === safe.id).runtimeState).toBe('live')
+  await expect.poll(async () => (await cli('memory')).current.panes.find((item: { paneId: string }) => item.paneId === safe.id).webContentsId, { timeout: 105000, intervals: [5000] }).toBeNull()
+  let panes = (await cli('memory')).current.panes
+  expect(panes.find((item: { paneId: string }) => item.paneId === protectedPane.id).webContentsId).not.toBeNull()
+  expect(panes.find((item: { paneId: string }) => item.paneId === bot.id).webContentsId).not.toBeNull()
+  expect(await cli('eval', { pane: safe.id, expression: 'document.URL' })).toBe('about:blank')
+  expect((await cli('list-panes', { window: safeWindow.id }))[0].runtimeState).toBe('live')
   await fs.writeFile(configFile, config)
   await cli('settings.reload')
 })

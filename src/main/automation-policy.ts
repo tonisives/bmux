@@ -89,7 +89,7 @@ export let createAutomationPolicy = (options: { file: string; settings: () => Au
     let token = randomBytes(32).toString('hex')
     leases.set(token, { token, groupId: match.id, profileId: args.profileId, tabId: args.tabId, pluginId: args.pluginId, acquiredAt: now(), lastUsed: now() })
     try { append(match.id, args.profileId, { at: now(), kind: 'run' }) } catch (error) { leases.delete(token); throw error }
-    return { token, group: match.id, profileId: args.profileId, tabId: args.tabId }
+    return { token, group: match.id, profileId: args.profileId, paneId: args.tabId }
   }
   let release = (token: string) => { if (!leases.delete(token)) throw new Error('Automation lease is unavailable'); return { released: true } }
   let authorize = (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'navigation' | 'activity'; record?: boolean }) => {
@@ -121,7 +121,7 @@ export let createAutomationPolicy = (options: { file: string; settings: () => Au
     ensureLedger()
     expire()
     return Object.entries(options.settings().groups).flatMap(([groupId, group]) => group.profiles.map(profileId => {
-      let activeLeases = [...leases.values()].filter(lease => lease.groupId === groupId && lease.profileId === profileId).map(({ tabId, pluginId, acquiredAt, lastUsed }) => ({ tabId, pluginId: pluginId ?? null, acquiredAt, lastUsed }))
+      let activeLeases = [...leases.values()].filter(lease => lease.groupId === groupId && lease.profileId === profileId).map(({ tabId, pluginId, acquiredAt, lastUsed }) => ({ paneId: tabId, pluginId: pluginId ?? null, acquiredAt, lastUsed }))
       return { group: groupId, profileId, active: activeLeases.length, activeLeases, hourly: usage(eventsFor(groupId, profileId), now() - windowMs.hourly, now()), daily: usage(eventsFor(groupId, profileId), now() - windowMs.daily, now()), limits: { hourly: group.hourly, daily: group.daily, maxConcurrent: group.maxConcurrent } }
     }))
   }

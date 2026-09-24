@@ -85,30 +85,30 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   delete options.target
   let current = { client: client.id }
   let windowTarget = target !== undefined && /^[1-9]\d*$/.test(String(target)) ? session.windows[Number(target) - 1]?.id ?? target : target ?? client.windowId
-  let tabTarget = target !== undefined && /^\d+$/.test(String(target)) ? pane?.tabs[Number(target)]?.id ?? target : target ?? pane?.activeTabId
+  let paneTarget = target ?? pane?.id
   if (name === 'dark' || name === 'adblock') {
     let value: unknown = positional[0] ?? 'toggle'
     if (name === 'adblock' && ['on', 'off'].includes(String(value))) value = value === 'on'
     if (name === 'dark' && value === 'on') value = 'dark'
-    return { method: 'browser.set', args: { tab: tabTarget, setting: name === 'dark' ? 'darkMode' : 'adblock', value, scope: options.scope ?? 'site' } }
+    return { method: 'browser.set', args: { pane: paneTarget, setting: name === 'dark' ? 'darkMode' : 'adblock', value, scope: options.scope ?? 'site' } }
   }
   if (name === 'update-filters') return { method: 'browser.update-filters' }
   if (name === 'reload-scripts') return { method: 'browser.reload-scripts' }
   if (name === 'extension') {
     let action = positional.shift()
-    if (['list', 'load', 'remove', 'open', 'install-bitwarden'].includes(action ?? '')) return { method: `extension.${action}`, args: { tab: tabTarget, profile: options.profile, ...(action === 'load' ? { path: positional[0] } : { id: positional[0] }) } }
+    if (['list', 'load', 'remove', 'open', 'install-bitwarden'].includes(action ?? '')) return { method: `extension.${action}`, args: { pane: paneTarget, profile: options.profile, ...(action === 'load' ? { path: positional[0] } : { id: positional[0] }) } }
     throw new Error('Use extension install-bitwarden, list, load /absolute/path, open ID, or remove ID')
   }
-  if (name === 'fill' || name === 'save-fill') return { method: 'plugin.run', args: { action: `bmux.forms/${name === 'fill' ? 'fill' : 'save'}`, tab: tabTarget } }
-  if (name === 'open' || name === 'navigate') return { method: 'navigate', args: { tab: tabTarget, url: positional.join(' ') } }
+  if (name === 'fill' || name === 'save-fill') return { method: 'plugin.run', args: { action: `bmux.forms/${name === 'fill' ? 'fill' : 'save'}`, pane: paneTarget } }
+  if (name === 'open' || name === 'navigate') return { method: 'navigate', args: { pane: paneTarget, url: positional.join(' ') } }
   if (name === 'plugin') {
     let action = positional.shift()
-    if (action === 'run') return { method: 'plugin.run', args: { action: positional[0], tab: tabTarget } }
+    if (action === 'run') return { method: 'plugin.run', args: { action: positional[0], pane: paneTarget } }
     if (action === 'cancel') return { method: 'plugin.cancel', args: { id: positional[0] } }
     if (['list', 'runs', 'reload'].includes(action ?? '')) return { method: `plugin.${action}` }
     throw new Error('Use plugin list, run ID/ACTION, runs, cancel ID, or reload')
   }
-  if (/^(https?:\/\/|localhost[:/])/.test(name) || name.includes('.')) return { method: 'navigate', args: { tab: pane?.activeTabId, url: [name, ...positional].join(' ') } }
+  if (/^(https?:\/\/|localhost[:/])/.test(name) || name.includes('.')) return { method: 'navigate', args: { pane: pane?.id, url: [name, ...positional].join(' ') } }
   if (name === 'session') name = 'switch-client'
   if (name === 'new-client') name = 'attach-session'
   if (name === 'detach') name = 'detach-client'
@@ -117,7 +117,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'new-session') return { method: name, args: { ...current, ...options, name: options.name ?? positional[0] } }
   if (name === 'switch-client' || name === 'attach-session') return { method: name, args: { ...current, ...options, session: target ?? positional[0] ?? client.sessionId } }
   if (name === 'new-window') return { method: name, args: { ...current, session: client.sessionId, ...options, ...(positional.length ? { name: positional[0] } : {}) } }
-  if (name === 'reopen-closed-tab') return { method: name, args: current }
+  if (name === 'reopen-closed' || name === 'reopen-closed-tab') return { method: 'reopen-closed', args: current }
   if (name === 'move-window-left' || name === 'move-window-right') return { method: 'swap-window', args: { ...current, direction: name === 'move-window-left' ? -1 : 1 } }
   if (name === 'move-window-first' || name === 'move-window-last') return { method: 'move-window', args: { ...current, position: name === 'move-window-first' ? 'first' : 'last' } }
   if (name === 'move-window') return { method: name, args: { ...current, position: target ?? positional[0] } }
@@ -151,9 +151,9 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     if (action === 'rename') return { method: 'profile.rename', args: { profile: positional[0], name: positional[1] } }
     throw new Error('Use profile create NAME or profile rename OLD NEW')
   }
-  if (['back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools'].includes(name)) return { method: name, args: { tab: tabTarget } }
-  if (['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].includes(name)) return { method: 'scroll', args: { tab: tabTarget, action: name } }
-  if (name === 'zoom') return { method: 'zoom', args: { tab: tabTarget, factor: Number(positional[0]) / 100 } }
+  if (['back', 'forward', 'reload', 'hard-reload', 'stop', 'devtools'].includes(name)) return { method: name, args: { pane: paneTarget } }
+  if (['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].includes(name)) return { method: 'scroll', args: { pane: paneTarget, action: name } }
+  if (name === 'zoom') return { method: 'zoom', args: { pane: paneTarget, factor: Number(positional[0]) / 100 } }
   if (name === 'reload-config') return { method: 'settings.reload' }
   if (name === 'edit-config') return { method: 'settings.open' }
   if (name === 'prefix') return { method: 'settings.prefix', args: { key: positional[0] } }

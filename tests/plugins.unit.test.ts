@@ -18,7 +18,7 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}) => {
   let manifest = { schema_version: 1, id: 'test', name: 'Test', version: '1', actions: [action] }
   fs.writeFileSync(path.join(folder, 'plugin.yaml'), stringify(manifest))
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
-  let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { tabId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
+  let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
   let plugins = createPlugins({ directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
   cleanup.push(() => { plugins.close(); fs.rmSync(directory, { recursive: true, force: true }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
@@ -76,14 +76,14 @@ describe('plugin definitions', () => {
   })
 })
 test('executes real scripts with pinned context and only explicit output', async () => {
-  let { plugins, browser, context } = fixture(hostScript + `console.log('PRIVATE_STDOUT'); console.error('PRIVATE_STDERR'); let context = host('context'); host('dom'); host('result', { tab: context.tabId });`)
+  let { plugins, browser, context } = fixture(hostScript + `console.log('PRIVATE_STDOUT'); console.error('PRIVATE_STDERR'); let context = host('context'); host('dom'); host('result', { pane: context.paneId });`)
   let { id } = plugins.run('test/run', context)
-  expect((await done(plugins, id)).result).toEqual({ tab: 'original' })
+  expect((await done(plugins, id)).result).toEqual({ pane: 'original' })
   expect(browser).toHaveBeenCalledWith('dom', {}, context, expect.any(AbortSignal))
   expect(JSON.stringify(plugins.runs())).not.toContain('PRIVATE')
 })
-test('rejects missing capabilities, forged invocation tokens and cross-tab requests', async () => {
-  let script = hostScript + `let denied = 0; for (let [method,args] of [['eval',{expression:'1'}],['dom',{tab:'other'}],['bitwarden.fill',{}]]) { try { host(method,args) } catch { denied++ } } process.env.BMUX_PLUGIN_TOKEN = 'forged'; try { host('context') } catch { denied++ } process.exit(denied === 4 ? 0 : 1);`
+test('rejects missing capabilities, forged invocation tokens and cross-pane requests', async () => {
+  let script = hostScript + `let denied = 0; for (let [method,args] of [['eval',{expression:'1'}],['dom',{pane:'other'}],['bitwarden.fill',{}]]) { try { host(method,args) } catch { denied++ } } process.env.BMUX_PLUGIN_TOKEN = 'forged'; try { host('context') } catch { denied++ } process.exit(denied === 4 ? 0 : 1);`
   let { plugins, context, browser } = fixture(script)
   expect((await done(plugins, plugins.run('test/run', context).id)).status).toBe('completed')
   expect(browser).not.toHaveBeenCalled()

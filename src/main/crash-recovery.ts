@@ -4,7 +4,7 @@ import type { Model } from '../shared/types'
 import { removePane, removeSession, repairClientSelections, walkPanes } from './model'
 import { writeAtomic } from './store'
 
-type NavigationMarker = { version: 2; paneId: string; tabId: string; url: string }
+type NavigationMarker = { version: 3; paneId: string; url: string }
 type RunMarker = { version: 1; recovery: boolean }
 
 let markerPath = (directory: string) => path.join(directory, 'navigation-crash.json')
@@ -12,8 +12,8 @@ let runMarkerPath = (directory: string) => path.join(directory, 'browser-run.jso
 
 let readMarker = (file: string): NavigationMarker | undefined => {
   try {
-    let value = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<NavigationMarker>
-    if (value.version === 2 && typeof value.paneId === 'string' && typeof value.tabId === 'string' && typeof value.url === 'string') return value as NavigationMarker
+    let value = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: number; paneId?: string; url?: string }
+    if ((value.version === 2 || value.version === 3) && typeof value.paneId === 'string' && typeof value.url === 'string') return { version: 3, paneId: value.paneId, url: value.url }
   } catch { /* Missing and invalid markers are not recoverable. */ }
   return undefined
 }
@@ -31,7 +31,7 @@ export let recoverNavigationCrash = (directory: string, model: Model) => {
   let marker = readMarker(file)
   removeMarker(file)
   if (!marker) return undefined
-  let found = walkPanes(model).find(({ pane }) => pane.id === marker.paneId && pane.tabs.some(tab => tab.id === marker.tabId))
+  let found = walkPanes(model).find(({ pane }) => pane.id === marker.paneId)
   if (!found) return undefined
   let { session, window, pane } = found
   if (window.panes.length > 1) {
@@ -48,13 +48,13 @@ export let createNavigationCrashMarker = (directory: string) => {
   let file = markerPath(directory)
   let current: NavigationMarker | undefined
   return {
-    mark: (paneId: string, tabId: string, url: string) => {
+    mark: (paneId: string, _pageId: string, url: string) => {
       if (url === 'about:blank') return
-      current = { version: 2, paneId, tabId, url }
+      current = { version: 3, paneId, url }
       writeAtomic(file, JSON.stringify(current))
     },
-    clear: (tabId: string, url?: string) => {
-      if (current?.tabId !== tabId || (url !== undefined && current.url !== url)) return
+    clear: (paneId: string, url?: string) => {
+      if (current?.paneId !== paneId || (url !== undefined && current.url !== url)) return
       current = undefined
       removeMarker(file)
     },

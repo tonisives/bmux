@@ -46,7 +46,7 @@ export let App = () => {
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
     if (previous.current && previous.current !== target) { setControl(null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerTabId) {
+    if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
       setControl('address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
@@ -180,7 +180,7 @@ let selection = (state: PublicState) => {
   let session = state.model.sessions.find(session => session.id === client?.sessionId)
   let window = session?.windows.find(window => window.id === client?.windowId)
   let pane = window?.panes.find(pane => pane.id === client?.paneId)
-  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let tab = pane
   let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
   return { client, session, window, pane, tab, profile }
 }
@@ -274,7 +274,7 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
-  let tabId = pane?.activeTabId
+  let tabId = pane?.id
   let label = `${index}:${window.name}${active ? '*' : ''}`
   let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
@@ -471,8 +471,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     setBusy(true)
     let target = tab?.id
     if (!target) {
-      let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { activeTabId: string } | undefined
-      target = created?.activeTabId
+      let created = await run('split-window', { window: client!.windowId, client: client!.id }) as { id: string } | undefined
+      target = created?.id
     }
     let result = target ? await run('navigate', { tab: target, url, waitUntil: 'none' }) : undefined
     if (!mounted.current) return
@@ -629,7 +629,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let { state, control, show, run, historyPopup, setHistoryPopup } = useUI()
   let { client, session, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)
-  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let tab = pane
   let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
   let security = tab ? state.security?.[tab.id] : undefined
   let url = tab ? state.pendingUrls[tab.id] ?? (security?.status === 'certificate-error' ? security.url : tab.url) : undefined
@@ -664,7 +664,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let back = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index < activeIndex).reverse()
   let forward = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index > activeIndex)
   let backHasPage = back.length > 0 && back[0].url !== 'about:blank'
-  let backEnabled = back.length > 0 ? backHasPage : !!tab?.openerTabId && !!pane?.tabs.some(candidate => candidate.id === tab.openerTabId)
+  let backEnabled = back.length > 0 ? backHasPage : !!tab?.openerPaneId && !!window?.panes.some(candidate => candidate.id === tab.openerPaneId)
   let popup = historyPopup?.tabId === tab?.id ? historyPopup : null
   let menu = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -683,7 +683,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}` : ''
   let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
   let proxyRouteTitle = customProfile?.proxy ? `${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
-  let clickState = state.clickMode?.showInput && state.clickModeState?.tabId === tab?.id ? state.clickModeState : undefined
+  let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -725,7 +725,7 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
   let { window, client } = selection(state)
   let placement = window?.floating?.find(item => item.paneId === paneId)
   let pane = window?.panes.find(pane => pane.id === paneId)
-  let tab = pane?.tabs.find(tab => tab.id === pane.activeTabId)
+  let tab = pane
   let ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!placement || !client || !ref.current) return
@@ -738,10 +738,10 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let { state, run } = useUI()
   let { client } = selection(state)
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
-  let tab = pane.tabs.find(tab => tab.id === pane.activeTabId)!
+  let tab = pane
   let ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { tabId: element.dataset.tabId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
+    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
     let observer = new ResizeObserver(publish)
     if (ref.current) observer.observe(ref.current)
     publish()
@@ -751,7 +751,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-tab-id={tab.id} onMouseDown={focus}>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-content-pane-id={pane.id} onMouseDown={focus}>
     {state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>}
   </div></section>
 }
@@ -1197,16 +1197,16 @@ let BookmarkExpansionContext = createContext<{ expandedBookmarkId: string | null
 
 let BookmarkPicker = () => {
   let { state, run, dismiss, bookmarkSearches, rememberBookmarkSearch } = useUI()
-  let { profile, client, tab } = selection(state)
+  let { profile, client, session, tab } = selection(state)
   let [expandedBookmarkId, setExpandedBookmarkId] = useState<string | null>(null)
   let [pointerMode, setPointerMode] = useState(false)
   let bookmarks: Bookmark[] = []
-  let activate = async (bookmark: Bookmark, newTab = false, settings?: BookmarkParameters) => {
+  let activate = async (bookmark: Bookmark, newWindow = false, settings?: BookmarkParameters) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
     let url = parameterizedBookmarkUrl(bookmark.url, settings ?? state.bookmarkParameters?.[profile!.id]?.[bookmark.id])
-    let result = newTab
-      ? await run('tab.create', { pane: client.paneId, client: client.id, url })
-      : tab ? await run('navigate', { tab: tab.id, url }) : undefined
+    let result = newWindow
+      ? await run('new-window', { session: session?.id, profile: profile?.id, client: client.id, url })
+      : tab ? await run('navigate', { pane: tab.id, url }) : undefined
     if (result !== undefined) dismiss()
   }
   let { ref, keys, input, query, change } = usePickerNavigation(row => {
@@ -1417,7 +1417,7 @@ let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEven
   return <>
     <section className={css.settingsGroup} aria-label="Browser layout"><h3>Browser layout</h3>
       <label className={css.settingsRow}><span>Status bar</span><select name="statusBar" value={state.statusBar ?? 'top'} onChange={changeSetting}><option value="top">Top</option><option value="bottom">Bottom</option></select></label>
-      <label className={css.settingsRow}><span>Tab close buttons</span><input type="checkbox" name="showTabCloseButtons" checked={state.showTabCloseButtons === true} onChange={changeSetting} /></label>
+      <label className={css.settingsRow}><span>Window close buttons</span><input type="checkbox" name="showTabCloseButtons" checked={state.showTabCloseButtons === true} onChange={changeSetting} /></label>
     </section>
     <section className={css.settingsGroup} aria-label="Click mode"><h3>Click mode</h3>
       <label className={css.settingsRow}><span>Enabled</span><input type="checkbox" name="clickMode.enabled" checked={state.clickMode?.enabled !== false} onChange={changeSetting} /></label>

@@ -59,7 +59,7 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
     await expect(page.locator('output')).toHaveText('Unsaved')
     let tabId = await chrome.evaluate(async () => {
       let state = await (window as any).bmux.state()
-      return state.model.sessions[0].windows[0].panes[0].activeTabId as string
+      return state.model.sessions[0].windows[0].panes[0].id as string
     })
     await application.evaluate(({ dialog }) => {
       let native = dialog.showMessageBoxSync
@@ -70,7 +70,7 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
         return (native as any)(...args)
       }
     })
-    let closeTab = () => chrome.evaluate(({ tabId }) => (window as any).bmux.command({ method: 'tab.close', args: { tab: tabId } }), { tabId })
+    let closeTab = () => chrome.evaluate(({ tabId }) => (window as any).bmux.command({ method: 'kill-pane', args: { pane: tabId } }), { tabId })
     expect(await closeTab()).toEqual({ cancelled: tabId })
     await expect(page.locator('output')).toHaveText('Unsaved')
     expect(await closeTab()).toEqual({ closed: tabId })
@@ -78,7 +78,7 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
     let { windowId, nextTabId } = await chrome.evaluate(async () => {
       let state = await (window as any).bmux.state()
       let current = state.model.sessions[0].windows[0]
-      return { windowId: current.id as string, nextTabId: current.panes[0].activeTabId as string }
+      return { windowId: current.id as string, nextTabId: current.panes[0].id as string }
     })
     await chrome.evaluate(({ nextTabId, url }) => (window as any).bmux.command({ method: 'navigate', args: { tab: nextTabId, url } }), { nextTabId, url })
     await expect.poll(() => application.context().pages().some(candidate => candidate.url() === url)).toBe(true)

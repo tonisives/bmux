@@ -1,6 +1,6 @@
 export type DoubleTapModifier = 'Option' | 'Command' | 'Control' | 'Shift' | 'Escape' | null
 export type ClickAction = 'normal' | 'right' | 'command' | 'double' | 'float' | 'split-left' | 'split-right'
-export type ClickModeState = { tabId: string; input: string; action: ClickAction }
+export type ClickModeState = { paneId: string; input: string; action: ClickAction }
 export type ClickModeSettings = {
   enabled: boolean
   doubleTapModifier: DoubleTapModifier
