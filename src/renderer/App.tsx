@@ -641,13 +641,16 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     return selection
   }, [])
   let open = () => show('address', paneId)
-  let beginSelection = (event: PointerEvent<HTMLInputElement>) => {
-    if (event.button === 0) event.currentTarget.setPointerCapture(event.pointerId)
-  }
-  let editSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
-    let input = event.currentTarget
+  let rememberSelection = (input: HTMLInputElement) => {
     let start = input.selectionStart ?? 0, end = input.selectionEnd ?? 0
-    addressSelection.current = start === end ? undefined : { start, end, direction: input.selectionDirection ?? 'none' }
+    if (start !== end) addressSelection.current = { start, end, direction: input.selectionDirection ?? 'none' }
+  }
+  let beginSelection = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button === 0) { addressSelection.current = undefined; event.currentTarget.setPointerCapture(event.pointerId) }
+  }
+  let moveSelection = (event: PointerEvent<HTMLInputElement>) => rememberSelection(event.currentTarget)
+  let editSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
+    rememberSelection(event.currentTarget)
     void open()
   }
   let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -690,7 +693,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
       </div>}
     </div>}
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : clickState ? <ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : clickState ? <ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={moveSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
     {customProfile && <div className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteLabel}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /></button>{customProfile.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}</div>}
   </div>

@@ -1043,7 +1043,7 @@ export let createRuntime = (dataDirectory: string) => {
     let url = live.contents.getURL()
     void Promise.race([
       cdp(tabId, 'Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false }),
-      sleep(800).then(() => { throw new Error('Preview capture timed out') }),
+      sleep(3000).then(() => { throw new Error('Preview capture timed out') }),
     ]).then(result => {
       if (result.data && tabs.get(tabId) === live && !live.contents.isDestroyed() && live.contents.getURL() === url) {
         snapshots[tabId] = { image: `data:image/jpeg;base64,${result.data}`, capturedAt: Date.now() }; publish()

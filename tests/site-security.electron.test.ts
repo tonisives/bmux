@@ -75,7 +75,8 @@ test.afterAll(async () => {
     } finally { clearTimeout(timer) }
   }
   for (let server of servers) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
-  if (rootFingerprint) await execute('sudo', ['-n', 'security', 'delete-certificate', '-t', '-Z', rootFingerprint, '/Library/Keychains/System.keychain'], { timeout: 10000 })
+  // GitHub Actions discards its desktop after this job; local Tart keeps its keychain.
+  if (rootFingerprint && !process.env.CI) await execute('sudo', ['-n', 'security', 'delete-certificate', '-t', '-Z', rootFingerprint, '/Library/Keychains/System.keychain'], { timeout: 10000 })
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 
