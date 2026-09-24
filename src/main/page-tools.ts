@@ -138,10 +138,12 @@ export let createPageTools = (options: Options) => {
     scripts = next
     for (let target of targets.values()) reconfigure(target)
     options.changed()
+    return Promise.all([...targets.values()].map(target => target.ready))
   }
   reload()
   return {
     reload,
+    readyForScripts: () => Promise.all([...targets.values()].map(target => target.ready)),
     list: (): BrowserToolsState['scripts'] => scripts.map(({ id, name, enabled, error }) => ({ id, name, enabled, error })),
     editing: (tabId: string) => targets.get(tabId)?.focus.editing(),
     frameContexts: (tabId: string, expression: string) => targets.get(tabId)?.frames?.contexts(expression) ?? Promise.resolve([]),

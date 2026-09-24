@@ -248,8 +248,8 @@ test('page context menu opens links in a float using the source profile', async 
   try {
     let page = application.context().pages().find(page => page.url() === `${url}/tiled`)!
     await page.locator('a').click({ button: 'right' })
-    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open Link in Floating Pane'))).toBe(true)
-    await application.evaluate(() => { let item = (globalThis as any).floatingMenu.items.find((item: any) => item.label === 'Open Link in Floating Pane'); item.click() })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open link in floating pane'))).toBe(true)
+    await application.evaluate(() => { let item = (globalThis as any).floatingMenu.items.find((item: any) => item.label === 'Open link in floating pane'); item.click() })
     await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating.length).toBe(1)
     let added = (await state()).model.sessions[0].windows[0].panes.at(-1)
     expect(added.profileId).toBe(pane.profileId)
@@ -313,8 +313,8 @@ test('page context menu resolves JavaScript-driven links', async () => {
   try {
     let page = application.context().pages().find(page => page.url() === `${url}/script-link`)!
     await page.locator('#script-link').click({ button: 'right' })
-    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open Link in Floating Pane'))).toBe(true)
-    await application.evaluate(() => { let item = (globalThis as any).floatingMenu.items.find((item: any) => item.label === 'Open Link in Floating Pane'); item.click() })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open link in floating pane'))).toBe(true)
+    await application.evaluate(() => { let item = (globalThis as any).floatingMenu.items.find((item: any) => item.label === 'Open link in floating pane'); item.click() })
     await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.at(-1).tabs[0].url).toBe(`${url}/resolved-post`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
 })
@@ -341,7 +341,7 @@ test('page context menu falls back to the hovered target and main frame', async 
       let contents = webContents.getAllWebContents().find(item => item.getURL() === pageUrl)!
       ;(contents as any).emit('context-menu', { preventDefault: () => undefined }, { linkURL: '', x: -100, y: -100, frame: undefined, selectionText: '', isEditable: false })
     }, `${url}/hovered-script-link`)
-    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open Link in Floating Pane'))).toBe(true)
+    await expect.poll(() => application.evaluate(() => (globalThis as any).floatingMenu?.items.some((item: any) => item.label === 'Open link in floating pane'))).toBe(true)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
 })
 

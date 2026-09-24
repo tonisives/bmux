@@ -66,11 +66,16 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   if (application) {
-    let child = application.process(), timer = setTimeout(() => child.kill('SIGKILL'), 10000)
-    try { await application.close() } finally { clearTimeout(timer) }
+    let child = application.process(), timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        application.close(),
+        new Promise<void>(resolve => { timer = setTimeout(() => { child.kill('SIGKILL'); resolve() }, 10000) }),
+      ])
+    } finally { clearTimeout(timer) }
   }
   for (let server of servers) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
-  if (rootFingerprint) await execute('sudo', ['-n', 'security', 'delete-certificate', '-t', '-Z', rootFingerprint, '/Library/Keychains/System.keychain'])
+  if (rootFingerprint) await execute('sudo', ['-n', 'security', 'delete-certificate', '-t', '-Z', rootFingerprint, '/Library/Keychains/System.keychain'], { timeout: 10000 })
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 

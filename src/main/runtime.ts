@@ -1394,7 +1394,7 @@ export let createRuntime = (dataDirectory: string) => {
       return next[profile.id][bookmark.id]
     }
     if (method === 'browser.update-filters') { void filters?.update(); return { updating: true } }
-    if (method === 'browser.reload-scripts') { pageTools?.reload(); return pageTools?.list() }
+    if (method === 'browser.reload-scripts') { await pageTools?.reload(); return pageTools?.list() }
     if (method === 'browser.set') {
       if (!configuration) throw new Error('Configuration is not ready')
       let tabId = required(args, 'tab'), { pane } = tabById(model, tabId)
@@ -1413,6 +1413,7 @@ export let createRuntime = (dataDirectory: string) => {
       let index = configuration.browser.userscripts.findIndex(script => script.id === args.id)
       if (index < 0) throw new Error('Userscript not found')
       configuration.update(['browser', 'userscripts', String(index), 'enabled'], args.enabled)
+      await pageTools?.readyForScripts()
       return pageTools?.list()
     }
     if (method === 'plugin.list') return plugins?.list() ?? []
@@ -2124,7 +2125,13 @@ export let createRuntime = (dataDirectory: string) => {
           let started = Date.now()
           if (ms !== undefined) { await sleep(ms); return { waited: Date.now() - started } }
           while (Date.now() - started < timeout) {
-            let result = await cdp(tabId, 'Runtime.evaluate', { expression, returnByValue: true })
+            let result
+            try { result = await cdp(tabId, 'Runtime.evaluate', { expression, returnByValue: true }) }
+            catch (error) {
+              if (!/Inspected target navigated or closed|Execution context was destroyed/.test(errorText(error))) throw error
+              await sleep(100)
+              continue
+            }
             if (result.exceptionDetails) throw new Error(args.selector !== undefined ? 'Invalid wait selector' : 'Wait expression threw an error')
             if (result.result.value) return { matched: true }
             await sleep(100)
