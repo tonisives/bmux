@@ -44,7 +44,7 @@ import { createAutomationPolicy } from './automation-policy'
 import { matchingAutomationGroup } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 
-type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
+type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -706,6 +706,13 @@ export let createRuntime = (dataDirectory: string) => {
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
+    contents.on('will-prevent-unload', event => {
+      let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
+      let options: Electron.MessageBoxOptions = { type: 'question', buttons: ['Stay', 'Leave'], defaultId: 0, cancelId: 0, message: 'Leave this site?', detail: 'Changes you made may not be saved.' }
+      let choice = owner ? dialog.showMessageBoxSync(owner, options) : dialog.showMessageBoxSync(options)
+      if (choice === 1) event.preventDefault()
+      else live.cancelClose?.()
+    })
     contents.debugger.on('message', (_event, method, params) => {
       if (method !== 'Page.fileChooserOpened' || live.disposed) return
       let choose = async () => {
@@ -774,7 +781,7 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('dom-ready', () => { if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ tabId })) })
     contents.once('destroyed', () => {
-      if (live.disposed || shuttingDown || tabs.get(tabId) !== live) return
+      if (live.disposed || live.closing || shuttingDown || tabs.get(tabId) !== live) return
       let { tab, pane, window } = tabById(model, tabId)
       if (tab.openerTabId && pane.tabs.length === 1 && window.panes.length === 1) void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError)
       else void execute({ method: 'tab.close', args: { tab: tab.id } }).catch(reportError)
@@ -942,6 +949,30 @@ export let createRuntime = (dataDirectory: string) => {
       let client = [...clients.values()].find(client => client.window === live.parent)
       client?.chrome.webContents.focus()
     }
+  }
+  let closeLiveTab = (tabId: string): Promise<boolean> => {
+    let live = tabs.get(tabId)
+    if (!live || live.contents.isDestroyed()) return Promise.resolve(true)
+    if (live.closing) return Promise.resolve(false)
+    let start!: () => void
+    let closing = new Promise<boolean>(resolve => {
+      let finish = (closed: boolean) => {
+        live.contents.off('destroyed', destroyed)
+        live.cancelClose = undefined
+        resolve(closed)
+      }
+      let destroyed = () => finish(true)
+      live.cancelClose = () => finish(false)
+      live.contents.once('destroyed', destroyed)
+      start = () => {
+        try { live.contents.close({ waitForBeforeUnload: true }) }
+        catch (error) { finish(false); reportError(error) }
+      }
+    })
+    live.closing = closing
+    void closing.finally(() => { if (live.closing === closing) live.closing = undefined })
+    start()
+    return closing
   }
   let disposeTab = (tabId: string) => {
     let automationToken = tabAutomation.get(tabId)
@@ -1163,6 +1194,25 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let repairClients = () => repairClientSelections(model)
   let changed = () => { clickMode.cancel(); doubleTap.reset(); repairClients(); save(); void scheduleVisuals() }
+  let closeTabsBeforeRemoval = async (tabIds: string[]) => {
+    let closed: string[] = []
+    for (let tabId of tabIds) {
+      if (await closeLiveTab(tabId)) { closed.push(tabId); continue }
+      if (closed.length) {
+        for (let id of closed) {
+          let { tab, pane, session } = tabById(model, id)
+          let entry: Extract<(typeof closedTabs)[number], { kind: 'tab' }> = { kind: 'tab', paneId: pane.id, index: pane.tabs.indexOf(tab), tab: structuredClone(tab) }
+          if (!session.private) { closedTabs.push(entry); if (closedTabs.length > 25) closedTabs.shift() }
+          pane.tabs = pane.tabs.filter(item => item.id !== id)
+          if (!pane.tabs.length) { let replacement = newTab(); pane.tabs.push(replacement); entry.replacementTabId = replacement.id }
+          if (pane.activeTabId === id) pane.activeTabId = pane.tabs[0].id
+        }
+        changed(); await visualQueue
+      }
+      return false
+    }
+    return true
+  }
   let createClient = async (sessionId: string, restored?: Client, activate = true) => {
     let session = resolve(model.sessions, sessionId, 'Session')
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
@@ -1632,6 +1682,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
+      if (!(await closeTabsBeforeRemoval(session.windows.flatMap(window => window.panes.flatMap(pane => pane.tabs.map(tab => tab.id)))))) return { cancelled: session.id }
       if (session.private) {
         closedTabs = closedTabs.filter(item => item.kind === 'window' ? item.sessionId !== session.id : !session.windows.some(window => window.panes.some(pane => pane.id === item.paneId)))
         for (let key of permissionGrants.keys()) if (key.startsWith(`private:${session.id}:`)) permissionGrants.delete(key)
@@ -1903,15 +1954,17 @@ export let createRuntime = (dataDirectory: string) => {
       let { window, pane } = paneById(model, args.pane)
       if (pane.tabs.length > 1 && args.confirm !== true) throw new Error('Pane contains multiple tabs; pass --confirm')
       if (window.panes.length === 1) {
-        await execute({ method: 'kill-window', args: { window: window.id, confirm: true } })
-        return { closed: pane.id }
+        let result = await execute({ method: 'kill-window', args: { window: window.id, confirm: true } }) as { cancelled?: string }
+        return result.cancelled ? { cancelled: pane.id } : { closed: pane.id }
       }
+      if (!(await closeTabsBeforeRemoval(pane.tabs.map(tab => tab.id)))) return { cancelled: pane.id }
       forgetPlacement(window, pane.id); window.panes = window.panes.filter(item => item.id !== pane.id)
       changed(); await visualQueue; return { closed: pane.id }
     }
     if (method === 'kill-window') {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (window.panes.reduce((count, pane) => count + pane.tabs.length, 0) > 1 && args.confirm !== true) throw new Error('Window contains multiple tabs; pass --confirm')
+      if (!(await closeTabsBeforeRemoval(window.panes.flatMap(pane => pane.tabs.map(tab => tab.id))))) return { cancelled: window.id }
       let session = model.sessions.find(session => session.windows.includes(window))!
       if (!session.private) {
         closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })
@@ -1934,6 +1987,7 @@ export let createRuntime = (dataDirectory: string) => {
       let saved = model.layouts.find(layout => layout.name === args.name)
       if (!saved) throw new Error('Saved layout not found')
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      if (!(await closeTabsBeforeRemoval(window.panes.flatMap(pane => pane.tabs.map(tab => tab.id))))) return { cancelled: window.id }
       let replacement = cloneWindow(saved.window)
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
       changed(); await visualQueue; return window
@@ -1949,6 +2003,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; return tab }
     if (method === 'tab.close') {
       let { tab, pane, session } = tabById(model, args.tab)
+      if (!(await closeLiveTab(tab.id))) return { cancelled: tab.id }
       let closed: Extract<(typeof closedTabs)[number], { kind: 'tab' }> = { kind: 'tab', paneId: pane.id, index: pane.tabs.indexOf(tab), tab: structuredClone(tab) }
       if (!session.private) { closedTabs.push(closed); if (closedTabs.length > 25) closedTabs.shift() }
       pane.tabs = pane.tabs.filter(item => item.id !== tab.id)
@@ -2036,6 +2091,7 @@ export let createRuntime = (dataDirectory: string) => {
           let { tab, pane } = tabById(model, tabId)
           let openerTabId = tab.openerTabId
           if (openerTabId && pane.tabs.some(tab => tab.id === openerTabId)) {
+            if (!(await closeLiveTab(tabId))) return { cancelled: tabId }
             pane.tabs = pane.tabs.filter(tab => tab.id !== tabId)
             pane.activeTabId = openerTabId
             changed(); await visualQueue
