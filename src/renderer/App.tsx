@@ -1432,7 +1432,7 @@ let MemorySettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HT
     <label className={css.settingsRow}><span>Load inactive sessions on demand</span><input type="checkbox" name="memory.lazyRestore" checked={state.memory?.lazyRestore !== false} onChange={changeSetting} /></label>
     <p className={css.settingsHint}>Applies on the next launch. Agent commands load pages when addressed. Background profiles still start normally.</p>
     <label className={css.settingsRow}><span>Unload idle pages</span><select name="memory.idleUnloadMinutes" value={minutes} onChange={changeSetting}><option value="0">Off</option><option value="5">After 5 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option><option value="60">After 1 hour</option>{![0, 5, 15, 30, 60].includes(minutes) && <option value={minutes}>After {minutes} minutes</option>}</select></label>
-    <p className={css.settingsHint}>Only hidden, inactive pages that pass safety checks are unloaded. Page memory and JavaScript state cannot always be restored; keep important tabs active.</p>
+    <p className={css.settingsHint}>Only hidden, inactive pages that pass safety checks are unloaded. Page memory and JavaScript state cannot always be restored; use Keep Page Loaded for important windows.</p>
   </>
 }
 let SettingsContent = () => {

@@ -1093,6 +1093,7 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await expect(chrome.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await chrome.getByRole('tab', { name: 'Memory' }).click()
   await expect(chrome.getByRole('checkbox', { name: 'Load inactive sessions on demand' })).toBeChecked()
+  await expect(chrome.getByText(/use Keep Page Loaded for important windows/)).toBeVisible()
   await chrome.getByRole('combobox', { name: 'Unload idle pages' }).selectOption('5')
   await expect.poll(async () => (await cli('state')).memory.idleUnloadMinutes).toBe(5)
   await chrome.getByRole('combobox', { name: 'Unload idle pages' }).selectOption('0')
