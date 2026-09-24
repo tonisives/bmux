@@ -1,7 +1,8 @@
 # GUI tests in Tart
 
-Local GUI tests run in the `bmux-tests` macOS VM. Its viewer is assigned to
-AeroSpace workspace `bot`. Focus and pointer changes happen inside the guest.
+Local GUI tests run in the `bmux-tests` macOS VM without opening a host viewer,
+so starting a test does not switch AeroSpace workspaces. Guest focus and pointer
+changes stay inside the VM. An interactive viewer is assigned to workspace `bot`.
 The guest uses two CPUs, 6 GB of memory, and a fixed 1440 by 1000 display. The
 CPU count limits how much host CPU the VM can consume while it is busy.
 
@@ -24,10 +25,11 @@ about 27 GB compressed. The base image supplies Node 24, pnpm, Command Line
 Tools, an automatically logged-in desktop, and automation permissions.
 
 The runner uses Tart's guest agent. No SSH password or host browser profile is
-needed. Audio and clipboard sharing are disabled. The VM viewer may be hidden
-without stopping tests. The runner stops the VM after the last queued test, so
-the viewer closes automatically. Use `BMUX_TART_HEADLESS=1 pnpm vm:start` to start
-without a viewer; this choice takes effect when starting a stopped VM.
+needed. Audio and clipboard sharing are disabled. Tests start the VM without a
+viewer and stop it after the last queued test. `pnpm vm:start` opens an interactive
+viewer; use `BMUX_TART_HEADLESS=1 pnpm vm:start` to start without one. For a
+test run that needs the viewer, use `BMUX_TART_HEADLESS=0 pnpm test:ui`. This
+choice takes effect when starting a stopped VM.
 
 ## Run tests
 
