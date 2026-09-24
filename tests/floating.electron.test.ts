@@ -265,7 +265,8 @@ test('page context menu replaces a misspelled word', async () => {
   await rpc('wait', { tab: pane.activeTabId, selector: '#spelling' })
   let page = application.context().pages().find(page => page.url() === `${url}/spelling`)!
   let spelling = page.locator('#spelling')
-  await spelling.fill('recieve')
+  await spelling.click()
+  await spelling.pressSequentially('recieve ', { delay: 30 })
   await application.evaluate(({ Menu }) => {
     let build = Menu.buildFromTemplate
     ;(globalThis as any).restoreSpellingMenu = () => { Menu.buildFromTemplate = build }
@@ -284,7 +285,7 @@ test('page context menu replaces a misspelled word', async () => {
       expect(labels).toContain('Add to dictionary')
     }).toPass({ timeout: 10000 })
     await application.evaluate(() => (globalThis as any).spellingMenu.items.find((item: any) => item.label === 'receive').click())
-    await expect(spelling).toHaveValue('receive')
+    await expect(spelling).toHaveValue('receive ')
   } finally { await application.evaluate(() => (globalThis as any).restoreSpellingMenu()) }
 })
 
