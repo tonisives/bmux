@@ -131,7 +131,7 @@ let lock = async (task, requestKey) => {
   } finally { if (requestFile) await fs.unlink(requestFile).catch(() => {}) }
 }
 
-let start = async () => {
+let start = async (headless = process.env.BMUX_TART_HEADLESS === '1') => {
   let current = await status()
   if (!current) throw new Error(`VM ${vm} is missing. Follow docs/tart-tests.md to install it.`)
   if (!current.Running) {
@@ -140,10 +140,10 @@ let start = async () => {
     await tart(['set', vm, '--cpu', cpus, '--memory', memory])
     await fs.mkdir(stateDirectory, { recursive: true })
     let log = await fs.open(path.join(stateDirectory, `${vm}.log`), 'a', 0o600)
-    let child = spawn(binary, ['run', vm, '--no-audio', '--no-clipboard', ...(process.env.BMUX_TART_HEADLESS === '1' ? ['--no-graphics'] : [])], { cwd: tartHome, detached: true, env, stdio: ['ignore', log.fd, log.fd] })
+    let child = spawn(binary, ['run', vm, '--no-audio', '--no-clipboard', ...(headless ? ['--no-graphics'] : [])], { cwd: tartHome, detached: true, env, stdio: ['ignore', log.fd, log.fd] })
     await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) })
     child.unref(); await log.close()
-    console.log(`Starting ${vm}; its viewer belongs on AeroSpace workspace bot.`)
+    console.log(headless ? `Starting ${vm} without a viewer.` : `Starting ${vm}; its viewer belongs on AeroSpace workspace bot.`)
   }
   let deadline = Date.now() + 180000
   for (let attempt = 0; Date.now() < deadline; attempt++) {
@@ -165,7 +165,7 @@ let nativeTest = async () => {
 }
 
 let vmTest = async () => {
-  await start()
+  await start(process.env.BMUX_TART_HEADLESS !== '0')
   let id = createHash('sha256').update(await fs.realpath(root)).digest('hex').slice(0, 16)
   let checkout = `/Users/admin/bmux-worktrees/${id}`
   let temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-tart-'))
