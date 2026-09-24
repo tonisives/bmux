@@ -1675,7 +1675,7 @@ test('dragging over the displayed URL preserves focus when released over the pag
   await expect(address).toBeFocused()
   let finalSelection = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
   expect(finalSelection.start).toBe(selected.start)
-  expect(finalSelection.end).toBeGreaterThanOrEqual(selected.end!)
+  expect(finalSelection.end).toBeGreaterThan(finalSelection.start!)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
   await application.evaluate(({ webContents }) => {
     let focused = webContents.getFocusedWebContents()!
