@@ -66,7 +66,7 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+W: close-pane-or-window\nbrowser:\n  autoUpdateFilters: false\n')
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><textarea id="spelling" spellcheck="true"></textarea><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
+    response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><p id="lookup-text">dictionary text</p><textarea id="spelling" spellcheck="true"></textarea><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await launch()
@@ -287,6 +287,50 @@ test('page context menu replaces a misspelled word', async () => {
     await application.evaluate(() => (globalThis as any).spellingMenu.items.find((item: any) => item.label === 'receive').click())
     await expect(spelling).toHaveValue('receive ')
   } finally { await application.evaluate(() => (globalThis as any).restoreSpellingMenu()) }
+})
+
+test('selected page text offers macOS Look Up on plain text and links', async () => {
+  let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('select-pane', { client: client.id, pane: pane.id })
+  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/lookup` })
+  await rpc('wait', { tab: pane.activeTabId, selector: '#lookup-text' })
+  let page = application.context().pages().find(page => page.url() === `${url}/lookup`)!
+  await application.evaluate(({ Menu, webContents }, pageUrl) => {
+    let build = Menu.buildFromTemplate
+    let contents = webContents.getAllWebContents().find(item => item.getURL() === pageUrl)!
+    let lookUp = contents.showDefinitionForSelection
+    ;(globalThis as any).lookUpCalls = 0
+    ;(globalThis as any).restoreLookUpMenu = () => { Menu.buildFromTemplate = build; contents.showDefinitionForSelection = lookUp }
+    contents.showDefinitionForSelection = () => { (globalThis as any).lookUpCalls++ }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      ;(globalThis as any).lookUpMenu = menu
+      menu.popup = () => undefined
+      return menu
+    }
+  }, `${url}/lookup`)
+  let select = (selector: string, word: string) => page.locator(selector).evaluate((element, word) => {
+    let range = document.createRange()
+    range.setStart(element.firstChild!, element.textContent!.indexOf(word))
+    range.setEnd(element.firstChild!, element.textContent!.indexOf(word) + word.length)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+  }, word)
+  try {
+    await select('#lookup-text', 'dictionary')
+    await page.locator('#lookup-text').click({ button: 'right', position: { x: 35, y: 12 } })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).lookUpMenu?.items.some((item: any) => item.label === 'Look Up'))).toBe(true)
+    await application.evaluate(() => (globalThis as any).lookUpMenu.items.find((item: any) => item.label === 'Look Up').click())
+    expect(await application.evaluate(() => (globalThis as any).lookUpCalls)).toBe(1)
+
+    await select('a', 'Open')
+    await application.evaluate(() => { (globalThis as any).lookUpMenu = undefined })
+    await page.locator('a').click({ button: 'right', position: { x: 35, y: 22 } })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).lookUpMenu?.items.some((item: any) => item.label === 'Look Up'))).toBe(true)
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('Open')
+    let labels = await application.evaluate(() => (globalThis as any).lookUpMenu.items.map((item: any) => item.label))
+    expect(labels).toContain('Open link')
+  } finally { await application.evaluate(() => (globalThis as any).restoreLookUpMenu()) }
 })
 
 test('reopens a closed float at its remembered position and adapts after window resizing', async () => {

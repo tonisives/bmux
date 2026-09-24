@@ -912,14 +912,19 @@ export let createRuntime = (dataDirectory: string) => {
       if (!owner) return
       let show = async () => {
         let linkUrl = params.linkURL
+        let selectionText = params.selectionText.trim()
         let frame = params.frame && !params.frame.isDestroyed() ? params.frame : contents.mainFrame
         if (!linkUrl && !frame.isDestroyed()) {
           let result = await frame.executeJavaScript(contextLinkExpression(params.x, params.y)).catch(() => undefined)
           linkUrl = resolvedContextLink(result)
         }
-        if (linkUrl && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
+        if (linkUrl && !selectionText && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
         if (contents.isDestroyed() || owner.window.isDestroyed()) return
         let template: Electron.MenuItemConstructorOptions[] = []
+        if (process.platform === 'darwin' && selectionText) template.push(
+          { label: 'Look Up', click: () => contents.showDefinitionForSelection() },
+          { type: 'separator' },
+        )
         if (params.isEditable && params.misspelledWord) {
           template.push(
             ...params.dictionarySuggestions.map(suggestion => ({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) })),
@@ -952,7 +957,7 @@ export let createRuntime = (dataDirectory: string) => {
             { role: 'selectAll' },
           )
         }
-        Menu.buildFromTemplate(template).popup({ window: owner.window })
+        Menu.buildFromTemplate(template).popup({ window: owner.window, frame: frame.isDestroyed() ? undefined : frame })
       }
       void show().catch(reportError)
     })
