@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import net from 'node:net'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
+import { parseDocument } from 'yaml'
 import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 
 let exec = promisify(execFile)
@@ -1078,6 +1079,11 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await chrome.keyboard.press('Escape')
   await nativeKeys([{ keyCode: ',', modifiers: ['meta'] }])
   await expect(chrome.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await chrome.getByRole('tab', { name: 'Memory' }).click()
+  await expect(chrome.getByRole('checkbox', { name: 'Load inactive sessions on demand' })).toBeChecked()
+  await chrome.getByRole('combobox', { name: 'Unload idle pages' }).selectOption('5')
+  await expect.poll(async () => (await cli('state')).memory.idleUnloadMinutes).toBe(5)
+  await chrome.getByRole('combobox', { name: 'Unload idle pages' }).selectOption('0')
   await fs.writeFile(config, 'keyboard: [broken')
   await expect.poll(async () => Boolean((await cli('state')).configError)).toBe(true)
   expect((await cli('state')).keyboard.prefix).toBe('Ctrl+X')
@@ -1856,4 +1862,44 @@ test('external relaunch without a document reuses the existing application windo
   await exec('/usr/bin/open', ['-n', '-a', path.join(root, 'build/bmux.app'), '--env', `BMUX_DATA_DIR=${directory}`, '--env', `BMUX_CONFIG=${path.join(directory, 'config.yaml')}`])
   await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id)
   expect(await cli('list-clients')).toEqual(before)
+})
+
+test('restored inactive pages wake when addressed by an agent', async () => {
+  let session = (await cli('list-sessions'))[0]
+  let pane = session.windows[0].panes[0]
+  let inactive = await cli('tab.create', { pane: pane.id, url: `${url}/lazy-restore` })
+  let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot-restore` })
+  await cli('wait', { tab: inactive.id, selector: '#text' })
+  await cli('wait', { tab: bot.activeTabId, selector: '#text' })
+  await application.close()
+  await launch()
+  let before = (await cli('memory')).current.tabs
+  expect(before.find((tab: { tabId: string }) => tab.tabId === inactive.id).webContentsId).toBeNull()
+  expect(before.find((tab: { tabId: string }) => tab.tabId === bot.activeTabId).webContentsId).not.toBeNull()
+  expect((await cli('tab.list', { pane: pane.id })).find((tab: { id: string }) => tab.id === inactive.id).runtimeState).toBe('unloaded')
+  expect((await cli('dom', { tab: inactive.id })).content).toContain('Fixture top')
+  expect((await cli('memory')).current.tabs.find((tab: { tabId: string }) => tab.tabId === inactive.id).webContentsId).not.toBeNull()
+})
+
+test('idle unloading keeps protected tabs and wakes safe tabs on demand', async () => {
+  test.setTimeout(120000)
+  let configFile = path.join(directory, 'config.yaml')
+  let config = await fs.readFile(configFile, 'utf8')
+  let document = parseDocument(config)
+  document.setIn(['memory', 'idleUnloadMinutes'], 1)
+  await fs.writeFile(configFile, document.toString())
+  await cli('settings.reload')
+  let pane = (await cli('list-sessions'))[0].windows[0].panes[0]
+  let safe = await cli('tab.create', { pane: pane.id })
+  let protectedTab = await cli('tab.create', { pane: pane.id })
+  await cli('tab.keep-alive', { tab: protectedTab.id, enabled: true })
+  let bot = await cli('split-window', { pane: pane.id, profile: 'bot' })
+  await expect.poll(async () => (await cli('memory')).current.tabs.find((tab: { tabId: string }) => tab.tabId === safe.id).webContentsId, { timeout: 105000, intervals: [5000] }).toBeNull()
+  let tabs = (await cli('memory')).current.tabs
+  expect(tabs.find((tab: { tabId: string }) => tab.tabId === protectedTab.id).webContentsId).not.toBeNull()
+  expect(tabs.find((tab: { tabId: string }) => tab.tabId === bot.activeTabId).webContentsId).not.toBeNull()
+  expect(await cli('eval', { tab: safe.id, expression: 'document.URL' })).toBe('about:blank')
+  expect((await cli('tab.list', { pane: pane.id })).find((tab: { id: string }) => tab.id === safe.id).runtimeState).toBe('live')
+  await fs.writeFile(configFile, config)
+  await cli('settings.reload')
 })

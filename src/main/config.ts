@@ -4,7 +4,7 @@ import os from 'node:os'
 import { parseDocument, stringify } from 'yaml'
 import { DEFAULT_KEYBOARD, KEY_ACTIONS, normalizeKeyAction, parseBinding } from '../shared/keyboard'
 import type { KeyboardConfig } from '../shared/keyboard'
-import type { StatusBarPosition } from '../shared/types'
+import type { MemorySettings, StatusBarPosition } from '../shared/types'
 import { pluginBinding } from '../shared/plugins'
 import type { PluginSettings } from '../shared/plugins'
 import { parseBrowserSettings } from './browser-config'
@@ -15,7 +15,8 @@ import type { AutomationSettings } from '../shared/automation'
 import { DEFAULT_CLICK_MODE, usableHintCharacters } from '../shared/click-mode'
 import type { ClickModeSettings, DoubleTapModifier } from '../shared/click-mode'
 
-type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
+export let DEFAULT_MEMORY: MemorySettings = { lazyRestore: true, idleUnloadMinutes: 0 }
+type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -30,7 +31,16 @@ export let configPath = (dataDirectory: string) => {
   }
   return current
 }
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status tabs.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status tabs.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, memory: DEFAULT_MEMORY, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+let parseMemory = (value: unknown): MemorySettings => {
+  if (value === undefined) return { ...DEFAULT_MEMORY }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('memory must be a mapping')
+  let raw = value as Record<string, unknown>
+  for (let key of Object.keys(raw)) if (!['lazyRestore', 'idleUnloadMinutes'].includes(key)) throw new Error(`Unknown memory setting: ${key}`)
+  if (raw.lazyRestore !== undefined && typeof raw.lazyRestore !== 'boolean') throw new Error('memory.lazyRestore must be true or false')
+  if (raw.idleUnloadMinutes !== undefined && (!Number.isInteger(raw.idleUnloadMinutes) || Number(raw.idleUnloadMinutes) < 0 || Number(raw.idleUnloadMinutes) > 1440)) throw new Error('memory.idleUnloadMinutes must be an integer from 0 to 1440')
+  return { lazyRestore: raw.lazyRestore === undefined ? true : raw.lazyRestore as boolean, idleUnloadMinutes: raw.idleUnloadMinutes === undefined ? 0 : raw.idleUnloadMinutes as number }
+}
 let parseClickMode = (value: unknown): ClickModeSettings => {
   if (value === undefined) return structuredClone(DEFAULT_CLICK_MODE)
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('clickMode must be a mapping')
@@ -115,10 +125,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
+  return { keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, memory: parseMemory(value.memory), plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
+  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, memory: { ...DEFAULT_MEMORY }, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -141,7 +151,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
     get plugins() { return settings.plugins },
     get automation() { return settings.automation },
     get browser() { return settings.browser }, update,
-    get keyboard() { return settings.keyboard }, get clickMode() { return settings.clickMode }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get showTabCloseButtons() { return settings.showTabCloseButtons }, get error() { return error }, path: file, reload,
+    get keyboard() { return settings.keyboard }, get clickMode() { return settings.clickMode }, get memory() { return settings.memory }, get accessibility() { return settings.accessibility }, get statusBar() { return settings.statusBar }, get showTabCloseButtons() { return settings.showTabCloseButtons }, get error() { return error }, path: file, reload,
     setPrefix: (prefix: string) => {
       parseBinding(prefix)
       let document = parseDocument(fs.readFileSync(file, 'utf8'))

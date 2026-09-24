@@ -180,7 +180,7 @@ export let validateModel = (value: unknown): Model => {
         if (!pane.tabs.some(tab => tab.id === pane.activeTabId)) throw new Error('Missing active tab')
         for (let tab of pane.tabs) {
           checkId(tab.id)
-          if (typeof tab.url !== 'string' || (tab.openerTabId !== undefined && typeof tab.openerTabId !== 'string')) throw new Error('Invalid tab')
+          if (typeof tab.url !== 'string' || (tab.openerTabId !== undefined && typeof tab.openerTabId !== 'string') || (tab.keepAlive !== undefined && typeof tab.keepAlive !== 'boolean')) throw new Error('Invalid tab')
         }
       }
     }

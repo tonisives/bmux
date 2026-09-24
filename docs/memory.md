@@ -1,5 +1,19 @@
 # Memory diagnostics
 
+Memory options are in Settings > Memory and in `config.yaml`:
+
+```yaml
+memory:
+  lazyRestore: true
+  idleUnloadMinutes: 0
+```
+
+`lazyRestore` defaults to true. On launch, ordinary inactive tabs stay unloaded until selected or addressed by an agent command. Tabs in background profiles continue loading on launch. Changing this option takes effect on the next launch.
+
+`idleUnloadMinutes` defaults to 0 (off). Choose 5, 15, 30, or 60 minutes in Settings to unload eligible hidden pages after inactivity. This is deliberately conservative: pages with detected scripts, forms, frames, storage, cookies, media, downloads, or active automation stay live. A page can still hold state that bmux cannot detect or restore; use this option only if reloading those pages is acceptable. Unloaded pages remain in the layout and wake on selection or agent access.
+
+Use the page context menu's “Keep Page Loaded” toggle for a tab that must retain its in-memory state. Agents can set the same persistent flag with `tab.keep-alive` and `{ "tab": "tab_id", "enabled": true }`. Idle unloading restores navigation history and scroll position when Electron can recover them, but does not preserve arbitrary JavaScript state.
+
 Run `bmux memory` for a fresh JSON snapshot, or `bmux memory --history` to also
 include up to 120 samples collected every 30 seconds since startup (about one
 hour). RPC equivalents are `memory` and `memory` with `{ "history": true }`.

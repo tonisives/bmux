@@ -1411,7 +1411,7 @@ let BrowserTools = ({ compact = false }: { compact?: boolean }) => {
   </>
 }
 
-type SettingsTab = 'general' | 'appearance' | 'browser-tools' | 'keyboard' | 'plugins'
+type SettingsTab = 'general' | 'appearance' | 'memory' | 'browser-tools' | 'keyboard' | 'plugins'
 let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
   let { state } = useUI()
   return <>
@@ -1423,6 +1423,16 @@ let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEven
       <label className={css.settingsRow}><span>Enabled</span><input type="checkbox" name="clickMode.enabled" checked={state.clickMode?.enabled !== false} onChange={changeSetting} /></label>
       <label className={css.settingsRow}><span>Double tap to activate</span><select name="clickMode.doubleTapModifier" value={state.clickMode?.doubleTapModifier ?? 'none'} onChange={changeSetting} disabled={state.clickMode?.enabled === false}><option value="none">Off</option><option value="Option">Option</option><option value="Command">Command</option><option value="Control">Control</option><option value="Shift">Shift</option><option value="Escape">Escape</option></select></label>
     </section>
+  </>
+}
+let MemorySettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
+  let { state } = useUI()
+  let minutes = state.memory?.idleUnloadMinutes ?? 0
+  return <>
+    <label className={css.settingsRow}><span>Load inactive sessions on demand</span><input type="checkbox" name="memory.lazyRestore" checked={state.memory?.lazyRestore !== false} onChange={changeSetting} /></label>
+    <p className={css.settingsHint}>Applies on the next launch. Agent commands load pages when addressed. Background profiles still start normally.</p>
+    <label className={css.settingsRow}><span>Unload idle pages</span><select name="memory.idleUnloadMinutes" value={minutes} onChange={changeSetting}><option value="0">Off</option><option value="5">After 5 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option><option value="60">After 1 hour</option>{![0, 5, 15, 30, 60].includes(minutes) && <option value={minutes}>After {minutes} minutes</option>}</select></label>
+    <p className={css.settingsHint}>Only hidden, inactive pages that pass safety checks are unloaded. Page memory and JavaScript state cannot always be restored; keep important tabs active.</p>
   </>
 }
 let SettingsContent = () => {
@@ -1442,18 +1452,19 @@ let SettingsContent = () => {
   }
   let changeSetting = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     let target = event.currentTarget
-    void run('settings.set', { key: target.name, value: target instanceof HTMLInputElement ? target.checked : target.value === 'none' ? null : target.value })
+    void run('settings.set', { key: target.name, value: target instanceof HTMLInputElement ? target.checked : target.name === 'memory.idleUnloadMinutes' ? Number(target.value) : target.value === 'none' ? null : target.value })
   }
   let changePrefix = (event: ChangeEvent<HTMLInputElement>) => setPrefix(event.target.value)
   let savePrefix = () => { void run('settings.set', { key: 'keyboard.prefix', value: prefix }) }
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  let tabs: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'browser-tools', label: 'Browser tools' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
+  let tabs: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'browser-tools', label: 'Browser tools' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
   return <div className={css.settings}>
     <div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{tabs.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
     <section id="settings-panel" role="tabpanel" aria-label={tabs.find(item => item.id === tab)?.label} className={css.settingsContent}>
       {tab === 'general' && <><label className={css.settingsRow}><span>Accessibility</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label><p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p><button onClick={makeDefault}>Make bmux the default browser</button></>}
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
+      {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}
       {tab === 'browser-tools' && <BrowserTools compact />}
       {tab === 'keyboard' && <><label className={css.settingsRow}><span>Prefix</span><input type="text" aria-label="Keyboard prefix" value={prefix} onChange={changePrefix} /></label><button onClick={savePrefix} disabled={prefix === state.keyboard?.prefix}>Save prefix</button><button onClick={edit}>Edit shortcuts in config</button></>}
       {tab === 'plugins' && <PluginList compact />}

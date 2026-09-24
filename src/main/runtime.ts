@@ -8,7 +8,7 @@ import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
-import { createConfig, configPath } from './config'
+import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
 import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
 import { createPlugins } from './plugins'
@@ -44,7 +44,7 @@ import { createAutomationPolicy } from './automation-policy'
 import { matchingAutomationGroup } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 
-type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
+type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -97,8 +97,15 @@ export let createRuntime = (dataDirectory: string) => {
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
+  let deferredTabs = new Set<string>()
+  let idleUnloaded = new Set<string>()
+  let idleHistory = new Map<string, { entries: Electron.NavigationEntry[]; index: number }>()
+  let lastTabUse = new Map<string, number>()
+  let previouslyVisibleTabs = new Set<string>()
+  let idleCheckRunning = false
   let hosts = new Map<string, BaseWindow>()
   let memoryTimer: ReturnType<typeof setInterval> | undefined
+  let idleUnloadTimer: ReturnType<typeof setInterval> | undefined
   let memory = createMemoryDiagnostics(previous => {
     let owners = memoryOwners(webContents.getAllWebContents())
     let tabDetails = walkPanes(model).flatMap(({ session, window, pane }) => pane.tabs.map(tab => {
@@ -246,7 +253,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -491,8 +498,7 @@ export let createRuntime = (dataDirectory: string) => {
     await applying
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
-    let live = tabs.get(tabId)
-    if (!live || live.contents.isDestroyed()) throw new Error(`Tab ${tabId} is closed`)
+    let live = await ensureLiveTab(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     return debuggerApi.sendCommand(method, params, sessionId)
@@ -726,6 +732,10 @@ export let createRuntime = (dataDirectory: string) => {
     })
     let serializedRestore = restoringTabs
     tabs.set(tabId, live)
+    lastTabUse.set(tabId, Date.now())
+    idleUnloaded.delete(tabId)
+    let savedHistory = idleHistory.get(tabId)
+    idleHistory.delete(tabId)
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
     if (!session.private) extensions.track(pane.profileId, contents, parent)
@@ -913,6 +923,7 @@ export let createRuntime = (dataDirectory: string) => {
             { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
             { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
             { label: 'Reload', click: () => contents.reload() },
+            { label: 'Keep Page Loaded', type: 'checkbox', checked: tabById(model, tabId).tab.keepAlive === true, click: item => { void execute({ method: 'tab.keep-alive', args: { tab: tabId, enabled: item.checked } }).catch(reportError) } },
           )
           if (params.selectionText || params.isEditable) template.push(
             { type: 'separator' },
@@ -930,12 +941,77 @@ export let createRuntime = (dataDirectory: string) => {
         await live.ready
         if (live.disposed) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
-        await contents.loadURL(initialUrl)
+        if (savedHistory?.entries.length) await contents.navigationHistory.restore(savedHistory)
+        else await contents.loadURL(initialUrl)
       }
       let result = serializedRestore ? queueRestoredNavigation(navigate) : navigate()
+      live.initialNavigation = result
       void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
     }
     return live
+  }
+  let ensureLiveTab = async (tabId: string, load = true) => {
+    let { tab } = tabById(model, tabId)
+    deferredTabs.delete(tabId)
+    idleUnloaded.delete(tabId)
+    lastTabUse.set(tabId, Date.now())
+    let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
+    await live.ready
+    if (load && live.initialNavigation) {
+      try { await live.initialNavigation }
+      catch (error) { live.initialNavigation = undefined; throw error }
+      live.initialNavigation = undefined
+    } else if (load && !live.pendingNavigation && !live.contents.getURL() && tab.url !== 'about:blank') await live.contents.loadURL(tab.url)
+    if (live.disposed || live.contents.isDestroyed() || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
+    return live
+  }
+  let canUnloadIdleTab = async (tabId: string, live: LiveTab) => {
+    let { pane, tab, session } = tabById(model, tabId)
+    let contents = live.contents
+    if (tab.keepAlive || session.private || resolve(model.profiles, pane.profileId, 'Profile').background || live.disposed || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) return false
+    if (tabAutomation.has(tabId) || permissions.size && [...permissions.values()].some(request => request.tabId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)) return false
+    if (contents.mainFrame.framesInSubtree.length !== 1) return false
+    let url = contents.getURL() || tab.url
+    if (!url || !['about:', 'http:', 'https:'].includes(new URL(url).protocol)) return false
+    if (url.startsWith('http')) {
+      if ((await contents.session.cookies.get({ url })).length) return false
+      if (browserSettings().userscripts.some(script => script.enabled)) return false
+      let origin = pageOrigin(url)
+      if ([...permissionGrants].some(([key, allowed]) => allowed && key.startsWith(`${pane.profileId}|${origin}|`))) return false
+    }
+    if (Object.values(configuration?.plugins ?? {}).some(plugin => plugin.enabled && plugin.hooks)) return false
+    if (plugins?.runs().some(run => run.status === 'running' || run.status === 'queued')) return false
+    let inspection = contents.executeJavaScript(`(() => {
+      if (window.onbeforeunload || document.scripts.length || document.querySelector('form,input,textarea,select,[contenteditable],iframe,video,audio,object,embed')) return false;
+      if (performance.getEntriesByType('resource').some(entry => entry.initiatorType === 'script')) return false;
+      try { return localStorage.length === 0 && sessionStorage.length === 0 } catch { return location.protocol === 'about:' }
+    })()`)
+    return await Promise.race([inspection, sleep(2000).then(() => false)]) === true
+  }
+  let checkIdleTabs = async () => {
+    let minutes = configuration?.memory.idleUnloadMinutes ?? 0
+    if (!minutes || idleCheckRunning || shuttingDown) return
+    idleCheckRunning = true
+    try {
+      for (let [tabId, live] of tabs) {
+        let last = lastTabUse.get(tabId) ?? Date.now()
+        if (Date.now() - last < minutes * 60_000 || tabQueues.has(tabId)) continue
+        let visible = model.clients.some(client => {
+          let owner = clients.get(client.id)
+          return owner && owner.window.isVisible() && !owner.window.isMinimized() && visiblePaneIds(client).some(paneId => paneById(model, paneId).pane.activeTabId === tabId)
+        })
+        if (visible) { lastTabUse.set(tabId, Date.now()); continue }
+        try {
+          if (!await canUnloadIdleTab(tabId, live)) continue
+          if (tabs.get(tabId) !== live || tabQueues.has(tabId) || lastTabUse.get(tabId) !== last || live.contents.isDestroyed() || live.contents.isLoading()) continue
+          let history = live.contents.navigationHistory
+          idleHistory.set(tabId, { entries: history.getAllEntries(), index: history.getActiveIndex() })
+          idleUnloaded.add(tabId)
+          disposeTab(tabId)
+          void scheduleVisuals()
+        } catch (error) { reportError(error) }
+      }
+    } finally { idleCheckRunning = false }
   }
   let keepClientFocus = (live: LiveTab) => {
     if (!live.parent.isDestroyed() && live.parent.isFocused() && !live.contents.isDestroyed() && live.contents.isFocused()) {
@@ -967,6 +1043,8 @@ export let createRuntime = (dataDirectory: string) => {
     delete favicons[tabId]
     faviconRevisions.delete(tabId)
     delete findResults[tabId]
+    lastTabUse.delete(tabId)
+    if (!idleUnloaded.has(tabId)) idleHistory.delete(tabId)
   }
   let visiblePaneIds = (client: Client) => client.zoomedPaneId ? [client.zoomedPaneId] : model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
   let paneMenu = (paneId: string, clientId: string): Electron.MenuItemConstructorOptions[] => {
@@ -1071,7 +1149,14 @@ export let createRuntime = (dataDirectory: string) => {
     if (shuttingDown) return
     let liveIds = new Set(walkPanes(model).flatMap(({ pane }) => pane.tabs.map(tab => tab.id)))
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
-    for (let tabId of liveIds) if (!tabs.has(tabId)) createLiveTab(tabId)
+    for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
+    for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
+    let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.activeTabId)))
+    let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.activeTabId)))
+    for (let tabId of liveIds) if (!tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
+    for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) lastTabUse.set(tabId, Date.now())
+    for (let tabId of visibleSelected) lastTabUse.set(tabId, Date.now())
+    previouslyVisibleTabs = visibleSelected
     for (let candidate of model.clients) { let live = clients.get(candidate.id); if (live) prepareFloats(candidate, live) }
     let client = model.clients.find(client => client.id === focusedClientId)
     let owner = client && !overlays.has(client.id) ? clients.get(client.id) : undefined
@@ -1271,8 +1356,8 @@ export let createRuntime = (dataDirectory: string) => {
     if (paneTargetedMethods.has(method) && typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: paneById(model, args.pane).pane.activeTabId }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
-      let { pane } = tabById(model, args.tab)
-      let url = method === 'navigate' ? normalizeUrl(required(args, 'url')) : tabs.get(args.tab)?.contents.getURL() ?? ''
+      let { pane, tab } = tabById(model, args.tab)
+      let url = method === 'navigate' ? normalizeUrl(required(args, 'url')) : tabs.get(args.tab)?.contents.getURL() || tab.url
       let token = typeof args._automationLease === 'string' ? args._automationLease : undefined
       automation.authorize({ profileId: pane.profileId, tabId: args.tab, url, token, kind: ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) ? 'navigation' : ['click', 'type', 'key', 'scroll'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: !['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) })
       if (token) tabAutomation.set(args.tab, token)
@@ -1443,12 +1528,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       if (!configuration) throw new Error('Configuration is not ready')
       let key = required(args, 'key')
-      let allowed = new Set(['accessibility', 'statusBar', 'showTabCloseButtons', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
+      let allowed = new Set(['accessibility', 'statusBar', 'showTabCloseButtons', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
       if (!allowed.has(key)) throw new Error('Unknown setting')
       configuration.update(key.split('.'), args.value)
       return { key, value: args.value }
     }
-    if (method === 'scroll') { let tabId = required(args, 'tab'); tabById(model, tabId); scrollTab(tabId, required(args, 'action')); return { tab: tabId } }
+    if (method === 'scroll') { let tabId = required(args, 'tab'); await ensureLiveTab(tabId); scrollTab(tabId, required(args, 'action')); return { tab: tabId } }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1938,7 +2023,13 @@ export let createRuntime = (dataDirectory: string) => {
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
       changed(); await visualQueue; return window
     }
-    if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).flatMap(({ session, window, pane }) => pane.tabs.map(tab => ({ ...tab, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId, active: tab.id === pane.activeTabId })))
+    if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).flatMap(({ session, window, pane }) => pane.tabs.map(tab => ({ ...tab, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId, active: tab.id === pane.activeTabId, runtimeState: tabs.has(tab.id) ? 'live' : 'unloaded' })))
+    if (method === 'tab.keep-alive') {
+      let { tab } = tabById(model, required(args, 'tab'))
+      if (typeof args.enabled !== 'boolean') throw new Error('enabled must be a boolean')
+      tab.keepAlive = args.enabled
+      save(); return { tab: tab.id, enabled: tab.keepAlive }
+    }
     if (method === 'tab.create') {
       let { pane } = paneById(model, args.pane)
       let tab = newTab(args.url ? normalizeUrl(String(args.url)) : undefined)
@@ -2012,8 +2103,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'quit') { setTimeout(() => app.quit(), 100); return { quitting: true } }
     if (method === 'find') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = tabs.get(tabId)?.contents
-      if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
+      let contents = (await ensureLiveTab(tabId)).contents
       let text = String(args.text ?? '')
       if (!text) { contents.stopFindInPage('clearSelection'); delete findResults[tabId]; publish(); return { text } }
       let current = findResults[tabId], repeat = args.next === true && current?.text === text
@@ -2024,8 +2114,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = tabs.get(tabId)?.contents
-      if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
+      let contents = (await ensureLiveTab(tabId)).contents
       delete crashes[tabId]
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
       if (method === 'reload') { contents.stop(); contents.reload() }
@@ -2048,8 +2137,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'history.go-to') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = tabs.get(tabId)?.contents
-      if (!contents || contents.isDestroyed()) throw new Error('Tab is closed')
+      let contents = (await ensureLiveTab(tabId)).contents
       let index = args.index
       let history = contents.navigationHistory
       if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= history.length()) throw new Error('Invalid history entry')
@@ -2083,8 +2171,7 @@ export let createRuntime = (dataDirectory: string) => {
     return serializeTab(tabId, async () => {
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane } = tabById(model, tabId)
-      let live = tabs.get(tabId)!
-      await live.ready
+      let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
       let contents = live.contents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
       contents.setBackgroundThrottling(false)
@@ -2163,13 +2250,14 @@ export let createRuntime = (dataDirectory: string) => {
           for (let type of ['keyDown', 'keyUp']) await cdp(tabId, 'Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(type === 'keyDown' && command ? { commands: [command] } : {}), ...(type === 'keyDown' && key === 'Enter' && !modifiers ? { text: '\r' } : {}) })
           return { tab: tabId }
         }
-      } finally { if (syntheticInput) automatedContents.delete(contents.id); if (!contents.isDestroyed()) { if (syntheticInput) contents.setIgnoreMenuShortcuts(false); contents.setBackgroundThrottling(!background) } }
+      } finally { lastTabUse.set(tabId, Date.now()); if (syntheticInput) automatedContents.delete(contents.id); if (!contents.isDestroyed()) { if (syntheticInput) contents.setIgnoreMenuShortcuts(false); contents.setBackgroundThrottling(!background) } }
       return null
     })
   }
   let start = async (background: boolean) => {
     await settingsReady
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
+    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background) for (let tab of pane.tabs) deferredTabs.add(tab.id)
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       return entry && !entry[1].contents.isDestroyed() ? { tabId: entry[0], url: entry[1].contents.getURL() } : undefined
@@ -2186,6 +2274,9 @@ export let createRuntime = (dataDirectory: string) => {
     recordMemory()
     memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)
     memoryTimer.unref()
+    let idleTimer = setInterval(() => { void checkIdleTabs() }, MEMORY_INTERVAL_MS)
+    idleTimer.unref()
+    idleUnloadTimer = idleTimer
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]
     if (!restore.length) { await createClient(model.sessions[0].id); return }
@@ -2197,6 +2288,7 @@ export let createRuntime = (dataDirectory: string) => {
   let shutdown = () => {
     shuttingDown = true
     clearInterval(memoryTimer)
+    clearInterval(idleUnloadTimer)
     app.off('login', proxyLogin)
     void proxyRelays.closeAll()
     clickMode.cancel()
