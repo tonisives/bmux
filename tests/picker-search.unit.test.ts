@@ -58,6 +58,19 @@ test('history search matches titles and URLs without changing recency order', ()
   expect(searchHistory(history, '   ')).toBe(history)
 })
 
+test('history search puts complete title and URL words ahead of loose character matches', () => {
+  let history = [
+    { title: 'Analytics events', url: 'https://analytics.test/reports', visitedAt: 5 },
+    { title: 'GitHub b-m-u-x notes', url: 'https://example.test/notes', visitedAt: 4 },
+    { title: 'Search results', url: 'https://google.test/search?q=github+bmux', visitedAt: 3 },
+    { title: 'bmux on GitHub', url: 'https://example.test/bmux', visitedAt: 2 },
+    { title: 'Repository', url: 'https://github.com/tonisives/bmux', visitedAt: 1 },
+    { title: 'github documentation', url: 'https://example.test/bmux', visitedAt: 0 },
+  ]
+  expect(searchHistory(history, 'github bmux')).toEqual([history[4], history[3], history[2], history[5]])
+  expect(searchHistory(history, 'gthb bmx')).toContain(history[4])
+})
+
 test('wait requests validate exclusive modes and reject invalid durations and states', () => {
   for (let args of [{}, { selector: 'div', expression: 'true' }, { selector: 'div', ms: 10 }, { ms: 1, state: 'visible' }, { expression: 'true', state: 'hidden' }]) expect(() => waitOptions(args)).toThrow()
   for (let timeout of ['invalid', '', true, null, [], 0, -1, Infinity]) expect(() => waitOptions({ selector: 'div', timeout })).toThrow('timeout')
