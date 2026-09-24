@@ -735,32 +735,36 @@ test('restores concurrently normally and one at a time after an application cras
   eagerConfig.setIn(['memory', 'lazyRestore'], false)
   await fs.writeFile(configFile, eagerConfig.toString())
   await cli('settings.reload')
-  let session = await cli('new-session', { name: 'serialized restore' })
-  let first = session.windows[0].panes[0]
-  let second = await cli('split-window', { pane: first.id })
-  await application.close()
-  let stateFile = path.join(directory, 'state.json')
-  let persisted = JSON.parse(await fs.readFile(stateFile, 'utf8'))
-  let saved = persisted.sessions.find((item: { id: string }) => item.id === session.id)
-  saved.windows[0].panes.find((pane: { id: string }) => pane.id === first.id).tabs[0].url = `${url}/slow-serialized-restore`
-  saved.windows[0].panes.find((pane: { id: string }) => pane.id === second.id).tabs[0].url = `${url}/serialized-restore-second`
-  await fs.writeFile(stateFile, JSON.stringify(persisted, null, 2))
-  let before = heldRequests
-  await launch()
-  await expect.poll(() => heldRequests).toBeGreaterThan(before)
-  await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
-  for (let response of heldResponses) response.end()
-  await application.close()
-  await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
-  before = heldRequests
-  await launch()
-  await expect.poll(() => heldRequests).toBeGreaterThan(before)
-  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'navigation-crash.json'), 'utf8')).tabId).toBe(first.activeTabId)
-  expect(await application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(false)
-  for (let response of heldResponses) response.end()
-  await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
-  await expect.poll(() => fs.access(path.join(directory, 'navigation-crash.json')).then(() => false, () => true)).toBe(true)
-  await fs.writeFile(configFile, originalConfig)
+  try {
+    let session = await cli('new-session', { name: 'serialized restore' })
+    let first = session.windows[0].panes[0]
+    let second = await cli('split-window', { pane: first.id })
+    await application.close()
+    let stateFile = path.join(directory, 'state.json')
+    let persisted = JSON.parse(await fs.readFile(stateFile, 'utf8'))
+    let saved = persisted.sessions.find((item: { id: string }) => item.id === session.id)
+    saved.windows[0].panes.find((pane: { id: string }) => pane.id === first.id).tabs[0].url = `${url}/slow-serialized-restore`
+    saved.windows[0].panes.find((pane: { id: string }) => pane.id === second.id).tabs[0].url = `${url}/serialized-restore-second`
+    await fs.writeFile(stateFile, JSON.stringify(persisted, null, 2))
+    let before = heldRequests
+    await launch()
+    await expect.poll(() => heldRequests).toBeGreaterThan(before)
+    await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
+    for (let response of heldResponses) response.end()
+    await application.close()
+    await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
+    before = heldRequests
+    await launch()
+    await expect.poll(() => heldRequests).toBeGreaterThan(before)
+    await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'navigation-crash.json'), 'utf8')).tabId).toBe(first.activeTabId)
+    expect(await application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(false)
+    for (let response of heldResponses) response.end()
+    await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
+    await expect.poll(() => fs.access(path.join(directory, 'navigation-crash.json')).then(() => false, () => true)).toBe(true)
+  } finally {
+    for (let response of heldResponses) response.end()
+    await fs.writeFile(configFile, originalConfig)
+  }
   await cli('settings.reload')
 })
 
@@ -1876,6 +1880,8 @@ test('restored inactive pages wake when addressed by an agent', async () => {
   let session = (await cli('list-sessions'))[0]
   let pane = session.windows[0].panes[0]
   let inactive = await cli('tab.create', { pane: pane.id, url: `${url}/lazy-restore` })
+  let protectedTab = await cli('tab.create', { pane: pane.id })
+  await cli('tab.keep-alive', { tab: protectedTab.id, enabled: true })
   let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot-restore` })
   await cli('wait', { tab: inactive.id, selector: '#text' })
   await cli('wait', { tab: bot.activeTabId, selector: '#text' })
@@ -1883,6 +1889,7 @@ test('restored inactive pages wake when addressed by an agent', async () => {
   await launch()
   let before = (await cli('memory')).current.tabs
   expect(before.find((tab: { tabId: string }) => tab.tabId === inactive.id).webContentsId).toBeNull()
+  expect(before.find((tab: { tabId: string }) => tab.tabId === protectedTab.id).webContentsId).not.toBeNull()
   expect(before.find((tab: { tabId: string }) => tab.tabId === bot.activeTabId).webContentsId).not.toBeNull()
   expect((await cli('tab.list', { pane: pane.id })).find((tab: { id: string }) => tab.id === inactive.id).runtimeState).toBe('unloaded')
   expect((await cli('dom', { tab: inactive.id })).content).toContain('Fixture top')

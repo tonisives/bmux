@@ -64,6 +64,15 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   }
   let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+  let clientWindow = () => application!.evaluate(({ BaseWindow }) => {
+    let window = BaseWindow.getAllWindows().find(candidate => candidate.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('/renderer/index.html')))
+    return window ? { id: window.id, focused: window.isFocused() } : null
+  })
+  let focusClient = async () => {
+    let client = await clientWindow()
+    if (!client) throw new Error('Browser client window not found')
+    await application!.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.focus(), client.id)
+  }
   try {
     await launch()
     let profile = 'profile_default'
@@ -103,8 +112,9 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect(await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineOrigin')).inlineOrigin)).toBe(`chrome-extension://${installed.id}`)
     expect(await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineFrameId')).inlineFrameId)).toBeGreaterThan(0)
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('inlineReply')).inlineReply)).toBe(url)
+    await focusClient()
     await page.locator('input[type=password]').click()
-    await expect.poll(() => application!.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.getTitle() === 'bmux')?.isFocused())).toBe(true)
+    await expect.poll(async () => (await clientWindow())?.focused).toBe(true)
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect.poll(() => application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), editWindow.url())).toBe(true)
     await editWindow.close()
@@ -116,7 +126,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => popup.evaluate(expected => (window as any).tabEvents.updated.some((info: any) => info.url === expected), nextUrl)).toBe(true)
     await rpc('extension.open', { profile, id: installed.id })
     await expect(popup.locator('#active-tab')).toHaveText(nextUrl)
-    await application!.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.getTitle() === 'bmux')?.focus())
+    await focusClient()
     await expect.poll(async () => (await rpc('state')).focusedClientId).toBeTruthy()
     let activated = await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)
     await rpc('tab.create', { pane: current.paneId, url, client: true })
@@ -124,7 +134,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await rpc('extension.open', { profile, id: installed.id })
     await expect(popup.locator('#active-tab')).toHaveText(url)
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)).toBeGreaterThan(activated)
-    await application!.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.getTitle() === 'bmux')?.focus())
+    await focusClient()
     await expect.poll(async () => (await rpc('state')).focusedClientId).toBeTruthy()
     await rpc('tab.select', { tab: current.id })
     await rpc('extension.open', { profile, id: installed.id })

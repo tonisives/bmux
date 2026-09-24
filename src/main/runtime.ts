@@ -500,9 +500,9 @@ export let createRuntime = (dataDirectory: string) => {
     profileNetworkReady.set(profileId, applying)
     await applying
   }
-  let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
+  let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false) => {
     let live = await ensureLiveTab(tabId)
-    if (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument') scriptTouchedTabs.add(tabId)
+    if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     return debuggerApi.sendCommand(method, params, sessionId)
@@ -1077,7 +1077,7 @@ export let createRuntime = (dataDirectory: string) => {
       keepClientFocus(live)
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
-      if (!destroyed && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
+      if (!live.parent.isDestroyed() && live.parent.contentView.children.includes(live.view)) live.parent.contentView.removeChildView(live.view)
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
     }
@@ -2093,11 +2093,12 @@ export let createRuntime = (dataDirectory: string) => {
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
       changed(); await visualQueue; return window
     }
-    if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).flatMap(({ session, window, pane }) => pane.tabs.map(tab => ({ ...tab, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId, active: tab.id === pane.activeTabId, runtimeState: tabs.has(tab.id) ? 'live' : 'unloaded' })))
+    if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).flatMap(({ session, window, pane }) => pane.tabs.map(tab => ({ ...tab, paneId: pane.id, windowId: window.id, sessionId: session.id, profileId: pane.profileId, active: tab.id === pane.activeTabId, runtimeState: !tabs.has(tab.id) ? 'unloaded' : (loading[tab.id] || tabs.get(tab.id)?.pendingNavigation ? 'loading' : 'live') })))
     if (method === 'tab.keep-alive') {
       let { tab } = tabById(model, required(args, 'tab'))
       if (typeof args.enabled !== 'boolean') throw new Error('enabled must be a boolean')
       tab.keepAlive = args.enabled
+      if (tab.keepAlive) await ensureLiveTab(tab.id)
       save(); return { tab: tab.id, enabled: tab.keepAlive }
     }
     if (method === 'tab.create') {
@@ -2107,7 +2108,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (args.client) pane.activeTabId = tab.id
       changed(); await visualQueue; return tab
     }
-    if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; return tab }
+    if (method === 'tab.select') { let { tab, pane } = tabById(model, args.tab); pane.activeTabId = tab.id; changed(); await visualQueue; void ensureLiveTab(tab.id).catch(reportError); return tab }
     if (method === 'tab.close') {
       let { tab, pane, session } = tabById(model, args.tab)
       if (!(await closeLiveTab(tab.id))) return { cancelled: tab.id }
@@ -2261,7 +2262,7 @@ export let createRuntime = (dataDirectory: string) => {
           return result.result.value ?? null
         }
         if (method === 'dom') {
-          let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true })
+          let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true }, undefined, true)
           return { tab: tabId, url: contents.getURL(), content: result.result.value }
         }
         if (method === 'cdp') return cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined)
@@ -2329,7 +2330,7 @@ export let createRuntime = (dataDirectory: string) => {
   let start = async (background: boolean) => {
     await settingsReady
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
-    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background) for (let tab of pane.tabs) deferredTabs.add(tab.id)
+    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background) for (let tab of pane.tabs) if (!tab.keepAlive) deferredTabs.add(tab.id)
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       return entry && !entry[1].contents.isDestroyed() ? { tabId: entry[0], url: entry[1].contents.getURL() } : undefined
