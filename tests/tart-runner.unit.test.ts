@@ -34,7 +34,10 @@ if (args[0] === 'list') console.log(JSON.stringify([{ Name: 'bmux-tests', Runnin
 else if (args[0] === 'set') fs.appendFileSync(path.join(directory, 'settings'), args.slice(2).join(' ') + '\\n')
 else if (args[0] === 'run') { fs.appendFileSync(path.join(directory, 'launches'), args.join(' ') + '\\n'); fs.rmSync(path.join(directory, 'stopped'), { force: true }); fs.writeFileSync(path.join(directory, 'running'), '') }
 else if (args[0] === 'stop') { fs.rmSync(path.join(directory, 'running'), { force: true }); fs.writeFileSync(path.join(directory, 'stopped'), ''); fs.appendFileSync(path.join(directory, 'stops'), 'stop\\n') }
-else if (args.includes('/usr/bin/id')) console.log('admin')
+else if (args.includes('/usr/bin/id')) {
+  if (process.env.BMUX_RUNNER_STOPPED === '1' && !fs.existsSync(path.join(directory, 'running'))) process.exitCode = 1
+  else console.log('admin')
+}
 else if (args.includes('/usr/bin/tar')) {
   let result = spawnSync('/usr/bin/tar', ['-cf', '-', '-C', path.join(directory, 'results'), 'artifacts', 'test-results'], { stdio: ['ignore', 'inherit', 'inherit'] })
   process.exitCode = result.status
