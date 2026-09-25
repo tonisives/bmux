@@ -71,7 +71,23 @@ export let createExtensions = (directory: string, options: (profile: string) => 
   let describe = (extension: Extension) => ({ id: extension.id, name: extension.name, version: extension.version, path: extension.path })
   let list = async (profile: string) => {
     let session = await getSession(profile)
-    return { extensions: session.extensions.getAllExtensions().map(describe), errors: [...(registryError ? [{ path: file, error: registryError }] : []), ...entries.filter(entry => entry.profile === profile && entry.error).map(({ path, error }) => ({ path, error }))] }
+    let extensions = session.extensions.getAllExtensions().map(describe)
+    let paths = new Set(entries.filter(entry => entry.profile === profile).map(entry => entry.path))
+    let available = await Promise.all([...new Set(entries.filter(entry => entry.profile !== profile && !paths.has(entry.path)).map(entry => entry.path))].map(async location => {
+      let loaded = [...sessions.values()].flatMap(item => item.extensions.getAllExtensions()).find(extension => extension.path === location)
+      if (loaded) return { name: loaded.name, version: loaded.version, path: location }
+      try {
+        let manifest = JSON.parse(await fs.readFile(path.join(location, 'manifest.json'), 'utf8')) as { name?: string; version?: string; default_locale?: string }
+        let name = manifest.name ?? path.basename(location)
+        let message = /^__MSG_(.+)__$/.exec(name)
+        if (message && manifest.default_locale) {
+          let messages = JSON.parse(await fs.readFile(path.join(location, '_locales', manifest.default_locale, 'messages.json'), 'utf8')) as Record<string, { message: string }>
+          name = Object.entries(messages).find(([key]) => key.toLowerCase() === message[1].toLowerCase())?.[1].message ?? name
+        }
+        return { name, version: manifest.version ?? '', path: location }
+      } catch { return null }
+    }))
+    return { extensions, available: available.filter(item => item !== null).sort((a, b) => a.name.localeCompare(b.name)), errors: [...(registryError ? [{ path: file, error: registryError }] : []), ...entries.filter(entry => entry.profile === profile && entry.error).map(({ path, error }) => ({ path, error }))] }
   }
   let load = (profile: string, location: string) => serial(async () => {
     let session = await getSession(profile)

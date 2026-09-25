@@ -6,7 +6,10 @@ extensions you trust. They run in sandboxed extension contexts; websites do not
 receive the bmux API.
 
 Use the extensions button in the status bar to see extensions installed in the
-selected pane's profile and open their popups.
+selected pane's profile and open their popups. Extensions installed in another
+profile appear under "Available from other profiles". Choose "Enable" to load
+the same extension package in the selected profile. Each profile keeps its own
+extension storage and sign-in state.
 
 Open the command prompt and run:
 
