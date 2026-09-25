@@ -1,0 +1,9 @@
+.git
+node_modules
+out
+release
+build
+.worktrees
+artifacts
+test-results
+.env*

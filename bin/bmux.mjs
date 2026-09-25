@@ -6,12 +6,15 @@ import net from 'node:net'
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { runtimeDataDirectory, developmentExecutable } from './runtime-paths.mjs'
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 let argv = process.argv.slice(2)
 let help = `bmux — bmux control and browser automation
 
 All responses are JSON. IDs returned by list commands are stable across view transfers.
+
+Host:     host (foreground browser runtime; requires a display on Linux)
 
 Profiles: profile list | profile create NAME [--background] | profile rename PROFILE NAME
 Import:   import-brave [--source BRAVE_USER_DATA_DIRECTORY]
@@ -57,17 +60,17 @@ Set BMUX_DATA_DIR for an isolated instance, BMUX_APP for a packaged .app.
 The previous BROWMUX_DATA_DIR and BROWMUX_APP names remain accepted.
 `
 if (!argv.length || argv.includes('--help') || argv[0] === 'help') { process.stdout.write(help); process.exit(0) }
-let defaultDataDirectory = path.join(os.homedir(), 'Library', 'Application Support', 'bmux')
-let legacyDataDirectory = [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
+let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
+let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
 let configuredDataDirectory = process.env.BMUX_DATA_DIR ?? process.env.BROWMUX_DATA_DIR
 if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDataDirectory) fs.renameSync(legacyDataDirectory, defaultDataDirectory)
-let dataDirectory = configuredDataDirectory ?? defaultDataDirectory
+let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process.env)
 let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
 
 let parse = () => {
   let command = argv.shift()
   if (command === 'tab') throw new Error('Unknown command: tab')
-  let subcommand = ['plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'pane'].includes(command) ? argv.shift() : null
+  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'pane'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled'])
@@ -131,19 +134,27 @@ let request = (command, socket = socketPath, timeout = 90_000) => new Promise((r
   connection.on('error', reject)
   connection.on('end', () => { try { resolve(JSON.parse(result)) } catch { reject(new Error('Invalid response from bmux')) } })
 })
-let start = async () => {
+let start = async (foreground = false) => {
   let output = path.resolve(root, process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
   let installed = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
-  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? [output, installed].find(candidate => fs.existsSync(candidate))
+  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? [output, installed] : [path.join(root, 'bmux'), path.join(root, '..', 'bmux')]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', path.basename(packaged, '.app')) : packaged
   else {
-    executable = path.join(root, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron')
+    executable = developmentExecutable(root, process.platform)
     args.unshift(root)
     if (!fs.existsSync(path.join(root, 'out/main/index.js'))) throw new Error('Build bmux first: pnpm build')
   }
   if (!fs.existsSync(executable)) throw new Error('Electron not found. Run pnpm install, or set BMUX_APP to bmux.app')
+  if (foreground) {
+    let env = { ...process.env, BMUX_BACKGROUND: '1', BMUX_DATA_DIR: dataDirectory }
+    delete env.ELECTRON_RUN_AS_NODE
+    let child = spawn(executable, args, { stdio: 'inherit', env })
+    for (let signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal))
+    let code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0))) })
+    process.exit(code)
+  }
   fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
   let log = fs.openSync(path.join(dataDirectory, 'server.log'), 'a', 0o600)
   let env = { ...process.env, BMUX_BACKGROUND: '1' }
@@ -159,6 +170,10 @@ let start = async () => {
   throw new Error(`bmux did not start. Inspect ${path.join(dataDirectory, 'server.log')}`)
 }
 try {
+  if (argv[0] === 'host') {
+    if (argv.length !== 1) throw new Error('Usage: bmux host')
+    await start(true)
+  }
   if (argv[0] === 'completions') {
     if (argv.length !== 2 || argv[1] !== 'zsh') throw new Error('Usage: bmux completions zsh')
     process.stdout.write(fs.readFileSync(path.join(root, 'bin', '_bmux'), 'utf8'))

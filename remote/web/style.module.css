@@ -1,0 +1,15 @@
+:global(body) { margin: 0; background: #111318; color: #edf0f4; font: 15px system-ui, sans-serif; }
+:global(button), :global(input), :global(select) { font: inherit; color: inherit; background: #20242c; border: 1px solid #444b57; padding: .55rem .7rem; border-radius: 4px; min-width: 0; }
+:global(button) { cursor: pointer; }
+:global(button:disabled) { opacity: .5; cursor: default; }
+:global(table) { width: 100%; border-collapse: collapse; text-align: left; }
+:global(th), :global(td) { border-bottom: 1px solid #303642; padding: .6rem; }
+:global(caption) { text-align: left; padding: 1rem 0; }
+:global(code) { overflow-wrap: anywhere; }
+.main { max-width: 1200px; margin: auto; padding: 1rem; }
+.header { display: flex; align-items: center; gap: 1rem; }
+.header h1 { margin-right: auto; font-size: 1.3rem; }
+.row { display: flex; gap: .5rem; margin: .8rem 0; flex-wrap: wrap; align-items: center; }
+.row input { flex: 1; }
+.video { display: block; width: 100%; max-height: 75vh; min-height: 220px; background: #090a0c; object-fit: contain; touch-action: none; }
+@media (max-width: 640px) { .main { padding: .5rem; } .row input { flex-basis: 100%; } .header { flex-wrap: wrap; } :global(table) { font-size: .8rem; } }

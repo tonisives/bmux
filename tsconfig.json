@@ -5,5 +5,5 @@
     "strict": true, "esModuleInterop": true, "skipLibCheck": true,
     "resolveJsonModule": true, "types": ["node", "vite/client"], "noEmit": true
   },
-  "include": ["src", "tests", "*.ts"]
+  "include": ["src", "tests", "remote", "*.ts"]
 }

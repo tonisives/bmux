@@ -6,7 +6,15 @@ import type { ProfileProxy, ProxyProtocol } from '../shared/types'
 
 export type ProxyCredentials = { username: string; password: string }
 type CredentialStoreOptions = { directory: string; available: () => boolean; encrypt: (text: string) => Buffer; decrypt: (data: Buffer) => string }
-type Relay = { server: Server; username: string; password: string; host: string; port: number }
+type Relay = { server: Server; username: string; password: string; host: string; port: number; failures: number }
+
+export let requiredHostProxy = (endpoint?: string): ProfileProxy | undefined => {
+  if (!endpoint) return undefined
+  let url: URL
+  try { url = new URL(endpoint) } catch { throw new Error('Invalid BMUX_REQUIRED_PROXY endpoint') }
+  if (!['http:', 'https:', 'socks5:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || !['', '/'].includes(url.pathname)) throw new Error('BMUX_REQUIRED_PROXY must be an unauthenticated proxy endpoint')
+  return parseProfileProxy({ protocol: url.protocol.slice(0, -1), host: url.hostname, port: Number(url.port || (url.protocol === 'https:' ? 443 : url.protocol === 'http:' ? 80 : 1080)), authenticated: false })
+}
 
 let mapping = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Proxy settings must be a mapping')
@@ -75,9 +83,9 @@ export let createProfileProxyRelays = (credentials: ReturnType<typeof createProx
         ? { requestAuthentication: true, failMsg: 'Proxy authentication required' }
         : { upstreamProxyUrl: upstreamUrl(proxy, upstreamCredentials) },
     })
-    server.on('requestFailed', () => undefined)
     await server.listen()
-    let relay = { server, username, password, host: '127.0.0.1', port: server.port }
+    let relay = { server, username, password, host: '127.0.0.1', port: server.port, failures: 0 }
+    server.on('requestFailed', () => { relay.failures++ })
     let previous = relays.get(profileId)
     relays.set(profileId, relay)
     if (previous) await previous.server.close(true)

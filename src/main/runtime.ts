@@ -27,8 +27,11 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
-import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy } from './profile-proxy'
+import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { createControlLeases } from '../shared/remote'
+import { createRemoteCapture } from './remote-capture'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
@@ -74,6 +77,45 @@ export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
+  let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
+  if (hostProxy) for (let profile of model.profiles) profile.proxy = hostProxy
+  let controls = createControlLeases()
+  let viewportSequence = 0
+  let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
+  let remoteSizes = new Map<string, { width: number; height: number; lease: number; previous: Electron.Rectangle }>()
+  let remoteViewport = (pane: string) => {
+    let bounds = tabs.get(pane)?.view.getBounds()
+    if (!bounds) return undefined
+    let current = remoteViewports.get(pane)
+    if (!current || current.width !== bounds.width || current.height !== bounds.height) { current = { width: bounds.width, height: bounds.height, generation: ++viewportSequence }; remoteViewports.set(pane, current) }
+    return current
+  }
+  let clearRemoteSizes = () => {
+    for (let [pane, size] of remoteSizes) {
+      let session = walkPanes(model).find(item => item.pane.id === pane)?.session
+      if (session && controls.get(session.id)?.generation === size.lease) continue
+      let live = tabs.get(pane)
+      if (live && !live.disposed) live.view.setBounds(size.previous)
+      remoteSizes.delete(pane)
+    }
+  }
+  let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
+  let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot'])
+  let checkControl = (method: string, args: Record<string, unknown>) => {
+    if (controlObservation.has(method)) return
+    let actor = remoteActor.getStore()
+    let paneId = args.tab ?? args.pane
+    let affectedProfile = typeof args.profile === 'string' ? args.profile : undefined
+    if (method === 'browser.set' && args.scope === 'global') paneId = undefined
+    if (method === 'browser.set' && args.scope === 'profile' && typeof paneId === 'string') { affectedProfile = paneById(model, paneId).pane.profileId; paneId = undefined }
+    if (method === 'permission.respond') { affectedProfile = permissions.get(String(args.id))?.profileId; paneId = undefined }
+    let sessions = typeof paneId === 'string' ? [paneById(model, paneId).session]
+      : typeof args.session === 'string' ? model.sessions.filter(session => session.id === args.session)
+        : typeof args.window === 'string' ? model.sessions.filter(session => session.windows.some(window => window.id === args.window))
+          : affectedProfile ? model.sessions.filter(session => session.windows.some(window => window.panes.some(pane => pane.profileId === affectedProfile)))
+            : model.sessions
+    for (let session of sessions) controls.assert(session.id, actor?.owner, actor?.generation)
+  }
   let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
   let startupNotice = crashRecovery.startupNotice
   let proxyCredentials = createProxyCredentialStore({ directory: path.join(dataDirectory, 'proxy-credentials'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data) })
@@ -257,7 +299,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -349,7 +391,7 @@ export let createRuntime = (dataDirectory: string) => {
     publish()
   }
   let applyProfileNetwork = async (profileId: string, override?: ReturnType<typeof parseProfileProxy> | null, replacement?: ProxyCredentials) => {
-    let proxy = override === undefined ? resolve(model.profiles, profileId, 'Profile').proxy : override ?? undefined
+    let proxy = hostProxy ?? (override === undefined ? resolve(model.profiles, profileId, 'Profile').proxy : override ?? undefined)
     let browser = electronSession.fromPartition(`persist:${profileId}`)
     if (proxy) {
       let relay = await proxyRelays.create(profileId, proxy, replacement)
@@ -433,9 +475,10 @@ export let createRuntime = (dataDirectory: string) => {
           } else await session.setProxy({ mode: 'system' })
         } else {
           await applyProfileNetwork(profileId)
-          if (profile.proxy) await verifyProfileProxy(profileId)
+          if (profile.proxy && !hostProxy) await verifyProfileProxy(profileId)
         }
       } catch (error) {
+        if (hostProxy) throw new Error('PROXY_UNAVAILABLE')
         if (!profile.proxy || privateSessionId) throw error
         await waitForProfileProxyRecovery(profileId, error)
       }
@@ -503,6 +546,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false) => {
     let live = await ensureLiveTab(tabId)
+    if (!readOnly && !['Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) checkControl('cdp', { tab: tabId })
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
@@ -1254,6 +1298,8 @@ export let createRuntime = (dataDirectory: string) => {
           void live.ready.then(() => applyDeviceMetrics(live.contents, persona, fitted.scale)).catch(error => { crashes[tabId] = `Device viewport failed: ${errorText(error)}`; publish() })
         }
       }
+      let remoteSize = remoteSizes.get(tabId)
+      if (remoteSize && controls.get(tabById(model, tabId).session.id)?.generation === remoteSize.lease) live.view.setBounds({ ...live.view.getBounds(), width: remoteSize.width, height: remoteSize.height })
     }
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
@@ -1388,6 +1434,8 @@ export let createRuntime = (dataDirectory: string) => {
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
+    if (method === 'remote.reclaim' && sourceClientId) { controls.release(resolve(model.clients, sourceClientId, 'Client').sessionId); clearRemoteSizes(); publish(); return { released: true } }
+    checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.acquire') {
       let paneId = required(args, 'pane'), { pane } = paneById(model, paneId), tabId = pane.id
@@ -1624,6 +1672,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'list-sessions') return model.sessions
     if (method === 'list-clients') return model.clients
     if (method === 'import-brave') {
+      if (hostProxy) throw new Error('Profile import is unavailable on a managed proxy host')
       let imported = importBrave(model, args.source ? required(args, 'source') : braveDirectory())
       let stateFile = path.join(dataDirectory, 'state.json')
       if (fsSync.existsSync(stateFile)) fsSync.copyFileSync(stateFile, path.join(dataDirectory, `state.before-brave-${Date.now()}.json`), fsSync.constants.COPYFILE_EXCL)
@@ -1643,7 +1692,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'profile.create') {
       let name = required(args, 'name')
       if (model.profiles.some(profile => profile.name === name)) throw new Error('Profile name already exists')
-      let profile = { id: id('profile'), name, background: args.background === true }
+      let profile = { id: id('profile'), name, background: args.background === true, ...(hostProxy ? { proxy: hostProxy } : {}) }
       model.profiles.push(profile); save(); return profile
     }
     if (method === 'profile.rename') {
@@ -1653,6 +1702,7 @@ export let createRuntime = (dataDirectory: string) => {
       profile.name = name; save(); return profile
     }
     if (method === 'profile.proxy.set') {
+      if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
@@ -1675,6 +1725,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); reloadProfileTabs(profile.id); return profile
     }
     if (method === 'profile.proxy.clear') {
+      if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
@@ -2225,7 +2276,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.ready.then(() => { if (!live.disposed) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (!live.disposed) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url) live.pendingUrl = undefined
@@ -2239,16 +2290,28 @@ export let createRuntime = (dataDirectory: string) => {
     tabById(model, tabId)
     await visualQueue
     return serializeTab(tabId, async () => {
+      checkControl(method, args)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane } = tabById(model, tabId)
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
+      checkControl(method, args)
       let contents = live.contents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
       contents.setBackgroundThrottling(false)
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
-        if (method === 'navigate') { await contents.loadURL(normalizeUrl(required(args, 'url'))); return { id: tab.id, url: contents.getURL() } }
+        if (method === 'navigate') {
+          let failures = proxyRelays.get(pane.profileId)?.failures ?? 0
+          let responseCode = 0
+          let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
+          contents.on('did-navigate', response)
+          try { await contents.loadURL(normalizeUrl(required(args, 'url'))) }
+          catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
+          finally { contents.off('did-navigate', response) }
+          if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(pane.profileId)?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
+          return { id: tab.id, url: contents.getURL() }
+        }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
         if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { pane: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
@@ -2375,5 +2438,39 @@ export let createRuntime = (dataDirectory: string) => {
     for (let tabId of tabs.keys()) disposeTab(tabId)
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
   }
-  return { execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, get model() { return model }, get tabCount() { return tabs.size } }
+  let remote = {
+    state: () => { clearRemoteSizes(); return { sessions: model.sessions, viewports: Object.fromEntries([...tabs.keys()].map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])) } },
+    capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents }),
+    acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },
+    renew: controls.renew,
+    release: (session: string, owner?: string) => { controls.release(session, owner); clearRemoteSizes(); publish() },
+    disconnect: (owner: string) => { controls.disconnect(owner); clearRemoteSizes(); publish() },
+    command: (owner: string, generation: number, command: Command) => {
+      if (!['navigate', 'back', 'forward', 'reload', 'click', 'type', 'key', 'permission.respond'].includes(command.method)) throw new Error('Remote command is not allowed')
+      return remoteActor.run({ owner, generation }, () => execute(command))
+    },
+    input: async (owner: string, generation: number, pane: string, viewportGeneration: number, event: Electron.MouseInputEvent | Electron.MouseWheelInputEvent | Electron.KeyboardInputEvent) => {
+      let live = await ensureLiveTab(pane)
+      controls.assert(paneById(model, pane).session.id, owner, generation)
+      if (remoteViewport(pane)?.generation !== viewportGeneration) throw new Error('STALE_VIEWPORT')
+      if (!['mouseDown', 'mouseUp', 'mouseMove', 'mouseWheel', 'keyDown', 'keyUp', 'char'].includes(event.type)) throw new Error('Invalid input')
+      live.contents.sendInputEvent(event)
+    },
+    text: async (owner: string, generation: number, pane: string, text: string) => {
+      let live = await ensureLiveTab(pane)
+      controls.assert(paneById(model, pane).session.id, owner, generation)
+      if (typeof text !== 'string' || text.length > 16384) throw new Error('Invalid text')
+      await live.contents.insertText(text)
+    },
+    resize: async (owner: string, generation: number, pane: string, width: number, height: number) => {
+      let live = await ensureLiveTab(pane)
+      controls.assert(paneById(model, pane).session.id, owner, generation)
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1920 || height < 200 || height > 1080) throw new Error('Invalid viewport')
+      let previous = remoteSizes.get(pane)?.previous ?? live.view.getBounds()
+      remoteSizes.set(pane, { width, height, previous, lease: generation })
+      live.view.setBounds({ ...live.view.getBounds(), width, height })
+      return remoteViewport(pane)
+    },
+  }
+  return { execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

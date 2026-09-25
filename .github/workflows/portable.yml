@@ -1,0 +1,30 @@
+name: Portable hosts
+on:
+  push:
+    branches: [main, feat/portable-bmux]
+  pull_request:
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target test -t bmux-test:local .
+      - run: scripts/test-linux.sh
+      - run: docker build --target host -t bmux-host:local .
+      - run: docker build --target packaged -t bmux-package:local .
+      - run: |
+          docker create --name package bmux-package:local
+          docker cp package:/opt/bmux/release/bmux-linux-${{ matrix.arch }}.tar.gz .
+          docker rm package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bmux-linux-${{ matrix.arch }}
+          path: bmux-linux-${{ matrix.arch }}.tar.gz

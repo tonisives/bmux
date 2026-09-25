@@ -259,9 +259,11 @@ let Status = () => {
     observer.observe(list); reveal()
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows.length])
+  let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}{session!.private && <PrivateIcon />}]</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
+    {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
     {profile?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}

@@ -7,14 +7,17 @@ import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
+import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
+import { startRemoteHost } from './remote-host'
 
-let defaultDataDirectory = path.join(os.homedir(), 'Library', 'Application Support', 'bmux')
-let legacyDataDirectory = [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
+let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
+let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
 let configuredDataDirectory = process.env.BMUX_DATA_DIR ?? process.env.BROWMUX_DATA_DIR
 if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDataDirectory) fs.renameSync(legacyDataDirectory, defaultDataDirectory)
-let dataDirectory = configuredDataDirectory ?? defaultDataDirectory
+let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process.env)
 let background = process.env.BMUX_BACKGROUND === '1' || process.env.BROWMUX_BACKGROUND === '1' || process.argv.includes('--background')
 app.setName('bmux')
+for (let signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.quit())
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
 app.setPath('userData', dataDirectory)
 fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
@@ -22,6 +25,7 @@ let socketDirectory = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`)
 let socketPath = path.join(socketDirectory, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
 let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
+let remoteHost: ReturnType<typeof startRemoteHost> | undefined
 
 let readyForLinks = false
 let pendingLinks: { url: string; allowFile: boolean }[] = []
@@ -65,6 +69,7 @@ void app.whenReady().then(async () => {
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   app.on('before-quit', () => {
+    remoteHost?.close()
     runtime?.shutdown()
     server?.close()
     try { fs.unlinkSync(socketPath) } catch { /* Already removed. */ }
@@ -88,6 +93,7 @@ void app.whenReady().then(async () => {
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
+  if (process.env.BMUX_REMOTE_CONFIG) remoteHost = startRemoteHost(runtime, dataDirectory, process.env.BMUX_REMOTE_CONFIG)
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
   if (pendingActivation) activateExistingClient()
@@ -110,7 +116,13 @@ void app.whenReady().then(async () => {
         try {
           let command = JSON.parse(request) as Command
           if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
-          let result = await runtime!.execute(command)
+          let result = command.method === 'remote.status' ? remoteHost?.status() ?? { enabled: false }
+            : command.method === 'remote.job' ? (() => {
+              if (!remoteHost) throw new Error('Remote reporting is not enabled')
+              let args = command.args ?? {}
+              if (typeof args.id !== 'string' || typeof args.attempt !== 'string' || args.result !== undefined && !['succeeded', 'failed'].includes(String(args.result))) throw new Error('Invalid job event')
+              return remoteHost.job(args.id, args.attempt, args.result as 'succeeded' | 'failed' | undefined)
+            })() : await runtime!.execute(command)
           connection.end(`${JSON.stringify({ ok: true, result })}\n`)
         } catch (error) {
           connection.end(`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })}\n`)

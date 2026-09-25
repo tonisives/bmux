@@ -32,30 +32,41 @@
     "vm:stop": "node scripts/tart.mjs stop",
     "vm:status": "node scripts/tart.mjs status",
     "vm:exec": "node scripts/tart.mjs exec",
-    "icons": "node scripts/build-icons.mjs"
+    "icons": "node scripts/build-icons.mjs",
+    "remote:build": "vite build --config remote/vite.config.ts",
+    "remote:start": "tsx remote/server.ts",
+    "remote:admin": "tsx remote/admin.ts",
+    "package:linux": "pnpm build && electron-builder --linux --dir"
   },
   "dependencies": {
     "@ghostery/adblocker": "2.18.2",
     "darkreader": "^4.9.130",
     "electron-chrome-extensions": "4.9.0",
+    "jose": "^6.2.12",
+    "pg": "^8.23.0",
     "proxy-chain": "^3.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "ws": "^8.21.3",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "44.3.0",
     "electron-builder": "^26.0.0",
     "electron-vite": "5.0.0",
+    "esbuild": "^0.25.12",
     "eslint": "^9.0.0",
     "node-api-headers": "1.9.0",
     "ti-reactu": "^1.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.0",
     "vite": "^7.0.0",
     "vitest": "^3.2.0"
@@ -89,6 +100,10 @@
       {
         "from": "bundled-plugins",
         "to": "bundled-plugins"
+      },
+      {
+        "from": "scripts/host-health.mjs",
+        "to": "scripts/host-health.mjs"
       }
     ],
     "mac": {
@@ -120,6 +135,13 @@
         "name": "HTML document",
         "role": "Viewer"
       }
-    ]
+    ],
+    "linux": {
+      "executableName": "bmux",
+      "category": "Network",
+      "target": [
+        "dir"
+      ]
+    }
   }
 }
