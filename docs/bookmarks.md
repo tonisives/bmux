@@ -45,7 +45,12 @@ not reload live; edit while bmux is closed and restart, unlike keyboard settings
 
 Run `history` to search visited pages by title or URL within the selected profile.
 Select a result with Up/Down and Enter. History replaces the active page; bookmarks
-keep the previous page available. Deleting individual history entries and clearing history from
+keep the previous page available. Each profile keeps its 1,000 most recent distinct
+history entries. Google Maps records selected places, groups map movement under the
+same place, and omits map viewport and search pages. Existing Maps entries are
+compacted when the profile loads. Other sites keep their full URLs, including query
+parameters, because those parameters may identify different pages.
+Deleting individual history entries and clearing history from
 the panel remain follow-up work.
 
 See [Import from Chrome](chrome.md) for existing folders and the

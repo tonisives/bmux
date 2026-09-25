@@ -3,6 +3,7 @@ import path from 'node:path'
 import { parseDocument, stringify } from 'yaml'
 import { initialModel, newSession, validateModel } from './model'
 import type { Bookmark, Model } from '../shared/types'
+import { compactHistory } from '../shared/history'
 
 export let bookmarksPath = (configFile: string) => path.join(path.dirname(configFile), 'bookmarks.yaml')
 let bookmarkProfiles = (model: Model) => Object.fromEntries(model.profiles.filter(profile => profile.bookmarks !== undefined).map(profile => [profile.id, profile.bookmarks]))
@@ -42,6 +43,7 @@ export let readModel = (directory: string, bookmarkFile = path.join(directory, '
   let parsed = source === undefined ? undefined : JSON.parse(source)
   let upgraded = parsed?.version === 1
   let model = parsed === undefined ? initialModel() : validateModel(parsed)
+  for (let profile of model.profiles) if (profile.history) profile.history = compactHistory(profile.history)
   if (fs.existsSync(bookmarkFile)) {
     let profiles = parseBookmarks(fs.readFileSync(bookmarkFile, 'utf8'))
     for (let profileId of Object.keys(profiles)) if (!model.profiles.some(profile => profile.id === profileId)) throw new Error(`Unknown bookmark profile: ${profileId}`)
