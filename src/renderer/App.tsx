@@ -1021,19 +1021,39 @@ let PrivateIcon = () => <svg className={css.privateIcon} viewBox="0 0 20 20" fil
 let SessionPicker = () => {
   let { state, run } = useUI()
   let [busy, setBusy] = useState(false)
+  let [creating, setCreating] = useState<'regular' | 'private' | null>(null)
+  let [profileId, setProfileId] = useState(() => state.model.profiles.find(profile => profile.name === 'default')?.id ?? state.model.profiles[0]?.id ?? '')
+  let [profileChosen, setProfileChosen] = useState(false)
+  let [profileName, setProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
-  let create = async (privateSession = false) => {
+  let create = async (event: FormEvent) => {
+    event.preventDefault()
     if (busy) return
     setBusy(true)
-    if (await run('new-session', { client: state.clientId, private: privateSession }) === undefined) setBusy(false)
+    let selectedProfile = profileId
+    if (profileId === 'new') {
+      let created = await run('profile.create', { name: profileName.trim() }) as Profile | undefined
+      if (!created) { setBusy(false); return }
+      selectedProfile = created.id
+      setProfileId(created.id)
+    }
+    if (await run('new-session', { client: state.clientId, ...(profileChosen || profileId === 'new' ? { profile: selectedProfile } : {}), private: creating === 'private' }) === undefined) setBusy(false)
   }
-  let createRegular = () => { void create() }
-  let createPrivate = () => { void create(true) }
+  let createRegular = () => setCreating('regular')
+  let createPrivate = () => setCreating('private')
+  let changeProfile = (event: ChangeEvent<HTMLSelectElement>) => { setProfileId(event.target.value); setProfileChosen(true) }
+  let changeProfileName = (event: ChangeEvent<HTMLInputElement>) => setProfileName(event.target.value)
+  let cancelCreate = () => setCreating(null)
+  if (creating) return <form className={css.sessionCreate} onSubmit={create} aria-label={`New ${creating === 'private' ? 'private ' : ''}session`}>
+    <label>Profile<select aria-label="Session profile" value={profileId} onChange={changeProfile}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}<option value="new">New profile…</option></select></label>
+    {profileId === 'new' && <label>Profile name<input value={profileName} onChange={changeProfileName} autoComplete="off" required /></label>}
+    <div className={css.sessionCreateActions}><button type="submit" disabled={busy || profileId === 'new' && !profileName.trim()}>Create {creating === 'private' ? 'private ' : ''}session</button><button type="button" onClick={cancelCreate} disabled={busy}>Back</button></div>
+  </form>
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}<button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button></div>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
@@ -1196,29 +1216,38 @@ let ProxyInfo = () => {
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
+  let [tab, setTab] = useState<'overview' | 'device' | 'connection'>('overview')
+  let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   let cache = state.profileCaches[profile.id]
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
   let openProxy = () => show('proxy')
+  let canChangeProfile = !!session && session.windows.length === 1 && !!window?.panes.length && window.panes.every(item => item.url === 'about:blank' && item.profileId === session.defaultProfileId && !state.loading[item.id])
+  let changeProfile = async (event: ChangeEvent<HTMLSelectElement>) => {
+    if (!session || busy) return
+    setBusy(true)
+    await run('session.profile.set', { session: session.id, profile: event.target.value })
+    setBusy(false)
+  }
+  let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection')
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
-    <dl>
+    <div className={css.profileTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button></div>
+    {tab === 'overview' && <div role="tabpanel" aria-label="Profile overview"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
       <div><dt>Window</dt><dd>{window?.name}</dd></div>
       <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
-    </dl>
-    <p>Separate cookies, storage, and connections.</p>
-    <button type="button" onClick={openProxy}>Proxy settings</button>
-    <ProfileDeviceSettings profile={profile} paneCount={paneCount} />
-    <ProxySettings profile={profile} paneCount={paneCount} />
+    </dl>{canChangeProfile && <label className={css.sessionProfileChange}>Session profile<select aria-label="Change session profile" value={profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     <section className={css.profileProxy}>
       <h2>HTTP cache</h2>
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
-    </section>
+    </section></div>}
+    {tab === 'device' && <div role="tabpanel" aria-label="Device settings"><ProfileDeviceSettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }

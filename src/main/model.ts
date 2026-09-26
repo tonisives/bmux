@@ -187,6 +187,7 @@ export let validateModel = (value: unknown): Model => {
   for (let session of model.sessions) {
     checkId(session.id)
     if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
+    if (session.profileExplicit !== undefined && typeof session.profileExplicit !== 'boolean') throw new Error('Invalid explicit profile setting')
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
     for (let window of session.windows) {
       checkId(window.id)
@@ -213,6 +214,7 @@ export let validateModel = (value: unknown): Model => {
       }
     }
   }
+  if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
   return model
 }
 
@@ -239,6 +241,7 @@ export let repairClientSelections = (model: Model) => {
 export let removeSession = (model: Model, session: WorkspaceSession) => {
   let index = model.sessions.indexOf(session)
   if (index < 0) throw new Error(`Session '${session.id}' not found`)
+  if (!session.private) model.closedSessionProfiles = Object.fromEntries([...Object.entries(model.closedSessionProfiles ?? {}).filter(([name]) => name !== session.name), [session.name, session.defaultProfileId]].slice(-50))
   let next = model.sessions.length === 1 ? newSession('main', session.defaultProfileId) : model.sessions[(index + 1) % model.sessions.length]
   model.sessions = model.sessions.filter(item => item !== session)
   if (!model.sessions.length) model.sessions.push(next)

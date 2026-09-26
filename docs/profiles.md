@@ -2,7 +2,7 @@
 
 A profile stores cookies, site storage, history, bookmarks, extensions,
 permissions, and connection settings. Sessions organize windows; they are not
-profiles. A pane's profile is fixed for its lifetime.
+profiles. A pane keeps its profile after a page is loaded.
 
 ## Choose a profile
 
@@ -14,6 +14,12 @@ specified. Create a new pane when you need a different profile:
 bmux profile create review
 bmux split-window -t PANE_ID -h --profile review
 ```
+
+When creating a session in the session picker, choose an existing profile or
+create one there. A session with one window and only blank panes can change its
+profile from the profile panel. If you close a session and later give a fresh,
+unvisited session the same name, bmux restores the closed session's profile.
+Choosing a profile explicitly or loading a page keeps the new session's profile.
 
 The default profile throttles inactive pages. The `bot` profile keeps background
 pages running; `profile create NAME --background` creates another such profile.

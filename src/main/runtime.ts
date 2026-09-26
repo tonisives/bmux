@@ -2,7 +2,7 @@ import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSes
 import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot } from '../shared/types'
+import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -1151,6 +1151,17 @@ export let createRuntime = (dataDirectory: string) => {
     scriptTouchedTabs.delete(tabId)
     if (!idleUnloaded.has(tabId)) idleHistory.delete(tabId)
   }
+  let reassignablePanes = (session: WorkspaceSession, onePane = false) => {
+    let panes = session.windows.length === 1 ? session.windows[0].panes : []
+    if (!panes.length || onePane && panes.length !== 1 || panes.some(pane => {
+      let live = tabs.get(pane.id)
+      if (pane.url !== 'about:blank' || pane.profileId !== session.defaultProfileId) return true
+      if (!live) return false
+      if (live.pendingUrl && live.pendingUrl !== 'about:blank' || live.pendingNavigation || live.contents.isDestroyed()) return true
+      return /^(https?|file):/.test(live.contents.getURL()) || live.contents.navigationHistory.getAllEntries().some(entry => /^(https?|file):/.test(entry.url))
+    })) return undefined
+    return panes
+  }
   let visiblePaneIds = (client: Client) => client.zoomedPaneId ? [client.zoomedPaneId] : model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
   let paneMenu = (paneId: string, clientId: string): Electron.MenuItemConstructorOptions[] => {
     let { window } = paneById(model, paneId)
@@ -1811,17 +1822,38 @@ export let createRuntime = (dataDirectory: string) => {
       while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
       let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
-      let profile = resolve(model.profiles, args.profile ?? 'default', 'Profile')
+      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? undefined : model.closedSessionProfiles?.[name]) ?? 'default', 'Profile')
       let session = newSession(name, profile.id, args.private === true)
+      if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
+      changed(); await visualQueue; return session
+    }
+    if (method === 'session.profile.set') {
+      let session = resolve(model.sessions, args.session, 'Session')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let panes = reassignablePanes(session)
+      if (!panes) throw new Error('Profile can only change before the single window loads a page')
+      session.profileExplicit = true
+      if (session.defaultProfileId === profile.id) { save(); return session }
+      for (let pane of panes) { disposeTab(pane.id); pane.profileId = profile.id }
+      session.defaultProfileId = profile.id
       changed(); await visualQueue; return session
     }
     if (method === 'rename-session') {
       let session = resolve(model.sessions, args.session, 'Session')
       let name = required(args, 'name')
       if (model.sessions.some(item => item.id !== session.id && item.name === name)) throw new Error('Session name already exists')
-      session.name = name; save(); return session
+      let previousProfileId = !session.profileExplicit && !session.private ? model.closedSessionProfiles?.[name] : undefined
+      let panes = previousProfileId && previousProfileId !== session.defaultProfileId ? reassignablePanes(session, true) : undefined
+      if (panes) {
+        disposeTab(panes[0].id)
+        panes[0].profileId = previousProfileId!
+        session.defaultProfileId = previousProfileId!
+      }
+      session.name = name
+      if (panes) { changed(); await visualQueue } else save()
+      return session
     }
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')

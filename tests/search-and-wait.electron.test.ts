@@ -108,11 +108,13 @@ test('session picker creates and attaches sessions with default names', async ()
   let create = sessions.getByRole('button', { name: 'new session', exact: true })
   await expect(sessions.getByRole('button').last()).toHaveText('new private session')
   await create.click()
+  await chrome.getByRole('form', { name: 'New session' }).getByRole('button', { name: 'Create session' }).click()
   await expect(sessions).toHaveCount(0)
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('session-1')
   await open('sessions')
   await chrome.getByRole('group', { name: 'Choose session', exact: true }).getByRole('button', { name: 'new session', exact: true }).click()
+  await chrome.getByRole('form', { name: 'New session' }).getByRole('button', { name: 'Create session' }).click()
   current = await state(); client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('session-2')
 })
@@ -137,6 +139,7 @@ test('session picker creates a private session with an indicator', async () => {
   await open('sessions')
   let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
   await picker.getByRole('button', { name: 'new private session', exact: true }).click()
+  await chrome.getByRole('form', { name: 'New private session' }).getByRole('button', { name: 'Create private session' }).click()
   await expect(picker).toHaveCount(0)
   let current = await state()
   let privateSession = current.model.sessions.find((item: { name: string }) => item.name === 'private-1')
@@ -165,7 +168,7 @@ test('session picker creates by keyboard and confirms session closing', async ()
   let create = sessions.getByRole('button', { name: 'new session', exact: true })
   await chrome.keyboard.press('End'); await expect(sessions.getByRole('button', { name: 'new private session', exact: true })).toBeFocused()
   await chrome.keyboard.press('ArrowUp'); await expect(create).toBeFocused()
-  await chrome.keyboard.press('Enter'); await expect(sessions).toHaveCount(0)
+  await chrome.keyboard.press('Enter'); await chrome.getByRole('form', { name: 'New session' }).getByRole('button', { name: 'Create session' }).click(); await expect(sessions).toHaveCount(0)
   let current = await state(), created = current.model.sessions.find((item: { name: string }) => item.name === 'session-3')
   expect(current.model.clients.find((item: { id: string }) => item.id === current.clientId).sessionId).toBe(created.id)
   await open('sessions')
@@ -559,4 +562,60 @@ test('CLI waits target panes, distinguish visibility, and reject invalid request
   await expect(cli('wait', '-t', target, '--expression', 'missingIdentifier.value')).rejects.toThrow('Wait expression threw')
   await expect(cli('wait', '-t', target, '--selector', '#ready', '--timeout', 'invalid')).rejects.toThrow('timeout')
   expect((await state()).model.clients).toEqual(before)
+})
+
+test('session profile can be chosen at creation and changed while its only pane is blank', async () => {
+  await open('sessions')
+  await chrome.getByRole('group', { name: 'Choose session' }).getByRole('button', { name: 'new session', exact: true }).click()
+  let form = chrome.getByRole('form', { name: 'New session' })
+  await form.getByRole('combobox', { name: 'Session profile' }).selectOption('new')
+  await form.getByRole('textbox', { name: 'Profile name' }).fill('Fresh identity')
+  await form.getByRole('button', { name: 'Create session' }).click()
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let created = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
+  let fresh = current.model.profiles.find((item: { name: string }) => item.name === 'Fresh identity')!
+  expect(created.defaultProfileId).toBe(fresh.id)
+  expect(created.windows[0].panes[0].profileId).toBe(fresh.id)
+  await chrome.getByRole('button', { name: 'Profile: Fresh identity' }).click()
+  let panel = chrome.getByRole('dialog', { name: 'Profile' })
+  await expect(panel.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.getByRole('tab', { name: 'Device' })).toBeVisible()
+  await expect(panel.getByRole('tab', { name: 'Connection' })).toBeVisible()
+  await expect(panel).not.toContainText('Sessions organize windows')
+  await panel.getByRole('combobox', { name: 'Change session profile' }).selectOption(model.profiles[1].id)
+  await expect.poll(async () => (await state()).model.sessions.find((item: { id: string }) => item.id === created.id)?.windows[0].panes[0].profileId).toBe(model.profiles[1].id)
+  await panel.getByRole('button', { name: 'Close' }).click()
+  let blank = created.windows[0].panes[0].id
+  await rpc('navigate', { pane: blank, url: `${url}/profile-changed` })
+  await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/profile-changed`)).toBe(true)
+  await expect(rpc('session.profile.set', { session: created.id, profile: fresh.id })).rejects.toThrow('Profile can only change')
+  await chrome.getByRole('button', { name: `Profile: ${model.profiles[1].name}` }).click()
+  await expect(chrome.getByRole('dialog', { name: 'Profile' }).getByRole('combobox', { name: 'Change session profile' })).toHaveCount(0)
+})
+
+test('renaming a fresh blank session restores a closed session profile unless a profile or page was chosen', async () => {
+  let client = (await state()).clientId
+  let old = await rpc('new-session', { name: 'restored identity', profile: model.profiles[1].id }) as { id: string }
+  await rpc('kill-session', { session: old.id, confirm: true })
+  expect((await state()).model.closedSessionProfiles?.['restored identity']).toBe(model.profiles[1].id)
+  let direct = await rpc('new-session', { name: 'restored identity' }) as { id: string; defaultProfileId: string }
+  expect(direct.defaultProfileId).toBe(model.profiles[1].id)
+  await rpc('kill-session', { session: direct.id, confirm: true })
+  let blank = await rpc('new-session', { client }) as { id: string }
+  expect((await state()).model.sessions.find((item: { id: string }) => item.id === blank.id)?.profileExplicit).toBeUndefined()
+  await rpc('rename-session', { session: blank.id, name: 'restored identity' })
+  let restored = (await state()).model.sessions.find((item: { id: string }) => item.id === blank.id)!
+  expect(restored.defaultProfileId).toBe(model.profiles[1].id)
+  expect(restored.windows[0].panes[0].profileId).toBe(model.profiles[1].id)
+  await rpc('kill-session', { session: blank.id, confirm: true })
+
+  let explicit = await rpc('new-session', { client, profile: model.profiles[0].id }) as { id: string }
+  await rpc('rename-session', { session: explicit.id, name: 'restored identity' })
+  expect((await state()).model.sessions.find((item: { id: string }) => item.id === explicit.id)?.defaultProfileId).toBe(model.profiles[0].id)
+  let visitedOld = await rpc('new-session', { name: 'visited identity', profile: model.profiles[1].id }) as { id: string }
+  await rpc('kill-session', { session: visitedOld.id, confirm: true })
+  let visited = await rpc('new-session', { client }) as { id: string; windows: { panes: { id: string }[] }[] }
+  await rpc('navigate', { pane: visited.windows[0].panes[0].id, url: `${url}/visited-before-rename` })
+  await rpc('rename-session', { session: visited.id, name: 'visited identity' })
+  expect((await state()).model.sessions.find((item: { id: string }) => item.id === visited.id)?.defaultProfileId).toBe(model.profiles[0].id)
 })

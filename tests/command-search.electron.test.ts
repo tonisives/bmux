@@ -234,6 +234,7 @@ test('pane profile route uses icons only for a profile that differs from the ses
 test('profile proxy settings route, test, and restore the selected profile connection', async () => {
   let current = await state(), profile = current.model.profiles[0]
   let panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Connection' }).click()
   await panel.getByLabel('Provider', { exact: true }).selectOption('bmux.nordvpn/nordvpn')
   await expect(panel.getByLabel('Region', { exact: true })).toBeVisible()
   await panel.getByLabel('Region', { exact: true }).selectOption('sg640.proxy.nordvpn.com')
@@ -310,6 +311,7 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await rpc('kill-pane', { pane: customPane.id, confirm: true })
   await rpc('kill-session', { session: verificationSession.id, confirm: true })
   panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Connection' }).click()
   await panel.getByRole('button', { name: 'Use system connection', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy).toBeUndefined()
   await expect.poll(async () => (await state()).profileProxyTests[profile.id]).toBeUndefined()
@@ -326,6 +328,7 @@ test('profile proxy settings route, test, and restore the selected profile conne
 test('profile device identity is applied before requests and cache status is public', async () => {
   let current = await state(), profile = current.model.profiles[0]
   let panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByLabel('Device', { exact: true }).selectOption('pixel-8')
   await panel.getByLabel('Locale', { exact: true }).fill('fr-FR')
   await panel.getByLabel('Timezone', { exact: true }).fill('Europe/Paris')
@@ -337,10 +340,13 @@ test('profile device identity is applied before requests and cache status is pub
   await rpc('navigate', { tab, url: `${url}/device-android` })
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('Android 10')
   expect(identityRequests.get('/device-android')?.['accept-language']).toContain('fr-FR')
-  expect(await rpc('eval', { tab, expression: '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,cores:navigator.hardwareConcurrency,memory:navigator.deviceMemory,locale:Intl.DateTimeFormat().resolvedOptions().locale,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,uaPlatform:navigator.userAgentData?.platform,uaMobile:navigator.userAgentData?.mobile})' })).toEqual({ width: 412, height: 915, dpr: 2.625, touch: 5, cores: 8, memory: 8, locale: 'fr-FR', timezone: 'Europe/Paris', uaPlatform: 'Android', uaMobile: true })
+  await expect.poll(() => rpc('eval', { tab, expression: '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,cores:navigator.hardwareConcurrency,memory:navigator.deviceMemory,locale:Intl.DateTimeFormat().resolvedOptions().locale,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,uaPlatform:navigator.userAgentData?.platform,uaMobile:navigator.userAgentData?.mobile})' })).toEqual({ width: 412, height: 915, dpr: 2.625, touch: 5, cores: 8, memory: 8, locale: 'fr-FR', timezone: 'Europe/Paris', uaPlatform: 'Android', uaMobile: true })
   await expect.poll(async () => (await state()).profileCaches[profile.id]?.limit).toBe(256 * 1024 * 1024)
+  await panel.getByRole('tab', { name: 'Overview' }).click()
   await expect(panel.getByText(/MiB of 256 MiB/)).toBeVisible()
   await panel.getByRole('button', { name: 'Clear HTTP cache', exact: true }).click()
+
+  await panel.getByRole('tab', { name: 'Device' }).click()
   await expect.poll(async () => (await state()).profileCaches[profile.id]?.bytes).toBe(0)
 
   await panel.getByLabel('Device', { exact: true }).selectOption('custom')
@@ -375,6 +381,7 @@ test('profile device identity is applied before requests and cache status is pub
   await rpc('permission.respond', { id: permission.id, allow: true })
   expect(await geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
   panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByLabel('Device', { exact: true }).selectOption('iphone-15-pro')
   await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('iphone-15-pro')
@@ -392,6 +399,7 @@ test('profile device identity is applied before requests and cache status is pub
   chrome = application.context().pages().find(candidate => candidate.url().endsWith('/renderer/index.html'))!
   await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(windowsBeforePopup + 1)
   panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByRole('button', { name: 'Use desktop', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].device).toBeUndefined()
 })

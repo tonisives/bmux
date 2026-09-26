@@ -232,3 +232,16 @@ it('replaces the only removed session with a fresh main session', () => {
   expect(next.id).not.toBe(removed.id)
   expect(next.name).toBe('main')
 })
+
+it('remembers a closed session profile across state saves without recording private sessions', () => {
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-closed-profile-'))
+  try {
+    let model = initialModel(), work = newSession('work', 'profile_bot'), privateSession = newSession('secret', 'profile_bot', true)
+    model.sessions.push(work, privateSession)
+    removeSession(model, work)
+    removeSession(model, privateSession)
+    expect(model.closedSessionProfiles).toEqual({ work: 'profile_bot' })
+    writeModel(directory, model)
+    expect(readModel(directory).closedSessionProfiles).toEqual({ work: 'profile_bot' })
+  } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+})
