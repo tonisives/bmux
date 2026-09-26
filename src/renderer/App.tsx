@@ -417,6 +417,16 @@ let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: nu
   }, [focusVersion, ref, takeSelection])
 }
 
+let useDismissAddressOnPageClick = (finish: () => void) => {
+  useEffect(() => {
+    let outside = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-browser-content]')) finish()
+    }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [finish])
+}
+
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
@@ -468,6 +478,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     setQuery(value); setIndex(-1); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
+  useDismissAddressOnPageClick(finish)
   let navigate = async (url: string) => {
     if (!url.trim() || busy) return
     setBusy(true)
@@ -484,6 +495,13 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   }
   let submit = (event: FormEvent) => { event.preventDefault(); if (selectedResult?.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
   let choose = (event: MouseEvent<HTMLButtonElement>) => { if (event.currentTarget.dataset.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(event.currentTarget.dataset.value!) }
+  let removeHistory = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    let url = event.currentTarget.dataset.value!
+    if (inlineUrl?.url === url) { setInlineUrl(undefined); setText(query) }
+    setIndex(-1); void run('history.remove', { profile: profile!.id, url })
+    ref.current?.focus()
+  }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
@@ -505,8 +523,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <button key={`${entry.kind}:${entry.value}`} id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>)}</div>, document.body)}
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
 
@@ -1291,12 +1309,13 @@ let HistoryPicker = () => {
 }
 let HistoryRow = ({ entry }: { entry: HistoryEntry }) => {
   let { state, run, dismiss } = useUI()
-  let { tab } = selection(state)
+  let { tab, profile } = selection(state)
   let activate = async () => {
     if (tab && await run('navigate', { tab: tab.id, url: entry.url }) !== undefined) dismiss()
   }
   let visited = new Date(entry.visitedAt)
-  return <button className={`${css.listRow} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button>
+  let remove = () => { if (profile) void run('history.remove', { profile: profile.id, url: entry.url }) }
+  return <div className={css.historyEntry}><button className={`${css.listRow} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button><button type="button" data-picker-action className={css.historyRemove} aria-label={`Remove ${entry.title || entry.url} from history`} title="Remove from history" onClick={remove}>×</button></div>
 }
 let PermissionRow = ({ permission }: { permission: Permission }) => {
   let { run } = useUI()
