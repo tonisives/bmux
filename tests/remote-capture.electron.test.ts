@@ -59,7 +59,7 @@ test('background panes deliver changing frames without a visible window', async 
       let peer = new RTCPeerConnection({ iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all' })
       let video = document.createElement('video'); video.muted = true; document.body.append(video)
       peer.ontrack = event => { video.srcObject = event.streams[0]; void video.play() }
-      peer.ondatachannel = event => { event.channel.onopen = () => event.channel.send('capture-test') }
+      peer.ondatachannel = event => { (window as any).testChannel = event.channel }
       await peer.setRemoteDescription(offer)
       await peer.setLocalDescription(await peer.createAnswer())
       if (peer.iceGatheringState !== 'complete') await new Promise<void>(resolve => { peer.onicegatheringstatechange = () => { if (peer.iceGatheringState === 'complete') resolve() } })
@@ -68,7 +68,9 @@ test('background panes deliver changing frames without a visible window', async 
     }, { offer, iceServers, relayOnly })
     await application.evaluate((_electron, answer) => (globalThis as any).remoteCapture.answer(answer), answer)
     await expect.poll(() => viewer.evaluate(() => document.querySelector('video')?.getVideoPlaybackQuality().totalVideoFrames ?? 0), { timeout: 15000 }).toBeGreaterThan(5)
-    await expect.poll(() => application.evaluate(() => (globalThis as any).remoteData)).toBe('capture-test')
+    await expect.poll(() => viewer.evaluate(() => (window as any).testChannel?.readyState), { timeout: 15000 }).toBe('open')
+    await viewer.evaluate(() => (window as any).testChannel.send('capture-test'))
+    await expect.poll(() => application.evaluate(() => (globalThis as any).remoteData), { timeout: 15000 }).toBe('capture-test')
     if (relayOnly) expect(await viewer.evaluate(async () => {
       let stats = await (window as any).testPeer.getStats()
       let selected = [...stats.values()].find((item: any) => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated) as any
