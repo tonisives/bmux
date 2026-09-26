@@ -1,0 +1,13 @@
+schema_version: 1
+id: bmux.reddit
+name: Reddit browsing
+version: 1.0.0
+actions:
+  - id: browse
+    title: Browse Reddit URLs
+    description: Visit a bounded list of Reddit pages and scroll through results.
+    command: [node, ./browse.mjs]
+    capabilities: [browser.read, browser.write, browser.cdp]
+    timeout_seconds: 600
+    parameters:
+      - { name: urls, title: JSON array of Reddit URLs, kind: text, required: true }

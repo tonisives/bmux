@@ -14,10 +14,37 @@ normally `~/.config/bmux/plugins/`. Examples live in `examples/plugins/` in the
 checkout and `bmux.app/Contents/Resources/plugins/` in packaged builds. There is
 no automatic download or execution of bundled examples.
 
-The X and LinkedIn browsing plugins live in `optional-plugins/` in the source
-checkout. They are not included in bmux.app. Copy either plugin folder into the
+The X, LinkedIn, and Reddit browsing plugins live in `optional-plugins/` in the source
+checkout. They are not included in bmux.app. Copy the desired plugin folder into the
 active `plugins/` directory to install it; each folder is self-contained. Enable
 the copied plugin in config as described below.
+
+The Reddit action visits 1–10 HTTPS Reddit URLs, opens matching page links when
+available, and scrolls each page. It does not post, vote, or join communities.
+Configure an automation group for the intended profile before running it:
+
+```yaml
+plugins:
+  bmux.reddit: { enabled: true, hooks: false }
+automation:
+  groups:
+    reddit:
+      profiles: [profile_bot]
+      hosts: [reddit.com]
+      maxConcurrent: 1
+      hourly: { runs: 12, navigations: 30, activeMinutes: 20 }
+      daily: { runs: 12, navigations: 100, activeMinutes: 60 }
+      requiredPlugins: { reddit.com: bmux.reddit }
+      likesPerDay: { reddit.com: 0 }
+```
+
+Replace `profile_bot` with your profile ID. If a desktop launch cannot find Node,
+set the installed manifest's first command argument to the absolute path returned
+by `command -v node`. The script uses that same Node executable for host calls.
+
+```sh
+bmux plugin run bmux.reddit/browse -t PANE_ID --parameters '{"urls":"[\"https://www.reddit.com/search/?q=browser+automation&type=posts\"]"}'
+```
 
 Merge these entries into your existing config (preserve your keyboard edits):
 

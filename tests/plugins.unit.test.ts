@@ -33,12 +33,12 @@ let done = async (plugins: ReturnType<typeof createPlugins>, id: string) => {
 }
 describe('plugin definitions', () => {
   test('keeps social plugins optional and independently installable', () => {
-    for (let [id, site] of [['bmux.x', 'x'], ['bmux.linkedin', 'linkedin']]) {
+    for (let [id, site] of [['bmux.x', 'x'], ['bmux.linkedin', 'linkedin'], ['bmux.reddit', undefined]] as const) {
       let folder = path.resolve('optional-plugins', id)
       let manifest = parsePluginManifest(fs.readFileSync(path.join(folder, 'plugin.yaml'), 'utf8'))
       expect(fs.existsSync(path.resolve('bundled-plugins', id))).toBe(false)
       expect(manifest.id).toBe(id)
-      expect(manifest.actions[0].command).toEqual(['node', './browse.mjs', site])
+      expect(manifest.actions[0].command).toEqual(site ? ['node', './browse.mjs', site] : ['node', './browse.mjs'])
       expect(fs.existsSync(path.join(folder, 'browse.mjs'))).toBe(true)
     }
   })
