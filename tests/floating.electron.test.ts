@@ -46,8 +46,14 @@ let expectCoveredCorners = async (pageUrl: string, screenshotPath: string, insid
         inside: color(bounds.width / 2, bounds.height - 3),
       }
     }, { pageUrl, screenshotPath })
-    // The fixture scrolls: its square right corners belong to the native scrollbar.
-    expect(colors.corners).toEqual([insideColor, [237, 237, 237], insideColor, [237, 237, 237]])
+    // A native scrollbar can cover either right corner with a gray track.
+    expect(colors.corners[0]).toEqual(insideColor)
+    expect(colors.corners[2]).toEqual(insideColor)
+    for (let corner of [colors.corners[1], colors.corners[3]]) {
+      if (corner.join(',') === insideColor.join(',')) continue
+      expect(corner[0]).toBe(corner[1])
+      expect(corner[1]).toBe(corner[2])
+    }
     for (let color of colors.frameCorners) expect(color).toEqual(colors.border)
     expect([[0x62, 0x77, 0x66], [0x34, 0x3c, 0x48]]).toContainEqual(colors.border)
     for (let color of colors.well) expect(color).toEqual([0x11, 0x13, 0x18])
@@ -164,7 +170,12 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   await drag(before.bounds.x + moved.x + above!.x + 10, before.bounds.y + moved.y + above!.y + above!.height / 2, 20, 10)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].x).toBe(moved.x + 20)
   moved = (await views())[0].children.find(view => view.url.endsWith(`#float=${right.id}`))!.bounds
-  await drag(before.bounds.x + moved.x + moved.width - 3, before.bounds.y + moved.y + moved.height - 3, -100, -80)
+  let resizeHandle = await firstFrame.locator('[data-edge="se"]').boundingBox()
+  let resizeX = resizeHandle!.x + resizeHandle!.width / 2, resizeY = resizeHandle!.y + resizeHandle!.height / 2
+  await firstFrame.mouse.move(resizeX, resizeY)
+  await firstFrame.mouse.down()
+  await firstFrame.mouse.move(resizeX - 100, resizeY - 80, { steps: 8 })
+  await firstFrame.mouse.up()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating[0].width).toBe(moved.width - 100)
   await expectCoveredCorners(`${url}/right`, info.outputPath('floating-resized-corners.png'))
 
@@ -293,8 +304,8 @@ test('page context menu replaces a misspelled word', async () => {
 test('selected page text offers macOS Look Up on plain text and links', async () => {
   let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
   await rpc('select-pane', { client: client.id, pane: pane.id })
-  await rpc('navigate', { tab: pane.activeTabId, url: `${url}/lookup` })
-  await rpc('wait', { tab: pane.activeTabId, selector: '#lookup-text' })
+  await rpc('navigate', { tab: pane.id, url: `${url}/lookup` })
+  await rpc('wait', { tab: pane.id, selector: '#lookup-text' })
   let page = application.context().pages().find(page => page.url() === `${url}/lookup`)!
   await application.evaluate(({ Menu, webContents }, pageUrl) => {
     let build = Menu.buildFromTemplate

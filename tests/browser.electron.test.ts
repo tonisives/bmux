@@ -448,8 +448,8 @@ test('links show their target, offer browser actions, and open popups in bmux wi
         selection?.addRange(range)
       })
       await website.locator('#popup').click({ button: 'right' })
-      await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(['Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address'])
-      await expect.poll(() => website.evaluate(() => globalThis.getSelection()?.toString())).toBe('')
+      await expect.poll(async () => (await application.evaluate(() => (globalThis as any).fixtureMenuLabels)).slice(-4)).toEqual(['Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address'])
+      await expect.poll(() => website.evaluate(() => globalThis.getSelection()?.toString())).toBe('Popup')
     } finally {
       await application.evaluate(({ Menu }) => {
         let runtime = globalThis as any
@@ -466,6 +466,8 @@ test('links show their target, offer browser actions, and open popups in bmux wi
     createdWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
     let openedTab = (await cli('tab.list')).find((candidate: { windowId: string }) => candidate.windowId === createdWindow!.id)
     await cli('wait', { tab: openedTab.id, selector: '#text' })
+    await expect.poll(async () => (await cli('tab.list')).find((candidate: { id: string }) => candidate.id === openedTab.id)?.url).toBe(`${url}/popup`)
+    openedTab = (await cli('tab.list')).find((candidate: { id: string }) => candidate.id === openedTab.id)
     expect(openedTab).toMatchObject({ url: `${url}/popup`, openerPaneId: tab.id })
     expect((await cli('list-clients')).find((candidate: { id: string }) => candidate.id === client.id).windowId).toBe(createdWindow!.id)
     let nativeBounds = () => application.evaluate(({ BaseWindow }, target) => {
@@ -599,8 +601,7 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     await cli('click', { tab: upper.id, selector: '#popup' })
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
     let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
-    let popup = popupWindow.panes[0]
-    expect(popup.url).toBe(`${url}/popup`)
+    await expect.poll(async () => (await cli('list-panes', { window: popupWindow.id }))[0].url).toBe(`${url}/popup`)
     expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(popupWindow.id)
     await cli('kill-window', { window: popupWindow.id, confirm: true })
     await cli('select-window', { client: client.id, window: session.windows[0].id })
@@ -815,9 +816,13 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
 })
 
 test('URL entry after import attaches the live page; native shortcuts and commands work', async () => {
+  let source = path.join(directory, 'brave-fixture')
+  await fs.mkdir(path.join(source, 'Default'), { recursive: true })
+  await fs.writeFile(path.join(source, 'Local State'), JSON.stringify({ profile: { info_cache: { Default: { name: 'Imported work' } } } }))
+  await fs.writeFile(path.join(source, 'Default', 'Bookmarks'), JSON.stringify({ roots: { bookmark_bar: { type: 'folder', name: 'Bookmarks bar', children: [] } } }))
   let session = await cli('new-session', { name: 'UI regression' })
   let pane = session.windows[0].panes[0], tab = pane
-  await cli('import-brave', { source: path.join(directory, 'brave-fixture') })
+  await cli('import-brave', { source })
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()

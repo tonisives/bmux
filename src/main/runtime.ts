@@ -1828,7 +1828,8 @@ export let createRuntime = (dataDirectory: string) => {
       while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
       let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
-      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : model.closedSessionProfiles?.[name] ?? model.newSessionProfileId ?? 'default'), 'Profile')
+      let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
+      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
