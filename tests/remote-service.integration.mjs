@@ -29,6 +29,15 @@ let connect = (address, options) => new Promise((resolve,reject) => {
 let until = async predicate => { for (let n=0;n<100;n++) { if (await predicate()) return; await wait(100) }; throw new Error('Timed out') }
 try {
   await until(async () => { try { return (await fetch(`${origin}/health`)).ok } catch { return false } })
+  let page = await fetch(origin), html = await page.text()
+  let nonce = /<meta name="csp-nonce" content="([A-Za-z0-9+/]+)">/.exec(html)?.[1]
+  assert(nonce, 'The viewer receives a style nonce for Google sign-in')
+  assert(page.headers.get('content-security-policy').includes(`'nonce-${nonce}'`))
+  assert(!page.headers.get('content-security-policy').includes('unsafe-inline'))
+  assert.equal(page.headers.get('cache-control'), 'no-store')
+  assert.equal(page.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
+  let nextPage = await fetch(origin).then(response => response.text())
+  assert(!nextPage.includes(nonce), 'Each HTML response has a fresh nonce')
   assert.equal((await fetch(`${origin}/api/usage`)).status,401)
   let host = crypto.randomUUID(), generation = crypto.randomUUID()
   let browser = await connect(`ws://127.0.0.1:18888/connect?host=${host}&generation=${generation}`, { headers:{ Authorization:`Bearer ${token}` } })

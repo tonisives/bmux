@@ -1842,6 +1842,17 @@ test('status tabs show loading and favicon, with optional close control', async 
   await cli('detach-client', { client: client.id })
 })
 
+test('open command renders a local HTML file given relative to home', async () => {
+  let local = path.join(directory, 'local page.html')
+  await fs.writeFile(local, '<!doctype html><title>Local file fixture</title><h1>Loaded local file</h1>')
+  let session = await cli('new-session', { name: 'local-file-command' })
+  let client = await cli('attach-session', { session: session.id })
+  let tab = session.windows[0].panes[0].id
+  await cli('command-line', { client: client.id, line: `open "${path.relative(os.homedir(), local)}"` })
+  await expect.poll(() => cli('eval', { tab, expression: 'document.querySelector("h1")?.textContent' })).toBe('Loaded local file')
+  expect((await cli('list-windows', { session: session.id }))[0].panes[0].url).toBe(pathToFileURL(local).href)
+})
+
 test('external web links open new internal windows without replacing the current page or history', async () => {
   let session = await cli('new-session', { name: 'external-web-links' })
   let client = await cli('attach-session', { session: session.id })

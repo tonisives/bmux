@@ -13,7 +13,7 @@ let App = () => {
   let video = useRef<HTMLVideoElement>(null), loginButton = useRef<HTMLDivElement>(null), active = useRef<Viewer | undefined>(undefined)
   let viewport = state && state.viewports[state.pane]
   let session = state?.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
-  let lease = session && state?.controls[session.id], controlling = lease?.owner === viewer?.id
+  let lease = session && state?.controls[session.id], controlling = !!viewer && !!lease && lease.owner === viewer.id
   let report = (error: unknown) => setError(error instanceof Error ? error.message : 'Operation failed')
   let connect = async () => {
     active.current?.close(); setState(undefined); setError('')
@@ -24,6 +24,7 @@ let App = () => {
   useEffect(() => {
     let cancelled = false
     let script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.async = true
+    script.nonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? ''
     script.onload = () => {
       void api('/api/config').then(config => {
         if (cancelled) return
