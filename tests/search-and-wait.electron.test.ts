@@ -134,6 +134,10 @@ test('session picker goes back to the previously selected session', async () => 
 })
 
 test('session picker creates a private session with an indicator', async () => {
+  let extensionPath = path.join(directory, 'private-layout-extension')
+  await fs.mkdir(extensionPath)
+  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Private layout fixture', version: '1.0' }))
+  let extension = await rpc('extension.load', { profile: pane.profileId, path: extensionPath })
   await open('sessions')
   let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
   await picker.getByRole('button', { name: 'new private session', exact: true }).click()
@@ -143,8 +147,20 @@ test('session picker creates a private session with an indicator', async () => {
   expect(privateSession.private).toBe(true)
   await expect(chrome.getByRole('button', { name: 'Sessions', exact: true }).getByRole('img', { name: 'Private session' })).toBeVisible()
   let tabId = privateSession.windows[0].panes[0].id
-  await rpc('navigate', { tab: tabId, url: `${url}/private-visit` })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(address).toBeFocused()
+  await address.pressSequentially(`${url}/private-visit`)
+  await address.press('Enter')
   await expect.poll(async () => (await state()).model.sessions.find((item: { id: string }) => item.id === privateSession.id).windows[0].panes[0].url).toBe(`${url}/private-visit`)
+  let expectedBounds = await chrome.locator(`[data-content-pane-id="${tabId}"]`).evaluate(element => {
+    let rect = element.getBoundingClientRect()
+    return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+  })
+  expect(expectedBounds.y).toBeGreaterThan(28)
+  await expect.poll(() => application.evaluate(({ BaseWindow }, target) => {
+    let view = BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)
+    return view?.getBounds()
+  }, `${url}/private-visit`)).toEqual(expectedBounds)
   expect((await state()).model.profiles[0].history.some((entry: { url: string }) => entry.url === `${url}/private-visit`)).toBe(false)
   let isolated = await application.evaluate(async ({ session }, { privateId, origin }) => {
     let privateBrowser = session.fromPartition(`private:${privateId}:profile_default`)
@@ -157,6 +173,7 @@ test('session picker creates a private session with an indicator', async () => {
   await open('sessions')
   await expect(chrome.getByRole('group', { name: 'Choose session' }).getByRole('button', { name: 'private-1' }).getByRole('img', { name: 'Private session' })).toBeVisible()
   await chrome.keyboard.press('Escape')
+  await rpc('extension.remove', { profile: pane.profileId, id: extension.id })
 })
 
 test('search app choice applies to normal and private sessions', async () => {

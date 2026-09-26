@@ -1290,7 +1290,8 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
-      extensions.track(tabById(model, tabId).pane.profileId, live.contents, live.parent, client?.paneId === tabById(model, tabId).pane.id && tabById(model, tabId).pane.id === tabId)
+      let { session, pane } = tabById(model, tabId)
+      if (!session.private) extensions.track(pane.profileId, live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
         let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
