@@ -27,6 +27,8 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
+import { SEARCH_APPS, searchUrl } from '../shared/search-app'
+import type { SearchApp } from '../shared/search-app'
 import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -64,13 +66,13 @@ let required = (args: Record<string, unknown>, name: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
   return value.trim()
 }
-export let normalizeUrl = (value: string) => {
+export let normalizeUrl = (value: string, searchApp: SearchApp = 'google') => {
   if (value === 'about:blank') return value
   if (/^(https?:|file:)/i.test(value)) return new URL(value).href
   if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^localhost:\d+/.test(value)) throw new Error('Only http, https, file and about:blank URLs are supported')
   if (/^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value)) return new URL(`http://${value}`).href
   if (!/\s/.test(value) && value.includes('.')) return new URL(`https://${value}`).href
-  return `https://www.google.com/search?q=${encodeURIComponent(value)}`
+  return searchUrl(value, searchApp)
 }
 
 export let createRuntime = (dataDirectory: string) => {
@@ -1438,9 +1440,9 @@ export let createRuntime = (dataDirectory: string) => {
     checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.acquire') {
-      let paneId = required(args, 'pane'), { pane } = paneById(model, paneId), tabId = pane.id
+      let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
       if (!automation) throw new Error('Automation policy unavailable')
-      let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url')) })
+      let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url'), session.searchApp) })
       tabAutomation.set(tabId, lease.token)
       return lease
     }
@@ -1465,15 +1467,16 @@ export let createRuntime = (dataDirectory: string) => {
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
-      let { pane, tab } = tabById(model, args.tab)
-      let url = method === 'navigate' ? normalizeUrl(required(args, 'url')) : tabs.get(args.tab)?.contents.getURL() || tab.url
+      let { pane, tab, session } = tabById(model, args.tab)
+      let url = method === 'navigate' ? normalizeUrl(required(args, 'url'), session.searchApp) : tabs.get(args.tab)?.contents.getURL() || tab.url
       let token = typeof args._automationLease === 'string' ? args._automationLease : undefined
       automation.authorize({ profileId: pane.profileId, tabId: args.tab, url, token, kind: ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) ? 'navigation' : ['click', 'type', 'key', 'scroll'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: !['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) })
       if (token) tabAutomation.set(args.tab, token)
     }
     if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
-      if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+      let searchApp = method === 'new-window' ? resolve(model.sessions, args.session, 'Session').searchApp : typeof args.pane === 'string' ? paneById(model, args.pane).session.searchApp : undefined
+      if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
     }
     if (method === 'window.menu') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1823,6 +1826,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.sessions.some(item => item.id !== session.id && item.name === name)) throw new Error('Session name already exists')
       session.name = name; save(); return session
     }
+    if (method === 'session.search-app') {
+      let session = resolve(model.sessions, args.session, 'Session')
+      if (!SEARCH_APPS.includes(args.app as SearchApp)) throw new Error('Invalid search app')
+      session.searchApp = args.app as SearchApp
+      save(); return session
+    }
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
@@ -1881,7 +1890,7 @@ export let createRuntime = (dataDirectory: string) => {
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
       if (args.url) {
         let tab = window.panes[0]
-        tab.url = normalizeUrl(String(args.url))
+        tab.url = normalizeUrl(String(args.url), session.searchApp)
         tab.title = tab.url
       }
       session.windows.push(window)
@@ -2017,7 +2026,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === args.client) ?? model.clients.find(client => client.windowId === window.id)
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
-      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url)) : undefined)
+      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), session.searchApp) : undefined)
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
       if (args.client && args.background !== true) {
@@ -2035,7 +2044,7 @@ export let createRuntime = (dataDirectory: string) => {
       let parent = args.pane ? paneById(model, args.pane) : undefined
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
-      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url)) : undefined)
+      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), session.searchApp) : undefined)
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
@@ -2276,8 +2285,9 @@ export let createRuntime = (dataDirectory: string) => {
       return { removed: profile.history.length !== previous.length }
     }
     if (method === 'navigate' && args.waitUntil === 'none') {
-      let tabId = required(args, 'tab'), url = normalizeUrl(required(args, 'url'))
-      let { tab } = tabById(model, tabId)
+      let tabId = required(args, 'tab')
+      let { tab, session } = tabById(model, tabId)
+      let url = normalizeUrl(required(args, 'url'), session.searchApp)
       let live = tabs.get(tabId) ?? createLiveTab(tabId, false)
       let navigation = Symbol()
       live.pendingNavigation = navigation
@@ -2302,7 +2312,7 @@ export let createRuntime = (dataDirectory: string) => {
     return serializeTab(tabId, async () => {
       checkControl(method, args)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
-      let { tab, pane } = tabById(model, tabId)
+      let { tab, pane, session } = tabById(model, tabId)
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
       checkControl(method, args)
       let contents = live.contents
@@ -2316,7 +2326,7 @@ export let createRuntime = (dataDirectory: string) => {
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
-          try { await contents.loadURL(normalizeUrl(required(args, 'url'))) }
+          try { await contents.loadURL(normalizeUrl(required(args, 'url'), session.searchApp)) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
           finally { contents.off('did-navigate', response) }
           if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(pane.profileId)?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')

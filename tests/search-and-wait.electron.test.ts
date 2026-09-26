@@ -159,6 +159,32 @@ test('session picker creates a private session with an indicator', async () => {
   await chrome.keyboard.press('Escape')
 })
 
+test('search app choice applies to normal and private sessions', async () => {
+  await open('sessions')
+  let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  let searchApp = picker.getByRole('combobox', { name: `Search app for ${session.name}` })
+  await expect(searchApp).toHaveValue('google')
+  await searchApp.selectOption('duckduckgo')
+  await expect(searchApp).toHaveValue('duckduckgo')
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions.find((item: { id: string }) => item.id === session.id)?.searchApp).toBe('duckduckgo')
+  await chrome.keyboard.press('Escape')
+  let regular = await rpc('navigate', { tab: original, url: 'cats & dogs', waitUntil: 'none' }) as { url: string }
+  expect(regular.url).toBe('https://duckduckgo.com/?q=cats%20%26%20dogs')
+  await rpc('session.search-app', { session: session.id, app: 'google' })
+
+  let privateSession = await rpc('new-session', { private: true, client: (await state()).clientId }) as { id: string; name: string; windows: { panes: { id: string }[] }[] }
+  await open('sessions')
+  picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  searchApp = picker.getByRole('combobox', { name: `Search app for ${privateSession.name}` })
+  await searchApp.selectOption('brave')
+  await expect(searchApp).toHaveValue('brave')
+  await chrome.keyboard.press('Escape')
+  let privateSearch = await rpc('navigate', { tab: privateSession.windows[0].panes[0].id, url: 'cats & dogs', waitUntil: 'none' }) as { url: string }
+  expect(privateSearch.url).toBe('https://search.brave.com/search?q=cats%20%26%20dogs')
+  await expect.poll(async () => fs.readFile(path.join(directory, 'state.json'), 'utf8').then(text => text.includes(privateSession.id))).toBe(false)
+  await rpc('switch-client', { client: (await state()).clientId, session: session.id })
+})
+
 test('session picker creates by keyboard and confirms session closing', async () => {
   await open('sessions')
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Layout, Model, Pane, Profile, WorkspaceSession, InternalWindow } from '../shared/types'
 import { parseProfileProxy } from './profile-proxy'
 import { parseDevicePersona } from './device-persona'
+import { SEARCH_APPS } from '../shared/search-app'
 
 export let id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`
 export let newPane = (profileId: string, url = 'about:blank'): Pane => ({ id: id('pane'), profileId, url, title: url === 'about:blank' ? 'New window' : url, zoom: 1 })
@@ -187,6 +188,7 @@ export let validateModel = (value: unknown): Model => {
   for (let session of model.sessions) {
     checkId(session.id)
     if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
+    if (session.searchApp !== undefined && !SEARCH_APPS.includes(session.searchApp)) throw new Error('Invalid session search app')
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
     for (let window of session.windows) {
       checkId(window.id)
