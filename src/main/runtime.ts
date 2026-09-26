@@ -27,8 +27,9 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
-import { DEFAULT_SEARCH_APPS, searchUrl } from '../shared/search-app'
+import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
 import type { SearchApp } from '../shared/search-app'
+import { normalizeUrl } from './url'
 import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -66,15 +67,6 @@ let required = (args: Record<string, unknown>, name: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
   return value.trim()
 }
-export let normalizeUrl = (value: string, searchApp: SearchApp = 'google') => {
-  if (value === 'about:blank') return value
-  if (/^(https?:|file:)/i.test(value)) return new URL(value).href
-  if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^localhost:\d+/.test(value)) throw new Error('Only http, https, file and about:blank URLs are supported')
-  if (/^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value)) return new URL(`http://${value}`).href
-  if (!/\s/.test(value) && value.includes('.')) return new URL(`https://${value}`).href
-  return searchUrl(value, searchApp)
-}
-
 export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
