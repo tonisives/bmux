@@ -1573,11 +1573,17 @@ let SearchAppOptions = () => <>{SEARCH_APPS.map(app => <option key={app} value={
 let GeneralSettings = ({ changeSetting, makeDefault }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void }) => {
   let { state } = useUI()
   return <>
-    <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>
-    <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>
-    <label className={css.settingsRow}><span>Accessibility</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>
-    <p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p>
-    <button className={css.settingsDefaultBrowser} onClick={makeDefault}>Make bmux the default browser</button>
+    <section className={css.settingsGroup} aria-label="Search apps"><h3>Search apps</h3>
+      <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>
+      <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>
+    </section>
+    <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
+      <label className={css.settingsRow}><span>Allow page inspection</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>
+      <p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p>
+    </section>
+    <section className={css.settingsGroup} aria-label="Default browser"><h3>Default browser</h3>
+      <button className={css.settingsDefaultBrowser} onClick={makeDefault}>Make bmux the default browser</button>
+    </section>
   </>
 }
 let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
