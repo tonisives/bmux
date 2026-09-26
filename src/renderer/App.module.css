@@ -155,8 +155,6 @@
 .proxyTestSuccess dt { min-width: 64px; color: inherit; }
 @media (max-width: 650px) { .profileProxyEndpoint, .profileProxyProvider, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
 .sessionBack { color: #bdc9b4; }
-.sessionSearchApp { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; color: #aeb9c5; }
-.sessionSearchApp select { min-width: 130px; height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .newSession { color: #87a9c4; }
 .sessionRow { display: flex; align-items: stretch; }
 .sessionRow > .listRow { flex: 1; min-width: 0; }
@@ -258,6 +256,7 @@
 .panel .settingsTabs button[aria-selected="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
 .settingsContent { flex: 1; min-height: 0; padding: 16px 0; overflow-y: auto; }
 .settingsContent > button { display: block; margin: 12px 0; color: #bdc9b4; }
+.settingsDefaultBrowser { display: block; margin: 12px 0; color: #bdc9b4; }
 .settingsGroup + .settingsGroup { margin-top: 20px; }
 .settingsGroup h3 { margin: 0 0 4px; color: #aab4bf; font-size: 11px; font-weight: 600; text-transform: uppercase; }
 .settingsContent .settingsHint { margin: 6px 0 16px; }

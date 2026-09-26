@@ -179,30 +179,31 @@ test('session picker creates a private session with an indicator', async () => {
   await rpc('extension.remove', { profile: pane.profileId, id: extension.id })
 })
 
-test('search app choice applies to normal and private sessions', async () => {
-  await open('sessions')
-  let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
-  let searchApp = picker.getByRole('combobox', { name: `Search app for ${session.name}` })
-  await expect(searchApp).toHaveValue('google')
-  await searchApp.selectOption('duckduckgo')
-  await expect(searchApp).toHaveValue('duckduckgo')
-  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions.find((item: { id: string }) => item.id === session.id)?.searchApp).toBe('duckduckgo')
-  await chrome.keyboard.press('Escape')
+test('general search app choices apply to normal and private sessions', async () => {
+  await open('settings')
+  let settings = chrome.getByRole('dialog', { name: 'Settings', exact: true })
+  let normal = settings.getByRole('combobox', { name: 'Normal session search app' })
+  let privateApp = settings.getByRole('combobox', { name: 'Private session search app' })
+  await expect(normal).toHaveValue('google')
+  await expect(privateApp).toHaveValue('google')
+  await normal.selectOption('duckduckgo')
+  await privateApp.selectOption('brave')
+  await expect.poll(async () => (await state()).searchApps).toEqual({ normal: 'duckduckgo', private: 'brave' })
+  await expect.poll(async () => fs.readFile(path.join(directory, 'config.yaml'), 'utf8')).toContain('normal: duckduckgo')
+  await settings.getByRole('button', { name: 'Close', exact: true }).click()
   let regular = await rpc('navigate', { tab: original, url: 'cats & dogs', waitUntil: 'none' }) as { url: string }
   expect(regular.url).toBe('https://duckduckgo.com/?q=cats%20%26%20dogs')
-  await rpc('session.search-app', { session: session.id, app: 'google' })
 
-  let privateSession = await rpc('new-session', { private: true, client: (await state()).clientId }) as { id: string; name: string; windows: { panes: { id: string }[] }[] }
-  await open('sessions')
-  picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
-  searchApp = picker.getByRole('combobox', { name: `Search app for ${privateSession.name}` })
-  await searchApp.selectOption('brave')
-  await expect(searchApp).toHaveValue('brave')
-  await chrome.keyboard.press('Escape')
+  let privateSession = await rpc('new-session', { private: true, client: (await state()).clientId }) as { id: string; windows: { panes: { id: string }[] }[] }
   let privateSearch = await rpc('navigate', { tab: privateSession.windows[0].panes[0].id, url: 'cats & dogs', waitUntil: 'none' }) as { url: string }
   expect(privateSearch.url).toBe('https://search.brave.com/search?q=cats%20%26%20dogs')
   await expect.poll(async () => fs.readFile(path.join(directory, 'state.json'), 'utf8').then(text => text.includes(privateSession.id))).toBe(false)
   await rpc('switch-client', { client: (await state()).clientId, session: session.id })
+  await open('settings')
+  settings = chrome.getByRole('dialog', { name: 'Settings', exact: true })
+  await settings.getByRole('combobox', { name: 'Normal session search app' }).selectOption('google')
+  await settings.getByRole('combobox', { name: 'Private session search app' }).selectOption('google')
+  await settings.getByRole('button', { name: 'Close', exact: true }).click()
 })
 
 test('session picker creates by keyboard and confirms session closing', async () => {

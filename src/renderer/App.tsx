@@ -15,7 +15,7 @@ import { inlineUrlCompletion, prioritizeInlineHistory } from '../shared/address-
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
-import { SEARCH_APPS } from '../shared/search-app'
+import { DEFAULT_SEARCH_APPS, SEARCH_APPS } from '../shared/search-app'
 import type { ClickAction } from '../shared/click-mode'
 import { CloseButton } from './CloseButton'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
@@ -1028,7 +1028,6 @@ let SessionPicker = () => {
   let [profileName, setProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
   let client = selection(state).client
-  let activeSession = state.model.sessions.find(session => session.id === client?.sessionId)
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
@@ -1051,14 +1050,12 @@ let SessionPicker = () => {
   let changeProfile = (event: ChangeEvent<HTMLSelectElement>) => { setProfileId(event.target.value); setProfileChosen(true) }
   let changeProfileName = (event: ChangeEvent<HTMLInputElement>) => setProfileName(event.target.value)
   let cancelCreate = () => setCreating(null)
-  let changeSearchApp = (event: ChangeEvent<HTMLSelectElement>) => { if (activeSession) void run('session.search-app', { session: activeSession.id, app: event.target.value }) }
-  let searchAppKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
   if (creating) return <form className={css.sessionCreate} onSubmit={create} aria-label={`New ${creating === 'private' ? 'private ' : ''}session`}>
     <label>Profile<select aria-label="Session profile" value={profileId} onChange={changeProfile}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}<option value="new">New profile…</option></select></label>
     {profileId === 'new' && <label>Profile name<input value={profileName} onChange={changeProfileName} autoComplete="off" required /></label>}
     <div className={css.sessionCreateActions}><button type="submit" disabled={busy || profileId === 'new' && !profileName.trim()}>Create {creating === 'private' ? 'private ' : ''}session</button><button type="button" onClick={cancelCreate} disabled={busy}>Back</button></div>
   </form>
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{activeSession && <label className={css.sessionSearchApp}>Search app for {activeSession.name}<select aria-label={`Search app for ${activeSession.name}`} value={activeSession.searchApp ?? 'google'} onChange={changeSearchApp} onKeyDown={searchAppKeys}>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</select></label>}{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}<button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button></div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}<button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button></div>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()
@@ -1550,6 +1547,17 @@ let BrowserTools = ({ compact = false }: { compact?: boolean }) => {
 }
 
 type SettingsTab = 'general' | 'appearance' | 'memory' | 'browser-tools' | 'keyboard' | 'plugins'
+let SearchAppOptions = () => <>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</>
+let GeneralSettings = ({ changeSetting, makeDefault }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void }) => {
+  let { state } = useUI()
+  return <>
+    <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>
+    <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>
+    <label className={css.settingsRow}><span>Accessibility</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>
+    <p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p>
+    <button className={css.settingsDefaultBrowser} onClick={makeDefault}>Make bmux the default browser</button>
+  </>
+}
 let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
   let { state } = useUI()
   return <>
@@ -1600,7 +1608,7 @@ let SettingsContent = () => {
   return <div className={css.settings}>
     <div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{tabs.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
     <section id="settings-panel" role="tabpanel" aria-label={tabs.find(item => item.id === tab)?.label} className={css.settingsContent}>
-      {tab === 'general' && <><label className={css.settingsRow}><span>Accessibility</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label><p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p><button onClick={makeDefault}>Make bmux the default browser</button></>}
+      {tab === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} />}
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
       {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}
       {tab === 'browser-tools' && <BrowserTools compact />}
