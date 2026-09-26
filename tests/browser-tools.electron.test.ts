@@ -49,7 +49,7 @@ test.afterAll(async () => { await application?.close().catch(() => undefined); s
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return
   let current = await state().catch(() => undefined)
-  console.error('BROWSER_TOOLS_FAILURE', { focusedClientId: current?.focusedClientId, runs: current?.pluginRuns?.map((run: any) => ({ pluginId: run.pluginId, status: run.status, error: run.error })) })
+  console.error('BROWSER_TOOLS_FAILURE', { focusedClientId: current?.focusedClientId, scripts: current?.browserTools?.scripts, tabs: Object.fromEntries(Object.entries(current?.browserTools?.tabs ?? {}).map(([id, tab]: [string, any]) => [id, { error: tab.error, adblock: tab.adblock }])), runs: current?.pluginRuns?.map((run: any) => ({ pluginId: run.pluginId, status: run.status, error: run.error })) })
 })
 
 test('blocks requests before they reach the server and runs scripts before page JavaScript', async () => {

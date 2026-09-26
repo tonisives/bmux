@@ -41,10 +41,11 @@ let expectCoveredCorners = async (pageUrl: string, screenshotPath: string, insid
       return {
         border: color(bounds.width / 2, -37),
         frameCorners: [[-3, -35], [bounds.width + 2, -35], [-3, bounds.height + 4], [bounds.width + 2, bounds.height + 4]].map(([x, y]) => color(x, y)),
-        corners: [[0, 0], [bounds.width - 1, 0], [0, bounds.height - 1], [bounds.width - 1, bounds.height - 1]].map(([x, y]) => color(x, y)),
+        corners: [[0, 0], [bounds.width - 1, 0], [0, bounds.height / 2], [bounds.width - 1, bounds.height - 1]].map(([x, y]) => color(x, y)),
         well: [[-2, bounds.height / 2], [bounds.width + 1, bounds.height / 2], [bounds.width / 2, -3], [bounds.width / 2, bounds.height + 2]].map(([x, y]) => color(x, y)),
       }
     }, { pageUrl, screenshotPath })
+    // The fixture textarea can reach the bottom left after resizing; sample clear page space halfway down.
     // A native scrollbar can cover either right corner with a gray track.
     expect(colors.corners[0]).toEqual(insideColor)
     expect(colors.corners[2]).toEqual(insideColor)
