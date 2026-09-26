@@ -6,7 +6,8 @@ import path from 'node:path'
 import { createExtensionCompatibility } from './extension-compatibility'
 import { findExtension } from './extension-lookup'
 
-type Entry = { profile: string; path: string; id?: string; error?: string }
+type Entry = { profile: string; path: string; id?: string; name?: string; version?: string; enabled?: boolean; error?: string }
+type Manifest = { action?: { default_popup?: string }; browser_action?: { default_popup?: string }; options_ui?: { page?: string }; options_page?: string }
 type ActiveTab = { contents: WebContents; parent: BaseWindow }
 
 export let createExtensions = (directory: string, options: (profile: string) => Omit<ChromeExtensionOptions, 'license' | 'session'>) => {
@@ -34,8 +35,8 @@ export let createExtensions = (directory: string, options: (profile: string) => 
   let queue: Promise<unknown> = Promise.resolve()
   let ready = fs.readFile(file, 'utf8').then(text => {
     let value: unknown = JSON.parse(text)
-    if (!Array.isArray(value) || value.some(item => typeof item?.profile !== 'string' || typeof item?.path !== 'string' || !path.isAbsolute(item.path))) throw new Error('Invalid extensions.json')
-    entries = value.map(item => ({ profile: item.profile, path: item.path }))
+    if (!Array.isArray(value) || value.some(item => typeof item?.profile !== 'string' || typeof item?.path !== 'string' || !path.isAbsolute(item.path) || (item.enabled !== undefined && typeof item.enabled !== 'boolean') || ['id', 'name', 'version'].some(key => item[key] !== undefined && typeof item[key] !== 'string'))) throw new Error('Invalid extensions.json')
+    entries = value.map(item => ({ profile: item.profile, path: item.path, id: item.id, name: item.name, version: item.version, enabled: item.enabled !== false }))
   }).catch(error => { if (error.code !== 'ENOENT') registryError = 'Could not read extensions.json; repair or remove it before changing installed extensions' })
   let serial = <T>(operation: () => Promise<T>) => {
     let next = queue.then(operation)
@@ -44,7 +45,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
   }
   let persist = async () => {
     await fs.mkdir(directory, { recursive: true })
-    await fs.writeFile(`${file}.tmp`, JSON.stringify(entries.map(({ profile, path }) => ({ profile, path })), null, 2), { mode: 0o600 })
+    await fs.writeFile(`${file}.tmp`, JSON.stringify(entries.map(({ profile, path, id, name, version, enabled }) => ({ profile, path, id, name, version, enabled: enabled !== false })), null, 2), { mode: 0o600 })
     await fs.rename(`${file}.tmp`, file)
   }
   let attach = (profile: string, session: Session) => {
@@ -52,9 +53,12 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (existing) return existing
     sessions.set(profile, session)
     let loading = ready.then(async () => {
-      if (entries.some(entry => entry.profile === profile)) ensureCompatibility(profile, session)
-      for (let entry of entries.filter(entry => entry.profile === profile)) {
-        try { entry.id = (await session.extensions.loadExtension(entry.path)).id }
+      if (entries.some(entry => entry.profile === profile && entry.enabled !== false)) ensureCompatibility(profile, session)
+      for (let entry of entries.filter(entry => entry.profile === profile && entry.enabled !== false)) {
+        try {
+          let extension = await session.extensions.loadExtension(entry.path)
+          Object.assign(entry, { id: extension.id, name: extension.name, version: extension.version })
+        }
         catch (error) { entry.error = error instanceof Error ? error.message : 'Extension could not be loaded' }
       }
     })
@@ -68,10 +72,18 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (!session) throw new Error('Extension profile is not initialized')
     return session
   }
-  let describe = (extension: Extension) => ({ id: extension.id, name: extension.name, version: extension.version, path: extension.path })
+  let describe = (extension: Extension) => {
+    let manifest = extension.manifest as Manifest
+    return { id: extension.id, name: extension.name, version: extension.version, path: extension.path, enabled: true, hasPopup: !!(manifest.action?.default_popup ?? manifest.browser_action?.default_popup), hasOptions: !!(manifest.options_ui?.page ?? manifest.options_page) }
+  }
   let list = async (profile: string) => {
     let session = await getSession(profile)
-    let extensions = session.extensions.getAllExtensions().map(describe)
+    let extensions = await Promise.all(entries.filter(entry => entry.profile === profile).map(async entry => {
+      let loaded = entry.id ? session.extensions.getExtension(entry.id) : undefined
+      if (loaded) return describe(loaded)
+      let manifest = await fs.readFile(path.join(entry.path, 'manifest.json'), 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
+      return { id: entry.id ?? entry.path, name: entry.name ?? manifest.name ?? path.basename(entry.path), version: entry.version ?? manifest.version ?? '', path: entry.path, enabled: entry.enabled !== false, hasPopup: false, hasOptions: false, error: entry.error }
+    }))
     let paths = new Set(entries.filter(entry => entry.profile === profile).map(entry => entry.path))
     let available = await Promise.all([...new Set(entries.filter(entry => entry.profile !== profile && !paths.has(entry.path)).map(entry => entry.path))].map(async location => {
       let loaded = [...sessions.values()].flatMap(item => item.extensions.getAllExtensions()).find(extension => extension.path === location)
@@ -103,48 +115,82 @@ export let createExtensions = (directory: string, options: (profile: string) => 
       if (extension) return describe(extension)
     }
     let extension = await session.extensions.loadExtension(canonical)
-    let entry = { profile, path: canonical, id: extension.id }
+    let entry: Entry = { profile, path: canonical, id: extension.id, name: extension.name, version: extension.version, enabled: true }
     let before = entries.slice()
     entries = entries.filter(item => item !== previous)
     entries.push(entry)
     try { await persist() } catch (error) { entries = before; session.extensions.removeExtension(extension.id); throw error }
     return describe(extension)
   })
+  let installedEntry = async (profile: string, id: string) => {
+    let installed = (await list(profile)).extensions
+    let found = installed.find(extension => extension.path === id) ?? findExtension(installed, id)
+    let entry = found && entries.find(entry => entry.profile === profile && entry.path === found.path)
+    if (!entry) throw new Error('Extension is not installed in this profile')
+    return entry
+  }
+  let unload = (session: Session, entry: Entry) => {
+    if (!entry.id) return
+    for (let window of BrowserWindow.getAllWindows()) {
+      if (window.webContents.session === session && window.webContents.getURL().startsWith(`chrome-extension://${entry.id}/`)) window.destroy()
+    }
+    session.extensions.removeExtension(entry.id)
+  }
+  let enable = (profile: string, id: string) => serial(async () => {
+    let session = await getSession(profile)
+    if (registryError) throw new Error(registryError)
+    let entry = await installedEntry(profile, id)
+    let loaded = entry.id ? session.extensions.getExtension(entry.id) : undefined
+    if (loaded) return describe(loaded)
+    ensureCompatibility(profile, session)
+    let extension = await session.extensions.loadExtension(entry.path)
+    let before = { ...entry }
+    Object.assign(entry, { enabled: true, id: extension.id, name: extension.name, version: extension.version, error: undefined })
+    try { await persist() } catch (error) { entries[entries.indexOf(entry)] = before; unload(session, { ...entry, id: extension.id }); throw error }
+    return describe(extension)
+  })
+  let disable = (profile: string, id: string) => serial(async () => {
+    let session = await getSession(profile)
+    if (registryError) throw new Error(registryError)
+    let entry = await installedEntry(profile, id)
+    let before = { ...entry }
+    entry.enabled = false
+    entry.error = undefined
+    try { await persist() } catch (error) { entries[entries.indexOf(entry)] = before; throw error }
+    unload(session, entry)
+    return { id: entry.id ?? entry.path, enabled: false }
+  })
   let remove = (profile: string, id: string) => serial(async () => {
     let session = await getSession(profile)
     if (registryError) throw new Error(registryError)
-    let named = session.extensions.getAllExtensions().find(extension => extension.name.toLowerCase() === id.toLowerCase())
-    let entry = entries.find(entry => entry.profile === profile && (entry.id === id || entry.path === id || entry.id === named?.id))
-    if (!entry) throw new Error('Extension is not installed in this profile')
+    let entry = await installedEntry(profile, id)
     let before = entries.slice()
     entries = entries.filter(item => item !== entry)
     try { await persist() } catch (error) { entries = before; throw error }
-    let popup = popups.get(`${profile}:${entry.id}`)
-    if (popup && !popup.isDestroyed()) popup.destroy()
-    if (entry.id) session.extensions.removeExtension(entry.id)
+    unload(session, entry)
     return { removed: id }
   })
-  let open = async (profile: string, id: string, activate: boolean, activeTab?: ActiveTab) => {
+  let open = async (profile: string, id: string, activate: boolean, activeTab?: ActiveTab, page: 'popup' | 'options' = 'popup') => {
     let session = await getSession(profile)
     let all = session.extensions.getAllExtensions()
     let extension = findExtension(all, id)
     if (!extension) throw new Error('Extension is not installed in this profile')
-    let manifest = extension.manifest as { action?: { default_popup?: string }; browser_action?: { default_popup?: string } }
-    let popupPath = manifest.action?.default_popup ?? manifest.browser_action?.default_popup
-    if (!popupPath) throw new Error('Extension has no popup')
+    let manifest = extension.manifest as Manifest
+    let popupPath = page === 'options' ? manifest.options_ui?.page ?? manifest.options_page : manifest.action?.default_popup ?? manifest.browser_action?.default_popup
+    if (!popupPath) throw new Error(`Extension has no ${page} page`)
     let origin = `chrome-extension://${extension.id}`
     let url = new URL(popupPath, `${origin}/`)
-    if (url.protocol !== 'chrome-extension:' || url.hostname !== extension.id) throw new Error('Invalid extension popup URL')
-    let skipBitwardenIntro = extension.name === 'Bitwarden Password Manager' && extension.version === '2026.6.1'
+    if (url.protocol !== 'chrome-extension:' || url.hostname !== extension.id) throw new Error('Invalid extension page URL')
+    let skipBitwardenIntro = page === 'popup' && extension.name === 'Bitwarden Password Manager' && extension.version === '2026.6.1'
     // Bitwarden 2026.6.1's introductory carousel waits forever when Electron
     // closes its background state-write message port. The login route works,
     // then its auth guard preserves the requested current-tab destination.
     if (skipBitwardenIntro) url.hash = '/login'
     if (activeTab && !activeTab.contents.isDestroyed()) track(profile, activeTab.contents, activeTab.parent, true)
-    let key = `${profile}:${extension.id}`
+    let key = `${profile}:${extension.id}:${page}`
     let window = popups.get(key)
     if (!window || window.isDestroyed()) {
-      window = new BrowserWindow({ width: 420, height: 640, useContentSize: true, resizable: false, maximizable: false, fullscreenable: false, show: false, title: extension.name, webPreferences: { session, nodeIntegration: false, contextIsolation: true, sandbox: true } })
+      window = new BrowserWindow({ width: page === 'options' ? 800 : 420, height: 640, useContentSize: true, resizable: page === 'options', maximizable: page === 'options', fullscreenable: false, show: false, title: extension.name, webPreferences: { session, nodeIntegration: false, contextIsolation: true, sandbox: true } })
       popups.set(key, window)
       window.on('closed', () => popups.delete(key))
       window.webContents.on('before-input-event', (event, input) => {
@@ -170,5 +216,5 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     return { opened: extension.id }
   }
   let close = () => { for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy(); popups.clear() }
-  return { attach, list, load, remove, open, close, track }
+  return { attach, list, load, enable, disable, remove, open, close, track }
 }

@@ -5,11 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 
-test('loads an extension per profile, opens its sandboxed popup, restores and removes it', async () => {
+test('loads an extension per profile, opens its sandboxed popup, restores and removes it', async ({}, testInfo) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-'))
   let extensionPath = path.join(directory, 'extension')
   await fs.mkdir(extensionPath)
-  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', version: '1.0', permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, sandbox: { pages: ['inline-list.html'] }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js', 'inline-list.html', 'inline-list.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
+  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', version: '1.0', permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, options_ui: { page: 'options.html', open_in_tab: true }, sandbox: { pages: ['inline-list.html'] }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js', 'inline-list.html', 'inline-list.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
   await fs.writeFile(path.join(extensionPath, 'background.js'), `
     chrome.tabs.onActivated.addListener(() => chrome.storage.local.get('activated', value => chrome.storage.local.set({ activated: (value.activated || 0) + 1 })))
     chrome.runtime.onConnect.addListener(port => {
@@ -47,6 +47,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
   await fs.writeFile(path.join(extensionPath, 'inline-list.html'), '<!doctype html><button id="new-item">New item</button><script src="inline-list.js"></script>')
   await fs.writeFile(path.join(extensionPath, 'inline-list.js'), 'document.querySelector("#new-item").onclick = () => parent.postMessage({ command: "newItem" }, "*")')
   await fs.writeFile(path.join(extensionPath, 'edit.html'), '<!doctype html><h1>New vault item</h1>')
+  await fs.writeFile(path.join(extensionPath, 'options.html'), '<!doctype html><h1>Extension options</h1>')
   await fs.writeFile(path.join(extensionPath, 'popup.html'), '<!doctype html><h1>Extension fixture</h1><p id="active-tab"></p><script src="popup.js"></script>')
   await fs.writeFile(path.join(extensionPath, 'popup.js'), `
     window.tabEvents = { updated: [] }
@@ -189,7 +190,39 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect(sharingPanel.getByRole('button', { name: /^Fixture extension/ })).toContainText('Version 1.1')
     await expect(sharingPanel.getByRole('button', { name: 'Enable Fixture extension' })).toHaveCount(0)
     expect((await rpc('extension.list', { profile: other.id })).extensions).toMatchObject([{ name: installed.name, path: installed.path }])
-    await rpc('extension.remove', { profile: other.id, id: installed.id })
+    await sharingPanel.getByRole('button', { name: 'Options', exact: true }).click()
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/options.html'))).toBe(true)
+    let optionsPage = application!.context().pages().find(page => page.url().endsWith('/options.html'))!
+    await expect(optionsPage.getByRole('heading', { name: 'Extension options' })).toBeVisible()
+    expect(await optionsPage.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])
+    await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
+    await sharingPanel.getByRole('button', { name: 'Disable', exact: true }).click()
+    await expect(sharingPanel).toContainText('Disabled')
+    await sharingPanel.screenshot({ path: testInfo.outputPath('extensions-disabled.png') })
+    await expect.poll(() => optionsPage.isClosed()).toBe(true)
+    expect((await rpc('extension.list', { profile })).extensions[0].enabled).toBe(true)
+    await application!.close()
+    await launch()
+    expect((await rpc('extension.list', { profile: other.id })).extensions[0]).toMatchObject({ id: installed.id, enabled: false })
+    await expect(rpc('extension.open', { profile: other.id, id: installed.id })).rejects.toThrow()
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    let disabledUrl = `${url}?disabled`
+    await address.fill(disabledUrl); await address.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === disabledUrl)).toBe(true)
+    let disabledPage = application!.context().pages().find(page => page.url() === disabledUrl)!
+    await expect(disabledPage.locator('h1')).toBeVisible()
+    await expect(disabledPage.locator('html')).not.toHaveAttribute('data-extension-fixture', 'loaded')
+    await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
+    sharingPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
+    await sharingPanel.getByRole('button', { name: 'Enable', exact: true }).click()
+    await expect(sharingPanel.getByRole('button', { name: 'Disable', exact: true })).toBeEnabled()
+    await disabledPage.reload()
+    await expect(disabledPage.locator('html')).toHaveAttribute('data-extension-fixture', 'loaded')
+    await sharingPanel.screenshot({ path: testInfo.outputPath('extensions-enabled.png') })
+    await sharingPanel.getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(sharingPanel).toContainText('No extensions in this profile.')
+    expect((await rpc('extension.list', { profile })).extensions[0].enabled).toBe(true)
     await rpc('extension.remove', { profile, id: installed.id })
     expect((await rpc('extension.list', { profile })).extensions).toEqual([])
     expect(JSON.parse(await fs.readFile(path.join(directory, 'extensions.json'), 'utf8'))).toEqual([])

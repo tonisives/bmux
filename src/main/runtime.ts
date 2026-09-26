@@ -621,7 +621,7 @@ export let createRuntime = (dataDirectory: string) => {
       let behavior = windowCloseBehavior(session, window)
       if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
     }
-    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
+    if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
     if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
@@ -1526,12 +1526,14 @@ export let createRuntime = (dataDirectory: string) => {
         for (let extension of before.extensions) if (extension.name === installed.name && extension.id !== installed.id) await extensions.remove(profile.id, extension.id)
         return installed
       }
+      if (method === 'extension.enable') return extensions.enable(profile.id, required(args, 'id'))
+      if (method === 'extension.disable') return extensions.disable(profile.id, required(args, 'id'))
       if (method === 'extension.remove') return extensions.remove(profile.id, required(args, 'id'))
-      if (method === 'extension.open') {
+      if (method === 'extension.open' || method === 'extension.options') {
         let client = sourceClientId ? model.clients.find(client => client.id === sourceClientId) : undefined
         let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
         let activeTab = pane?.profileId === profile.id ? tabs.get(pane.id) : undefined
-        return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent })
+        return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent }, method === 'extension.options' ? 'options' : 'popup')
       }
       throw new Error('Unknown extension command')
     }

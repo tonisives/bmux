@@ -6,16 +6,26 @@ extensions you trust. They run in sandboxed extension contexts; websites do not
 receive the bmux API.
 
 Use the extensions button in the status bar to see extensions installed in the
-selected pane's profile and open their popups. Extensions installed in another
+selected pane's profile, open their popups, and enable, disable, or remove them.
+Disabled extensions stay installed and remain disabled after restarting bmux.
+Options opens the extension's own settings page when one is provided.
+These controls affect only the selected profile; removing an extension does not
+delete shared package files or another profile's installation. Extensions installed in another
 profile appear under "Available from other profiles". Choose "Enable" to load
 the same extension package in the selected profile. Each profile keeps its own
 extension storage and sign-in state.
+
+Open the command prompt and run `extensions` for the manager, or use individual
+commands below. You can bind the `extensions` action in keyboard settings.
 
 Open the command prompt and run:
 
 ```text
 extension install-bitwarden
 extension open Bitwarden
+extension disable Bitwarden
+extension enable Bitwarden
+extension options Bitwarden
 ```
 
 The installer downloads the official Bitwarden 2026.6.1 Chrome release from
@@ -45,10 +55,16 @@ The CLI exposes the same operations with an explicit profile:
 bmux extension install-bitwarden --profile profile_default
 bmux extension list --profile profile_default
 bmux extension open Bitwarden --profile profile_default
+bmux extension disable EXTENSION_ID --profile profile_default
+bmux extension enable EXTENSION_ID --profile profile_default
+bmux extension options EXTENSION_ID --profile profile_default
 bmux extension remove EXTENSION_ID --profile profile_default
 ```
 
-`extension list` reports loaded extensions and any restoration failures. Loading
+`extension list` reports installed extensions, their enabled state, available
+popup/options pages, and any restoration failures. Commands accept an extension
+ID, its full name, or an unambiguous leading name. Enable/disable/remove also
+accept the package path, including when the package can no longer be loaded. Loading
 successfully does not guarantee compatibility with all Chrome APIs. Optional
 permission requests are declined. Native desktop integration, biometrics,
 extension shortcuts, the side panel, and store updates are not implemented.

@@ -24,8 +24,8 @@ type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'se
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
-type BrowserExtension = { id: string; name: string; version: string; path: string }
-type ExtensionList = { extensions: BrowserExtension[]; available: Omit<BrowserExtension, 'id'>[]; errors: { path: string; error: string }[] }
+type BrowserExtension = { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
+type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
@@ -826,9 +826,13 @@ let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()
   let { profile } = selection(state)
   let [listing, setListing] = useState<ExtensionList | null>(null)
-  let [enabling, setEnabling] = useState('')
+  let [busy, setBusy] = useState(false)
+  let [notice, setNotice] = useState('')
+  let currentProfile = useRef(profile?.id)
+  currentProfile.current = profile?.id
   useEffect(() => {
     setListing(null)
+    setNotice('')
     if (!profile) return
     let cancelled = false
     void run('extension.list', { profile: profile.id }).then(result => {
@@ -836,30 +840,40 @@ let ExtensionManager = () => {
     })
     return () => { cancelled = true }
   }, [profile?.id, run])
-  let open = async (event: MouseEvent<HTMLButtonElement>) => {
-    if (!profile) return
-    let opened = await run('extension.open', { profile: profile.id, id: event.currentTarget.dataset.id })
-    if (opened) dismiss()
+  let action = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (!profile || busy) return
+    let { action, id, path } = event.currentTarget.dataset
+    let profileId = profile.id
+    setBusy(true)
+    try {
+      let result = await run(`extension.${action}`, { profile: profileId, id, path })
+      if (!result || currentProfile.current !== profileId) return
+      if (action === 'open' || action === 'options') { dismiss(); return }
+      let updated = await run('extension.list', { profile: profileId })
+      if (updated && currentProfile.current === profileId) {
+        setListing(updated as ExtensionList)
+        setNotice('Reload open pages to apply extension changes.')
+      }
+    } finally { setBusy(false) }
   }
-  let enable = async (extension: ExtensionList['available'][number]) => {
-    if (!profile || enabling) return
-    setEnabling(extension.path)
-    let loaded = await run('extension.load', { profile: profile.id, path: extension.path })
-    if (loaded) {
-      let updated = await run('extension.list', { profile: profile.id })
-      if (updated) setListing(updated as ExtensionList)
-    }
-    setEnabling('')
-  }
-  return <section aria-label="Profile extensions"><p>Profile: {profile?.name ?? 'No selected pane'}</p>
+  return <section aria-label="Profile extensions"><p>Profile: {profile?.name ?? 'No selected pane'}. Changes apply only to this profile.</p>
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>No extensions in this profile.</p>}
-    {listing?.extensions.map(extension => <button key={extension.id} className={css.listRow} data-id={extension.id} onClick={open}><strong>{extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
+    {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
+      <button className={css.listRow} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong><span className={css.pluginDescription}>Version {extension.version} · {extension.error ? 'Failed to load' : extension.enabled ? 'Enabled' : 'Disabled'}</span></button>
+      <div className={css.extensionActions}>
+        {extension.hasOptions && <button data-id={extension.id} data-action="options" onClick={action} disabled={busy || !extension.enabled}>Options</button>}
+        <button data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy}>{extension.enabled ? 'Disable' : 'Enable'}</button>
+        <button data-id={extension.id} data-action="remove" onClick={action} disabled={busy} title="Remove from this profile">Remove</button>
+      </div>
+    </div>)}
     {!!listing?.available.length && <p>Available from other profiles</p>}
-    {listing?.available.map(extension => <button key={extension.path} className={css.listRow} disabled={!!enabling} onClick={() => void enable(extension)}><strong>Enable {extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
+    {listing?.available.map(extension => <button key={extension.path} className={css.listRow} disabled={busy} data-action="load" data-path={extension.path} onClick={action}><strong>Enable {extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
+    {notice && <p role="status">{notice}</p>}
     {listing?.errors.map(error => <p key={`${error.path}:${error.error}`} className={css.error}>{error.error}</p>)}
   </section>
 }
+
 let PluginList = ({ compact = false }: { compact?: boolean }) => {
   let { state, run, dismiss } = useUI()
   let [query, setQuery] = useState('')

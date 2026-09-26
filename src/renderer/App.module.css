@@ -266,3 +266,9 @@
 
 @container (max-width: 560px) { .clickModeLabel { display: none; } }
 @container (max-width: 300px) { .clickModeAction { padding: 3px 2px; } .clickModeActionGroup { gap: 2px; } .clickModeActions { gap: 2px; } }
+
+.extensionRow { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #363c45; }
+.extensionRow > .listRow { flex: 1; min-width: 0; }
+.extensionActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.extensionActions button { color: #bdc9b4; padding: 5px 3px; }
+.extensionActions button:disabled { color: #68717c; }

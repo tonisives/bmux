@@ -51,7 +51,7 @@ Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Automation: automation status | automation acquire -t PANE --url URL | automation release
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
-Extensions: extension list|load PATH|open ID|remove ID --profile PROFILE
+Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
 Advanced: rpc METHOD JSON_ARGS
 
@@ -99,7 +99,7 @@ let parse = () => {
   if (command === 'rpc') return { method: positional[0], args: JSON.parse(positional[1] ?? '{}') }
   let method = subcommand ? `${command}.${subcommand === 'new' ? 'create' : subcommand}` : command
   if (method === 'extension.load') { if (!positional[0]) throw new Error('Extension path is required'); args.path = path.resolve(positional[0]) }
-  if (method === 'extension.open' || method === 'extension.remove') args.id = positional[0]
+  if (['extension.open', 'extension.options', 'extension.enable', 'extension.disable', 'extension.remove'].includes(method)) args.id = positional[0]
   let targetKeys = {
     'rename-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
     'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window',

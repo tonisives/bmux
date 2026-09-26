@@ -3,7 +3,7 @@ import { COMMAND_ALIASES } from './command-line'
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
-export let PANEL_COMMANDS = ['site-info', 'browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'profiles'] as const
+export let PANEL_COMMANDS = ['site-info', 'browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles'] as const
 export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
@@ -32,11 +32,16 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'adblock inherit', description: 'Remove this site’s blocking override' },
   { command: 'update-filters', description: 'Download updated ad blocking filter lists' },
   { command: 'reload-scripts', description: 'Reload local userscripts and styles' },
+  { command: 'extensions', description: 'Manage extensions in this profile', action: 'extensions' },
+  { command: 'extension list', description: 'List installed extensions and their enabled state' },
   { command: 'extension install-bitwarden', description: 'Install the experimental Bitwarden browser extension in this profile' },
   { command: 'extension open Bitwarden', description: 'Open the Bitwarden browser extension' },
   { command: 'extension load ', usage: 'extension load /absolute/path', description: 'Load an unpacked Chrome extension in this profile', complete: true },
   { command: 'extension open ', usage: 'extension open ID', description: 'Open an installed extension popup', complete: true },
-  { command: 'extension remove ', usage: 'extension remove ID', description: 'Unload an extension from this profile', complete: true },
+  { command: 'extension enable ', usage: 'extension enable ID', description: 'Enable an extension in this profile', complete: true },
+  { command: 'extension disable ', usage: 'extension disable ID', description: 'Disable an extension in this profile', complete: true },
+  { command: 'extension options ', usage: 'extension options ID', description: 'Open an extension’s settings', complete: true },
+  { command: 'extension remove ', usage: 'extension remove ID', description: 'Remove an extension from this profile', complete: true },
   { command: 'save-fill', description: 'Save visible form fields in encrypted storage' },
   { command: 'fill', description: 'Choose and fill a saved form for this site' },
   { command: 'new-window', usage: 'new-window [-n NAME]', description: 'Create a window in the current session', action: 'new-window' },

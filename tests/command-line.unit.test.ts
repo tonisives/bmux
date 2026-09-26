@@ -80,3 +80,11 @@ it('parses tmux pane command aliases and session targets', () => {
 it('parses Bitwarden fill, lock, and tab-scoped cancellation', () => {
   let current = state(), tab = current.model.sessions[0].windows[0].panes[0].id
 })
+
+it('parses extension management commands for the selected pane or an explicit profile', () => {
+  let current = state(), pane = current.model.sessions[0].windows[0].panes[0]
+  for (let action of ['enable', 'disable', 'remove', 'options']) {
+    expect(parseCommandLine(`extension ${action} "Fixture extension"`, current)).toMatchObject({ method: `extension.${action}`, args: { pane: pane.id, id: 'Fixture extension' } })
+    expect(parseCommandLine(`extension ${action} fixture-id --profile other`, current)).toMatchObject({ method: `extension.${action}`, args: { profile: 'other', id: 'fixture-id' } })
+  }
+})
