@@ -134,6 +134,17 @@ let lock = async (task, requestKey) => {
 let start = async (headless = process.env.BMUX_TART_HEADLESS === '1') => {
   let current = await status()
   if (!current) throw new Error(`VM ${vm} is missing. Follow docs/tart-tests.md to install it.`)
+  // Queued captures reuse a VM. A later interactive login needs a viewer;
+  // restart a headless process only after this operation owns the runner lock.
+  if (current.Running && !headless) {
+    let processes = (await run('/bin/ps', ['-axo', 'command='], { capture: true })).stdout
+    let headlessRun = processes.split('\n').some(line => line.trim().startsWith(`${binary} run ${vm} `) && line.includes('--no-graphics'))
+    if (headlessRun) {
+      console.log(`Reopening ${vm} with a viewer for this interactive operation.`)
+      await tart(['stop', vm])
+      current = await status()
+    }
+  }
   if (!current.Running) {
     if (!/^\d+$/.test(cpus) || Number(cpus) < 1) throw new Error('BMUX_TART_CPUS must be a positive integer.')
     if (!/^\d+$/.test(memory) || Number(memory) < 4096) throw new Error('BMUX_TART_MEMORY must be at least 4096 MiB.')

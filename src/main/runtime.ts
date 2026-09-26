@@ -27,8 +27,9 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
-import { DEFAULT_SEARCH_APPS, searchUrl } from '../shared/search-app'
+import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
 import type { SearchApp } from '../shared/search-app'
+import { normalizeUrl } from './url'
 import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -66,15 +67,6 @@ let required = (args: Record<string, unknown>, name: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
   return value.trim()
 }
-export let normalizeUrl = (value: string, searchApp: SearchApp = 'google') => {
-  if (value === 'about:blank') return value
-  if (/^(https?:|file:)/i.test(value)) return new URL(value).href
-  if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^localhost:\d+/.test(value)) throw new Error('Only http, https, file and about:blank URLs are supported')
-  if (/^localhost(?::\d+)?(?:\/|$)/.test(value) || /^127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value)) return new URL(`http://${value}`).href
-  if (!/\s/.test(value) && value.includes('.')) return new URL(`https://${value}`).href
-  return searchUrl(value, searchApp)
-}
-
 export let createRuntime = (dataDirectory: string) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
@@ -1853,7 +1845,8 @@ export let createRuntime = (dataDirectory: string) => {
       while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
       let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
-      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : model.closedSessionProfiles?.[name] ?? model.newSessionProfileId ?? 'default'), 'Profile')
+      let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
+      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
@@ -2487,7 +2480,9 @@ export let createRuntime = (dataDirectory: string) => {
     if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
-      return entry && !entry[1].contents.isDestroyed() ? { tabId: entry[0], url: entry[1].contents.getURL() } : undefined
+      if (!entry || entry[1].contents.isDestroyed()) return undefined
+      let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
+      return { tabId: entry[0], url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
     pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })

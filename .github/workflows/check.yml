@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      test_pattern:
+        description: Run matching Electron tests; leave empty for the full suite
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -25,4 +31,18 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm check
-      - run: pnpm test:electron
+      - name: Electron tests
+        env:
+          TEST_PATTERN: ${{ inputs.test_pattern }}
+        run: |
+          if [ -n "$TEST_PATTERN" ]; then
+            pnpm test:electron --grep "$TEST_PATTERN"
+          else
+            pnpm test:electron
+          fi
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: electron-test-results
+          path: test-results/
+          if-no-files-found: ignore
