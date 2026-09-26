@@ -1153,15 +1153,16 @@ export let createRuntime = (dataDirectory: string) => {
     scriptTouchedTabs.delete(tabId)
     if (!idleUnloaded.has(tabId)) idleHistory.delete(tabId)
   }
+  let paneIsUnvisited = (pane: Pane) => {
+    let live = tabs.get(pane.id)
+    if (pane.url !== 'about:blank') return false
+    if (!live) return true
+    if (live.pendingUrl && live.pendingUrl !== 'about:blank' || live.pendingNavigation || live.contents.isDestroyed()) return false
+    return (!live.contents.getURL() || live.contents.getURL() === 'about:blank') && !live.contents.navigationHistory.getAllEntries().some(entry => entry.url !== 'about:blank')
+  }
   let reassignablePanes = (session: WorkspaceSession, onePane = false) => {
     let panes = session.windows.length === 1 ? session.windows[0].panes : []
-    if (!panes.length || onePane && panes.length !== 1 || panes.some(pane => {
-      let live = tabs.get(pane.id)
-      if (pane.url !== 'about:blank' || pane.profileId !== session.defaultProfileId) return true
-      if (!live) return false
-      if (live.pendingUrl && live.pendingUrl !== 'about:blank' || live.pendingNavigation || live.contents.isDestroyed()) return true
-      return /^(https?|file):/.test(live.contents.getURL()) || live.contents.navigationHistory.getAllEntries().some(entry => /^(https?|file):/.test(entry.url))
-    })) return undefined
+    if (!panes.length || onePane && panes.length !== 1 || panes.some(pane => pane.profileId !== session.defaultProfileId || !paneIsUnvisited(pane))) return undefined
     return panes
   }
   let visiblePaneIds = (client: Client) => client.zoomedPaneId ? [client.zoomedPaneId] : model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)?.panes.map(pane => pane.id) ?? []
@@ -1826,7 +1827,7 @@ export let createRuntime = (dataDirectory: string) => {
       while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
       let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
-      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? undefined : model.closedSessionProfiles?.[name]) ?? 'default', 'Profile')
+      let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : model.closedSessionProfiles?.[name] ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
@@ -1837,12 +1838,25 @@ export let createRuntime = (dataDirectory: string) => {
       let session = resolve(model.sessions, args.session, 'Session')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let panes = reassignablePanes(session)
-      if (!panes) throw new Error('Profile can only change before the single window loads a page')
       session.profileExplicit = true
       if (session.defaultProfileId === profile.id) { save(); return session }
-      for (let pane of panes) { disposeTab(pane.id); pane.profileId = profile.id }
+      for (let pane of panes ?? []) { disposeTab(pane.id); pane.profileId = profile.id }
       session.defaultProfileId = profile.id
       changed(); await visualQueue; return session
+    }
+    if (method === 'session.new-profile.set') {
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      model.newSessionProfileId = profile.id
+      save(); return profile
+    }
+    if (method === 'pane.profile.set') {
+      let { pane } = paneById(model, args.pane)
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      if (!paneIsUnvisited(pane)) throw new Error('Pane profile can only change before a page loads')
+      if (pane.profileId === profile.id) return pane
+      disposeTab(pane.id)
+      pane.profileId = profile.id
+      changed(); await visualQueue; return pane
     }
     if (method === 'rename-session') {
       let session = resolve(model.sessions, args.session, 'Session')

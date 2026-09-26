@@ -64,7 +64,7 @@
 .branch[data-axis="vertical"] > .gutter { width: auto; height: 3px; cursor: row-resize; }
 .pane { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid transparent; }
 .addressBar { container-type: inline-size; display: flex; align-items: center; flex: 0 0 auto; min-height: 28px; min-width: 0; gap: 10px; padding: 0 8px; background: #191d23; border-bottom: 1px solid #343b45; color: #8e98a4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.addressBar:has(.navigationMenu) { z-index: 10; }
+.addressBar:has(.navigationMenu), .addressBar:has(.paneProfilePicker) { z-index: 10; }
 .pane[data-focused-pane="true"] { border-color: #83917b; }
 .pane[data-focused-pane="true"] > .addressBar { color: #c2ceb9; }
 .navigationControls { position: relative; display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
@@ -90,7 +90,9 @@
 .clickModeFill { fill: currentColor; stroke: none; opacity: .3; }
 .clickModeDivider { width: 1px; height: 18px; background: rgba(255,255,255,.24); }
 .loading { flex-shrink: 0; color: #7d8590; }
-.profileRouteControls { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.profileRouteControls { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
+.paneProfilePicker { position: absolute; z-index: 20; top: 27px; right: 0; display: grid; gap: 6px; min-width: 180px; padding: 10px; border: 1px solid #444b59; background: #191d23; box-shadow: 0 8px 22px #0008; color: #d6dcd2; }
+.paneProfilePicker select { height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .profileRoute { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 2px 5px; border: 0; border-radius: 0; background: transparent; color: #8e98a4; }
 .profileRouteControls .profileRoute + .profileRoute { padding-left: 2px; }
 .profileRoute:hover { color: #f0f2f5; background: #303844; }
@@ -156,6 +158,7 @@
 @media (max-width: 650px) { .profileProxyEndpoint, .profileProxyProvider, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
 .sessionBack { color: #bdc9b4; }
 .sessionSearchApp { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; color: #aeb9c5; }
+.sessionSearchApp label { flex: 1; }
 .sessionSearchApp select { min-width: 130px; height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .newSession { color: #87a9c4; }
 .sessionRow { display: flex; align-items: stretch; }

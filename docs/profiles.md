@@ -15,11 +15,18 @@ bmux profile create review
 bmux split-window -t PANE_ID -h --profile review
 ```
 
-When creating a session in the session picker, choose an existing profile or
-create one there. A session with one window and only blank panes can change its
-profile from the profile panel. If you close a session and later give a fresh,
-unvisited session the same name, bmux restores the closed session's profile.
-Choosing a profile explicitly or loading a page keeps the new session's profile.
+Set the profile for future regular sessions in the session picker; create a new
+profile there if needed. New sessions use the saved choice without asking each
+time. Private sessions use an isolated private browser
+partition and do not use this setting. The profile panel can change a session's
+default profile at any time; loaded panes keep their existing profiles. On a
+blank pane, use the profile button beside its address to choose a different
+profile before loading a page. After navigation, the button remains visible
+only for panes that differ from the session default.
+
+If you close a session and later give a fresh, unvisited session the same name,
+bmux restores the closed session's default profile. Explicitly changing the
+session default or loading a page prevents that restoration.
 
 The default profile throttles inactive pages. The `bot` profile keeps background
 pages running; `profile create NAME --background` creates another such profile.

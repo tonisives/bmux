@@ -245,3 +245,15 @@ it('remembers a closed session profile across state saves without recording priv
     expect(readModel(directory).closedSessionProfiles).toEqual({ work: 'profile_bot' })
   } finally { fs.rmSync(directory, { recursive: true, force: true }) }
 })
+
+it('persists the profile used for new sessions', () => {
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-new-session-profile-'))
+  try {
+    let model = initialModel()
+    model.newSessionProfileId = 'profile_bot'
+    writeModel(directory, model)
+    expect(readModel(directory).newSessionProfileId).toBe('profile_bot')
+    model.newSessionProfileId = 'missing'
+    expect(() => validateModel(model)).toThrow('Invalid new session profile')
+  } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+})

@@ -653,6 +653,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let pane = window?.panes.find(pane => pane.id === paneId)
   let tab = pane
   let profile = state.model.profiles.find(profile => profile.id === pane?.profileId)
+  let [profilePickerOpen, setProfilePickerOpen] = useState(false)
+  let profilePicker = useRef<HTMLDivElement>(null)
   let security = tab ? state.security?.[tab.id] : undefined
   let url = tab ? state.pendingUrls[tab.id] ?? (security?.status === 'certificate-error' ? security.url : tab.url) : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
@@ -700,6 +702,21 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let openSiteInfo = () => show('site-info', paneId)
   let openProfile = () => show('profiles', paneId)
   let openProxy = () => show('proxy', paneId)
+  let blank = !!pane && !session?.private && pane.url === 'about:blank' && !state.pendingUrls[pane.id] && !state.loading[pane.id] && !(state.navigation[pane.id]?.entries.some(entry => entry.url !== 'about:blank'))
+  let choosePaneProfile = (event: ChangeEvent<HTMLSelectElement>) => {
+    if (pane) void run('pane.profile.set', { pane: pane.id, profile: event.target.value })
+    setProfilePickerOpen(false)
+  }
+  let togglePaneProfile = () => { if (blank) setProfilePickerOpen(open => !open); else openProfile() }
+  useEffect(() => { setProfilePickerOpen(false) }, [paneId, blank])
+  useEffect(() => {
+    if (!profilePickerOpen) return
+    let outside = (event: globalThis.PointerEvent) => { if (!profilePicker.current?.contains(event.target as Node)) setProfilePickerOpen(false) }
+    let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setProfilePickerOpen(false) }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [profilePickerOpen])
   let customProfile = profile && session && profile.id !== session.defaultProfileId ? profile : undefined
   let proxyTest = customProfile ? state.profileProxyTests[customProfile.id] : undefined
   let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}` : ''
@@ -719,7 +736,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {customProfile && <div className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={openProfile} aria-label={profileRouteLabel} title={profileRouteLabel}><ProfileAvatar id={customProfile.id} name={customProfile.name} /><ProfileDeviceIcon mobile={!!customProfile.device} /></button>{customProfile.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}</div>}
+    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!customProfile.device} />}</button>{customProfile?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -1022,10 +1039,8 @@ let PrivateIcon = () => <svg className={css.privateIcon} viewBox="0 0 20 20" fil
 let SessionPicker = () => {
   let { state, run } = useUI()
   let [busy, setBusy] = useState(false)
-  let [creating, setCreating] = useState<'regular' | 'private' | null>(null)
-  let [profileId, setProfileId] = useState(() => state.model.profiles.find(profile => profile.name === 'default')?.id ?? state.model.profiles[0]?.id ?? '')
-  let [profileChosen, setProfileChosen] = useState(false)
-  let [profileName, setProfileName] = useState('')
+  let [creatingProfile, setCreatingProfile] = useState(false)
+  let [newProfileName, setNewProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
   let client = selection(state).client
   let activeSession = state.model.sessions.find(session => session.id === client?.sessionId)
@@ -1033,32 +1048,29 @@ let SessionPicker = () => {
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
-  let create = async (event: FormEvent) => {
-    event.preventDefault()
+  let create = async (privateSession: boolean) => {
     if (busy) return
     setBusy(true)
-    let selectedProfile = profileId
-    if (profileId === 'new') {
-      let created = await run('profile.create', { name: profileName.trim() }) as Profile | undefined
-      if (!created) { setBusy(false); return }
-      selectedProfile = created.id
-      setProfileId(created.id)
-    }
-    if (await run('new-session', { client: state.clientId, ...(profileChosen || profileId === 'new' ? { profile: selectedProfile } : {}), private: creating === 'private' }) === undefined) setBusy(false)
+    await run('new-session', { client: state.clientId, private: privateSession })
+    setBusy(false)
   }
-  let createRegular = () => setCreating('regular')
-  let createPrivate = () => setCreating('private')
-  let changeProfile = (event: ChangeEvent<HTMLSelectElement>) => { setProfileId(event.target.value); setProfileChosen(true) }
-  let changeProfileName = (event: ChangeEvent<HTMLInputElement>) => setProfileName(event.target.value)
-  let cancelCreate = () => setCreating(null)
+  let createRegular = () => { void create(false) }
+  let createPrivate = () => { void create(true) }
+  let changeNewSessionProfile = (event: ChangeEvent<HTMLSelectElement>) => { void run('session.new-profile.set', { profile: event.target.value }) }
+  let changeNewProfileName = (event: ChangeEvent<HTMLInputElement>) => setNewProfileName(event.target.value)
+  let openNewProfile = () => setCreatingProfile(true)
+  let cancelNewProfile = () => { setCreatingProfile(false); setNewProfileName('') }
+  let createProfile = async (event: FormEvent) => {
+    event.preventDefault()
+    if (busy || !newProfileName.trim()) return
+    setBusy(true)
+    let profile = await run('profile.create', { name: newProfileName.trim() }) as Profile | undefined
+    if (profile) { await run('session.new-profile.set', { profile: profile.id }); cancelNewProfile() }
+    setBusy(false)
+  }
   let changeSearchApp = (event: ChangeEvent<HTMLSelectElement>) => { if (activeSession) void run('session.search-app', { session: activeSession.id, app: event.target.value }) }
   let searchAppKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
-  if (creating) return <form className={css.sessionCreate} onSubmit={create} aria-label={`New ${creating === 'private' ? 'private ' : ''}session`}>
-    <label>Profile<select aria-label="Session profile" value={profileId} onChange={changeProfile}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}<option value="new">New profile…</option></select></label>
-    {profileId === 'new' && <label>Profile name<input value={profileName} onChange={changeProfileName} autoComplete="off" required /></label>}
-    <div className={css.sessionCreateActions}><button type="submit" disabled={busy || profileId === 'new' && !profileName.trim()}>Create {creating === 'private' ? 'private ' : ''}session</button><button type="button" onClick={cancelCreate} disabled={busy}>Back</button></div>
-  </form>
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{activeSession && <label className={css.sessionSearchApp}>Search app for {activeSession.name}<select aria-label={`Search app for ${activeSession.name}`} value={activeSession.searchApp ?? 'google'} onChange={changeSearchApp} onKeyDown={searchAppKeys}>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</select></label>}{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}<button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button></div>
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session"><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />{activeSession && <label className={css.sessionSearchApp}>Search app for {activeSession.name}<select aria-label={`Search app for ${activeSession.name}`} value={activeSession.searchApp ?? 'google'} onChange={changeSearchApp} onKeyDown={searchAppKeys}>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</select></label>}<div className={css.sessionSearchApp}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={searchAppKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>{creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}{backSession && <button className={`${css.listRow} ${css.sessionBack}`} data-session-back onClick={goBack}>go back: {backSession.name}{backSession.private && <PrivateIcon />}</button>}{sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}{!backSession && !sessions.length && <p role="status">No matching sessions.</p>}<button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button><button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button></div>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()
@@ -1228,7 +1240,7 @@ let ProfileInfo = () => {
   let cache = state.profileCaches[profile.id]
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
   let openProxy = () => show('proxy')
-  let canChangeProfile = !!session && session.windows.length === 1 && !!window?.panes.length && window.panes.every(item => item.url === 'about:blank' && item.profileId === session.defaultProfileId && !state.loading[item.id])
+  let canChangeProfile = !!session && !session.private
   let changeProfile = async (event: ChangeEvent<HTMLSelectElement>) => {
     if (!session || busy) return
     setBusy(true)
@@ -1244,7 +1256,7 @@ let ProfileInfo = () => {
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
       <div><dt>Window</dt><dd>{window?.name}</dd></div>
       <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
-    </dl>{canChangeProfile && <label className={css.sessionProfileChange}>Session profile<select aria-label="Change session profile" value={profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    </dl>{canChangeProfile && <label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     <section className={css.profileProxy}>
       <h2>HTTP cache</h2>
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>

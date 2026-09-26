@@ -217,6 +217,7 @@ export let validateModel = (value: unknown): Model => {
     }
   }
   if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
+  if (model.newSessionProfileId !== undefined && !model.profiles.some(profile => profile.id === model.newSessionProfileId)) throw new Error('Invalid new session profile')
   return model
 }
 
