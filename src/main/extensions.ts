@@ -14,6 +14,7 @@ type ActiveTab = { contents: WebContents; parent: BaseWindow }
 export let createExtensions = (directory: string, options: (profile: string) => Omit<ChromeExtensionOptions, 'license' | 'session'>) => {
   let file = path.join(directory, 'extensions.json')
   let entries: Entry[] = []
+  let privateEntries = new Map<string, Entry[]>()
   let registryError: string | undefined
   let sessions = new Map<string, Session>()
   let pending = new Map<string, Promise<void>>()
@@ -66,6 +67,10 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     pending.set(profile, loading)
     return loading
   }
+  let attachPrivate = (key: string, session: Session) => {
+    sessions.set(key, session)
+    return ready
+  }
   let getSession = async (profile: string) => {
     await ready
     await pending.get(profile)
@@ -109,6 +114,53 @@ export let createExtensions = (directory: string, options: (profile: string) => 
       } catch { return null }
     }))
     return { extensions, available: available.filter(item => item !== null).sort((a, b) => a.name.localeCompare(b.name)), errors: [...(registryError ? [{ path: file, error: registryError }] : []), ...entries.filter(entry => entry.profile === profile && entry.error).map(({ path, error }) => ({ path, error }))] }
+  }
+  let listPrivate = async (key: string) => {
+    let session = await getSession(key)
+    let installed = privateEntries.get(key) ?? []
+    let extensions = await Promise.all(installed.map(async entry => {
+      let loaded = entry.id ? session.extensions.getExtension(entry.id) : undefined
+      if (loaded) return describe(loaded)
+      let manifest = await fs.readFile(path.join(entry.path, 'manifest.json'), 'utf8').then(text => JSON.parse(text)).catch(() => null)
+      return { ...extensionDetails(manifest), id: entry.id ?? entry.path, name: entry.name ?? manifest?.name ?? path.basename(entry.path), version: entry.version ?? manifest?.version ?? '', path: entry.path, enabled: false, hasPopup: false, hasOptions: false, error: entry.error }
+    }))
+    let paths = new Set(installed.map(entry => entry.path))
+    let available = [...new Map(entries.filter(entry => !paths.has(entry.path)).map(entry => [entry.path, { name: entry.name ?? path.basename(entry.path), version: entry.version ?? '', path: entry.path }])).values()].sort((a, b) => a.name.localeCompare(b.name))
+    return { extensions, available, errors: installed.filter(entry => entry.error).map(({ path, error }) => ({ path, error })) }
+  }
+  let enablePrivate = (key: string, location: string) => serial(async () => {
+    let session = await getSession(key)
+    let sources = [...new Map(entries.map(entry => [entry.path, entry])).values()]
+    let source = sources.find(entry => entry.path === location) ?? findExtension(sources.filter(entry => entry.id && entry.name).map(entry => ({ ...entry, id: entry.id!, name: entry.name! })), location)
+    if (!source) throw new Error('Extension is not installed in a regular profile')
+    let installed = privateEntries.get(key) ?? []
+    let previous = installed.find(entry => entry.path === source.path)
+    let loaded = previous?.id ? session.extensions.getExtension(previous.id) : undefined
+    if (loaded) return describe(loaded)
+    ensureCompatibility(key, session)
+    let extension = await session.extensions.loadExtension(source.path)
+    let entry: Entry = { profile: key, path: source.path, id: extension.id, name: extension.name, version: extension.version, enabled: true }
+    privateEntries.set(key, [...installed.filter(item => item !== previous), entry])
+    return describe(extension)
+  })
+  let disablePrivate = (key: string, query: string) => serial(async () => {
+    let session = await getSession(key)
+    let installed = privateEntries.get(key) ?? []
+    let found = installed.find(entry => entry.path === query) ?? findExtension(installed.filter(entry => entry.name && entry.id).map(entry => ({ ...entry, id: entry.id!, name: entry.name! })), query)
+    let entry = found && installed.find(item => item.path === found.path)
+    if (!entry) throw new Error('Extension is not enabled in this private session')
+    unload(session, entry)
+    privateEntries.set(key, installed.filter(item => item !== entry))
+    return { id: entry.id ?? entry.path, enabled: false }
+  })
+  let closePrivate = (key: string) => {
+    for (let [popupKey, popup] of popups) if (popupKey.startsWith(`${key}:`)) { if (!popup.isDestroyed()) popup.destroy(); popups.delete(popupKey) }
+    let session = sessions.get(key)
+    if (session) for (let entry of privateEntries.get(key) ?? []) unload(session, entry)
+    privateEntries.delete(key)
+    sessions.delete(key)
+    compatibility.delete(key)
+    for (let [contents, tab] of tracked) if (tab.profile === key) tracked.delete(contents)
   }
   let load = (profile: string, location: string) => serial(async () => {
     let session = await getSession(profile)
@@ -225,5 +277,5 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     return { opened: extension.id }
   }
   let close = () => { for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy(); popups.clear() }
-  return { attach, list, load, enable, disable, remove, open, close, track }
+  return { attach, attachPrivate, list, listPrivate, load, enable, enablePrivate, disable, disablePrivate, remove, open, close, closePrivate, track }
 }

@@ -17,8 +17,9 @@ bmux split-window -t PANE_ID -h --profile review
 
 Set the profile for future regular sessions in the session picker; create a new
 profile there if needed. New sessions use the saved choice without asking each
-time. Private sessions use an isolated private browser
-partition and do not use this setting. The profile panel can change a session's
+time. Private sessions use an isolated temporary browser partition, do not use
+this setting, and show no profile icon. Their cookies, site storage, and extension
+data are discarded when the session closes. The profile panel can change a session's
 default profile at any time; loaded panes keep their existing profiles. On a
 blank pane, use the profile button beside its address to choose a different
 profile before loading a page. After navigation, the button remains visible

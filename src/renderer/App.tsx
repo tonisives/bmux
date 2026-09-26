@@ -266,7 +266,7 @@ let Status = () => {
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
-    <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>
+    {!session!.private && <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>}
     {profile?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
@@ -717,7 +717,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     document.addEventListener('keydown', escape)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [profilePickerOpen])
-  let customProfile = profile && session && profile.id !== session.defaultProfileId ? profile : undefined
+  let customProfile = profile && session && !session.private && profile.id !== session.defaultProfileId ? profile : undefined
   let proxyTest = customProfile ? state.profileProxyTests[customProfile.id] : undefined
   let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}` : ''
   let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
@@ -843,7 +843,7 @@ let SiteInformation = () => {
 }
 let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()
-  let { profile } = selection(state)
+  let { profile, session } = selection(state)
   let [listing, setListing] = useState<ExtensionList | null>(null)
   let [selectedPath, setSelectedPath] = useState<string | null>(null)
   let [busy, setBusy] = useState(false)
@@ -860,30 +860,31 @@ let ExtensionManager = () => {
     }
     lastSelected.current = selectedPath
   }, [selectedPath])
-  let currentProfile = useRef(profile?.id)
-  currentProfile.current = profile?.id
+  let extensionKey = session?.private ? session.id : profile?.id
+  let currentProfile = useRef(extensionKey)
+  currentProfile.current = extensionKey
   useEffect(() => {
     setListing(null)
     setSelectedPath(null)
     setNotice('')
     if (!profile) return
     let cancelled = false
-    void run('extension.list', { profile: profile.id }).then(result => {
+    void run('extension.list', { profile: profile.id, ...(session?.private ? { session: session.id } : {}) }).then(result => {
       if (!cancelled && result) setListing(result as ExtensionList)
     })
     return () => { cancelled = true }
-  }, [profile?.id, run])
+  }, [profile?.id, session?.id, session?.private, run])
   let action = async (event: MouseEvent<HTMLButtonElement>) => {
     if (!profile || busy) return
     let { action, id, path } = event.currentTarget.dataset
-    let profileId = profile.id
+    let profileId = profile.id, sessionId = session?.private ? session.id : undefined
     setBusy(true)
     try {
-      let result = await run(`extension.${action}`, { profile: profileId, id, path })
-      if (!result || currentProfile.current !== profileId) return
+      let result = await run(`extension.${action}`, { profile: profileId, id, path, ...(sessionId ? { session: sessionId } : {}) })
+      if (!result || currentProfile.current !== (sessionId ?? profileId)) return
       if (action === 'open' || action === 'options') { dismiss(); return }
-      let updated = await run('extension.list', { profile: profileId })
-      if (updated && currentProfile.current === profileId) {
+      let updated = await run('extension.list', { profile: profileId, ...(sessionId ? { session: sessionId } : {}) })
+      if (updated && currentProfile.current === (sessionId ?? profileId)) {
         setListing(updated as ExtensionList)
         if (action === 'remove') setSelectedPath(null)
         setNotice('Reload open pages to apply extension changes.')
@@ -900,7 +901,7 @@ let ExtensionManager = () => {
     <dl className={css.extensionMetadata}>
       <div><dt>Version</dt><dd>{selected.version || 'Unavailable'}</dd></div>
       <div><dt>ID</dt><dd>{selected.id === selected.path ? 'Unavailable' : selected.id}</dd></div>
-      <div><dt>Profile</dt><dd>{profile?.name}</dd></div>
+      <div><dt>{session?.private ? 'Session' : 'Profile'}</dt><dd>{session?.private ? session.name : profile?.name}</dd></div>
       <div><dt>Package location</dt><dd>{selected.path}</dd></div>
       {selected.manifestVersion && <div><dt>Manifest version</dt><dd>{selected.manifestVersion}</dd></div>}
     </dl>
@@ -919,14 +920,14 @@ let ExtensionManager = () => {
     {selected.hasOptions && <button data-id={selected.id} data-action="options" onClick={action} disabled={busy || !selected.enabled}>Options</button>}
     <section className={css.extensionDanger} aria-label="Danger zone">
       <h3>Danger zone</h3>
-      <p>Remove from {profile?.name}. Other profiles, package files, and saved extension data are kept.</p>
-      <button data-id={selected.id} data-action="remove" onClick={action} disabled={busy}>Remove extension</button>
+      <p>{session?.private ? 'Disable in this private session. Extension data is discarded when the session closes.' : `Remove from ${profile?.name}. Other profiles, package files, and saved extension data are kept.`}</p>
+      <button data-id={selected.id} data-action="remove" onClick={action} disabled={busy}>{session?.private ? 'Disable extension' : 'Remove extension'}</button>
     </section>
     {notice && <p role="status">{notice}</p>}
   </section>
-  return <section aria-label="Profile extensions" ref={listRef} tabIndex={-1}><p>Profile: {profile?.name ?? 'No selected pane'}. Changes apply only to this profile.</p>
+  return <section aria-label="Profile extensions" ref={listRef} tabIndex={-1}><p>{session?.private ? `Private session: ${session.name}. Extension choices and data last only for this session.` : `Profile: ${profile?.name ?? 'No selected pane'}. Changes apply only to this profile.`}</p>
     {!listing && <p>Loading extensions…</p>}
-    {listing && !listing.extensions.length && <p>No extensions in this profile.</p>}
+    {listing && !listing.extensions.length && <p>{session?.private ? 'No extensions enabled in this private session.' : 'No extensions in this profile.'}</p>}
     {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
       <div className={css.extensionName}>{extension.enabled && extension.hasPopup ? <button className={css.listRow} data-id={extension.id} data-action="open" onClick={action} disabled={busy}><strong>{extension.name}</strong></button> : <strong>{extension.name}</strong>}{extension.error && <span className={css.error}>Failed to load</span>}</div>
       <div className={css.extensionActions}>
@@ -934,7 +935,7 @@ let ExtensionManager = () => {
         <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
       </div>
     </div>)}
-    {!!listing?.available.length && <p>Available from other profiles</p>}
+    {!!listing?.available.length && <p>{session?.private ? 'Installed extensions' : 'Available from other profiles'}</p>}
     {listing?.available.map(extension => <button key={extension.path} className={css.listRow} disabled={busy} data-action="load" data-path={extension.path} onClick={action}><strong>Enable {extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
     {notice && <p role="status">{notice}</p>}
     {listing?.errors.map(error => <p key={`${error.path}:${error.error}`} className={css.error}>{error.error}</p>)}

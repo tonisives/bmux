@@ -179,7 +179,8 @@ export let createRuntime = (dataDirectory: string) => {
     createTab: async details => {
       let client = model.clients.find(client => client.id === focusedClientId)
       let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-      if (!pane || pane.profileId !== profileId) throw new Error('Select a pane in the extension profile first')
+      let owner = pane && paneById(model, pane.id).session
+      if (!pane || (owner?.private ? `private:${owner.id}:${pane.profileId}` : pane.profileId) !== profileId) throw new Error('Select a pane in the extension profile first')
       let tab = await execute({ method: 'tab.create', args: { pane: pane.id, url: details.url ?? 'about:blank', ...(details.active !== false ? { client: client!.id } : {}) } }) as { id: string }
       let live = tabs.get(tab.id)!
       return [live.contents, live.parent]
@@ -198,7 +199,8 @@ export let createRuntime = (dataDirectory: string) => {
       let url = Array.isArray(details.url) ? details.url[0] : details.url
       if (!url) throw new Error('Extension window URL is required')
       let parsed = new URL(url)
-      let session = browserSession(profileId)
+      let privateOwner = model.sessions.find(item => item.private && profileId.startsWith(`private:${item.id}:`))
+      let session = privateOwner ? browserSession(profileId.slice(`private:${privateOwner.id}:`.length), privateOwner.id) : browserSession(profileId)
       if (parsed.protocol !== 'chrome-extension:' || !session.extensions.getExtension(parsed.hostname)) throw new Error('Only installed extension pages can open extension windows')
       let window = new BrowserWindow({ show: false, width: Math.max(320, Math.min(1200, details.width ?? 420)), height: Math.max(240, Math.min(1000, details.height ?? 640)), webPreferences: { session, sandbox: true, contextIsolation: true, nodeIntegration: false } })
       extensionWindows.add(window)
@@ -376,9 +378,11 @@ export let createRuntime = (dataDirectory: string) => {
     hosts.set(profileId, host)
     return host
   }
+  let privateStorageRoot = path.join(dataDirectory, 'private-sessions')
+  let privateStoragePath = (sessionId: string, profileId: string) => path.join(privateStorageRoot, sessionId, profileId)
   let configureSessionIdentity = (profileId: string, persona?: DevicePersona, privateSessionId?: string) => {
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
-    let browser = electronSession.fromPartition(privateSessionId ? key : `persist:${profileId}`)
+    let browser = privateSessionId ? electronSession.fromPath(privateStoragePath(privateSessionId, profileId)) : electronSession.fromPartition(`persist:${profileId}`)
     if (!defaultUserAgents.has(key)) defaultUserAgents.set(key, browser.getUserAgent())
     browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(key)!, persona?.locale)
     return browser
@@ -486,7 +490,7 @@ export let createRuntime = (dataDirectory: string) => {
         await waitForProfileProxyRecovery(profileId, error)
       }
     })()
-    let ready = privateSessionId ? networkReady : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
+    let ready = privateSessionId ? networkReady.then(() => extensions.attachPrivate(key, session)) : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
     filters?.attach(session, profileId)
@@ -527,6 +531,19 @@ export let createRuntime = (dataDirectory: string) => {
       publish()
     })
     return session
+  }
+  let retirePrivateSession = async (sessionId: string) => {
+    let prefix = `private:${sessionId}:`
+    let keys = [...configuredProfiles].filter(key => key.startsWith(prefix))
+    for (let key of keys) extensions.closePrivate(key)
+    await Promise.all(keys.map(async key => {
+      let browser = electronSession.fromPath(privateStoragePath(sessionId, key.slice(prefix.length)))
+      await browser.clearStorageData()
+      await browser.clearCache()
+      configuredProfiles.delete(key)
+      profileNetworkReady.delete(key)
+    }))
+    await fs.rm(path.join(privateStorageRoot, sessionId), { recursive: true, force: true })
   }
   let reloadProfileTabs = (profileId: string) => {
     for (let [tabId, live] of tabs) {
@@ -798,7 +815,7 @@ export let createRuntime = (dataDirectory: string) => {
     idleHistory.delete(tabId)
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
-    if (!session.private) extensions.track(pane.profileId, contents, parent)
+    extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, contents, parent)
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
       profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
@@ -1304,7 +1321,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed) continue
       moveView(live, target)
       let { session, pane } = tabById(model, tabId)
-      if (!session.private) extensions.track(pane.profileId, live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
+      extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
         let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
@@ -1531,9 +1548,17 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method.startsWith('extension.')) {
       let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined
+      let privateOwner = typeof args.session === 'string' ? model.sessions.find(item => item.id === args.session && item.private) : tab?.session.private ? tab.session : undefined
       let profile = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
-      browserSession(profile.id)
-      await profileNetworkReady.get(profile.id)
+      let extensionKey = privateOwner ? `private:${privateOwner.id}:${profile.id}` : profile.id
+      browserSession(profile.id, privateOwner?.id)
+      await profileNetworkReady.get(extensionKey)
+      if (privateOwner) {
+        if (method === 'extension.list') return extensions.listPrivate(extensionKey)
+        if (method === 'extension.load' || method === 'extension.enable') return extensions.enablePrivate(extensionKey, required(args, method === 'extension.load' ? 'path' : 'id'))
+        if (method === 'extension.disable' || method === 'extension.remove') return extensions.disablePrivate(extensionKey, required(args, 'id'))
+        if (method === 'extension.install-bitwarden') throw new Error('Install extensions in a regular profile before enabling them privately')
+      }
       if (method === 'extension.list') return extensions.list(profile.id)
       if (method === 'extension.load') return extensions.load(profile.id, required(args, 'path'))
       if (method === 'extension.install-bitwarden') {
@@ -1549,8 +1574,8 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'extension.open' || method === 'extension.options') {
         let client = sourceClientId ? model.clients.find(client => client.id === sourceClientId) : undefined
         let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-        let activeTab = pane?.profileId === profile.id ? tabs.get(pane.id) : undefined
-        return extensions.open(profile.id, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent }, method === 'extension.options' ? 'options' : 'popup')
+        let activeTab = pane?.profileId === profile.id && (!privateOwner || paneById(model, pane.id).session.id === privateOwner.id) ? tabs.get(pane.id) : undefined
+        return extensions.open(extensionKey, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent }, method === 'extension.options' ? 'options' : 'popup')
       }
       throw new Error('Unknown extension command')
     }
@@ -1883,7 +1908,9 @@ export let createRuntime = (dataDirectory: string) => {
         for (let key of permissionGrants.keys()) if (key.startsWith(`private:${session.id}:`)) permissionGrants.delete(key)
       }
       let next = removeSession(model, session)
-      changed(); await visualQueue; return { closed: session.id, selected: next.id }
+      changed(); await visualQueue
+      if (session.private) await retirePrivateSession(session.id)
+      return { closed: session.id, selected: next.id }
     }
     if (method === 'attach-session') return createClient(resolve(model.sessions, args.session ?? model.sessions[0].id, 'Session').id)
     if (method === 'detach-client') {
@@ -2171,8 +2198,12 @@ export let createRuntime = (dataDirectory: string) => {
         if (closedTabs.length > 25) closedTabs.shift()
       }
       session.windows = session.windows.filter(item => item !== window)
-      if (!session.windows.length) removeSession(model, session)
-      changed(); await visualQueue; return { closed: window.id }
+      if (!session.windows.length) {
+        removeSession(model, session)
+      }
+      changed(); await visualQueue
+      if (session.private && !session.windows.length) await retirePrivateSession(session.id)
+      return { closed: window.id }
     }
     if (method === 'save-layout') {
       let name = required(args, 'name')
@@ -2451,6 +2482,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let start = async (background: boolean) => {
     await settingsReady
+    await fs.rm(privateStorageRoot, { recursive: true, force: true })
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
     if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {

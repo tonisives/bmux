@@ -19,6 +19,12 @@ profile appear under "Available from other profiles". Choose "Enable" to load
 the same extension package in the selected profile. Each profile keeps its own
 extension storage and sign-in state.
 
+Private sessions start without extensions. The Extensions panel lists packages
+already installed in regular profiles; enable any needed extension for that
+private session. Its extension storage and enabled choices stay in the temporary
+private partition and are discarded when the session closes. Regular profile
+extension settings are unchanged.
+
 Open the command prompt and run `extensions` for the manager, or use individual
 commands below. You can bind the `extensions` action in keyboard settings.
 
