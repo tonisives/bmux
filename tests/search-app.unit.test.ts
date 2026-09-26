@@ -9,9 +9,8 @@ test('search apps encode the same query for each supported service', () => {
   expect(searchUrl('cats & dogs', 'brave')).toBe('https://search.brave.com/search?q=cats%20%26%20dogs')
 })
 
-test('saved sessions accept supported search apps and reject unknown ones', () => {
+test('legacy session search choices are removed from saved session state', () => {
   let model = initialModel()
-  model.sessions[0].searchApp = 'duckduckgo'
-  expect(validateModel(structuredClone(model)).sessions[0].searchApp).toBe('duckduckgo')
-  expect(() => validateModel({ ...model, sessions: [{ ...model.sessions[0], searchApp: 'unknown' }] })).toThrow('Invalid session search app')
+  let legacy = { ...model, sessions: [{ ...model.sessions[0], searchApp: 'duckduckgo' }] }
+  expect(validateModel(legacy).sessions[0]).not.toHaveProperty('searchApp')
 })

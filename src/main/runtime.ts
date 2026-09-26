@@ -27,7 +27,7 @@ import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
-import { SEARCH_APPS, searchUrl } from '../shared/search-app'
+import { DEFAULT_SEARCH_APPS, searchUrl } from '../shared/search-app'
 import type { SearchApp } from '../shared/search-app'
 import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
@@ -241,6 +241,7 @@ export let createRuntime = (dataDirectory: string) => {
   let pendingModifierShortcut: { binding: Shortcut; clientId: string; code: string; contentsId: number } | undefined
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
+  let searchAppForSession = (session: { private?: boolean }) => (configuration?.searchApps ?? DEFAULT_SEARCH_APPS)[session.private ? 'private' : 'normal']
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
   let pageTools: ReturnType<typeof createPageTools> | undefined
@@ -301,7 +302,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -1455,7 +1456,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'automation.acquire') {
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
       if (!automation) throw new Error('Automation policy unavailable')
-      let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url'), session.searchApp) })
+      let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url'), searchAppForSession(session)) })
       tabAutomation.set(tabId, lease.token)
       return lease
     }
@@ -1481,14 +1482,14 @@ export let createRuntime = (dataDirectory: string) => {
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab, session } = tabById(model, args.tab)
-      let url = method === 'navigate' ? normalizeUrl(required(args, 'url'), session.searchApp) : tabs.get(args.tab)?.contents.getURL() || tab.url
+      let url = method === 'navigate' ? normalizeUrl(required(args, 'url'), searchAppForSession(session)) : tabs.get(args.tab)?.contents.getURL() || tab.url
       let token = typeof args._automationLease === 'string' ? args._automationLease : undefined
       automation.authorize({ profileId: pane.profileId, tabId: args.tab, url, token, kind: ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) ? 'navigation' : ['click', 'type', 'key', 'scroll'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: !['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) })
       if (token) tabAutomation.set(args.tab, token)
     }
     if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
-      let searchApp = method === 'new-window' ? resolve(model.sessions, args.session, 'Session').searchApp : typeof args.pane === 'string' ? paneById(model, args.pane).session.searchApp : undefined
+      let searchApp = method === 'new-window' ? searchAppForSession(resolve(model.sessions, args.session, 'Session')) : typeof args.pane === 'string' ? searchAppForSession(paneById(model, args.pane).session) : undefined
       if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
     }
     if (method === 'window.menu') {
@@ -1650,7 +1651,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       if (!configuration) throw new Error('Configuration is not ready')
       let key = required(args, 'key')
-      let allowed = new Set(['accessibility', 'statusBar', 'showTabCloseButtons', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
+      let allowed = new Set(['accessibility', 'statusBar', 'showTabCloseButtons', 'searchApps.normal', 'searchApps.private', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
       if (!allowed.has(key)) throw new Error('Unknown setting')
       configuration.update(key.split('.'), args.value)
       return { key, value: args.value }
@@ -1873,12 +1874,6 @@ export let createRuntime = (dataDirectory: string) => {
       if (panes) { changed(); await visualQueue } else save()
       return session
     }
-    if (method === 'session.search-app') {
-      let session = resolve(model.sessions, args.session, 'Session')
-      if (!SEARCH_APPS.includes(args.app as SearchApp)) throw new Error('Invalid search app')
-      session.searchApp = args.app as SearchApp
-      save(); return session
-    }
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
@@ -1937,7 +1932,7 @@ export let createRuntime = (dataDirectory: string) => {
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
       if (args.url) {
         let tab = window.panes[0]
-        tab.url = normalizeUrl(String(args.url), session.searchApp)
+        tab.url = normalizeUrl(String(args.url), searchAppForSession(session))
         tab.title = tab.url
       }
       session.windows.push(window)
@@ -2073,7 +2068,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === args.client) ?? model.clients.find(client => client.windowId === window.id)
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
-      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), session.searchApp) : undefined)
+      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
       if (args.client && args.background !== true) {
@@ -2091,7 +2086,7 @@ export let createRuntime = (dataDirectory: string) => {
       let parent = args.pane ? paneById(model, args.pane) : undefined
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
-      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), session.searchApp) : undefined)
+      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
@@ -2334,7 +2329,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'navigate' && args.waitUntil === 'none') {
       let tabId = required(args, 'tab')
       let { tab, session } = tabById(model, tabId)
-      let url = normalizeUrl(required(args, 'url'), session.searchApp)
+      let url = normalizeUrl(required(args, 'url'), searchAppForSession(session))
       let live = tabs.get(tabId) ?? createLiveTab(tabId, false)
       let navigation = Symbol()
       live.pendingNavigation = navigation
@@ -2373,7 +2368,7 @@ export let createRuntime = (dataDirectory: string) => {
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
-          try { await contents.loadURL(normalizeUrl(required(args, 'url'), session.searchApp)) }
+          try { await contents.loadURL(normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
           finally { contents.off('did-navigate', response) }
           if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(pane.profileId)?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')

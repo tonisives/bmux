@@ -10,6 +10,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaults = defaultConfig.keyboard
   expect(defaultConfig.statusBar).toBe('top')
   expect(defaultConfig.showTabCloseButtons).toBe(false)
+  expect(defaultConfig.searchApps).toEqual({ normal: 'google', private: 'google' })
   expect(defaultConfig.memory).toEqual({ lazyRestore: true, idleUnloadMinutes: 0 })
   expect(defaultConfig.clickMode).toMatchObject({ enabled: true, doubleTapModifier: 'Option', hintCharacters: 'asgjkqwetyuiopzxvbm' })
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
@@ -62,6 +63,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(parseConfig('memory:\n  lazyRestore: false\n  idleUnloadMinutes: 30\nkeyboard: {}\n').memory).toEqual({ lazyRestore: false, idleUnloadMinutes: 30 })
   expect(() => parseConfig('memory:\n  idleUnloadMinutes: -1\nkeyboard: {}\n')).toThrow('memory.idleUnloadMinutes')
   expect(() => parseConfig('memory:\n  unknown: true\nkeyboard: {}\n')).toThrow('Unknown memory setting')
+  expect(parseConfig('searchApps:\n  normal: duckduckgo\n  private: brave\nkeyboard: {}\n').searchApps).toEqual({ normal: 'duckduckgo', private: 'brave' })
+  expect(() => parseConfig('searchApps:\n  private: unknown\nkeyboard: {}\n')).toThrow('Invalid search app')
 })
 
 it('parses and validates click mode settings', () => {

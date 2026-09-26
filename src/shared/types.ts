@@ -1,5 +1,5 @@
 import type { SiteSecurity } from './site-security'
-import type { SearchApp } from './search-app'
+import type { SearchApps } from './search-app'
 import type { BrowserToolsState } from './browser-tools'
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo, PluginPrompt, PluginRun } from './plugins'
@@ -23,7 +23,7 @@ export type Layout = { kind: 'pane'; paneId: string } | { kind: 'split'; id: str
 export type FloatingPane = { paneId: string; x: number; y: number; width: number; height: number; dock?: { siblingIds: string[]; axis: 'horizontal' | 'vertical'; ratio: number; before: boolean } }
 export type FloatingMemory = { x: number; y: number; width: number; height: number; workspaceWidth: number; workspaceHeight: number }
 export type InternalWindow = { id: string; name: string; automaticName?: boolean; layout: Layout | null; panes: Pane[]; floating?: FloatingPane[]; lastFloating?: FloatingMemory }
-export type WorkspaceSession = { id: string; name: string; defaultProfileId: string; private?: boolean; profileExplicit?: boolean; searchApp?: SearchApp; windows: InternalWindow[] }
+export type WorkspaceSession = { id: string; name: string; defaultProfileId: string; private?: boolean; profileExplicit?: boolean; windows: InternalWindow[] }
 export type Client = { id: string; sessionId: string; sessionHistory?: string[]; windowId: string; windowHistory?: string[]; paneId: string | null; zoomedPaneId?: string | null; width: number; height: number }
 export type SavedLayout = { name: string; window: InternalWindow }
 export type Model = { version: 2; profiles: Profile[]; sessions: WorkspaceSession[]; clients: Client[]; layouts: SavedLayout[]; closedSessionProfiles?: Record<string, string>; newSessionProfileId?: string }
@@ -35,7 +35,7 @@ export type ProfileProxyFailureState = { error: string; failedAt: number }
 export type Snapshot = { image: string; capturedAt: number }
 export type FindResult = { requestId: number; text: string; matches: number; activeMatchOrdinal: number; finalUpdate: boolean }
 export type NavigationStack = { activeIndex: number; entries: { title: string; url: string }[] }
-export type PublicState = { remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
+export type PublicState = { remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; searchApps?: SearchApps; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
 export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { paneId: string; x: number; y: number; width: number; height: number }
 export type Bridge = {
