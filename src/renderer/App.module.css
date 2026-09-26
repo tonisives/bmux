@@ -286,3 +286,11 @@
 .extensionDanger { margin-top: 24px; padding-top: 4px; border-top: 1px solid #644843; }
 .extensionDanger h3, .extensionDanger button { color: #e6a69c; }
 @media (max-width: 480px) { .panel .extensionMetadata > div { display: block; } }
+
+.proxyFooter { position: sticky; bottom: -20px; z-index: 1; padding: 12px 0; background: #191d23; border-top: 1px solid #363c45; }
+.proxyPanel { display: flex; flex-direction: column; overflow: hidden; }
+.proxyPanel > header { flex-shrink: 0; }
+.proxyPanel .panelBody, .proxyPanel .profileInfo, .proxyPanel .profileProxy { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.proxyPanel .profileHeading, .proxyPanel h2, .proxyPanel .proxyFooter { flex-shrink: 0; }
+.proxyPanel .proxyFields { overflow: auto; min-height: 0; padding-right: 8px; }
+.proxyPanel .proxyFooter { position: static; margin-bottom: -8px; }

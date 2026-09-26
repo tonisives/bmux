@@ -277,6 +277,21 @@ test('profile proxy settings route, test, and restore the selected profile conne
   let proxyPanel = chrome.getByRole('dialog', { name: 'Proxy', exact: true })
   await expect(proxyPanel.getByRole('region', { name: `${profile.name} proxy settings`, exact: true })).toBeVisible()
   await expect(proxyPanel.getByRole('status')).toContainText('RegionAmsterdam, North Holland, Netherlands')
+  let originalBounds = await application.evaluate(({ BaseWindow }) => {
+    let window = BaseWindow.getAllWindows().find(item => item.isVisible())!
+    let bounds = window.getBounds()
+    window.setBounds({ ...bounds, width: 620, height: 440 })
+    return bounds
+  })
+  try {
+    for (let scroll of [0, 10000]) {
+      await proxyPanel.locator('[class*=proxyFields]').evaluate((element, top) => { element.scrollTop = top }, scroll)
+      for (let name of ['Save proxy', 'Test connection', 'Use system connection']) await expect(proxyPanel.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
+    }
+  } finally {
+    await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(item => item.isVisible())!.setBounds(bounds), originalBounds)
+  }
+
   await proxyPanel.locator('..').click({ position: { x: 5, y: 5 } })
   await expect(proxyPanel).toHaveCount(0)
   let otherProfile = current.model.profiles.find((item: { id: string }) => item.id !== profile.id)!

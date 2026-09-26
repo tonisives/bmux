@@ -784,7 +784,7 @@ let Panel = ({ type }: { type: Control }) => {
   useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins'].includes(type)) ref.current?.focus() }, [type])
   let title = type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
+  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'proxy' ? css.proxyPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><CloseButton label="Close" onClick={dismiss} /></header>
     <div className={css.panelBody}>
       {type === 'help' && <HelpContent />}
@@ -1113,6 +1113,8 @@ type ProxyProviderEntry = { key: string; provider: PluginProxyProvider }
 let proxyProviderEntries = (state: PublicState): ProxyProviderEntry[] => (state.plugins ?? []).filter(plugin => plugin.enabled).flatMap(plugin => plugin.proxyProviders.map(provider => ({ key: `${plugin.id}/${provider.id}`, provider })))
 let matchesProxyRegion = (region: PluginProxyRegion, profile: Profile) => region.protocol === profile.proxy?.protocol && region.host === profile.proxy.host && region.port === profile.proxy.port
 
+let ProxyProviderSelect = ({ value, entries, onChange }: { value: string; entries: ProxyProviderEntry[]; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Provider" value={value} onChange={onChange}><option value="custom">Custom</option>{entries.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select>
+
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
   let { state, run } = useUI()
   let providers = proxyProviderEntries(state)
@@ -1167,14 +1169,16 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   }
   return <form className={css.profileProxy} onSubmit={saveProxy}>
       <h2>Connection</h2>
+      <div className={css.proxyFields}>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
-      <div className={css.profileProxyProvider}><label>Provider<select aria-label="Provider" value={providerEntry ? providerKey : 'custom'} onChange={changeProvider}><option value="custom">Custom</option>{providers.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
+      <div className={css.profileProxyProvider}><label>Provider<ProxyProviderSelect value={providerEntry ? providerKey : 'custom'} entries={providers} onChange={changeProvider} /></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
       {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
       {provider ? <p>Uses {protocol.toUpperCase()} proxy on port {port}. {provider.help}</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
-      <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
+      </div>
+      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
     </form>
 }
 
@@ -1190,13 +1194,14 @@ let ProxyInfo = () => {
 }
 
 let ProfileInfo = () => {
-  let { state, run } = useUI()
+  let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   let cache = state.profileCaches[profile.id]
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
+  let openProxy = () => show('proxy')
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
     <dl>
@@ -1205,7 +1210,8 @@ let ProfileInfo = () => {
       <div><dt>Window</dt><dd>{window?.name}</dd></div>
       <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
     </dl>
-    <p>Sessions organize windows. Profiles define a browser identity and are inherited when a pane is split. Cookies, storage, history, extensions, and network routing are isolated to this profile.</p>
+    <p>Separate cookies, storage, and connections.</p>
+    <button type="button" onClick={openProxy}>Proxy settings</button>
     <ProfileDeviceSettings profile={profile} paneCount={paneCount} />
     <ProxySettings profile={profile} paneCount={paneCount} />
     <section className={css.profileProxy}>
