@@ -175,6 +175,10 @@
 .panel .bookmarkRemoveParameter:hover { color: #e6a69c; }
 .panel .bookmarkOpenCustomized { align-self: flex-end; padding: 3px 7px; color: #bdc9b4; cursor: pointer; }
 .panel .bookmarkOpenCustomized:hover { color: #f0f2f5; }
+.historyEntry { display: flex; align-items: stretch; }
+.historyEntry > .historyRow { flex: 1; min-width: 0; }
+.historyRemove { flex: 0 0 28px; color: #8e98a4; font-size: 18px; cursor: pointer; }
+.historyRemove:hover { color: #e6a69c; background: #303944; }
 .historyRow { display: flex; align-items: baseline; gap: 16px; }
 .historyRow > span { display: flex; flex: 1; min-width: 0; flex-direction: column; }
 .historyRow strong, .historyRow span span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -223,8 +227,12 @@
 .addressInput input { grid-area: 1 / 1; min-width: 0; }
 .addressInput input { width: 100%; z-index: 1; }
 .urlHistory { position: fixed; z-index: 100; top: 29px; left: 0; right: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; padding: 4px 8px; border: 1px solid #444b59; background: #191d23e6; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.urlHistory button { display: flex; flex: 0 0 auto; gap: 12px; padding: 5px 0; text-align: left; border: 0; border-radius: 0; background: transparent; }
-.urlHistory button:hover, .urlHistory button[aria-selected="true"] { background: #303844; }
+.addressSuggestionRow { display: flex; align-items: stretch; min-width: 0; }
+.addressSuggestionRow:hover, .addressSuggestionRow:has([aria-selected="true"]) { background: #303844; }
+.urlHistory button { display: flex; align-items: center; gap: 12px; padding: 5px 0; text-align: left; border: 0; border-radius: 0; background: transparent; }
+.addressSuggestionRow > button:first-child { flex: 1; min-width: 0; }
+.urlHistory .addressSuggestionRemove { flex: 0 0 24px; justify-content: center; padding: 0; color: #8e98a4; font-size: 18px; }
+.urlHistory .addressSuggestionRemove:hover { color: #e6a69c; }
 .addressSuggestionIcon { width: 16px; height: 16px; flex: 0 0 16px; color: #8e98a4; }
 .urlHistory strong, .urlHistory span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .urlHistory strong { flex: 0 1 35%; font-weight: 400; }

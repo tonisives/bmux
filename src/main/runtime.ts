@@ -2265,6 +2265,14 @@ export let createRuntime = (dataDirectory: string) => {
       history.goToIndex(index)
       publish(); return { pane: tabId, index }
     }
+    if (method === 'history.remove') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let url = required(args, 'url')
+      let previous = profile.history ?? []
+      profile.history = previous.filter(entry => entry.url !== url)
+      if (profile.history.length !== previous.length) save()
+      return { removed: profile.history.length !== previous.length }
+    }
     if (method === 'navigate' && args.waitUntil === 'none') {
       let tabId = required(args, 'tab'), url = normalizeUrl(required(args, 'url'))
       let { tab } = tabById(model, tabId)
