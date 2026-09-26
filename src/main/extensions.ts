@@ -5,6 +5,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createExtensionCompatibility } from './extension-compatibility'
 import { findExtension } from './extension-lookup'
+import { extensionDetails } from '../shared/extension-details'
 
 type Entry = { profile: string; path: string; id?: string; name?: string; version?: string; enabled?: boolean; error?: string }
 type Manifest = { action?: { default_popup?: string }; browser_action?: { default_popup?: string }; options_ui?: { page?: string }; options_page?: string }
@@ -74,15 +75,23 @@ export let createExtensions = (directory: string, options: (profile: string) => 
   }
   let describe = (extension: Extension) => {
     let manifest = extension.manifest as Manifest
-    return { id: extension.id, name: extension.name, version: extension.version, path: extension.path, enabled: true, hasPopup: !!(manifest.action?.default_popup ?? manifest.browser_action?.default_popup), hasOptions: !!(manifest.options_ui?.page ?? manifest.options_page) }
+    return { ...extensionDetails(manifest), id: extension.id, name: extension.name, version: extension.version, path: extension.path, enabled: true, hasPopup: !!(manifest.action?.default_popup ?? manifest.browser_action?.default_popup), hasOptions: !!(manifest.options_ui?.page ?? manifest.options_page) }
   }
   let list = async (profile: string) => {
     let session = await getSession(profile)
     let extensions = await Promise.all(entries.filter(entry => entry.profile === profile).map(async entry => {
       let loaded = entry.id ? session.extensions.getExtension(entry.id) : undefined
       if (loaded) return describe(loaded)
-      let manifest = await fs.readFile(path.join(entry.path, 'manifest.json'), 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
-      return { id: entry.id ?? entry.path, name: entry.name ?? manifest.name ?? path.basename(entry.path), version: entry.version ?? manifest.version ?? '', path: entry.path, enabled: entry.enabled !== false, hasPopup: false, hasOptions: false, error: entry.error }
+      let manifest = await fs.readFile(path.join(entry.path, 'manifest.json'), 'utf8').then(text => JSON.parse(text)).catch(() => null)
+      if (typeof manifest?.description === 'string' && manifest.default_locale) {
+        let message = /^__MSG_(.+)__$/.exec(manifest.description)
+        if (message) {
+          let messages = await fs.readFile(path.join(entry.path, '_locales', manifest.default_locale, 'messages.json'), 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
+          let localized = Object.entries(messages).find(([key]) => key.toLowerCase() === message[1].toLowerCase())?.[1] as { message?: string } | undefined
+          manifest.description = localized?.message ?? ''
+        }
+      }
+      return { ...extensionDetails(manifest), id: entry.id ?? entry.path, name: entry.name ?? manifest?.name ?? path.basename(entry.path), version: entry.version ?? manifest?.version ?? '', path: entry.path, enabled: entry.enabled !== false, hasPopup: false, hasOptions: false, error: entry.error }
     }))
     let paths = new Set(entries.filter(entry => entry.profile === profile).map(entry => entry.path))
     let available = await Promise.all([...new Set(entries.filter(entry => entry.profile !== profile && !paths.has(entry.path)).map(entry => entry.path))].map(async location => {

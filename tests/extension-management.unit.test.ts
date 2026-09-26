@@ -89,3 +89,17 @@ it('rolls back failed writes and failed re-enabling', async () => {
   await expect(manager.enable('first', 'Fixture')).rejects.toThrow()
   expect((await manager.list('first')).extensions[0].enabled).toBe(false)
 })
+
+it('keeps details available while disabled and reports a missing manifest', async () => {
+  let { directory, location } = await fixture()
+  await fs.writeFile(path.join(location, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', version: '1.0', description: '__MSG_description__', default_locale: 'en', permissions: ['storage'], host_permissions: ['https://example.com/*'] }))
+  await fs.mkdir(path.join(location, '_locales/en'), { recursive: true })
+  await fs.writeFile(path.join(location, '_locales/en/messages.json'), JSON.stringify({ description: { message: 'Localized description' } }))
+  let manager = createExtensions(directory, () => ({}))
+  await manager.attach('first', session()); await manager.load('first', location)
+  expect((await manager.list('first')).extensions[0]).toMatchObject({ permissions: ['storage'], hostPermissions: ['https://example.com/*'] })
+  await manager.disable('first', 'Fixture')
+  expect((await manager.list('first')).extensions[0]).toMatchObject({ enabled: false, description: 'Localized description', manifestVersion: 3, permissions: ['storage'], hostPermissions: ['https://example.com/*'], manifestAvailable: true })
+  await fs.rm(location, { recursive: true })
+  expect((await manager.list('first')).extensions[0]).toMatchObject({ name: 'Fixture extension', version: '1.0', manifestAvailable: false })
+})

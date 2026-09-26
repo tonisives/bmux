@@ -18,13 +18,14 @@ import { clampFloat } from '../shared/floating'
 import type { ClickAction } from '../shared/click-mode'
 import { CloseButton } from './CloseButton'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
+import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
-type BrowserExtension = { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
+type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
@@ -826,12 +827,26 @@ let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()
   let { profile } = selection(state)
   let [listing, setListing] = useState<ExtensionList | null>(null)
+  let [selectedPath, setSelectedPath] = useState<string | null>(null)
   let [busy, setBusy] = useState(false)
   let [notice, setNotice] = useState('')
+  let detailsBack = useRef<HTMLButtonElement>(null)
+  let listRef = useRef<HTMLElement>(null)
+  let lastSelected = useRef<string | null>(null)
+  useEffect(() => {
+    if (selectedPath) detailsBack.current?.focus()
+    else if (lastSelected.current) {
+      let button = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('[data-details]') ?? []).find(button => button.dataset.details === lastSelected.current)
+      if (button) button.focus()
+      else listRef.current?.focus()
+    }
+    lastSelected.current = selectedPath
+  }, [selectedPath])
   let currentProfile = useRef(profile?.id)
   currentProfile.current = profile?.id
   useEffect(() => {
     setListing(null)
+    setSelectedPath(null)
     setNotice('')
     if (!profile) return
     let cancelled = false
@@ -852,19 +867,53 @@ let ExtensionManager = () => {
       let updated = await run('extension.list', { profile: profileId })
       if (updated && currentProfile.current === profileId) {
         setListing(updated as ExtensionList)
+        if (action === 'remove') setSelectedPath(null)
         setNotice('Reload open pages to apply extension changes.')
       }
     } finally { setBusy(false) }
   }
-  return <section aria-label="Profile extensions"><p>Profile: {profile?.name ?? 'No selected pane'}. Changes apply only to this profile.</p>
+  let showDetails = (event: MouseEvent<HTMLButtonElement>) => setSelectedPath(event.currentTarget.dataset.details ?? null)
+  let back = () => setSelectedPath(null)
+  let selected = listing?.extensions.find(extension => extension.path === selectedPath)
+  if (selected) return <section aria-label="Extension details" className={css.extensionDetails}>
+    <button ref={detailsBack} onClick={back}>Back to extensions</button>
+    <h2>{selected.name}</h2>
+    {selected.description && <p>{selected.description}</p>}
+    <dl className={css.extensionMetadata}>
+      <div><dt>Version</dt><dd>{selected.version || 'Unavailable'}</dd></div>
+      <div><dt>ID</dt><dd>{selected.id === selected.path ? 'Unavailable' : selected.id}</dd></div>
+      <div><dt>Profile</dt><dd>{profile?.name}</dd></div>
+      <div><dt>Package location</dt><dd>{selected.path}</dd></div>
+      {selected.manifestVersion && <div><dt>Manifest version</dt><dd>{selected.manifestVersion}</dd></div>}
+    </dl>
+    {selected.error && <p className={css.error}>{selected.error}</p>}
+    {selected.manifestAvailable ? <>
+      <h3>Permissions</h3>
+      <p>Declared by the extension. Availability depends on bmux support.</p>
+      <dl className={css.extensionMetadata}>
+        <div><dt>Required permissions</dt><dd>{selected.permissions.join(', ') || 'None'}</dd></div>
+        <div><dt>Requested site access</dt><dd>{selected.hostPermissions.join(', ') || 'None'}</dd></div>
+        {!!selected.contentScriptMatches.length && <div><dt>Content script sites</dt><dd>{selected.contentScriptMatches.join(', ')}</dd></div>}
+        {!!selected.optionalPermissions.length && <div><dt>Optional permissions</dt><dd>{selected.optionalPermissions.join(', ')} (not granted)</dd></div>}
+        {!!selected.optionalHostPermissions.length && <div><dt>Optional site access</dt><dd>{selected.optionalHostPermissions.join(', ')} (not granted)</dd></div>}
+      </dl>
+    </> : <p>Manifest unavailable. Permissions could not be read.</p>}
+    {selected.hasOptions && <button data-id={selected.id} data-action="options" onClick={action} disabled={busy || !selected.enabled}>Options</button>}
+    <section className={css.extensionDanger} aria-label="Danger zone">
+      <h3>Danger zone</h3>
+      <p>Remove from {profile?.name}. Other profiles, package files, and saved extension data are kept.</p>
+      <button data-id={selected.id} data-action="remove" onClick={action} disabled={busy}>Remove extension</button>
+    </section>
+    {notice && <p role="status">{notice}</p>}
+  </section>
+  return <section aria-label="Profile extensions" ref={listRef} tabIndex={-1}><p>Profile: {profile?.name ?? 'No selected pane'}. Changes apply only to this profile.</p>
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>No extensions in this profile.</p>}
     {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
-      <button className={css.listRow} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong><span className={css.pluginDescription}>Version {extension.version} · {extension.error ? 'Failed to load' : extension.enabled ? 'Enabled' : 'Disabled'}</span></button>
+      <div className={css.extensionName}>{extension.enabled && extension.hasPopup ? <button className={css.listRow} data-id={extension.id} data-action="open" onClick={action} disabled={busy}><strong>{extension.name}</strong></button> : <strong>{extension.name}</strong>}{extension.error && <span className={css.error}>Failed to load</span>}</div>
       <div className={css.extensionActions}>
-        {extension.hasOptions && <button data-id={extension.id} data-action="options" onClick={action} disabled={busy || !extension.enabled}>Options</button>}
-        <button data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy}>{extension.enabled ? 'Disable' : 'Enable'}</button>
-        <button data-id={extension.id} data-action="remove" onClick={action} disabled={busy} title="Remove from this profile">Remove</button>
+        <button data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`}>Details</button>
+        <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
       </div>
     </div>)}
     {!!listing?.available.length && <p>Available from other profiles</p>}

@@ -6,9 +6,13 @@ extensions you trust. They run in sandboxed extension contexts; websites do not
 receive the bmux API.
 
 Use the extensions button in the status bar to see extensions installed in the
-selected pane's profile, open their popups, and enable, disable, or remove them.
+selected pane's profile and open their popups. Use each row's toggle to enable or
+disable an extension. Details opens a separate view with its description, version,
+ID, package location, and declared permissions, including site access and optional
+permissions. Removal lives in the details view's Danger zone and affects only the
+selected profile.
 Disabled extensions stay installed and remain disabled after restarting bmux.
-Options opens the extension's own settings page when one is provided.
+Options in the details view opens the extension's own settings page when one is provided.
 These controls affect only the selected profile; removing an extension does not
 delete shared package files or another profile's installation. Extensions installed in another
 profile appear under "Available from other profiles". Choose "Enable" to load
