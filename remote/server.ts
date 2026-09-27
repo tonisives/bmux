@@ -158,7 +158,7 @@ let server = http.createServer((request, response) => {
     let file = await fs.readFile(path.join(import.meta.dirname, 'dist', filename))
     let nonce = randomBytes(18).toString('base64')
     if (filename === 'index.html') file = Buffer.from(file.toString().replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`))
-    response.writeHead(200, { 'Content-Type': filename.endsWith('.js') ? 'text/javascript' : filename.endsWith('.css') ? 'text/css' : 'text/html', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Content-Security-Policy': `default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com; style-src 'self' 'nonce-${nonce}' https://accounts.google.com; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'` })
+    response.writeHead(200, { 'Content-Type': filename.endsWith('.js') ? 'text/javascript' : filename.endsWith('.css') ? 'text/css' : 'text/html', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Content-Security-Policy': `default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com; img-src 'self' https://cdn.digthree.tonis.dev; style-src 'self' 'nonce-${nonce}' https://accounts.google.com; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'` })
     response.end(file)
   })().catch(() => json(401, { error: 'Request unavailable or unauthorized' }))
 })
