@@ -1357,14 +1357,17 @@ let BookmarkEditor = () => {
     <button type="submit" disabled={!supported || !title.trim() || busy}>{busy ? 'Saving…' : 'Save bookmark'}</button>
   </form>
 }
-let BookmarkExpansionContext = createContext<{ expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void } | null>(null)
+type BookmarkDrag = { id: string; parentId: string }
+type BookmarkDrop = { id: string; position: 'before' | 'after' }
+let BookmarkExpansionContext = createContext<{ expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
 let BookmarkPicker = () => {
   let { state, run, dismiss, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
   let { profile, client, session, tab } = selection(state)
   let [expandedBookmarkId, setExpandedBookmarkId] = useState<string | null>(null)
   let [pointerMode, setPointerMode] = useState(false)
-  let [reordering, setReordering] = useState(false)
+  let dragSource = useRef<BookmarkDrag | null>(null)
+  let [dropTarget, setDropTarget] = useState<BookmarkDrop | null>(null)
   let bookmarks: Bookmark[] = []
   let activate = async (bookmark: Bookmark, newWindow = false, settings?: BookmarkParameters) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
@@ -1384,14 +1387,31 @@ let BookmarkPicker = () => {
     if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }) }
   }, [profile?.id])
   let changeQuery = (event: ChangeEvent<HTMLInputElement>) => { setExpandedBookmarkId(null); change(event) }
-  let toggleReordering = () => setReordering(value => !value)
+  let endDrag = () => { dragSource.current = null; setDropTarget(null) }
+  let dragPosition = (event: DragEvent<HTMLElement>): BookmarkDrop['position'] => event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2 ? 'before' : 'after'
+  let dragOver = (event: DragEvent<HTMLElement>, target: BookmarkDrag) => {
+    let source = dragSource.current
+    if (!source || source.id === target.id || source.parentId !== target.parentId) return
+    event.preventDefault(); event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    let position = dragPosition(event)
+    setDropTarget(current => current?.id === target.id && current.position === position ? current : { id: target.id, position })
+  }
+  let drop = (event: DragEvent<HTMLElement>, target: BookmarkDrag) => {
+    let source = dragSource.current
+    if (!source || source.id === target.id || source.parentId !== target.parentId || !profile) return
+    event.preventDefault(); event.stopPropagation()
+    let position = dragPosition(event)
+    endDrag()
+    void run('bookmark.move', { profile: profile.id, bookmark: source.id, target: target.id, position })
+  }
   let focus = (event: FocusEvent<HTMLDivElement>) => {
     let bookmarkId = event.target instanceof HTMLButtonElement ? event.target.dataset.bookmarkId : undefined
     if (profile && bookmarkId) rememberBookmarkSelection(profile.id, bookmarkId)
     if (event.target === input.current || (event.target instanceof HTMLButtonElement && event.target.dataset.bookmarkId && event.target.dataset.bookmarkId !== expandedBookmarkId)) setExpandedBookmarkId(null)
   }
   bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <BookmarkExpansionContext.Provider value={{ expandedBookmarkId, setExpandedBookmarkId }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><div className={css.bookmarkTools}><button type="button" data-picker-action aria-pressed={reordering} disabled={!!query.trim()} title={query.trim() ? 'Clear search to reorder bookmarks' : undefined} onClick={toggleReordering}>Reorder</button></div>{bookmarks.map((bookmark, index) => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} activate={activate} reordering={reordering && !query.trim()} index={index} count={bookmarks.length} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div></BookmarkExpansionContext.Provider>
+  return <BookmarkExpansionContext.Provider value={{ expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} />{bookmarks.map((bookmark, index) => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} parentId="" activate={activate} index={index} count={bookmarks.length} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div></BookmarkExpansionContext.Provider>
 }
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
@@ -1402,9 +1422,9 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
     }
   }
 }
-let BookmarkRow = ({ bookmark, profileId, activate, reordering, index, count }: { bookmark: Bookmark; profileId: string; activate: (bookmark: Bookmark, newTab?: boolean, settings?: BookmarkParameters) => void; reordering: boolean; index: number; count: number }) => {
+let BookmarkRow = ({ bookmark, profileId, parentId, activate, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; activate: (bookmark: Bookmark, newTab?: boolean, settings?: BookmarkParameters) => void; index: number; count: number }) => {
   let { state, run } = useUI()
-  let { expandedBookmarkId, setExpandedBookmarkId } = useContext(BookmarkExpansionContext)!
+  let { expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
   let expanded = expandedBookmarkId === bookmark.id
   let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
@@ -1420,11 +1440,13 @@ let BookmarkRow = ({ bookmark, profileId, activate, reordering, index, count }: 
     setSettings(next); void persist(next)
   }
   let save = () => { void persist(settings) }
-  let reorder = reordering && <BookmarkReorderButtons bookmark={bookmark} profileId={profileId} index={index} count={count} />
-  if (bookmark.children) return <details className={css.folder} open><summary><span>{bookmark.title || 'Untitled folder'}</span>{reorder}</summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} activate={activate} reordering={reordering} index={childIndex} count={bookmark.children!.length} />)}</div></details>
+  let drag = { id: bookmark.id, parentId }
+  let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.id === bookmark.id ? dropTarget.position : undefined }
+  let handle = <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} index={index} count={count} />
+  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps}>{handle}<span>{bookmark.title || 'Untitled folder'}</span></summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} activate={activate} index={childIndex} count={bookmark.children!.length} />)}</div></details>
   return <div className={css.bookmarkItem}>
-    <div className={css.bookmarkRow}><button className={css.listRow} data-bookmark-id={bookmark.id} data-active={expanded} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
-      {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}{reorder}
+    <div className={css.bookmarkRow} {...dragProps}>{handle}<button className={css.listRow} data-bookmark-id={bookmark.id} data-active={expanded} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+      {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
     </div>
     {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
       let value = settings.values[key] ?? initial
@@ -1439,16 +1461,23 @@ let BookmarkRow = ({ bookmark, profileId, activate, reordering, index, count }: 
     })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
   </div>
 }
-let BookmarkReorderButtons = ({ bookmark, profileId, index, count }: { bookmark: Bookmark; profileId: string; index: number; count: number }) => {
+let BookmarkDragHandle = ({ bookmark, profileId, parentId, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; index: number; count: number }) => {
   let { run } = useUI()
-  let move = (direction: 'up' | 'down') => async (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault(); event.stopPropagation()
-    let picker = event.currentTarget.closest<HTMLElement>('[data-bookmark-picker]')
-    await run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction })
-    let row = [...(picker?.querySelectorAll<HTMLButtonElement>('[data-bookmark-id]') ?? [])].find(button => button.dataset.bookmarkId === bookmark.id)
-    row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+  let { startDrag, endDrag } = useContext(BookmarkExpansionContext)!
+  let dragStart = (event: DragEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    startDrag({ id: bookmark.id, parentId })
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', bookmark.id)
   }
-  return <span className={css.bookmarkReorder}><button type="button" data-picker-action aria-label={`Move ${bookmark.title || bookmark.url} up`} disabled={index === 0} onClick={move('up')}>↑</button><button type="button" data-picker-action aria-label={`Move ${bookmark.title || bookmark.url} down`} disabled={index === count - 1} onClick={move('down')}>↓</button></span>
+  let keys = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+    event.preventDefault(); event.stopPropagation()
+    if (event.key === 'ArrowUp' && index > 0) void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: 'up' })
+    if (event.key === 'ArrowDown' && index < count - 1) void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: 'down' })
+  }
+  let click = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation() }
+  return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={dragStart} onDragEnd={endDrag} onClick={click} onKeyDown={keys} aria-label={`Drag ${bookmark.title || bookmark.url} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>
 }
 let HistoryPicker = () => {
   let { state } = useUI()

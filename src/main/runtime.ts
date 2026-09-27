@@ -24,7 +24,7 @@ import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
-import { bookmarkById, createBookmarkFolder, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
+import { bookmarkById, createBookmarkFolder, moveBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
@@ -1607,6 +1607,14 @@ export let createRuntime = (dataDirectory: string) => {
       let direction = required(args, 'direction')
       if (direction !== 'up' && direction !== 'down') throw new Error('Direction must be up or down')
       let result = reorderBookmark(profile, required(args, 'bookmark'), direction)
+      if (result.moved) save()
+      return result
+    }
+    if (method === 'bookmark.move') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let position = required(args, 'position')
+      if (position !== 'before' && position !== 'after') throw new Error('Position must be before or after')
+      let result = moveBookmark(profile, required(args, 'bookmark'), required(args, 'target'), position)
       if (result.moved) save()
       return result
     }

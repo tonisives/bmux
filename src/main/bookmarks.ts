@@ -68,6 +68,25 @@ export let reorderBookmark = (profile: Profile, bookmarkId: string, direction: '
   return { moved: true }
 }
 
+export let moveBookmark = (profile: Profile, bookmarkId: string, targetId: string, position: 'before' | 'after') => {
+  let siblings = (items: Bookmark[]): Bookmark[] | undefined => {
+    if (items.some(item => item.id === bookmarkId)) return items
+    for (let item of items) {
+      let found = item.children && siblings(item.children)
+      if (found) return found
+    }
+  }
+  let items = siblings(profile.bookmarks ?? [])
+  if (!items) throw new Error('Bookmark not found')
+  let source = items.findIndex(item => item.id === bookmarkId)
+  let target = items.findIndex(item => item.id === targetId)
+  if (target < 0) throw new Error('Bookmarks must be in the same folder')
+  let destination = target + (position === 'after' ? 1 : 0) - (source < target ? 1 : 0)
+  if (destination === source) return { moved: false }
+  items.splice(destination, 0, items.splice(source, 1)[0])
+  return { moved: true }
+}
+
 export let updateBookmark = (profile: Profile, bookmarkId: string, values: { title?: string; url?: string }) => {
   let bookmark = bookmarkById(profile.bookmarks ?? [], bookmarkId)
   if (!bookmark) throw new Error('Bookmark not found')
