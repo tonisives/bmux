@@ -81,8 +81,8 @@ let server = http.createServer((request, response) => {
       let { payload } = await jwtVerify(credential, googleKeys, { issuer: ['https://accounts.google.com', 'accounts.google.com'], audience, maxTokenAge: '1h' })
       if (!payload.sub || payload.email_verified !== true) throw new Error('Invalid login')
       let token = randomBytes(32).toString('hex')
-      await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '12 hours')", [digest(token), payload.sub])
-      response.setHeader('Set-Cookie', `bmux_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${publicOrigin.startsWith('https:') ? '; Secure' : ''}`)
+      await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '30 days')", [digest(token), payload.sub])
+      response.setHeader('Set-Cookie', `bmux_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${publicOrigin.startsWith('https:') ? '; Secure' : ''}`)
       json(200, { ok: true }); return
     }
     if (url.pathname.startsWith('/api/')) {

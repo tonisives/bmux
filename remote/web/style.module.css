@@ -10,10 +10,13 @@
 :global(th) { color: #98a98a; font: 11px ui-monospace, monospace; font-weight: 400; }
 .main { max-width: 1200px; min-height: 100vh; margin: auto; padding: 0 28px 48px; }
 .header { height: 76px; display: flex; align-items: center; gap: 22px; border-bottom: 1px solid #353d2c; }
-.brand { display: inline-flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: #edefe8; font-size: 23px; font-weight: 650; letter-spacing: -.06em; }
-.brand img { width: 30px; height: 30px; object-fit: contain; }
+.brand { padding: 0; border: 0; background: none; color: #edefe8; font-size: 23px; font-weight: 650; letter-spacing: -.06em; }
 .headerLabel { padding-left: 22px; border-left: 1px solid #353d2c; color: #96a489; font: 11px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .09em; }
+.avatar { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; margin-left: auto; border: 1px solid #526745; border-radius: 50%; background: #2a3821; color: #c4f580; }
+.avatar:hover { background: #344828; }
 .hidden { display: none; }
+.signIn { display: grid; justify-items: center; gap: 14px; padding: 75px 16px; color: #c5d0ba; text-align: center; }
+.signIn p { margin: 0; }
 .error { padding: 12px 16px; border: 1px solid #705547; background: #281e1a; color: #f2cbb6; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #9cad8e; font: 11px ui-monospace, monospace; letter-spacing: .1em; }
 .sectionHeading button { border: 0; background: none; color: #c4f580; font: inherit; letter-spacing: 0; }
