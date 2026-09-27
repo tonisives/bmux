@@ -21,10 +21,15 @@
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #9cad8e; font: 11px ui-monospace, monospace; letter-spacing: .1em; }
 .sectionHeading button { border: 0; background: none; color: #c4f580; font: inherit; letter-spacing: 0; }
 .library, .serviceView { padding-top: 34px; }
+.workspaceActive { display: grid; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); gap: 24px; }
+.workspaceActive .library, .workspaceActive .viewer { min-width: 0; padding-top: 24px; }
+.workspaceActive .library { padding-right: 24px; border-right: 1px solid #353d2c; }
+.mobileBack { display: none; }
 .library > p { margin-top: 28px; color: #9ba792; }
-.sessions { display: grid; gap: 8px; margin-top: 19px; }
-.session { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 74px; padding: 13px 17px; text-align: left; background: #1a2017; border: 1px solid #384631; border-radius: 5px; }
+.sessions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; margin-top: 19px; }
+.session { display: flex; align-items: center; gap: 16px; width: 100%; min-width: 0; min-height: 74px; padding: 13px 17px; text-align: left; background: #1a2017; border: 1px solid #384631; border-radius: 5px; }
 .session:hover { border-color: #809d66; background: #202a1b; }
+.session[aria-current="true"] { border-color: #9fc47a; background: #26331f; }
 .sessionIcon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; background: #2a3821; border: 1px solid #526745; border-radius: 4px; color: #c4f580; }
 .sessionCopy { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
 .sessionCopy strong { font-weight: 550; }
@@ -59,4 +64,5 @@
 .usage h3 { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; font-size: 17px; font-weight: 550; }
 .usage h3 span { color: #9cad8e; font: 10px ui-monospace, monospace; letter-spacing: .08em; }
 .tableScroll { overflow-x: auto; }
+@media (max-width: 960px) { .workspaceActive { display: block; }.workspaceActive .library { display: none; }.mobileBack { display: inline-grid; } }
 @media (max-width: 640px) { .main { padding: 0 12px 30px; }.header { height: 64px; gap: 12px; }.headerLabel { padding-left: 12px; font-size: 9px; }.viewerToolbar { flex-wrap: wrap; }.paneSelect { order: 3; flex-basis: 100%; max-width: none; }.status { font-size: 10px; }.controlButton { padding: 0 10px; font-size: 12px; }.controls { padding: 9px; }.iconButton { flex-basis: 38px; width: 38px; height: 38px; }.controlGroup { gap: 5px; }.serviceView details, .usage { padding: 14px; }:global(table) { font-size: 12px; } }

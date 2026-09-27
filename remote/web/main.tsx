@@ -61,7 +61,7 @@ let App = () => {
         if (cancelled) return
         let google = (window as any).google
         google.accounts.id.initialize({ client_id: config.googleClientId, callback: (response: { credential: string }) => { void api('/api/login', response).then(connect).catch(report) } })
-        google.accounts.id.renderButton(loginButton.current, { theme: 'outline', size: 'large' })
+        google.accounts.id.renderButton(loginButton.current, { theme: 'outline', size: 'large', text: 'signin_with', width: 240 })
       }).catch(report)
     }
     document.head.append(script)
@@ -127,20 +127,20 @@ let App = () => {
     <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home">bmux</button><span className={styles.headerLabel}>{view === 'service' ? 'Account' : selected ? 'Remote session' : 'Remote sessions'}</span>{viewer && <button className={styles.avatar} onClick={() => { if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="Account" title="Account"><Icon name="user" /></button>}</header>
     {error && <p role="status" className={styles.error}>{error}</p>}
     <section className={viewer ? styles.hidden : styles.signIn}><p>{auth === 'checking' ? 'Checking your session…' : auth === 'connecting' ? 'Connecting to your sessions…' : 'Sign in to see your sessions.'}</p><div ref={loginButton} /></section>
-    {view === 'sessions' && viewer && !selected && <section className={styles.library}><div className={styles.sectionHeading}><span>AVAILABLE SESSIONS</span><span>{hostsLoaded ? listed.length : '…'}</span></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
-      <div className={styles.sessions}>{listed.map(({ host, session, pane }) => <button key={`${host.id}:${session.id}`} className={styles.session} onClick={() => watch(host, session)}>
+    {view === 'sessions' && viewer && <div className={`${styles.workspace} ${selected ? styles.workspaceActive : ''}`}><section className={styles.library}><div className={styles.sectionHeading}><span>AVAILABLE SESSIONS</span><span>{hostsLoaded ? listed.length : '…'}</span></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
+      <div className={styles.sessions}>{listed.map(({ host, session, pane }) => <button key={`${host.id}:${session.id}`} className={styles.session} aria-current={selectedId === `${host.id}:${session.id}` ? 'true' : undefined} onClick={() => watch(host, session)}>
         <span className={styles.sessionIcon}><Icon name="sessions" /></span><span className={styles.sessionCopy}><strong>{session.name}</strong><small>{host.service} · {pane.title || 'Blank page'}</small></span><span className={styles.sessionArrow}>›</span>
       </button>)}</div>
-    </section>}
-    {view === 'sessions' && selected && <section className={styles.viewer}>
-      <div className={styles.viewerToolbar}><button className={styles.iconButton} onClick={showSessions} aria-label="Sessions" title="Sessions"><Icon name="back" /></button>
+    </section>
+    {selected && <section className={styles.viewer}>
+      <div className={styles.viewerToolbar}><button className={`${styles.iconButton} ${styles.mobileBack}`} onClick={showSessions} aria-label="Sessions" title="Sessions"><Icon name="back" /></button>
         {state && <select className={styles.paneSelect} aria-label="Pane" value={state.pane} onChange={choosePane}>{state.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => <option key={pane.id} value={pane.id}>{session.name} · {pane.title || pane.url || 'Blank page'}</option>)))}</select>}
         <span className={styles.status}>{watching ? 'Connecting' : controlling ? 'Controlling' : 'Watching'}</span>
         {selected.host.permission === 'control' && state && (controlling ? <button className={styles.controlButton} onClick={release}>Release control</button> : <button className={styles.controlButton} onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
       </div>
       <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} data-viewport-width={viewport?.width} data-viewport-height={viewport?.height} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
       {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
-    </section>}
+    </section>}</div>}
     <dialog ref={inputDialog} className={styles.dialog} aria-label={inputMode === 'address' ? 'Open address' : 'Type into page'}><form onSubmit={inputMode === 'address' ? navigate : sendText}><div className={styles.dialogHeading}><strong>{inputMode === 'address' ? 'Open address' : 'Type into page'}</strong><button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close"><Icon name="close" /></button></div><input ref={inputField} aria-label={inputMode === 'address' ? 'Address' : 'Text'} type={inputMode === 'address' ? 'url' : 'text'} value={inputMode === 'address' ? address : text} onChange={inputMode === 'address' ? changeAddress : changeText} placeholder={inputMode === 'address' ? 'https://example.com' : 'Enter text'} required /><button className={styles.primaryButton}>{inputMode === 'address' ? 'Go' : 'Type'}</button></form></dialog>
     {view === 'service' && viewer && <section className={styles.serviceView}><div className={styles.sectionHeading}><span>ACCOUNT</span><button onClick={showSessions}>Sessions</button></div><h2>Account</h2><p>Account ID: <code>{owner}</code></p><details><summary>Services and access</summary>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
