@@ -89,6 +89,7 @@ test('settings tabs change preferences without editing YAML', async () => {
   let bounds = await panel.boundingBox()
   let tabBounds = await panel.getByRole('tab', { name: 'Appearance' }).boundingBox()
   expect(bounds).not.toBeNull()
+  expect(bounds!.width).toBeGreaterThan((await chrome.evaluate(() => innerWidth)) * 0.9)
   expect(tabBounds).not.toBeNull()
   let expectStableBounds = async () => {
     let next = await panel.boundingBox()
