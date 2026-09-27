@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
-import { readModel, writeModel } from '../src/main/store'
+import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
   it('selects the nearest pane in each visual direction', () => {
@@ -169,6 +169,21 @@ describe('session layouts and persistence', () => {
       expect(() => readModel(directory)).toThrow('Invalid YAML in bookmarks file')
       expect(fs.readFileSync(bookmarkFile, 'utf8')).toBe('profiles: [broken')
       expect(JSON.parse(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).profiles[0].bookmarks[0].id).toBe('old')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('applies a pending folder rename after a running instance rewrites bookmarks', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-bookmark-edit-unit-'))
+    let bookmarkFile = path.join(directory, 'config', 'bookmarks.yaml')
+    try {
+      let model = initialModel()
+      model.profiles[0].bookmarks = [{ id: 'folder', title: 'Old name', children: [{ id: 'page', title: 'Page', url: 'https://example.test' }] }]
+      writeModel(directory, model, bookmarkFile)
+      let pendingFile = pendingBookmarkEditsPath(bookmarkFile)
+      fs.writeFileSync(pendingFile, JSON.stringify({ updates: [{ profile: 'profile_default', bookmark: 'folder', title: 'New name' }] }))
+      expect(readModel(directory, bookmarkFile).profiles[0].bookmarks?.[0].title).toBe('New name')
+      expect(parseYaml(fs.readFileSync(bookmarkFile, 'utf8')).profiles.profile_default[0].title).toBe('New name')
+      expect(fs.existsSync(pendingFile)).toBe(false)
+      expect(readModel(directory, bookmarkFile).profiles[0].bookmarks?.[0].title).toBe('New name')
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
   it('rejects a layout that points to the wrong pane', () => {
