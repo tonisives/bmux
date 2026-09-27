@@ -1,11 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent, PointerEvent, WheelEvent, ChangeEvent } from 'react'
+import type { FormEvent, KeyboardEvent, PointerEvent, WheelEvent, ChangeEvent, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { api, createViewer } from './client'
 import type { Host, State } from './client'
 import styles from './style.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
+type IconName = 'back' | 'forward' | 'reload' | 'link' | 'type' | 'close' | 'sessions' | 'fit' | 'enter'
+let Icon = ({ name }: { name: IconName }) => {
+  let paths: Record<IconName, ReactNode> = {
+    back: <path d="m14.5 5-7 7 7 7M8 12h12" />,
+    forward: <path d="m9.5 5 7 7-7 7m6.5-7H4" />,
+    reload: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.5 9A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 12.5-3" /></>,
+    link: <><path d="M10 7H5v12h12v-5M13 5h6v6M19 5l-9 9" /></>,
+    type: <><path d="M4 7h16M12 7v12M8 19h8" /></>,
+    close: <path d="M5 5l14 14M19 5 5 19" />,
+    sessions: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></>,
+    fit: <path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5" />,
+    enter: <path d="M20 6v6a4 4 0 0 1-4 4H5m5-5-5 5 5 5" />,
+  }
+  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+}
 let App = () => {
   let [viewer, setViewer] = useState<Viewer>(), [hosts, setHosts] = useState<Host[]>([]), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
@@ -14,9 +29,11 @@ let App = () => {
   let [serviceName, setServiceName] = useState(''), [createdKey, setCreatedKey] = useState(''), [keyService, setKeyService] = useState('')
   let [grantService, setGrantService] = useState(''), [grantUser, setGrantUser] = useState(''), [grantPermission, setGrantPermission] = useState<'watch' | 'control'>('watch')
   let [grants, setGrants] = useState<{ service: string; user_id: string; permission: string }[]>([])
+  let [view, setView] = useState<'sessions' | 'service'>('sessions')
   let listed = hosts.flatMap(host => host.sessions.flatMap(session => session.panes.length ? [{ host, session, pane: session.panes[0] }] : []))
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
-  let video = useRef<HTMLVideoElement>(null), loginButton = useRef<HTMLDivElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
+  let video = useRef<HTMLVideoElement>(null), loginButton = useRef<HTMLDivElement>(null), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
+  let [inputMode, setInputMode] = useState<'address' | 'text'>('text')
   let viewport = state && state.viewports[state.pane]
   let session = state?.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
   let lease = session && state?.controls[session.id], controlling = !!viewer && !!lease && lease.owner === viewer.id
@@ -73,7 +90,7 @@ let App = () => {
   let acquire = () => { if (session) viewer?.send({ type: 'acquire', session: session.id, takeover: !!lease }) }
   let release = () => { if (session) viewer?.send({ type: 'release', session: session.id }) }
   let command = (method: string, args: Record<string, unknown> = {}) => { if (controlling && state) viewer?.send({ type: 'command', generation: lease?.generation, command: { method, args: { pane: state.pane, ...args } } }) }
-  let navigate = (event: FormEvent) => { event.preventDefault(); command('navigate', { url: address }) }
+  let navigate = (event: FormEvent) => { event.preventDefault(); if (address.trim()) command('navigate', { url: address.trim() }); inputDialog.current?.close() }
   let back = () => command('back'), forward = () => command('forward'), reload = () => command('reload')
   let choosePane = (event: ChangeEvent<HTMLSelectElement>) => viewer?.send({ type: 'switch', pane: event.target.value })
   let pointer = (event: PointerEvent<HTMLVideoElement> | WheelEvent<HTMLVideoElement>, type: string) => {
@@ -99,25 +116,28 @@ let App = () => {
   let changeAddress = (event: ChangeEvent<HTMLInputElement>) => setAddress(event.target.value)
   let changeText = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let enter = () => command('key', { key: 'Enter' })
-  let sendText = (event: FormEvent) => { event.preventDefault(); if (controlling) { viewer?.send({ type: 'text', generation: lease?.generation, text }); setText('') } }
+  let sendText = (event: FormEvent) => { event.preventDefault(); if (controlling && text) { viewer?.send({ type: 'text', generation: lease?.generation, text }); setText('') } inputDialog.current?.close() }
+  let openInput = (mode: 'address' | 'text') => { setInputMode(mode); inputDialog.current?.showModal(); inputField.current?.focus() }
+  let showSessions = () => { inputDialog.current?.close(); leave(); setView('sessions') }
   return <main className={styles.main}>
-    <header className={styles.header}><h1>bmux</h1><div ref={loginButton} className={viewer ? styles.hidden : undefined} /></header>
-    {error && <p role="status">{error}</p>}
-    {!selected && <section><h2>Sessions</h2>{viewer && listed.length === 0 && <p>No sessions available</p>}
+    <header className={styles.header}><button className={styles.brand} onClick={() => { if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="BMUX service"><img src="https://cdn.digthree.tonis.dev/bmux/website-5b317686c2a1/icon-128.png" alt="" /><span>bmux</span></button><span className={styles.headerLabel}>{view === 'service' ? 'Service' : selected ? 'Remote session' : 'Remote sessions'}</span><div ref={loginButton} className={viewer ? styles.hidden : undefined} /></header>
+    {error && <p role="status" className={styles.error}>{error}</p>}
+    {view === 'sessions' && !selected && <section className={styles.library}><div className={styles.sectionHeading}><span>AVAILABLE SESSIONS</span><span>{listed.length}</span></div>{viewer && listed.length === 0 && <p>No sessions available</p>}
       <div className={styles.sessions}>{listed.map(({ host, session, pane }) => <button key={`${host.id}:${session.id}`} className={styles.session} onClick={() => watch(host, session)}>
-        <strong>{session.name}</strong><span>{host.service} · {pane.title || 'Blank page'}</span>
+        <span className={styles.sessionIcon}><Icon name="sessions" /></span><span className={styles.sessionCopy}><strong>{session.name}</strong><small>{host.service} · {pane.title || 'Blank page'}</small></span><span className={styles.sessionArrow}>›</span>
       </button>)}</div>
     </section>}
-    {selected && <section className={styles.row}><button onClick={leave}>Sessions</button><strong>{selected.session.name}</strong>{watching && <span>Connecting</span>}</section>}
-    {selected && state && <section className={styles.row}>
-      <select aria-label="Pane" value={state.pane} onChange={choosePane}>{state.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => <option key={pane.id} value={pane.id}>{session.name} · {pane.title || pane.url || 'Blank page'}</option>)))}</select>
-      {selected.host.permission === 'control' && (controlling ? <button onClick={release}>Release control</button> : <button onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
-      <span>{controlling ? 'You control this session' : 'Watching'}</span>{controlling && <button onClick={resize}>Fit viewport</button>}
+    {view === 'sessions' && selected && <section className={styles.viewer}>
+      <div className={styles.viewerToolbar}><button className={styles.iconButton} onClick={showSessions} aria-label="Sessions" title="Sessions"><Icon name="back" /></button>
+        {state && <select className={styles.paneSelect} aria-label="Pane" value={state.pane} onChange={choosePane}>{state.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => <option key={pane.id} value={pane.id}>{session.name} · {pane.title || pane.url || 'Blank page'}</option>)))}</select>}
+        <span className={styles.status}>{watching ? 'Connecting' : controlling ? 'Controlling' : 'Watching'}</span>
+        {selected.host.permission === 'control' && state && (controlling ? <button className={styles.controlButton} onClick={release}>Release control</button> : <button className={styles.controlButton} onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
+      </div>
+      <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
+      {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
     </section>}
-    {selected && controlling && <form className={styles.row} onSubmit={navigate}><button type="button" onClick={back}>Back</button><button type="button" onClick={forward}>Forward</button><button type="button" onClick={reload}>Reload</button><input aria-label="Address" value={address} onChange={changeAddress} /><button>Go</button></form>}
-    {selected && <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />}
-    {controlling && <form className={styles.row} onSubmit={sendText}><input aria-label="Type into page" value={text} onChange={changeText} /><button>Type</button><button type="button" onClick={enter}>Enter</button></form>}
-    {viewer && !selected && <details><summary>Services and access</summary><p>Your account ID: <code>{owner}</code></p>
+    <dialog ref={inputDialog} className={styles.dialog} aria-label={inputMode === 'address' ? 'Open address' : 'Type into page'}><form onSubmit={inputMode === 'address' ? navigate : sendText}><div className={styles.dialogHeading}><strong>{inputMode === 'address' ? 'Open address' : 'Type into page'}</strong><button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close"><Icon name="close" /></button></div><input ref={inputField} aria-label={inputMode === 'address' ? 'Address' : 'Text'} type={inputMode === 'address' ? 'url' : 'text'} value={inputMode === 'address' ? address : text} onChange={inputMode === 'address' ? changeAddress : changeText} placeholder={inputMode === 'address' ? 'https://example.com' : 'Enter text'} required /><button className={styles.primaryButton}>{inputMode === 'address' ? 'Go' : 'Type'}</button></form></dialog>
+    {view === 'service' && <section className={styles.serviceView}><div className={styles.sectionHeading}><span>BMUX SERVICE</span><button onClick={() => setView('sessions')}>Sessions</button></div><h2>Service</h2>{viewer && <details><summary>Services and access</summary><p>Your account ID: <code>{owner}</code></p>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
       {createdKey && <p>Save the key for {keyService} now. It is shown once: <code>{createdKey}</code><button onClick={() => setCreatedKey('')}>Dismiss</button></p>}
       {services.filter(service => !service.revoked).map(service => <p key={service.id}>{service.id} <button onClick={() => rotateService(service.id)}>Rotate key</button> <button onClick={() => revokeService(service.id)}>Revoke</button></p>)}
@@ -128,7 +148,7 @@ let App = () => {
       </form>}
       {grants.map(grant => <p key={`${grant.service}:${grant.user_id}`}>{grant.service} · <code>{grant.user_id}</code> · {grant.permission} <button onClick={() => removeGrant(grant.service, grant.user_id)}>Remove</button></p>)}
     </details>}
-    {usage.length > 0 && <table><caption>Service usage · last 30 days</caption><thead><tr><th>Service</th><th>Started</th><th>Succeeded</th><th>Failed</th><th>Active minutes</th></tr></thead><tbody>{usage.map(item => <tr key={item.service}><td>{item.service}</td><td>{item.started}</td><td>{item.succeeded}</td><td>{item.failed}</td><td>{Math.round(item.browser_ms / 60000)}</td></tr>)}</tbody></table>}
+    <div className={styles.usage}><h3>Usage <span>LAST 30 DAYS</span></h3>{usage.length ? <div className={styles.tableScroll}><table><thead><tr><th>Service</th><th>Started</th><th>Succeeded</th><th>Failed</th><th>Active minutes</th></tr></thead><tbody>{usage.map(item => <tr key={item.service}><td>{item.service}</td><td>{item.started}</td><td>{item.succeeded}</td><td>{item.failed}</td><td>{Math.round(item.browser_ms / 60000)}</td></tr>)}</tbody></table></div> : <p>No usage in the last 30 days.</p>}</div></section>}
   </main>
 }
 createRoot(document.getElementById('root')!).render(<App />)
