@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { createBookmarkFolder, reorderBookmark, saveBookmark, updateBookmark } from '../src/main/bookmarks'
+import { createBookmarkFolder, moveBookmark, reorderBookmark, saveBookmark, updateBookmark } from '../src/main/bookmarks'
 import type { Profile } from '../src/shared/types'
 
 let profile = (): Profile => ({ id: 'profile', name: 'Profile', background: false, bookmarks: [
@@ -51,6 +51,18 @@ test('reorders siblings inside a nested folder without moving bookmarks across f
   expect(reorderBookmark(current, 'second', 'up')).toEqual({ moved: false })
   expect(current.bookmarks?.map(bookmark => bookmark.id)).toEqual(['work', 'existing'])
   expect(() => reorderBookmark(current, 'missing', 'down')).toThrow('Bookmark not found')
+})
+
+test('moves a bookmark directly to a sibling position', () => {
+  let current = profile()
+  let docs = current.bookmarks![0].children![0].children!
+  docs.push(...['first', 'second', 'third'].map(id => ({ id, title: id, url: `https://example.test/${id}` })))
+  expect(moveBookmark(current, 'third', 'first', 'before')).toEqual({ moved: true })
+  expect(docs.map(bookmark => bookmark.id)).toEqual(['third', 'first', 'second'])
+  expect(moveBookmark(current, 'third', 'second', 'after')).toEqual({ moved: true })
+  expect(docs.map(bookmark => bookmark.id)).toEqual(['first', 'second', 'third'])
+  expect(moveBookmark(current, 'third', 'second', 'after')).toEqual({ moved: false })
+  expect(() => moveBookmark(current, 'third', 'existing', 'before')).toThrow('Bookmarks must be in the same folder')
 })
 
 test('updates saved bookmark URLs and folder titles by ID', () => {
