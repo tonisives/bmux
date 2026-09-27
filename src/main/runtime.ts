@@ -24,7 +24,7 @@ import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
-import { bookmarkById, createBookmarkFolder, saveBookmark } from './bookmarks'
+import { bookmarkById, createBookmarkFolder, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
@@ -1601,6 +1601,24 @@ export let createRuntime = (dataDirectory: string) => {
       let result = createBookmarkFolder(profile, { title, parentId: typeof args.parent === 'string' && args.parent ? args.parent : undefined }, () => id('bookmark-folder'))
       save()
       return result
+    }
+    if (method === 'bookmark.reorder') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let direction = required(args, 'direction')
+      if (direction !== 'up' && direction !== 'down') throw new Error('Direction must be up or down')
+      let result = reorderBookmark(profile, required(args, 'bookmark'), direction)
+      if (result.moved) save()
+      return result
+    }
+    if (method === 'bookmark.update') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let title = args.title, url = args.url
+      if (title === undefined && url === undefined) throw new Error('Bookmark title or URL required')
+      if (title !== undefined && (typeof title !== 'string' || !title.trim() || title.length > 200)) throw new Error('Bookmark title must be between 1 and 200 characters')
+      if (url !== undefined && (typeof url !== 'string' || url.length > 4096 || !/^(https?:|file:)/i.test(url))) throw new Error('Bookmark URL must be an HTTP, HTTPS, or file URL')
+      let bookmark = updateBookmark(profile, required(args, 'bookmark'), { title: title === undefined ? undefined : (title as string).trim(), url: url as string | undefined })
+      save()
+      return bookmark
     }
     if (method === 'bookmark.parameters.update') {
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
