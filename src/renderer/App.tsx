@@ -269,7 +269,7 @@ let Status = () => {
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows.length])
   let reclaim = () => { void run('remote.reclaim') }
-  return <><button onClick={sessions} aria-label="Sessions" className={css.session}>[{session!.name}{session!.private && <PrivateIcon />}]</button>
+  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}>[<span className={css.sessionName}>{session!.name}</span>{session!.private && <PrivateIcon />}]</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
@@ -1084,7 +1084,7 @@ let SessionPicker = () => {
     {sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}
     {!backSession && !sessions.length && <p role="status">No matching sessions.</p>}
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button>
-    <button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy}>new private session</button>
+    <button className={`${css.listRow} ${css.newSession}`} onClick={createPrivate} disabled={busy} aria-label="new private session">new private session<PrivateIcon /></button>
   </div>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
