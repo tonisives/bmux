@@ -2,10 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseDocument, stringify } from 'yaml'
 import { initialModel, newSession, validateModel } from './model'
+import { updateBookmark } from './bookmarks'
 import type { Bookmark, Model } from '../shared/types'
 import { compactHistory } from '../shared/history'
 
 export let bookmarksPath = (configFile: string) => path.join(path.dirname(configFile), 'bookmarks.yaml')
+export let pendingBookmarkEditsPath = (bookmarkFile: string) => path.join(path.dirname(bookmarkFile), 'bookmark-edits.pending.json')
 let bookmarkProfiles = (model: Model) => Object.fromEntries(model.profiles.filter(profile => profile.bookmarks !== undefined).map(profile => [profile.id, profile.bookmarks]))
 
 let parseBookmarks = (text: string): Record<string, Bookmark[]> => {
@@ -54,6 +56,18 @@ export let readModel = (directory: string, bookmarkFile = path.join(directory, '
   } else if (model.profiles.some(profile => profile.bookmarks?.length)) {
     // Create the YAML copy before the next state save removes embedded bookmarks.
     writeAtomic(bookmarkFile, stringify({ profiles: bookmarkProfiles(model) }))
+  }
+  let pendingFile = pendingBookmarkEditsPath(bookmarkFile)
+  if (fs.existsSync(pendingFile)) {
+    let pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8')) as { updates?: { profile?: unknown; bookmark?: unknown; title?: unknown }[] }
+    if (!Array.isArray(pending.updates) || pending.updates.length > 100 || pending.updates.some(update => typeof update.profile !== 'string' || typeof update.bookmark !== 'string' || typeof update.title !== 'string' || !update.title.trim() || update.title.length > 200)) throw new Error('Invalid pending bookmark edits')
+    for (let update of pending.updates) {
+      let profile = model.profiles.find(profile => profile.id === update.profile)
+      if (!profile) throw new Error('Pending bookmark profile not found')
+      updateBookmark(profile, update.bookmark as string, { title: (update.title as string).trim() })
+    }
+    writeModel(directory, model, bookmarkFile)
+    fs.unlinkSync(pendingFile)
   }
   if (upgraded) {
     let backup = `${file}.v1-backup`
