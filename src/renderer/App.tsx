@@ -108,6 +108,7 @@ export let App = () => {
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
   }, [dismiss])
+  useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
   let { client, window } = selection(state)
@@ -129,6 +130,17 @@ export let App = () => {
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
 }
+
+let useAddressTabSwitch = (control: Control | null, clientId: string | undefined, run: UIContext['run']) => useEffect(() => {
+  if (control !== 'address' || !clientId) return
+  let switchWindow = (event: globalThis.KeyboardEvent) => {
+    if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey) return
+    event.preventDefault(); event.stopPropagation()
+    void run('cycle-window', { client: clientId, direction: event.shiftKey ? -1 : 1 })
+  }
+  document.addEventListener('keydown', switchWindow, true)
+  return () => document.removeEventListener('keydown', switchWindow, true)
+}, [control, clientId, run])
 
 let useBookmarkMemory = () => {
   let [bookmarkSearches, setBookmarkSearches] = useState<Record<string, string>>({})
@@ -949,18 +961,20 @@ let ExtensionManager = () => {
   </section>
 }
 
-let PluginList = ({ compact = false }: { compact?: boolean }) => {
+let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
   let { state, run, dismiss } = useUI()
   let [query, setQuery] = useState('')
   let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
-  return <>{!compact && <ToolStatus />}{!compact && <h2>Installed plugins</h2>}<SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
-    {!state.plugins?.length && <p>{compact ? 'No plugins installed.' : 'No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
-    {state.plugins?.map(plugin => <div key={plugin.id}><label><input type="checkbox" data-id={plugin.id} data-setting-plugin={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>
-      {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase())).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
-    {!compact && <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p>}<button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button></>
+  let show = (target: string) => !matches || matches.has(target)
+  return <>{!compact && <ToolStatus />}{!compact && <h2>Installed plugins</h2>}{!matches && <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />}
+    {!matches && !state.plugins?.length && <p>{compact ? 'No plugins installed.' : 'No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
+    {state.plugins?.filter(plugin => show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) || plugin.actions.some(action => show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))).map(plugin => <div key={plugin.id}>
+      {show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} data-setting-plugin={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>}
+      {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`)).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
+    {!compact && <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
 }
 let PluginActivity = () => {
   let { state, run } = useUI()
@@ -1611,12 +1625,13 @@ let ToolStatus = () => {
   </section>
 }
 
-let BrowserTools = ({ compact = false }: { compact?: boolean }) => {
+let BrowserTools = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
   let { state, run, show } = useUI()
   let { tab, profile } = selection(state)
   let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
   let [scope, setScope] = useState('site')
   let settings = scope === 'global' ? tools?.defaults : scope === 'profile' ? current?.profileDefaults : current
+  let included = (target: string) => !matches || matches.has(target)
   let changeScope = (event: ChangeEvent<HTMLSelectElement>) => setScope(event.target.value)
   let adblock = () => { void run('browser.set', { tab: tab?.id, setting: 'adblock', value: !settings?.adblock, scope }) }
   let dark = (event: ChangeEvent<HTMLSelectElement>) => { void run('browser.set', { tab: tab?.id, setting: 'darkMode', value: event.target.value, scope }) }
@@ -1626,37 +1641,38 @@ let BrowserTools = ({ compact = false }: { compact?: boolean }) => {
   let edit = () => { void run('settings.open') }
   let plugins = () => show('plugins')
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
-  return <>{!compact && <ToolStatus />}{!compact && <h2>Browser tool settings</h2>}<p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>
-    <div className={css.toolOptions}><label>Apply changes to<select data-setting-id="tool-scope" value={scope} onChange={changeScope}><option value="site">This site in this profile</option><option value="profile">This profile</option><option value="global">All profiles</option></select></label>
-      <button data-setting-id="adblock" onClick={adblock} disabled={!tab || (scope === 'site' && !current?.origin)} aria-pressed={settings?.adblock}>Ad and tracker blocking: {settings?.adblock ? 'on' : 'off'}</button>
-      <label>Website dark mode<select data-setting-id="dark-mode" value={settings?.darkMode ?? 'off'} onChange={dark} disabled={!tab || (scope === 'site' && !current?.origin)}><option value="off">Off</option><option value="dark">Dark Reader</option><option value="system">Follow system</option></select></label>
-      <button data-setting-id="reset-tools" onClick={inherit} disabled={!tab || (scope === 'site' && !current?.origin)}>Reset to inherited settings</button>
-    </div>
-    {!compact && scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
-    {current?.error && <p className={css.error}>{current.error}</p>}
-    <p>{compact ? `Blocked requests: ${current?.blocked ?? 0}` : `${current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.`}</p>
-    {!!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
-    {!compact && <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>}
-    {tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
-    <button data-setting-id="update-filters" onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>
-    <p>Userscripts and styles</p>
-    {tools?.scripts.length ? tools.scripts.map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} data-setting-script={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : <p>{compact ? 'No userscripts' : 'Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.'}</p>}
-    <button data-setting-id="reload-scripts" onClick={reload}>Reload scripts</button>{!compact && <><button onClick={edit}>Edit config</button><p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button></>}
+  return <>{!compact && <ToolStatus />}{!compact && <h2>Browser tool settings</h2>}{!matches && <p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>}
+    {(included('[data-setting-id="tool-scope"]') || included('[data-setting-id="adblock"]') || included('[data-setting-id="dark-mode"]') || included('[data-setting-id="reset-tools"]')) && <div className={css.toolOptions}>
+      {included('[data-setting-id="tool-scope"]') && <label>Apply changes to<select data-setting-id="tool-scope" value={scope} onChange={changeScope}><option value="site">This site in this profile</option><option value="profile">This profile</option><option value="global">All profiles</option></select></label>}
+      {included('[data-setting-id="adblock"]') && <button data-setting-id="adblock" onClick={adblock} disabled={!tab || (scope === 'site' && !current?.origin)} aria-pressed={settings?.adblock}>Ad and tracker blocking: {settings?.adblock ? 'on' : 'off'}</button>}
+      {included('[data-setting-id="dark-mode"]') && <label>Website dark mode<select data-setting-id="dark-mode" value={settings?.darkMode ?? 'off'} onChange={dark} disabled={!tab || (scope === 'site' && !current?.origin)}><option value="off">Off</option><option value="dark">Dark Reader</option><option value="system">Follow system</option></select></label>}
+      {included('[data-setting-id="reset-tools"]') && <button data-setting-id="reset-tools" onClick={inherit} disabled={!tab || (scope === 'site' && !current?.origin)}>Reset to inherited settings</button>}
+    </div>}
+    {!matches && !compact && scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
+    {!matches && current?.error && <p className={css.error}>{current.error}</p>}
+    {!matches && <p>{compact ? `Blocked requests: ${current?.blocked ?? 0}` : `${current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.`}</p>}
+    {!matches && !!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
+    {!matches && !compact && <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>}
+    {!matches && tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
+    {included('[data-setting-id="update-filters"]') && <button data-setting-id="update-filters" onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>}
+    {(!matches || tools?.scripts.some(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`))) && <p>Userscripts and styles</p>}
+    {tools?.scripts.length ? tools.scripts.filter(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`)).map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} data-setting-script={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : !matches && <p>{compact ? 'No userscripts' : 'Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.'}</p>}
+    {included('[data-setting-id="reload-scripts"]') && <button data-setting-id="reload-scripts" onClick={reload}>Reload scripts</button>}{!compact && <><button onClick={edit}>Edit config</button><p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button></>}
   </>
 }
 
 type SettingsTab = 'general' | 'appearance' | 'memory' | 'browser-tools' | 'keyboard' | 'plugins'
-type SettingsSearchItem = { tab: SettingsTab; label: string; keywords?: string; target: string }
+type SettingsSearchItem = { tab: SettingsTab; label: string; section?: string; keywords?: string; target: string }
 let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'browser-tools', label: 'Browser tools' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
-  { tab: 'general', label: 'Normal session search app', keywords: 'search engine', target: '[name="searchApps.normal"]' },
-  { tab: 'general', label: 'Private session search app', keywords: 'search engine', target: '[name="searchApps.private"]' },
-  { tab: 'general', label: 'Allow page inspection', keywords: 'accessibility screen readers', target: '[name="accessibility"]' },
-  { tab: 'general', label: 'Default browser', target: '[data-setting-id="default-browser"]' },
-  { tab: 'appearance', label: 'Status bar', keywords: 'browser layout top bottom', target: '[name="statusBar"]' },
-  { tab: 'appearance', label: 'Window close buttons', keywords: 'browser layout', target: '[name="showTabCloseButtons"]' },
-  { tab: 'appearance', label: 'Click mode', keywords: 'enabled', target: '[name="clickMode.enabled"]' },
-  { tab: 'appearance', label: 'Double tap to activate', keywords: 'click mode modifier', target: '[name="clickMode.doubleTapModifier"]' },
+  { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
+  { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
+  { tab: 'general', label: 'Allow page inspection', section: 'Accessibility', keywords: 'screen readers', target: '[name="accessibility"]' },
+  { tab: 'general', label: 'Default browser', section: 'Default browser', target: '[data-setting-id="default-browser"]' },
+  { tab: 'appearance', label: 'Status bar', section: 'Browser layout', keywords: 'top bottom', target: '[name="statusBar"]' },
+  { tab: 'appearance', label: 'Window close buttons', section: 'Browser layout', target: '[name="showTabCloseButtons"]' },
+  { tab: 'appearance', label: 'Click mode', section: 'Click mode', keywords: 'enabled', target: '[name="clickMode.enabled"]' },
+  { tab: 'appearance', label: 'Double tap to activate', section: 'Click mode', keywords: 'modifier', target: '[name="clickMode.doubleTapModifier"]' },
   { tab: 'memory', label: 'Load inactive sessions on demand', keywords: 'lazy restore', target: '[name="memory.lazyRestore"]' },
   { tab: 'memory', label: 'Unload idle pages', keywords: 'minutes', target: '[name="memory.idleUnloadMinutes"]' },
   { tab: 'browser-tools', label: 'Apply changes to', keywords: 'site profile global', target: '[data-setting-id="tool-scope"]' },
@@ -1671,50 +1687,67 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'plugins', label: 'Reload plugins', target: '[data-setting-id="reload-plugins"]' },
 ]
 let SearchAppOptions = () => <>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</>
-let GeneralSettings = ({ changeSetting, makeDefault }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void }) => {
+let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void; matches?: Set<string> }) => {
   let { state } = useUI()
+  let show = (target: string) => !matches || matches.has(target)
   return <>
-    <section className={css.settingsGroup} aria-label="Search apps"><h3>Search apps</h3>
-      <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>
-      <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>
-    </section>
-    <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
+    {(show('[name="searchApps.normal"]') || show('[name="searchApps.private"]')) && <section className={css.settingsGroup} aria-label="Search apps"><h3>Search apps</h3>
+      {show('[name="searchApps.normal"]') && <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>}
+      {show('[name="searchApps.private"]') && <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>}
+    </section>}
+    {show('[name="accessibility"]') && <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
       <label className={css.settingsRow}><span>Allow page inspection</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>
       <p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p>
-    </section>
-    <section className={css.settingsGroup} aria-label="Default browser"><h3>Default browser</h3>
+    </section>}
+    {show('[data-setting-id="default-browser"]') && <section className={css.settingsGroup} aria-label="Default browser"><h3>Default browser</h3>
       <button data-setting-id="default-browser" className={css.settingsDefaultBrowser} onClick={makeDefault}>Make bmux the default browser</button>
-    </section>
+    </section>}
   </>
 }
-let AppearanceSettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
+let AppearanceSettings = ({ changeSetting, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; matches?: Set<string> }) => {
   let { state } = useUI()
+  let show = (target: string) => !matches || matches.has(target)
   return <>
-    <section className={css.settingsGroup} aria-label="Browser layout"><h3>Browser layout</h3>
-      <label className={css.settingsRow}><span>Status bar</span><select name="statusBar" value={state.statusBar ?? 'top'} onChange={changeSetting}><option value="top">Top</option><option value="bottom">Bottom</option></select></label>
-      <label className={css.settingsRow}><span>Window close buttons</span><input type="checkbox" name="showTabCloseButtons" checked={state.showTabCloseButtons === true} onChange={changeSetting} /></label>
-    </section>
-    <section className={css.settingsGroup} aria-label="Click mode"><h3>Click mode</h3>
-      <label className={css.settingsRow}><span>Enabled</span><input type="checkbox" name="clickMode.enabled" checked={state.clickMode?.enabled !== false} onChange={changeSetting} /></label>
-      <label className={css.settingsRow}><span>Double tap to activate</span><select name="clickMode.doubleTapModifier" value={state.clickMode?.doubleTapModifier ?? 'none'} onChange={changeSetting} disabled={state.clickMode?.enabled === false}><option value="none">Off</option><option value="Option">Option</option><option value="Command">Command</option><option value="Control">Control</option><option value="Shift">Shift</option><option value="Escape">Escape</option></select></label>
-    </section>
+    {(show('[name="statusBar"]') || show('[name="showTabCloseButtons"]')) && <section className={css.settingsGroup} aria-label="Browser layout"><h3>Browser layout</h3>
+      {show('[name="statusBar"]') && <label className={css.settingsRow}><span>Status bar</span><select name="statusBar" value={state.statusBar ?? 'top'} onChange={changeSetting}><option value="top">Top</option><option value="bottom">Bottom</option></select></label>}
+      {show('[name="showTabCloseButtons"]') && <label className={css.settingsRow}><span>Window close buttons</span><input type="checkbox" name="showTabCloseButtons" checked={state.showTabCloseButtons === true} onChange={changeSetting} /></label>}
+    </section>}
+    {(show('[name="clickMode.enabled"]') || show('[name="clickMode.doubleTapModifier"]')) && <section className={css.settingsGroup} aria-label="Click mode"><h3>Click mode</h3>
+      {show('[name="clickMode.enabled"]') && <label className={css.settingsRow}><span>Enabled</span><input type="checkbox" name="clickMode.enabled" checked={state.clickMode?.enabled !== false} onChange={changeSetting} /></label>}
+      {show('[name="clickMode.doubleTapModifier"]') && <label className={css.settingsRow}><span>Double tap to activate</span><select name="clickMode.doubleTapModifier" value={state.clickMode?.doubleTapModifier ?? 'none'} onChange={changeSetting} disabled={state.clickMode?.enabled === false}><option value="none">Off</option><option value="Option">Option</option><option value="Command">Command</option><option value="Control">Control</option><option value="Shift">Shift</option><option value="Escape">Escape</option></select></label>}
+    </section>}
   </>
 }
-let MemorySettings = ({ changeSetting }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void }) => {
+let MemorySettings = ({ changeSetting, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; matches?: Set<string> }) => {
   let { state } = useUI()
   let minutes = state.memory?.idleUnloadMinutes ?? 0
+  let show = (target: string) => !matches || matches.has(target)
   return <>
-    <label className={css.settingsRow}><span>Load inactive sessions on demand</span><input type="checkbox" name="memory.lazyRestore" checked={state.memory?.lazyRestore !== false} onChange={changeSetting} /></label>
-    <p className={css.settingsHint}>Applies on the next launch. Agent commands load pages when addressed. Background profiles still start normally.</p>
-    <label className={css.settingsRow}><span>Unload idle pages</span><select name="memory.idleUnloadMinutes" value={minutes} onChange={changeSetting}><option value="0">Off</option><option value="5">After 5 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option><option value="60">After 1 hour</option>{![0, 5, 15, 30, 60].includes(minutes) && <option value={minutes}>After {minutes} minutes</option>}</select></label>
-    <p className={css.settingsHint}>Only hidden, inactive pages that pass safety checks are unloaded. Page memory and JavaScript state cannot always be restored; use Keep Page Loaded for important windows.</p>
+    {show('[name="memory.lazyRestore"]') && <><label className={css.settingsRow}><span>Load inactive sessions on demand</span><input type="checkbox" name="memory.lazyRestore" checked={state.memory?.lazyRestore !== false} onChange={changeSetting} /></label>
+    <p className={css.settingsHint}>Applies on the next launch. Agent commands load pages when addressed. Background profiles still start normally.</p></>}
+    {show('[name="memory.idleUnloadMinutes"]') && <><label className={css.settingsRow}><span>Unload idle pages</span><select name="memory.idleUnloadMinutes" value={minutes} onChange={changeSetting}><option value="0">Off</option><option value="5">After 5 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option><option value="60">After 1 hour</option>{![0, 5, 15, 30, 60].includes(minutes) && <option value={minutes}>After {minutes} minutes</option>}</select></label>
+    <p className={css.settingsHint}>Only hidden, inactive pages that pass safety checks are unloaded. Page memory and JavaScript state cannot always be restored; use Keep Page Loaded for important windows.</p></>}
   </>
 }
-let KeyboardSettings = ({ prefix, currentPrefix, changePrefix, savePrefix, edit }: { prefix: string; currentPrefix?: string; changePrefix: (event: ChangeEvent<HTMLInputElement>) => void; savePrefix: () => void; edit: () => void }) => <>
-  <label className={css.settingsRow}><span>Prefix</span><input type="text" aria-label="Keyboard prefix" value={prefix} onChange={changePrefix} /></label>
-  <button data-setting-id="save-prefix" onClick={savePrefix} disabled={prefix === currentPrefix}>Save prefix</button>
-  <button data-setting-id="edit-shortcuts" onClick={edit}>Edit shortcuts in config</button>
+let KeyboardSettings = ({ prefix, currentPrefix, changePrefix, savePrefix, edit, matches }: { prefix: string; currentPrefix?: string; changePrefix: (event: ChangeEvent<HTMLInputElement>) => void; savePrefix: () => void; edit: () => void; matches?: Set<string> }) => <>
+  {(!matches || matches.has('[aria-label="Keyboard prefix"]')) && <label className={css.settingsRow}><span>Prefix</span><input type="text" aria-label="Keyboard prefix" value={prefix} onChange={changePrefix} /></label>}
+  {(!matches || matches.has('[data-setting-id="save-prefix"]')) && <button data-setting-id="save-prefix" onClick={savePrefix} disabled={prefix === currentPrefix}>Save prefix</button>}
+  {(!matches || matches.has('[data-setting-id="edit-shortcuts"]')) && <button data-setting-id="edit-shortcuts" onClick={edit}>Edit shortcuts in config</button>}
 </>
+type SettingsSearchResultsProps = { results: SettingsSearchItem[]; changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void; prefix: string; currentPrefix?: string; changePrefix: (event: ChangeEvent<HTMLInputElement>) => void; savePrefix: () => void; edit: () => void }
+let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, currentPrefix, changePrefix, savePrefix, edit }: SettingsSearchResultsProps) => {
+  let matches = new Set(results.map(item => item.target))
+  let tabs = SETTINGS_TABS.filter(tab => results.some(item => item.tab === tab.id))
+  return <div className={css.settingsResults} role="group" aria-label="Settings search results">{tabs.map(tab => <section key={tab.id} className={css.settingsResultGroup} aria-label={tab.label}>
+    <h3>{tab.label}</h3>
+    {tab.id === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} matches={matches} />}
+    {tab.id === 'appearance' && <AppearanceSettings changeSetting={changeSetting} matches={matches} />}
+    {tab.id === 'memory' && <MemorySettings changeSetting={changeSetting} matches={matches} />}
+    {tab.id === 'browser-tools' && <BrowserTools compact matches={matches} />}
+    {tab.id === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={currentPrefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} matches={matches} />}
+    {tab.id === 'plugins' && <PluginList compact matches={matches} />}
+  </section>)}{!results.length && <p role="status">No matching settings.</p>}</div>
+}
 let SettingsContent = () => {
   let { state, run, onMessage } = useUI()
   let [tab, setTab] = useState<SettingsTab>('general')
@@ -1722,20 +1755,9 @@ let SettingsContent = () => {
   let [prefix, setPrefix] = useState(state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
   let root = useRef<HTMLDivElement>(null)
   let searchInput = useRef<HTMLInputElement>(null)
-  let pendingFocus = useRef<string | null>(null)
   useEffect(() => setPrefix(state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix), [state.keyboard?.prefix])
-  useEffect(() => {
-    if (query || !pendingFocus.current) return
-    let target = root.current?.querySelector<HTMLElement>(pendingFocus.current)
-    pendingFocus.current = null
-    target?.focus()
-    target?.scrollIntoView({ block: 'center' })
-  }, [tab, query])
   let makeDefault = async () => { if (await run('settings.default-browser')) onMessage('Default browser requested. Confirm any macOS prompt; you can also choose bmux in System Settings > Desktop & Dock.') }
   let changeTab = (event: MouseEvent<HTMLButtonElement>) => { setQuery(''); setTab(event.currentTarget.dataset.tab as SettingsTab) }
-  let stepTab = (direction: number) => { let index = SETTINGS_TABS.findIndex(item => item.id === tab); setQuery(''); setTab(SETTINGS_TABS[(index + direction + SETTINGS_TABS.length) % SETTINGS_TABS.length].id) }
-  let previousTab = () => stepTab(-1)
-  let nextTab = () => stepTab(1)
   let moveTab = (event: KeyboardEvent<HTMLDivElement>) => {
     let index = SETTINGS_TABS.findIndex(item => item.id === (event.target as HTMLElement).dataset.tab)
     if (index < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -1757,20 +1779,11 @@ let SettingsContent = () => {
     ...plugin.actions.map(action => ({ tab: 'plugins' as const, label: action.title, keywords: `${plugin.name} ${action.description ?? ''}`, target: `[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]` })),
   ]) ?? []
   let scriptItems: SettingsSearchItem[] = state.browserTools?.scripts.map(script => ({ tab: 'browser-tools', label: script.name, keywords: 'userscript style enabled', target: `[data-setting-script="${CSS.escape(script.id)}"]` })) ?? []
-  let results = query.trim() ? [...SETTINGS_SEARCH_ITEMS, ...pluginItems, ...scriptItems].map(item => ({ item, match: fuzzyMatch(query, `${item.label} ${SETTINGS_TABS.find(tab => tab.id === item.tab)?.label} ${item.keywords ?? ''}`) })).filter(result => result.match).sort((a, b) => b.match!.score - a.match!.score).map(result => result.item) : []
-  let openResult = (item: SettingsSearchItem) => { pendingFocus.current = item.target; setTab(item.tab); setQuery('') }
+  let results = query.trim() ? [...SETTINGS_SEARCH_ITEMS, ...pluginItems, ...scriptItems].map(item => ({ item, match: fuzzyMatch(query, `${item.label} ${item.section ?? ''} ${SETTINGS_TABS.find(tab => tab.id === item.tab)?.label} ${item.keywords ?? ''}`) })).filter(result => result.match).sort((a, b) => b.match!.score - a.match!.score).map(result => result.item) : []
+  let focusResult = () => root.current?.querySelector<HTMLElement>(`.${css.settingsResults} input:not(:disabled), .${css.settingsResults} select:not(:disabled), .${css.settingsResults} button:not(:disabled)`)?.focus()
   let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); return }
-    if (event.key === 'Enter' && results.length) { event.preventDefault(); openResult(results[0]); return }
-    if (event.key === 'ArrowDown' && results.length) { event.preventDefault(); root.current?.querySelector<HTMLButtonElement>('[data-setting-result]')?.focus() }
-  }
-  let resultKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return
-    let rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-setting-result]')]
-    let index = rows.findIndex(row => row === document.activeElement)
-    event.preventDefault()
-    if (index === 0 && event.key === 'ArrowUp') { searchInput.current?.focus(); return }
-    rows[(index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length]?.focus()
+    if (results.length && (event.key === 'Enter' || event.key === 'ArrowDown' || (event.key === 'Tab' && !event.shiftKey))) { event.preventDefault(); focusResult() }
   }
   let typeToSearch = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1 || event.key === ' ') return
@@ -1780,9 +1793,9 @@ let SettingsContent = () => {
   let changeSearch = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   return <div ref={root} className={css.settings} onKeyDown={typeToSearch}>
     <SearchInput ref={searchInput} aria-label="Search settings" placeholder="Search settings" value={query} onChange={changeSearch} onKeyDown={searchKeys} autoFocus />
-    <div className={css.settingsTabNavigation}><button type="button" className={css.settingsTabArrow} aria-label="Previous settings tab" onClick={previousTab}>‹</button><div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{SETTINGS_TABS.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div><button type="button" className={css.settingsTabArrow} aria-label="Next settings tab" onClick={nextTab}>›</button></div>
+    <div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{SETTINGS_TABS.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
     <section id="settings-panel" role="tabpanel" aria-label={SETTINGS_TABS.find(item => item.id === tab)?.label} className={css.settingsContent}>
-      {query.trim() ? <div className={css.settingsResults} role="group" aria-label="Settings search results" onKeyDown={resultKeys}>{results.map(item => <button key={`${item.tab}:${item.label}`} type="button" data-setting-result className={css.settingsResult} onClick={() => openResult(item)}><span>{item.label}</span><span>{SETTINGS_TABS.find(tab => tab.id === item.tab)?.label}</span></button>)}{!results.length && <p role="status">No matching settings.</p>}</div> : <>
+      {query.trim() ? <SettingsSearchResults results={results} changeSetting={changeSetting} makeDefault={makeDefault} prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} /> : <>
       {tab === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} />}
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
       {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}

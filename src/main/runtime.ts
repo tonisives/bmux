@@ -653,7 +653,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
-    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
+    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
@@ -698,6 +698,8 @@ export let createRuntime = (dataDirectory: string) => {
       if (doubleTap.update(input, clickSettings.enabled && selectedContents === contents ? clickSettings.doubleTapModifier : null)) { event.preventDefault(); void activateClickMode().catch(reportError); return }
       if (pendingModifierShortcut && (pendingModifierShortcut.clientId !== focusedClientId || pendingModifierShortcut.contentsId !== contents.id)) pendingModifierShortcut = undefined
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
+      // Native Tab traversal remains available in dialogs and command prompts.
+      if (input.key === 'Tab' && contents === focused.chrome.webContents && overlays.has(focusedClientId)) return
       let modifierKey = ['ShiftLeft', 'ShiftRight'].includes(input.code)
       if (modifierKey && input.type === 'keyDown') {
         let entry = Object.entries(keyboard.shortcuts).find(([key]) => isModifierKeyBinding(key) && matchesBinding(key, input))
