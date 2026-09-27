@@ -1043,7 +1043,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
   }
   return { ref, keys, input, query, setQuery, change }
 }
-let PrivateIcon = () => <svg className={css.privateIcon} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Private session" role="img"><path d="M4 8.5h12M7 8.5l1-5h4l1 5M3 12h3m8 0h3M6 12a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Zm5 0a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Z" /></svg>
+let PrivateIcon = () => <svg className={`${css.statusIcon} ${css.privateIcon}`} viewBox="0 0 20 20" aria-label="Private session" role="img"><rect x="5" y="9" width="10" height="8" rx="1" /><path d="M7 9V6a3 3 0 0 1 6 0v3" /></svg>
 let SessionPicker = () => {
   let { state, run } = useUI()
   let [busy, setBusy] = useState(false)
