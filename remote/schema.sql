@@ -2,8 +2,15 @@ CREATE TABLE IF NOT EXISTS bmux_services (
   id text PRIMARY KEY,
   owner text NOT NULL,
   token_hash text NOT NULL UNIQUE,
-  public_key jsonb NOT NULL,
+  public_key jsonb,
   revoked boolean NOT NULL DEFAULT false
+);
+ALTER TABLE bmux_services ALTER COLUMN public_key DROP NOT NULL;
+CREATE TABLE IF NOT EXISTS bmux_grants (
+  service text NOT NULL REFERENCES bmux_services(id) ON DELETE CASCADE,
+  user_id text NOT NULL,
+  permission text NOT NULL CHECK (permission IN ('watch', 'control')),
+  PRIMARY KEY (service, user_id)
 );
 CREATE TABLE IF NOT EXISTS bmux_devices (
   id text PRIMARY KEY,

@@ -7,7 +7,7 @@ import type { createRuntime } from './runtime'
 import type { RemoteEnvelope } from '../shared/remote'
 
 type PublicKey = { kty: string; crv: string; x: string }
-type Config = { url: string; token: string; identityFile: string; approvedClients: Record<string, PublicKey> }
+type Config = { url: string; token: string; identityFile?: string }
 type Stream = { close: () => void; answer: (sdp: RTCSessionDescriptionInit) => void; send: (data: string) => void }
 export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directory: string, configFile: string) => {
   let config = (): Config => {
@@ -15,14 +15,16 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let value = JSON.parse(fs.readFileSync(configFile, 'utf8')) as Config
     let url = new URL(value.url)
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === '127.0.0.1')) throw new Error('Remote service requires HTTPS')
-    if (!value.token || !value.identityFile || !value.approvedClients || typeof value.approvedClients !== 'object') throw new Error('Invalid remote configuration')
+    if (!value.token) throw new Error('Invalid remote configuration')
     return value
   }
-  let initial = config(), identity = remoteIdentity(initial.identityFile)
+  let initial = config(), identity = remoteIdentity(initial.identityFile ?? path.join(directory, 'remote-identity.pem'))
   let hostFile = path.join(directory, 'remote-host-id')
   if (!fs.existsSync(hostFile)) fs.writeFileSync(hostFile, randomUUID(), { mode: 0o600, flag: 'wx' })
   let hostId = fs.readFileSync(hostFile, 'utf8').trim(), generation = randomUUID()
-  let verify = createEnvelopeVerifier(hostId, generation, () => config().approvedClients)
+  let authorized = new Map<string, { key: PublicKey; permission: 'watch' | 'control' }>()
+  let allowed = (id: string) => authorized.get(id)?.permission
+  let verify = createEnvelopeVerifier(hostId, generation, () => Object.fromEntries([...authorized].map(([id, value]) => [id, value.key])))
   let socket: WebSocket | undefined, stopped = false, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
   let opening = new Map<string, symbol>()
   let streams = new Map<string, { peer: Stream; pane: string }>(), iceServers: RTCIceServer[] = []
@@ -34,7 +36,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let signal = (to: string, payload: unknown) => send({ type: 'signal', to, envelope: identity.seal(to, generation, payload) })
   let state = (id: string) => { let stream = streams.get(id); stream?.peer.send(JSON.stringify({ type: 'state', ...runtime.remote.state(), pane: stream.pane })) }
   let open = async (id: string, pane?: string) => {
-    if (!config().approvedClients[id]) throw new Error('Device is not approved')
+    if (!allowed(id)) throw new Error('Access revoked')
     if (!streams.has(id) && !opening.has(id) && streams.size + opening.size >= 8) throw new Error('Viewer capacity reached')
     disconnect(id)
     let attempt = Symbol(); opening.set(id, attempt)
@@ -47,12 +49,13 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       data: raw => {
         void (async () => {
           if (streams.get(id)?.peer !== peer) return
-          if (!config().approvedClients[id]) { disconnect(id); return }
+          if (!allowed(id)) { disconnect(id); return }
           let message = JSON.parse(raw)
           if (!message || typeof message !== 'object' || typeof message.type !== 'string') throw new Error('Invalid command')
           let result: unknown
           if (message.type === 'state') { state(id); return }
           if (message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane); return }
+          if (allowed(id) !== 'control') throw new Error('Watch only access')
           if (message.type === 'acquire') result = runtime.remote.acquire(String(message.session), id, message.takeover === true)
           else if (message.type === 'renew') result = runtime.remote.renew(String(message.session), id, Number(message.generation))
           else if (message.type === 'release') { runtime.remote.release(String(message.session), id); result = { released: true } }
@@ -71,12 +74,12 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           } else throw new Error('Remote command is not allowed')
           streams.get(id)?.peer.send(JSON.stringify({ type: 'result', request: message.request, result }))
           state(id)
-        })().catch(error => streams.get(id)?.peer.send(JSON.stringify({ type: 'error', error: error instanceof Error && ['CONTROL_HELD','CONTROL_EXPIRED'].includes(error.message) ? error.message : 'Remote operation failed' })))
+        })().catch(error => streams.get(id)?.peer.send(JSON.stringify({ type: 'error', error: error instanceof Error && ['CONTROL_HELD','CONTROL_EXPIRED','Watch only access'].includes(error.message) ? error.message : 'Remote operation failed' })))
       },
       closed: () => { if (streams.get(id)?.peer === peer) { streams.delete(id); runtime.remote.disconnect(id) } },
     })
     } catch (error) { if (opening.get(id) === attempt) opening.delete(id); throw error }
-    if (opening.get(id) !== attempt || !config().approvedClients[id] || stopped || socket?.readyState !== WebSocket.OPEN) { peer.close(); return }
+    if (opening.get(id) !== attempt || !allowed(id) || stopped || socket?.readyState !== WebSocket.OPEN) { peer.close(); return }
     opening.delete(id)
     streams.set(id, { peer, pane: selected })
   }
@@ -85,18 +88,24 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let current = config(), url = new URL('/connect', current.url)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('host', hostId); url.searchParams.set('generation', generation)
+    url.searchParams.set('key', Buffer.from(JSON.stringify(identity.publicKey)).toString('base64url'))
     socket = new WebSocket(url, { headers: { Authorization: `Bearer ${current.token}` }, maxPayload: 262144, handshakeTimeout: 10000 })
     socket.on('error', () => undefined)
     socket.on('message', raw => {
       void (async () => {
         let message = JSON.parse(raw.toString())
         if (message.type === 'ready') { iceServers = message.iceServers; backoff = 1000; return }
-        if (message.type === 'revoked' || message.type === 'disconnected') { disconnect(message.id); return }
+        if (message.type === 'authorized') {
+          if (message.permission !== 'watch' && message.permission !== 'control') return
+          if (authorized.get(message.id)?.permission === 'control' && message.permission === 'watch') runtime.remote.disconnect(message.id)
+          authorized.set(message.id, { key: message.key, permission: message.permission }); return
+        }
+        if (message.type === 'revoked' || message.type === 'disconnected') { authorized.delete(message.id); disconnect(message.id); return }
         if (message.type !== 'signal') return
         let envelope = message.envelope as RemoteEnvelope
         if (envelope.from !== message.from) throw new Error('Identity mismatch')
         let payload = verify(envelope)
-        if (payload.type === 'open') await open(message.from)
+        if (payload.type === 'open') { try { await open(message.from) } catch (error) { signal(message.from, { type: 'error', error: error instanceof Error ? error.message : 'Unable to watch' }) } }
         else if (payload.type === 'answer') streams.get(message.from)?.peer.answer(payload.sdp as RTCSessionDescriptionInit)
         else if (payload.type === 'close') disconnect(message.from)
       })().catch(() => undefined)
@@ -120,7 +129,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   }
   let timer = setInterval(() => {
     usage()
-    try { for (let id of streams.keys()) { if (!config().approvedClients[id]) disconnect(id); else state(id) } } catch { for (let id of streams.keys()) disconnect(id) }
+    try { for (let id of streams.keys()) { if (!allowed(id)) disconnect(id); else state(id) } } catch { for (let id of streams.keys()) disconnect(id) }
   }, 5000)
   let close = () => { opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
   connect()

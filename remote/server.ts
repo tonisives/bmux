@@ -24,8 +24,25 @@ type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'view
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number }>()
 let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
-let hostsFor = (owner: string) => [...peers.values()].filter(peer => peer.owner === owner && peer.role === 'host').map(peer => ({ id: peer.id, generation: peer.generation, service: peer.service, key: peer.key }))
-let publish = (owner: string) => { for (let peer of peers.values()) if (peer.owner === owner && peer.role === 'viewer') send(peer, { type: 'hosts', hosts: hostsFor(owner) }) }
+let permission = async (user: string, host: Peer): Promise<'watch' | 'control' | undefined> => {
+  if (user === host.owner) return 'control'
+  let result = await pool.query('SELECT permission FROM bmux_grants WHERE service=$1 AND user_id=$2', [host.service, user])
+  return result.rows[0]?.permission
+}
+let publish = async () => {
+  for (let viewer of peers.values()) {
+    if (viewer.role !== 'viewer') continue
+    let granted = await pool.query('SELECT service,permission FROM bmux_grants WHERE user_id=$1', [viewer.owner])
+    let accessByService = new Map<string, 'watch' | 'control'>(granted.rows.map(row => [row.service, row.permission]))
+    let hosts = []
+    for (let host of peers.values()) {
+      if (host.role !== 'host') continue
+      let access = viewer.owner === host.owner ? 'control' : accessByService.get(host.service!)
+      if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access })
+    }
+    send(viewer, { type: 'hosts', hosts })
+  }
+}
 let body = async (request: http.IncomingMessage) => {
   let text = ''
   for await (let chunk of request) { text += chunk; if (text.length > 131072) throw new Error('Request too large') }
@@ -58,6 +75,46 @@ let server = http.createServer((request, response) => {
     if (url.pathname.startsWith('/api/')) {
       let owner = await login(request)
       if (request.method === 'GET' && url.pathname === '/api/me') { json(200, { owner }); return }
+      if (request.method === 'GET' && url.pathname === '/api/services') {
+        let result = await pool.query('SELECT id,revoked FROM bmux_services WHERE owner=$1 ORDER BY id', [owner])
+        json(200, result.rows); return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/services') {
+        let { service } = await body(request)
+        if (typeof service !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(service)) { json(400, { error: 'Use lowercase letters, numbers and hyphens for the service name' }); return }
+        let key = randomBytes(32).toString('hex')
+        let created = await pool.query('INSERT INTO bmux_services (id,owner,token_hash) VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING RETURNING id', [service, owner, digest(key)])
+        if (!created.rowCount) { json(409, { error: 'Service name unavailable' }); return }
+        json(200, { service, key }); return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/services/revoke') {
+        let { service } = await body(request)
+        await pool.query('UPDATE bmux_services SET revoked=true WHERE id=$1 AND owner=$2', [service, owner])
+        for (let peer of peers.values()) if (peer.role === 'host' && peer.service === service && peer.owner === owner) peer.socket.close(1008, 'Revoked')
+        json(200, { ok: true }); return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/services/rotate') {
+        let { service } = await body(request), key = randomBytes(32).toString('hex')
+        let changed = await pool.query('UPDATE bmux_services SET token_hash=$1 WHERE id=$2 AND owner=$3 AND NOT revoked RETURNING id', [digest(key), service, owner])
+        if (!changed.rowCount) { json(404, { error: 'Service not found' }); return }
+        for (let peer of peers.values()) if (peer.role === 'host' && peer.service === service && peer.owner === owner) peer.socket.close(1008, 'Key rotated')
+        json(200, { service, key }); return
+      }
+      if (request.method === 'GET' && url.pathname === '/api/grants') {
+        let result = await pool.query('SELECT g.service,g.user_id,g.permission FROM bmux_grants g JOIN bmux_services s ON s.id=g.service WHERE s.owner=$1 ORDER BY g.service,g.user_id', [owner])
+        json(200, result.rows); return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/grants') {
+        let { service, user, permission: access } = await body(request)
+        if (typeof user !== 'string' || !/^[0-9]{1,32}$/.test(user) || !['watch', 'control', null].includes(access)) { json(400, { error: 'Enter a valid account ID and permission' }); return }
+        let found = await pool.query('SELECT revoked FROM bmux_services WHERE id=$1 AND owner=$2', [service, owner])
+        if (!found.rowCount || user === owner || (access && found.rows[0].revoked)) { json(400, { error: 'Choose an active service and another account' }); return }
+        if (access) await pool.query('INSERT INTO bmux_grants (service,user_id,permission) VALUES ($1,$2,$3) ON CONFLICT (service,user_id) DO UPDATE SET permission=excluded.permission', [service, user, access])
+        else await pool.query('DELETE FROM bmux_grants WHERE service=$1 AND user_id=$2', [service, user])
+        for (let peer of peers.values()) if (peer.role === 'viewer' && peer.owner === user) for (let host of peers.values()) if (host.role === 'host' && host.service === service) send(host, { type: access ? 'authorized' : 'revoked', id: peer.id, key: peer.key, permission: access })
+        void publish().catch(() => undefined)
+        json(200, { ok: true }); return
+      }
       if (request.method === 'POST' && url.pathname === '/api/connect') {
         let { publicKey } = await body(request), id = keyId(publicKey)
         let found = await pool.query('SELECT owner,revoked FROM bmux_devices WHERE id=$1', [id])
@@ -77,7 +134,7 @@ let server = http.createServer((request, response) => {
         await pool.query('UPDATE bmux_devices SET revoked=true WHERE id=$1 AND owner=$2', [id, owner])
         if (peers.get(id)?.owner !== owner) { json(200, { ok: true }); return }
         peers.get(id)?.socket.close(1008, 'Revoked')
-        for (let peer of peers.values()) if (peer.owner === owner && peer.role === 'host') send(peer, { type: 'revoked', id })
+        for (let peer of peers.values()) if (peer.role === 'host' && await permission(owner, peer)) send(peer, { type: 'revoked', id })
         json(200, { ok: true }); return
       }
       json(404, { error: 'Not found' }); return
@@ -105,7 +162,11 @@ server.on('upgrade', (request, socket, head) => {
       if (!found.rowCount) throw new Error('Invalid enrollment')
       let id = url.searchParams.get('host'), generation = url.searchParams.get('generation')
       if (!id || !generation || !/^[a-f0-9-]{36}$/.test(id) || !/^[a-f0-9-]{36}$/.test(generation) || peers.has(id)) throw new Error('Invalid host identity')
-      peer = { owner: found.rows[0].owner, id, role: 'host', service: found.rows[0].id, generation, key: found.rows[0].public_key, alive: true }
+      let supplied = url.searchParams.get('key')
+      let key = supplied ? JSON.parse(Buffer.from(supplied, 'base64url').toString()) : found.rows[0].public_key
+      if (!key) throw new Error('Host key required')
+      keyId(key)
+      peer = { owner: found.rows[0].owner, id, role: 'host', service: found.rows[0].id, generation, key, alive: true }
     } else {
       if (request.headers.origin !== publicOrigin) throw new Error('Invalid origin')
       let ticket = url.searchParams.get('ticket') ?? '', enrollment = tickets.get(ticket)
@@ -122,13 +183,18 @@ server.on('upgrade', (request, socket, head) => {
       connection.on('pong', () => { current.alive = true })
       connection.on('error', () => undefined)
       send(current, { type: 'ready', id: current.id, iceServers: ice(current.id) })
-      publish(current.owner)
+      void publish().catch(() => undefined)
       connection.on('message', raw => {
         void (async () => {
           let message = JSON.parse(raw.toString())
           if (message.type === 'signal') {
             let target = peers.get(message.to)
-            if (!target || target.owner !== current.owner || target.role === current.role) throw new Error('Invalid route')
+            if (!target || target.role === current.role) throw new Error('Invalid route')
+            let host = current.role === 'host' ? current : target
+            let viewer = current.role === 'viewer' ? current : target
+            let access = await permission(viewer.owner, host)
+            if (!access) { send(current, { type: 'signal-error', to: target.id, error: 'Access revoked' }); return }
+            if (current.role === 'viewer') send(host, { type: 'authorized', id: viewer.id, key: viewer.key, permission: access })
             send(target, { type: 'signal', from: current.id, envelope: message.envelope }); return
           }
           if (message.type === 'usage' && current.role === 'host') {
@@ -140,7 +206,12 @@ server.on('upgrade', (request, socket, head) => {
           }
         })().catch(() => connection.close(1008, 'Invalid message'))
       })
-      connection.on('close', () => { if (peers.get(current.id) !== current) return; peers.delete(current.id); publish(current.owner); for (let other of peers.values()) if (other.owner === current.owner) send(other, { type: 'disconnected', id: current.id }) })
+      connection.on('close', () => {
+        if (peers.get(current.id) !== current) return
+        peers.delete(current.id)
+        void publish().catch(() => undefined)
+        void (async () => { for (let other of peers.values()) if (other.role !== current.role && await permission(current.role === 'viewer' ? current.owner : other.owner, current.role === 'host' ? current : other)) send(other, { type: 'disconnected', id: current.id }) })().catch(() => undefined)
+      })
     })
   })().catch(() => socket.destroy())
 })

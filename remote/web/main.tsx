@@ -8,8 +8,13 @@ import styles from './style.module.css'
 type Viewer = Awaited<ReturnType<typeof createViewer>>
 let App = () => {
   let [viewer, setViewer] = useState<Viewer>(), [hosts, setHosts] = useState<Host[]>([]), [state, setState] = useState<State>()
-  let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [trusted, setTrusted] = useState('')
-  let [selected, setSelected] = useState<Host>(), [usage, setUsage] = useState<{ service: string; started: number; succeeded: number; failed: number; browser_ms: number }[]>([])
+  let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
+  let [selectedId, setSelectedId] = useState(''), [usage, setUsage] = useState<{ service: string; started: number; succeeded: number; failed: number; browser_ms: number }[]>([])
+  let [owner, setOwner] = useState(''), [services, setServices] = useState<{ id: string; revoked: boolean }[]>([])
+  let [serviceName, setServiceName] = useState(''), [createdKey, setCreatedKey] = useState(''), [keyService, setKeyService] = useState('')
+  let [grantService, setGrantService] = useState(''), [grantUser, setGrantUser] = useState(''), [grantPermission, setGrantPermission] = useState<'watch' | 'control'>('watch')
+  let [grants, setGrants] = useState<{ service: string; user_id: string; permission: string }[]>([])
+  let selected = hosts.find(host => host.id === selectedId)
   let video = useRef<HTMLVideoElement>(null), loginButton = useRef<HTMLDivElement>(null), active = useRef<Viewer | undefined>(undefined)
   let viewport = state && state.viewports[state.pane]
   let session = state?.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
@@ -17,9 +22,11 @@ let App = () => {
   let report = (error: unknown) => setError(error instanceof Error ? error.message : 'Operation failed')
   let connect = async () => {
     active.current?.close(); setState(undefined); setError('')
-    let next = await createViewer({ hosts: setHosts, stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } }, state: setState, error: setError, disconnected: () => { setState(undefined); setError('Disconnected. Reconnect to continue.') } })
+    if (video.current) video.current.srcObject = null
+    let next = await createViewer({ hosts: setHosts, stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } }, state: setState, error: setError, disconnected: () => { if (video.current) video.current.srcObject = null; setState(undefined); setError('Disconnected. Reconnect to continue.') } })
     active.current = next; setViewer(next)
-    setUsage(await api('/api/usage'))
+    let [account, listed, access, counts] = await Promise.all([api('/api/me'), api('/api/services'), api('/api/grants'), api('/api/usage')])
+    setOwner(account.owner); setServices(listed); setGrants(access); setUsage(counts)
   }
   useEffect(() => {
     let cancelled = false
@@ -47,16 +54,18 @@ let App = () => {
     return () => clearInterval(timer)
   }, [viewer])
   let reconnect = () => { void connect().catch(report) }
-  let chooseHost = (event: ChangeEvent<HTMLSelectElement>) => { let host = hosts.find(host => host.id === event.target.value); setSelected(host); setTrusted(host ? localStorage.getItem(`bmux-trust-${host.service}`) ?? '' : '') }
+  let chooseHost = (event: ChangeEvent<HTMLSelectElement>) => { setSelectedId(event.target.value); setState(undefined); setError('') }
   let watch = () => {
     if (!viewer || !selected) return
-    void viewer.watch(selected, trusted.trim()).then(() => { localStorage.setItem(`bmux-trust-${selected.service}`, trusted.trim()); setError('') }).catch(report)
+    setWatching(true); setState(undefined); setError('')
+    if (video.current) video.current.srcObject = null
+    void viewer.watch(selected).catch(report).finally(() => setWatching(false))
   }
-  let downloadKey = () => {
-    if (!viewer) return
-    let url = URL.createObjectURL(new Blob([JSON.stringify(viewer.publicKey, null, 2)], { type: 'application/json' }))
-    let anchor = document.createElement('a'); anchor.href = url; anchor.download = 'bmux-viewer-public-key.json'; anchor.click(); URL.revokeObjectURL(url)
-  }
+  let createService = (event: FormEvent) => { event.preventDefault(); void api('/api/services', { service: serviceName.trim() }).then(async (result) => { setCreatedKey(result.key); setKeyService(result.service); setServiceName(''); setServices(await api('/api/services')); setError('') }).catch(report) }
+  let rotateService = (service: string) => { void api('/api/services/rotate', { service }).then(result => { setCreatedKey(result.key); setKeyService(result.service); setError('') }).catch(report) }
+  let revokeService = (service: string) => { if (!window.confirm(`Revoke ${service} and disconnect its hosts?`)) return; void api('/api/services/revoke', { service }).then(async () => { setServices(await api('/api/services')); setError('') }).catch(report) }
+  let saveGrant = (event: FormEvent) => { event.preventDefault(); void api('/api/grants', { service: grantService, user: grantUser.trim(), permission: grantPermission }).then(async () => { setGrants(await api('/api/grants')); setGrantUser(''); setError('') }).catch(report) }
+  let removeGrant = (service: string, user: string) => { void api('/api/grants', { service, user, permission: null }).then(async () => setGrants(await api('/api/grants'))).catch(report) }
   let resize = () => { if (controlling && video.current) viewer?.send({ type: 'resize', generation: lease?.generation, width: Math.max(320, Math.min(1920, Math.round(video.current.clientWidth))), height: Math.max(200, Math.min(1080, Math.round(video.current.clientWidth * .625))) }) }
   let acquire = () => { if (session) viewer?.send({ type: 'acquire', session: session.id, takeover: !!lease }) }
   let release = () => { if (session) viewer?.send({ type: 'release', session: session.id }) }
@@ -84,7 +93,6 @@ let App = () => {
     let modifiers = [event.shiftKey && 'shift', event.ctrlKey && 'control', event.altKey && 'alt', event.metaKey && 'meta'].filter(Boolean)
     viewer?.send({ type: 'input', generation: lease?.generation, viewportGeneration: viewport?.generation, event: { type: event.type === 'keyup' ? 'keyUp' : event.key.length === 1 && !event.ctrlKey && !event.metaKey ? 'char' : 'keyDown', keyCode, modifiers } })
   }
-  let changeTrusted = (event: ChangeEvent<HTMLInputElement>) => setTrusted(event.target.value)
   let changeAddress = (event: ChangeEvent<HTMLInputElement>) => setAddress(event.target.value)
   let changeText = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let enter = () => command('key', { key: 'Enter' })
@@ -92,20 +100,30 @@ let App = () => {
   return <main className={styles.main}>
     <header className={styles.header}><h1>bmux</h1><div ref={loginButton} /><button onClick={reconnect}>Reconnect</button></header>
     {error && <p role="status">{error}</p>}
-    {viewer && <details><summary>Device pairing</summary><p>Approve this device on the host before watching.</p><code>{viewer.id}</code><button onClick={downloadKey}>Download public key</button></details>}
+    {viewer && <p>Your account ID: <code>{owner}</code></p>}
     <section className={styles.row}>
       <select aria-label="Host" onChange={chooseHost} value={selected?.id ?? ''}><option value="">Choose host</option>{hosts.map(host => <option key={host.id} value={host.id}>{host.service} · {host.id.slice(0,8)}</option>)}</select>
-      <input aria-label="Trusted host fingerprint" placeholder="Host fingerprint from enrollment" value={trusted} onChange={changeTrusted} />
-      <button onClick={watch} disabled={!selected || !viewer}>Watch</button>
+      <button onClick={watch} disabled={!selected || !viewer || watching}>{watching ? 'Connecting' : 'Watch'}</button>
     </section>
     {state && <section className={styles.row}>
       <select aria-label="Pane" value={state.pane} onChange={choosePane}>{state.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => <option key={pane.id} value={pane.id}>{session.name} · {pane.title || pane.url || 'Blank page'}</option>)))}</select>
-      {controlling ? <button onClick={release}>Release control</button> : <button onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>}
+      {selected?.permission === 'control' && (controlling ? <button onClick={release}>Release control</button> : <button onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
       <span>{controlling ? 'You control this session' : 'Watching'}</span>{controlling && <button onClick={resize}>Fit viewport</button>}
     </section>}
     {controlling && <form className={styles.row} onSubmit={navigate}><button type="button" onClick={back}>Back</button><button type="button" onClick={forward}>Forward</button><button type="button" onClick={reload}>Reload</button><input aria-label="Address" value={address} onChange={changeAddress} /><button>Go</button></form>}
     <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
     {controlling && <form className={styles.row} onSubmit={sendText}><input aria-label="Type into page" value={text} onChange={changeText} /><button>Type</button><button type="button" onClick={enter}>Enter</button></form>}
+    {viewer && <details><summary>Services and access</summary>
+      <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
+      {createdKey && <p>Save the key for {keyService} now. It is shown once: <code>{createdKey}</code><button onClick={() => setCreatedKey('')}>Dismiss</button></p>}
+      {services.filter(service => !service.revoked).map(service => <p key={service.id}>{service.id} <button onClick={() => rotateService(service.id)}>Rotate key</button> <button onClick={() => revokeService(service.id)}>Revoke</button></p>)}
+      {services.filter(service => !service.revoked).length > 0 && <form className={styles.row} onSubmit={saveGrant}>
+        <select aria-label="Grant service" value={grantService} onChange={event => setGrantService(event.target.value)} required><option value="">Service</option>{services.filter(service => !service.revoked).map(service => <option key={service.id}>{service.id}</option>)}</select>
+        <input aria-label="User account ID" placeholder="User account ID" value={grantUser} onChange={event => setGrantUser(event.target.value)} required />
+        <select aria-label="Permission" value={grantPermission} onChange={event => setGrantPermission(event.target.value as 'watch' | 'control')}><option value="watch">Watch</option><option value="control">Control</option></select><button>Grant</button>
+      </form>}
+      {grants.map(grant => <p key={`${grant.service}:${grant.user_id}`}>{grant.service} · <code>{grant.user_id}</code> · {grant.permission} <button onClick={() => removeGrant(grant.service, grant.user_id)}>Remove</button></p>)}
+    </details>}
     {usage.length > 0 && <table><caption>Service usage · last 30 days</caption><thead><tr><th>Service</th><th>Started</th><th>Succeeded</th><th>Failed</th><th>Active minutes</th></tr></thead><tbody>{usage.map(item => <tr key={item.service}><td>{item.service}</td><td>{item.started}</td><td>{item.succeeded}</td><td>{item.failed}</td><td>{Math.round(item.browser_ms / 60000)}</td></tr>)}</tbody></table>}
   </main>
 }

@@ -61,48 +61,45 @@ an ingress that forwards WebSocket upgrades. coturn needs its own reachable rela
 address and UDP port range; an HTTP ingress cannot carry TURN. Keep the TURN
 shared secret only in service/TURN secret stores. Runtime code never prints it.
 
-Hosts connect outbound using revocable service credentials. Google login grants
-access to account discovery and metrics; a host separately approves browser access.
-The signaling server stores service/device registrations and operational metadata.
-Video, input, page URLs, titles and session state travel inside WebRTC. Signed
-negotiation binds SDP fingerprints, recipient, runtime generation, nonce and expiry
-to an approved Ed25519 key. A viewer pins the service's host key before watching.
-The web origin serving the viewer remains trusted.
+Hosts connect outbound using revocable service API keys. Google login grants
+access to owned services and services shared with the signed-in account. The relay
+stores service keys as hashes, account grants, device public keys and operational
+metadata. Video, input, page URLs, titles and session state travel inside WebRTC.
+Signed negotiation binds SDP fingerprints, recipient, runtime generation, nonce
+and expiry to the host and viewer keys authenticated by the relay. The web origin
+and relay are trusted to identify hosts and enforce account grants.
 
-## Enroll and pair
+## Create a service and grant access
 
-On an administrative machine with `DATABASE_URL` configured:
+Sign in at the remote viewer and open **Services and access**. Create a service
+name and save the API key shown once. Give each agent that hosts the service a
+mode-600 configuration file such as:
 
-```sh
-pnpm remote:admin enroll --owner GOOGLE_ACCOUNT_SUB --service sitelytics-pilot \
-  --url https://remote.example.com --output /private/path/host.json
+```json
+{
+  "url": "https://remote.bmux.cc",
+  "token": "SERVICE_API_KEY"
+}
 ```
 
-This writes a mode-600 credential file and a separate mode-600 identity file.
-Mount both into the worker and adjust `identityFile` in the credential file to its
-container path. Set `BMUX_REMOTE_CONFIG` to the credential file. Each service
-credential is scoped to an account and service. Replica hosts share that service
-identity and get separate host IDs and runtime generations. Protect the service
-key as an authority for all of its replicas.
+Set `BMUX_REMOTE_CONFIG` to this file. The host creates its own identity in its
+data directory and registers the public key when it connects. The service API
+key stays the same as the agent starts and closes hosts, sessions and panes.
+Each host has a separate host ID and generation. Protect the API key: anyone
+holding it can connect a host to the service. Revoke the service to disconnect
+its hosts and invalidate the key.
 
-Sign in to the web viewer, connect, and download its public key. Compare the device
-fingerprint displayed in the viewer, then approve it locally:
+The owner can watch and control every host in the service. For another user, ask
+them to sign in and send their account ID shown on the viewer page. Grant that ID
+**Watch** or **Control** access under **Services and access**. Watch allows video
+and pane selection. Control also allows the user to acquire a session lease and
+send input. Removing a grant disconnects that user's active streams. The viewer
+does not require a host fingerprint or per-browser approval.
 
-```sh
-pnpm remote:admin approve --config /private/path/host.json \
-  --key /path/viewer-public-key.json --fingerprint VERIFIED_DEVICE_FINGERPRINT
-```
-
-Distribute the updated approved-client configuration to the service's hosts.
-Hosts reread approvals without restarting. Enter the host fingerprint printed by
-enrollment into the viewer once per service, then select Watch. Use
-`bmux remote status` on a host to retrieve its fingerprint and presence.
-
-To revoke locally, use `remote:admin revoke --config ... --fingerprint ...`.
-Account owners can revoke a device through `POST /api/revoke` with their login
-session; this closes its active connections. Setting a service's `revoked` field
-in PostgreSQL terminates its discovery connection within 15 seconds. There is no
-insecure automatic trust fallback if a key changes.
+Existing `remote:admin enroll` configurations remain supported. Their service
+tokens can connect without a new config file, and hosts can use their existing
+identity files. Owners can revoke a browser device through `POST /api/revoke`.
+Watch reports a host rejection or timeout instead of showing an idle video area.
 
 ## Control and reporting
 
