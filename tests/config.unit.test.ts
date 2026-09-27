@@ -23,6 +23,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(defaults.shortcuts['Cmd+9']).toBe('select-window-9')
   expect(defaults.shortcuts['Cmd+ShiftRight']).toBe('move-window-right')
   expect(defaults.shortcuts['Cmd+ShiftLeft']).toBe('move-window-left')
+  expect(defaults.shortcuts.Tab).toBe('next-window')
+  expect(defaults.shortcuts['Shift+Tab']).toBe('previous-window')
   expect(defaults.prefixBindings['1']).toBe('select-window-1')
   expect(defaults.prefixBindings['9']).toBe('select-window-9')
   expect(defaults.prefixBindings['!']).toBe('break-pane')
