@@ -71,6 +71,17 @@ try {
   await until(() => viewer.messages.some(m=>m.type==='hosts' && m.hosts.some(h=>h.id===host)))
   browser.socket.send(JSON.stringify({ type:'sessions', sessions:[{ id:'session-one', name:'TikTok', panes:[{ id:'pane-one', title:'TikTok - Make Your Day' }] }] }))
   await until(() => viewer.messages.some(m=>m.type==='hosts' && m.hosts.some(h=>h.id===host && h.sessions.some(s=>s.name==='TikTok'))))
+  let listed = await fetch(`${origin}/api/hosts`, { headers:{ Cookie:`bmux_session=${login}` } }).then(response=>response.json())
+  assert(listed.some(item=>item.id===host && item.sessions.some(session=>session.id==='session-one')))
+  assert.equal((await fetch(`${origin}/api/hosts`)).status,401)
+  let desktopKey = generateKeyPairSync('ed25519').publicKey.export({ format:'jwk' })
+  let desktopResponse = await fetch(`${origin}/api/connect`, { method:'POST', headers:{ Origin:origin, Cookie:`bmux_session=${login}`, 'Content-Type':'application/json', 'X-Bmux-Desktop':'1' }, body:JSON.stringify({ publicKey:desktopKey }) })
+  assert.equal(desktopResponse.status,200)
+  let desktopTicket = (await desktopResponse.json()).ticket
+  let desktopViewer = await connect(`ws://127.0.0.1:18888/connect?ticket=${desktopTicket}`, { origin:'null' })
+  await until(() => desktopViewer.messages.some(message=>message.type==='hosts' && message.hosts.some(item=>item.id===host)))
+  let webOnlyTicket = (await (await post('/api/connect', login, { publicKey:generateKeyPairSync('ed25519').publicKey.export({ format:'jwk' }) })).json()).ticket
+  await assert.rejects(connect(`ws://127.0.0.1:18888/connect?ticket=${webOnlyTicket}`, { origin:'null' }))
   await assert.rejects(connect(`ws://127.0.0.1:18888/connect?ticket=${ticket}`, { origin }))
   browser.socket.send(JSON.stringify({ type:'usage',sequence:2,started:3,succeeded:2,failed:1,active:0,browserMs:1000 }))
   browser.socket.send(JSON.stringify({ type:'usage',sequence:1,started:1,succeeded:0,failed:0,active:1,browserMs:10 }))

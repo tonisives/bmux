@@ -72,7 +72,7 @@ let App = () => {
   let resize = () => { if (controlling && video.current) viewer?.send({ type: 'resize', generation: lease?.generation, width: Math.max(320, Math.min(1920, Math.round(video.current.clientWidth))), height: Math.max(200, Math.min(1080, Math.round(video.current.clientWidth * .625))) }) }
   let acquire = () => { if (session) viewer?.send({ type: 'acquire', session: session.id, takeover: !!lease }) }
   let release = () => { if (session) viewer?.send({ type: 'release', session: session.id }) }
-  let command = (method: string, args: Record<string, unknown> = {}) => { if (controlling && state) viewer?.send({ type: 'command', generation: lease?.generation, command: { method, args: { pane: state.pane, ...args } } }) }
+  let command = (method: string, args: Record<string, unknown> = {}) => { if (controlling && state) viewer?.send({ type: 'command', generation: lease?.generation, command: { method, args: { tab: state.pane, ...args } } }) }
   let navigate = (event: FormEvent) => { event.preventDefault(); command('navigate', { url: address }) }
   let back = () => command('back'), forward = () => command('forward'), reload = () => command('reload')
   let choosePane = (event: ChangeEvent<HTMLSelectElement>) => viewer?.send({ type: 'switch', pane: event.target.value })
@@ -115,7 +115,7 @@ let App = () => {
       <span>{controlling ? 'You control this session' : 'Watching'}</span>{controlling && <button onClick={resize}>Fit viewport</button>}
     </section>}
     {selected && controlling && <form className={styles.row} onSubmit={navigate}><button type="button" onClick={back}>Back</button><button type="button" onClick={forward}>Forward</button><button type="button" onClick={reload}>Reload</button><input aria-label="Address" value={address} onChange={changeAddress} /><button>Go</button></form>}
-    {selected && <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />}
+    {selected && <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} data-viewport-width={viewport?.width} data-viewport-height={viewport?.height} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />}
     {controlling && <form className={styles.row} onSubmit={sendText}><input aria-label="Type into page" value={text} onChange={changeText} /><button>Type</button><button type="button" onClick={enter}>Enter</button></form>}
     {viewer && !selected && <details><summary>Services and access</summary><p>Your account ID: <code>{owner}</code></p>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>

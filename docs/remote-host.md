@@ -104,6 +104,14 @@ tokens can connect without a new config file, and hosts can use their existing
 identity files. Owners can revoke a browser device through `POST /api/revoke`.
 Watch reports a host rejection or timeout instead of showing an idle video area.
 
+## Attach from the desktop app
+
+Open the local session picker. Sign in to remote there once, then select a remote
+session from the same list. bmux opens a local viewer window for that session;
+the stream and input still use the remote connection service. Closing the window
+leaves the hosted session running. Set `BMUX_REMOTE_URL` before launching bmux
+to use a different HTTPS service origin. The default is `https://remote.bmux.cc`.
+
 ## Control and reporting
 
 Watching does not change page selection or viewport. Take control obtains a

@@ -34,26 +34,26 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
 type ListedSession = { id: string; name: string; panes: { id: string; title: string }[] }
 type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[] }
 let peers = new Map<string, Peer>()
-let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number }>()
+let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean }>()
 let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
 let permission = async (user: string, host: Peer): Promise<'watch' | 'control' | undefined> => {
   if (user === host.owner) return 'control'
   let result = await pool.query('SELECT permission FROM bmux_grants WHERE service=$1 AND user_id=$2', [host.service, user])
   return result.rows[0]?.permission
 }
-let publish = async () => {
-  for (let viewer of peers.values()) {
-    if (viewer.role !== 'viewer') continue
-    let granted = await pool.query('SELECT service,permission FROM bmux_grants WHERE user_id=$1', [viewer.owner])
-    let accessByService = new Map<string, 'watch' | 'control'>(granted.rows.map(row => [row.service, row.permission]))
-    let hosts = []
-    for (let host of peers.values()) {
-      if (host.role !== 'host') continue
-      let access = viewer.owner === host.owner ? 'control' : accessByService.get(host.service!)
-      if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [] })
-    }
-    send(viewer, { type: 'hosts', hosts })
+let visibleHosts = async (owner: string) => {
+  let granted = await pool.query('SELECT service,permission FROM bmux_grants WHERE user_id=$1', [owner])
+  let accessByService = new Map<string, 'watch' | 'control'>(granted.rows.map(row => [row.service, row.permission]))
+  let hosts = []
+  for (let host of peers.values()) {
+    if (host.role !== 'host') continue
+    let access = owner === host.owner ? 'control' : accessByService.get(host.service!)
+    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [] })
   }
+  return hosts
+}
+let publish = async () => {
+  for (let viewer of peers.values()) if (viewer.role === 'viewer') send(viewer, { type: 'hosts', hosts: await visibleHosts(viewer.owner) })
 }
 let body = async (request: http.IncomingMessage) => {
   let text = ''
@@ -88,6 +88,7 @@ let server = http.createServer((request, response) => {
     if (url.pathname.startsWith('/api/')) {
       let owner = await login(request)
       if (request.method === 'GET' && url.pathname === '/api/me') { json(200, { owner }); return }
+      if (request.method === 'GET' && url.pathname === '/api/hosts') { json(200, await visibleHosts(owner)); return }
       if (request.method === 'GET' && url.pathname === '/api/services') {
         let result = await pool.query('SELECT id,revoked FROM bmux_services WHERE owner=$1 ORDER BY id', [owner])
         json(200, result.rows); return
@@ -135,7 +136,7 @@ let server = http.createServer((request, response) => {
         await pool.query('INSERT INTO bmux_devices (id,owner,public_key) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [id, owner, { kty: publicKey.kty, crv: publicKey.crv, x: publicKey.x }])
         let ticket = randomBytes(32).toString('hex')
         if (tickets.size >= 10000) throw new Error('Connection capacity reached')
-        tickets.set(ticket, { owner, id, key: publicKey, expires: Date.now() + 30000 })
+        tickets.set(ticket, { owner, id, key: publicKey, expires: Date.now() + 30000, desktop: request.headers['x-bmux-desktop'] === '1' })
         json(200, { ticket, iceServers: ice(id) }); return
       }
       if (request.method === 'GET' && url.pathname === '/api/usage') {
@@ -182,10 +183,10 @@ server.on('upgrade', (request, socket, head) => {
       keyId(key)
       peer = { owner: found.rows[0].owner, id, role: 'host', service: found.rows[0].id, generation, key, alive: true }
     } else {
-      if (request.headers.origin !== publicOrigin) throw new Error('Invalid origin')
       let ticket = url.searchParams.get('ticket') ?? '', enrollment = tickets.get(ticket)
       tickets.delete(ticket)
       if (!enrollment || enrollment.expires <= Date.now()) throw new Error('Invalid ticket')
+      if (request.headers.origin !== publicOrigin && !(enrollment.desktop && (request.headers.origin === 'null' || request.headers.origin === 'file://'))) throw new Error('Invalid origin')
       let device = await pool.query('SELECT id FROM bmux_devices WHERE id=$1 AND owner=$2 AND NOT revoked', [enrollment.id, enrollment.owner])
       if (!device.rowCount) throw new Error('Device revoked')
       peers.get(enrollment.id)?.socket.close(1000, 'Reconnected')

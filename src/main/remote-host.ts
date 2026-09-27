@@ -49,11 +49,12 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let selected = pane ?? runtime.model.sessions[0]?.windows[0]?.panes[0]?.id
     if (!selected) { opening.delete(id); throw new Error('No pane available') }
     let peer: Stream | undefined
+    let incoming = Promise.resolve()
     try { peer = await runtime.remote.capture(selected, {
       iceServers,
       signal: sdp => { if (opening.get(id) === attempt || streams.get(id)?.peer === peer) signal(id, { type: 'offer', sdp }) },
       data: raw => {
-        void (async () => {
+        incoming = incoming.then(async () => {
           if (streams.get(id)?.peer !== peer) return
           if (!allowed(id)) { disconnect(id); return }
           let message = JSON.parse(raw)
@@ -80,7 +81,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           } else throw new Error('Remote command is not allowed')
           streams.get(id)?.peer.send(JSON.stringify({ type: 'result', request: message.request, result }))
           state(id)
-        })().catch(error => streams.get(id)?.peer.send(JSON.stringify({ type: 'error', error: error instanceof Error && ['CONTROL_HELD','CONTROL_EXPIRED','Watch only access'].includes(error.message) ? error.message : 'Remote operation failed' })))
+        }).catch(error => streams.get(id)?.peer.send(JSON.stringify({ type: 'error', error: error instanceof Error && ['CONTROL_HELD','CONTROL_EXPIRED','Watch only access'].includes(error.message) ? error.message : 'Remote operation failed' })))
       },
       closed: () => { if (streams.get(id)?.peer === peer) { streams.delete(id); runtime.remote.disconnect(id) } },
     })

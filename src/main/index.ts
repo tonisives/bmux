@@ -9,6 +9,7 @@ import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
 import { startRemoteHost } from './remote-host'
+import { createLocalRemote } from './remote-client'
 
 let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
 let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
@@ -26,6 +27,7 @@ let socketPath = path.join(socketDirectory, `${createHash('sha256').update(dataD
 let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 let remoteHost: ReturnType<typeof startRemoteHost> | undefined
+let localRemote: ReturnType<typeof createLocalRemote> | undefined
 
 let readyForLinks = false
 let pendingLinks: { url: string; allowFile: boolean }[] = []
@@ -70,6 +72,7 @@ void app.whenReady().then(async () => {
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   app.on('before-quit', () => {
     remoteHost?.close()
+    localRemote?.close()
     runtime?.shutdown()
     server?.close()
     try { fs.unlinkSync(socketPath) } catch { /* Already removed. */ }
@@ -81,6 +84,7 @@ void app.whenReady().then(async () => {
     { role: 'windowMenu' },
   ]))
   runtime = createRuntime(dataDirectory)
+  localRemote = createLocalRemote()
   ipcMain.handle('state', event => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
@@ -90,6 +94,15 @@ void app.whenReady().then(async () => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
     return runtime!.execute(command, clientId)
+  })
+  ipcMain.handle('remote-sessions', event => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    return localRemote!.list()
+  })
+  ipcMain.handle('remote-open', (event, host?: string, session?: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if ((host !== undefined && typeof host !== 'string') || (session !== undefined && typeof session !== 'string')) throw new Error('Invalid remote session')
+    return localRemote!.open(host, session)
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)

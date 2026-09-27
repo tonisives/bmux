@@ -1,0 +1,11 @@
+:global(body) { margin: 0; background: #111318; color: #edf0f4; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+:global(button), :global(input), :global(select) { min-width: 0; padding: 5px 7px; border: 1px solid #444b57; background: #20242c; color: inherit; font: inherit; }
+:global(button) { cursor: pointer; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.bar { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 8px; background: #1b1f24; }
+.bar strong { color: #c2ceb9; }
+.bar span { color: #9ca3ad; }
+.bar input { flex: 1; }
+.bar button:last-child { margin-left: auto; }
+.error { margin: 0; padding: 6px 8px; color: #e6a69c; }
+.video { flex: 1; width: 100%; min-height: 0; background: #090a0c; object-fit: contain; touch-action: none; }

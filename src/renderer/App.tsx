@@ -3,7 +3,7 @@ import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
-import type { Bookmark, BookmarkParameters, Bridge, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
 import css from './App.module.css'
 import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
@@ -1045,8 +1045,9 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
 }
 let PrivateIcon = () => <svg className={`${css.statusIcon} ${css.privateIcon}`} viewBox="0 0 20 20" aria-label="Private session" role="img"><rect x="5" y="9" width="10" height="8" rx="1" /><path d="M7 9V6a3 3 0 0 1 6 0v3" /></svg>
 let SessionPicker = () => {
-  let { state, run } = useUI()
+  let { state, run, dismiss, onMessage } = useUI()
   let [busy, setBusy] = useState(false)
+  let [remote, setRemote] = useState<RemoteSessionListing>()
   let [creatingProfile, setCreatingProfile] = useState(false)
   let [newProfileName, setNewProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
@@ -1054,6 +1055,15 @@ let SessionPicker = () => {
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
+  useEffect(() => {
+    let active = true
+    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
+    refresh()
+    let timer = setInterval(refresh, 5000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
+  let remoteSessions = remote?.hosts.flatMap(host => host.sessions.filter(session => fuzzyMatch(query, `${session.name} ${host.service}`)).map(session => ({ host, session }))) ?? []
+  let openRemote = (host?: string, session?: string) => { void bridge.openRemote(host, session).then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
   let create = async (privateSession: boolean) => {
     if (busy) return
@@ -1082,10 +1092,16 @@ let SessionPicker = () => {
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
     {backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>}
     {sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}
-    {!backSession && !sessions.length && <p role="status">No matching sessions.</p>}
+    {remoteSessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
+    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={() => openRemote()}>sign in to remote</button>}
+    {!backSession && !sessions.length && !remoteSessions.length && <p role="status">No matching sessions.</p>}
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button>
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
   </div>
+}
+let RemoteSessionRow = ({ host, service, session, name, onSelect }: { host: string; service: string; session: string; name: string; onSelect: (host: string, session: string) => void }) => {
+  let select = () => onSelect(host, session)
+  return <button className={`${css.listRow} ${css.remoteSession}`} data-session-row onClick={select} title={`${name} on ${service}`}>{name}<span>{service} · remote</span></button>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()

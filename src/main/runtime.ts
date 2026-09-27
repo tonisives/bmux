@@ -1387,7 +1387,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (!restored) model.clients.push(client)
     repairClients()
     let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
-    window.setWindowButtonVisibility(false)
+    if (process.platform === 'darwin') window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
     let permissionPopup = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
@@ -2565,11 +2565,26 @@ export let createRuntime = (dataDirectory: string) => {
       return remoteActor.run({ owner, generation }, () => execute(command))
     },
     input: async (owner: string, generation: number, pane: string, viewportGeneration: number, event: Electron.MouseInputEvent | Electron.MouseWheelInputEvent | Electron.KeyboardInputEvent) => {
-      let live = await ensureLiveTab(pane)
+      await ensureLiveTab(pane)
       controls.assert(paneById(model, pane).session.id, owner, generation)
       if (remoteViewport(pane)?.generation !== viewportGeneration) throw new Error('STALE_VIEWPORT')
       if (!['mouseDown', 'mouseUp', 'mouseMove', 'mouseWheel', 'keyDown', 'keyUp', 'char'].includes(event.type)) throw new Error('Invalid input')
-      live.contents.sendInputEvent(event)
+      await remoteActor.run({ owner, generation }, async () => {
+        if (event.type === 'mouseWheel') {
+          let wheel = event as Electron.MouseWheelInputEvent
+          await cdp(pane, 'Input.dispatchMouseEvent', { type: 'mouseWheel', x: wheel.x, y: wheel.y, deltaX: wheel.deltaX, deltaY: wheel.deltaY })
+        } else if (event.type === 'mouseDown' || event.type === 'mouseUp' || event.type === 'mouseMove') {
+          await cdp(pane, 'Input.dispatchMouseEvent', { type: { mouseDown: 'mousePressed', mouseUp: 'mouseReleased', mouseMove: 'mouseMoved' }[event.type], x: event.x, y: event.y, button: event.button ?? 'none', clickCount: event.clickCount ?? 1 })
+        } else {
+          let keyboard = event as Electron.KeyboardInputEvent
+          let key = keyboard.keyCode
+          let domKey = ({ Left: 'ArrowLeft', Right: 'ArrowRight', Up: 'ArrowUp', Down: 'ArrowDown' } as Record<string, string>)[key] ?? key
+          let flags: Record<string, number> = { alt: 1, control: 2, meta: 4, shift: 8 }
+          let modifiers = (keyboard.modifiers ?? []).reduce((value, modifier) => value | (flags[modifier] ?? 0), 0)
+          let codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, Backspace: 8, PageUp: 33, PageDown: 34, End: 35, Home: 36, Left: 37, Up: 38, Right: 39, Down: 40, Delete: 46 }
+          await cdp(pane, 'Input.dispatchKeyEvent', { type: event.type, key: domKey, code: key.length === 1 ? `Key${key.toUpperCase()}` : domKey, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(event.type === 'char' ? { text: key } : {}) })
+        }
+      })
     },
     text: async (owner: string, generation: number, pane: string, text: string) => {
       let live = await ensureLiveTab(pane)

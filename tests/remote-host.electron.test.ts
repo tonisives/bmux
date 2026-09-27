@@ -14,7 +14,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2 })
   let origin = 'http://127.0.0.1:18889', owner = randomBytes(12).toString('hex'), service = `test-${owner}`, token = randomBytes(32).toString('hex'), cookie = randomBytes(32).toString('hex')
   let digest = (value: string) => createHash('sha256').update(value).digest('hex')
-  let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><input autofocus aria-label="Fixture input"><div id="tick"></div><script>window.memory="retained";setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
+  let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><a href="?linked=1" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Open link</a><input autofocus aria-label="Fixture input" style="position:absolute;top:120px"><div id="tick"></div><script>window.memory="retained";document.addEventListener("keydown",event=>document.body.dataset.key=event.key);document.addEventListener("pointerdown",event=>document.body.dataset.pointer=event.clientX+","+event.clientY);setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
   await new Promise<void>(resolve => fixture.listen(0, '127.0.0.1', resolve))
   let fixtureUrl = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`
   await pool.query(await fs.readFile('remote/schema.sql', 'utf8'))
@@ -26,8 +26,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
-    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_BACKGROUND:'1'}})
-    let command = async (...args:string[]) => JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory}})).stdout).result
+    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
+    let command = async (...args:string[]) => {
+      try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory}})).stdout).result }
+      catch (error) { throw new Error(JSON.parse((error as { stdout?: string }).stdout ?? '{}').error ?? String(error)) }
+    }
     let status = await command('status'), pane = status.model.sessions[0].windows[0].panes[0].id
     await command('navigate','-t',pane,fixtureUrl)
     await command('wait','-t',pane,'--selector','input')
@@ -37,7 +40,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     let otherPane = other.windows[0].panes[0].id
     await application.evaluate(async({BrowserWindow,session},{origin,cookie})=>{
       await session.defaultSession.cookies.set({url:origin,name:'bmux_session',value:cookie,httpOnly:true})
-      session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('http://127.0.0.1:') && !details.url.startsWith('ws://127.0.0.1:')}))
+      session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('http://127.0.0.1:') && !details.url.startsWith('ws://127.0.0.1:') && !details.url.startsWith('file://')}))
       let viewer = new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}})
       await viewer.loadURL(origin)
     },{origin,cookie})
@@ -51,16 +54,40 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     expect(await command('eval','-t',pane,'window.memory')).toBe('retained')
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()
     await expect(viewer.getByText('You control this session')).toBeVisible()
+    await expect(viewer.getByLabel('Address')).toBeVisible()
+    await expect(viewer.getByLabel('Type into page')).toBeVisible()
+    let video = viewer.getByLabel('Remote browser')
+    await video.scrollIntoViewIfNeeded()
+    let linkPosition = await video.evaluate(element => {
+      let video = element as HTMLVideoElement, rect = video.getBoundingClientRect(), scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight)
+      return { x: (rect.width - video.videoWidth * scale) / 2 + 80 * video.videoWidth / Number(video.dataset.viewportWidth) * scale, y: (rect.height - video.videoHeight * scale) / 2 + 60 * video.videoHeight / Number(video.dataset.viewportHeight) * scale }
+    })
+    await video.click({ position: linkPosition })
+    await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).toContain('?linked=1')
+    await viewer.getByRole('button',{name:'Back',exact:true}).click()
+    await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).not.toContain('?linked=1')
+    await video.focus()
+    await video.press('ArrowDown')
+    let page = application.context().pages().find(page=>page.url()===fixtureUrl+'/')!
+    await expect.poll(() => page.evaluate(() => document.body.dataset.key)).toBe('ArrowDown')
     await expect(command('eval','-t',pane,'window.memory')).rejects.toThrow()
     expect(await command('eval','-t',otherPane,'1+1')).toBe(2)
     await expect(command('dark','on','-t',otherPane,'--scope','global')).rejects.toThrow()
     await expect(command('dark','on','-t',otherPane,'--scope','profile')).rejects.toThrow()
     await viewer.getByLabel('Type into page').fill('remote text')
     await viewer.getByRole('button',{name:'Type',exact:true}).click()
-    let page = application.context().pages().find(page=>page.url()===fixtureUrl+'/')!
     await expect(page.getByLabel('Fixture input')).toHaveValue('remote text')
     await viewer.getByRole('button',{name:'Release control',exact:true}).click()
     await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
+    await command('attach-session','-t',status.model.sessions[0].id)
+    let local = application.context().pages().find(page=>page.url().endsWith('/index.html'))!
+    await local.getByRole('button',{name:'Sessions',exact:true}).click()
+    await expect(local.getByRole('button',{name:/main.*remote/})).toBeVisible()
+    await local.getByRole('button',{name:/main.*remote/}).click()
+    await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
+    let attached = application.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
+    await expect(attached.getByLabel('Remote browser')).toBeVisible()
+    await expect(attached.getByRole('button',{name:'Take control'})).toBeVisible()
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))

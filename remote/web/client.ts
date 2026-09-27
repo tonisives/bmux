@@ -15,7 +15,7 @@ export let api = async (endpoint: string, value?: unknown) => {
   }
   return response.json()
 }
-export let createViewer = async (events: { hosts: (hosts: Host[]) => void; stream: (stream: MediaStream) => void; state: (state: State) => void; error: (text: string) => void; disconnected: () => void }) => {
+export let createViewer = async (events: { hosts: (hosts: Host[]) => void; stream: (stream: MediaStream) => void; state: (state: State) => void; error: (text: string) => void; disconnected: () => void }, options: { origin?: string; connect?: (publicKey: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } = {}) => {
   let stored = localStorage.getItem('bmux-device-key')
   let key: JsonWebKey
   if (stored) key = JSON.parse(stored)
@@ -23,8 +23,8 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
   let privateKey = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['sign'])
   let publicKey = { kty: key.kty, crv: key.crv, x: key.x }
   let id = await fingerprint(publicKey)
-  let { ticket, iceServers } = await api('/api/connect', { publicKey })
-  let url = new URL('/connect', location.href); url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('ticket', ticket)
+  let { ticket, iceServers } = options.connect ? await options.connect(publicKey) : await api('/api/connect', { publicKey })
+  let url = new URL('/connect', options.origin ?? location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('ticket', ticket)
   let socket = new WebSocket(url), host: Host | undefined, peer: RTCPeerConnection | undefined, channel: RTCDataChannel | undefined
   let seen = new Set<string>(), closed = false
   let pending: { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined
