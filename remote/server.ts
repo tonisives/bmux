@@ -77,11 +77,21 @@ let server = http.createServer((request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience }); return }
     if (request.method === 'POST' && request.headers.origin !== publicOrigin) throw new Error('Invalid origin')
     if (request.method === 'POST' && url.pathname === '/api/login') {
-      let { credential } = await body(request)
-      let { payload } = await jwtVerify(credential, googleKeys, { issuer: ['https://accounts.google.com', 'accounts.google.com'], audience, maxTokenAge: '1h' })
-      if (!payload.sub || payload.email_verified !== true) throw new Error('Invalid login')
+      let { credential, accessToken } = await body(request)
+      let owner: string | undefined
+      if (typeof credential === 'string') {
+        let { payload } = await jwtVerify(credential, googleKeys, { issuer: ['https://accounts.google.com', 'accounts.google.com'], audience, maxTokenAge: '1h' })
+        if (payload.email_verified === true && typeof payload.sub === 'string') owner = payload.sub
+      } else if (typeof accessToken === 'string' && accessToken.length <= 4096) {
+        let verified = await fetch('https://oauth2.googleapis.com/tokeninfo', { method: 'POST', body: new URLSearchParams({ access_token: accessToken }), signal: AbortSignal.timeout(10000) })
+        if (!verified.ok) throw new Error('Invalid login')
+        let info = await verified.json() as { audience?: string; issued_to?: string; user_id?: string; verified_email?: boolean | string; expires_in?: number | string; scope?: string }
+        let scopes = info.scope?.split(' ') ?? []
+        if (info.audience === audience && info.issued_to === audience && (info.verified_email === true || info.verified_email === 'true') && Number(info.expires_in) > 0 && (scopes.includes('email') || scopes.includes('https://www.googleapis.com/auth/userinfo.email')) && typeof info.user_id === 'string') owner = info.user_id
+      }
+      if (!owner) throw new Error('Invalid login')
       let token = randomBytes(32).toString('hex')
-      await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '30 days')", [digest(token), payload.sub])
+      await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '30 days')", [digest(token), owner])
       response.setHeader('Set-Cookie', `bmux_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${publicOrigin.startsWith('https:') ? '; Secure' : ''}`)
       json(200, { ok: true }); return
     }

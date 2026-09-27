@@ -46,6 +46,18 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{origin,cookie})
     await expect.poll(()=>application!.context().pages().some(page=>page.url()===origin+'/')).toBe(true)
     let viewer = application.context().pages().find(page=>page.url()===origin+'/')!
+    await expect(viewer.getByRole('button',{name:'Account'})).toBeVisible()
+    let finishAccountCheck: (() => void) | undefined
+    let accountCheck = new Promise<void>(resolve => { finishAccountCheck = resolve })
+    let finishRoutedCheck: (() => void) | undefined
+    let routedCheck = new Promise<void>(resolve => { finishRoutedCheck = resolve })
+    await viewer.route('**/api/me', async route => { await accountCheck; await route.continue(); finishRoutedCheck?.() })
+    await viewer.reload({waitUntil:'domcontentloaded'})
+    await expect(viewer.getByRole('button',{name:'Account'})).toHaveAttribute('aria-busy','true')
+    await expect(viewer.getByRole('button',{name:'Sign in with Google'})).toHaveCount(0)
+    finishAccountCheck?.()
+    await routedCheck
+    await viewer.unroute('**/api/me')
     await expect(viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})).toBeVisible()
     await expect(viewer.getByRole('button',{name:'Reconnect'})).toHaveCount(0)
     await expect(viewer.getByRole('heading',{name:'Account'})).toHaveCount(0)
@@ -116,6 +128,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await application.evaluate(async ({session},origin)=>session.defaultSession.cookies.remove(origin,'bmux_session'),origin)
     await viewer.reload()
     await expect(viewer.getByText('Sign in to see your sessions.')).toBeVisible()
+    await expect(viewer.getByRole('button',{name:'Sign in with Google'})).toBeVisible()
+    await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
     await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
   } finally {
     await application?.close()
