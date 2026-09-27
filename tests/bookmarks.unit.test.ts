@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { createBookmarkFolder, saveBookmark } from '../src/main/bookmarks'
+import { createBookmarkFolder, reorderBookmark, saveBookmark, updateBookmark } from '../src/main/bookmarks'
 import type { Profile } from '../src/shared/types'
 
 let profile = (): Profile => ({ id: 'profile', name: 'Profile', background: false, bookmarks: [
@@ -40,4 +40,22 @@ test('rejects an unknown parent folder without changing the profile', () => {
   let current = profile(), before = structuredClone(current)
   expect(() => createBookmarkFolder(current, { title: 'Reading', parentId: 'missing' }, () => 'unused')).toThrow('Parent bookmark folder not found')
   expect(current).toEqual(before)
+})
+
+test('reorders siblings inside a nested folder without moving bookmarks across folders', () => {
+  let current = profile()
+  let docs = current.bookmarks![0].children![0].children!
+  docs.push({ id: 'first', title: 'First', url: 'https://example.test/first' }, { id: 'second', title: 'Second', url: 'https://example.test/second' })
+  expect(reorderBookmark(current, 'second', 'up')).toEqual({ moved: true })
+  expect(docs.map(bookmark => bookmark.id)).toEqual(['second', 'first'])
+  expect(reorderBookmark(current, 'second', 'up')).toEqual({ moved: false })
+  expect(current.bookmarks?.map(bookmark => bookmark.id)).toEqual(['work', 'existing'])
+  expect(() => reorderBookmark(current, 'missing', 'down')).toThrow('Bookmark not found')
+})
+
+test('updates saved bookmark URLs and folder titles by ID', () => {
+  let current = profile()
+  expect(updateBookmark(current, 'existing', { url: 'https://example.test/updated' }).url).toBe('https://example.test/updated')
+  expect(updateBookmark(current, 'work', { title: 'Renamed work' }).title).toBe('Renamed work')
+  expect(() => updateBookmark(current, 'work', { url: 'https://example.test/folder' })).toThrow('A folder cannot have a URL')
 })

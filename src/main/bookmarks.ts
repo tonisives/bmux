@@ -49,3 +49,30 @@ export let createBookmarkFolder = (profile: Profile, values: { title: string; pa
   profile.bookmarks = bookmarks
   return { folder, created: true }
 }
+
+export let reorderBookmark = (profile: Profile, bookmarkId: string, direction: 'up' | 'down') => {
+  let siblings = (items: Bookmark[]): Bookmark[] | undefined => {
+    if (items.some(item => item.id === bookmarkId)) return items
+    for (let item of items) {
+      let found = item.children && siblings(item.children)
+      if (found) return found
+    }
+  }
+  let items = siblings(profile.bookmarks ?? [])
+  if (!items) throw new Error('Bookmark not found')
+  let index = items.findIndex(item => item.id === bookmarkId), next = index + (direction === 'up' ? -1 : 1)
+  if (next < 0 || next >= items.length) return { moved: false }
+  let bookmark = items[index]
+  items[index] = items[next]
+  items[next] = bookmark
+  return { moved: true }
+}
+
+export let updateBookmark = (profile: Profile, bookmarkId: string, values: { title?: string; url?: string }) => {
+  let bookmark = bookmarkById(profile.bookmarks ?? [], bookmarkId)
+  if (!bookmark) throw new Error('Bookmark not found')
+  if (values.url !== undefined && !bookmark.url) throw new Error('A folder cannot have a URL')
+  if (values.title !== undefined) bookmark.title = values.title
+  if (values.url !== undefined) bookmark.url = values.url
+  return bookmark
+}
