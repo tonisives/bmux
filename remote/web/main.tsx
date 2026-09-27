@@ -6,7 +6,7 @@ import type { Host, State } from './client'
 import styles from './style.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
-type IconName = 'back' | 'forward' | 'reload' | 'link' | 'type' | 'close' | 'sessions' | 'fit' | 'enter'
+type IconName = 'back' | 'forward' | 'reload' | 'link' | 'type' | 'close' | 'sessions' | 'fit' | 'enter' | 'user'
 let Icon = ({ name }: { name: IconName }) => {
   let paths: Record<IconName, ReactNode> = {
     back: <path d="m14.5 5-7 7 7 7M8 12h12" />,
@@ -18,6 +18,7 @@ let Icon = ({ name }: { name: IconName }) => {
     sessions: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></>,
     fit: <path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5" />,
     enter: <path d="M20 6v6a4 4 0 0 1-4 4H5m5-5-5 5 5 5" />,
+    user: <><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>,
   }
   return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -30,6 +31,8 @@ let App = () => {
   let [grantService, setGrantService] = useState(''), [grantUser, setGrantUser] = useState(''), [grantPermission, setGrantPermission] = useState<'watch' | 'control'>('watch')
   let [grants, setGrants] = useState<{ service: string; user_id: string; permission: string }[]>([])
   let [view, setView] = useState<'sessions' | 'service'>('sessions')
+  let [auth, setAuth] = useState<'checking' | 'signed-out' | 'connecting' | 'ready'>('checking')
+  let [hostsLoaded, setHostsLoaded] = useState(false)
   let listed = hosts.flatMap(host => host.sessions.flatMap(session => session.panes.length ? [{ host, session, pane: session.panes[0] }] : []))
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
   let video = useRef<HTMLVideoElement>(null), loginButton = useRef<HTMLDivElement>(null), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
@@ -40,16 +43,17 @@ let App = () => {
   let report = (error: unknown) => setError(error instanceof Error ? error.message : 'Operation failed')
   let connect = async () => {
     clearTimeout(reconnectTimer.current)
+    setAuth('connecting'); setHostsLoaded(false)
     active.current?.close(); active.current = undefined; setViewer(undefined); setHosts([]); setState(undefined); setSelectedId(''); setError('')
     if (video.current) video.current.srcObject = null
-    let next = await createViewer({ hosts: setHosts, stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } }, state: setState, error: setError, disconnected: () => { if (video.current) video.current.srcObject = null; setState(undefined); setSelectedId(''); setHosts([]); setViewer(undefined); setError('Connection lost. Trying again.'); reconnectTimer.current = setTimeout(() => { void connect().catch(report) }, 2000) } })
-    active.current = next; setViewer(next)
+    let next = await createViewer({ hosts: nextHosts => { setHosts(nextHosts); setHostsLoaded(true) }, stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } }, state: setState, error: setError, disconnected: () => { if (video.current) video.current.srcObject = null; setState(undefined); setSelectedId(''); setHosts([]); setHostsLoaded(false); setViewer(undefined); setAuth('connecting'); setError('Connection lost. Trying again.'); reconnectTimer.current = setTimeout(() => { void connect().catch(report) }, 2000) } })
+    active.current = next; setViewer(next); setAuth('ready')
     let [account, listed, access, counts] = await Promise.all([api('/api/me'), api('/api/services'), api('/api/grants'), api('/api/usage')])
     setOwner(account.owner); setServices(listed); setGrants(access); setUsage(counts)
   }
   useEffect(() => {
     let cancelled = false
-    void api('/api/me').then(() => { if (!cancelled) void connect().catch(report) }).catch(() => undefined)
+    void api('/api/me').then(() => { if (!cancelled) void connect().catch(report) }).catch(() => { if (!cancelled) setAuth('signed-out') })
     let script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.async = true
     script.nonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? ''
     script.onload = () => {
@@ -120,9 +124,10 @@ let App = () => {
   let openInput = (mode: 'address' | 'text') => { setInputMode(mode); inputDialog.current?.showModal(); inputField.current?.focus() }
   let showSessions = () => { inputDialog.current?.close(); leave(); setView('sessions') }
   return <main className={styles.main}>
-    <header className={styles.header}><button className={styles.brand} onClick={() => { if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="BMUX service"><img src="https://cdn.digthree.tonis.dev/bmux/website-5b317686c2a1/icon-128.png" alt="" /><span>bmux</span></button><span className={styles.headerLabel}>{view === 'service' ? 'Service' : selected ? 'Remote session' : 'Remote sessions'}</span><div ref={loginButton} className={viewer ? styles.hidden : undefined} /></header>
+    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home">bmux</button><span className={styles.headerLabel}>{view === 'service' ? 'Account' : selected ? 'Remote session' : 'Remote sessions'}</span>{viewer && <button className={styles.avatar} onClick={() => { if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="Account" title="Account"><Icon name="user" /></button>}</header>
     {error && <p role="status" className={styles.error}>{error}</p>}
-    {view === 'sessions' && !selected && <section className={styles.library}><div className={styles.sectionHeading}><span>AVAILABLE SESSIONS</span><span>{listed.length}</span></div>{viewer && listed.length === 0 && <p>No sessions available</p>}
+    <section className={viewer ? styles.hidden : styles.signIn}><p>{auth === 'checking' ? 'Checking your session…' : auth === 'connecting' ? 'Connecting to your sessions…' : 'Sign in to see your sessions.'}</p><div ref={loginButton} /></section>
+    {view === 'sessions' && viewer && !selected && <section className={styles.library}><div className={styles.sectionHeading}><span>AVAILABLE SESSIONS</span><span>{hostsLoaded ? listed.length : '…'}</span></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
       <div className={styles.sessions}>{listed.map(({ host, session, pane }) => <button key={`${host.id}:${session.id}`} className={styles.session} onClick={() => watch(host, session)}>
         <span className={styles.sessionIcon}><Icon name="sessions" /></span><span className={styles.sessionCopy}><strong>{session.name}</strong><small>{host.service} · {pane.title || 'Blank page'}</small></span><span className={styles.sessionArrow}>›</span>
       </button>)}</div>
@@ -137,7 +142,7 @@ let App = () => {
       {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
     </section>}
     <dialog ref={inputDialog} className={styles.dialog} aria-label={inputMode === 'address' ? 'Open address' : 'Type into page'}><form onSubmit={inputMode === 'address' ? navigate : sendText}><div className={styles.dialogHeading}><strong>{inputMode === 'address' ? 'Open address' : 'Type into page'}</strong><button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close"><Icon name="close" /></button></div><input ref={inputField} aria-label={inputMode === 'address' ? 'Address' : 'Text'} type={inputMode === 'address' ? 'url' : 'text'} value={inputMode === 'address' ? address : text} onChange={inputMode === 'address' ? changeAddress : changeText} placeholder={inputMode === 'address' ? 'https://example.com' : 'Enter text'} required /><button className={styles.primaryButton}>{inputMode === 'address' ? 'Go' : 'Type'}</button></form></dialog>
-    {view === 'service' && <section className={styles.serviceView}><div className={styles.sectionHeading}><span>BMUX SERVICE</span><button onClick={() => setView('sessions')}>Sessions</button></div><h2>Service</h2>{viewer && <details><summary>Services and access</summary><p>Your account ID: <code>{owner}</code></p>
+    {view === 'service' && viewer && <section className={styles.serviceView}><div className={styles.sectionHeading}><span>ACCOUNT</span><button onClick={showSessions}>Sessions</button></div><h2>Account</h2><p>Account ID: <code>{owner}</code></p><details><summary>Services and access</summary>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
       {createdKey && <p>Save the key for {keyService} now. It is shown once: <code>{createdKey}</code><button onClick={() => setCreatedKey('')}>Dismiss</button></p>}
       {services.filter(service => !service.revoked).map(service => <p key={service.id}>{service.id} <button onClick={() => rotateService(service.id)}>Rotate key</button> <button onClick={() => revokeService(service.id)}>Revoke</button></p>)}
@@ -147,7 +152,7 @@ let App = () => {
         <select aria-label="Permission" value={grantPermission} onChange={event => setGrantPermission(event.target.value as 'watch' | 'control')}><option value="watch">Watch</option><option value="control">Control</option></select><button>Grant</button>
       </form>}
       {grants.map(grant => <p key={`${grant.service}:${grant.user_id}`}>{grant.service} · <code>{grant.user_id}</code> · {grant.permission} <button onClick={() => removeGrant(grant.service, grant.user_id)}>Remove</button></p>)}
-    </details>}
+    </details>
     <div className={styles.usage}><h3>Usage <span>LAST 30 DAYS</span></h3>{usage.length ? <div className={styles.tableScroll}><table><thead><tr><th>Service</th><th>Started</th><th>Succeeded</th><th>Failed</th><th>Active minutes</th></tr></thead><tbody>{usage.map(item => <tr key={item.service}><td>{item.service}</td><td>{item.started}</td><td>{item.succeeded}</td><td>{item.failed}</td><td>{Math.round(item.browser_ms / 60000)}</td></tr>)}</tbody></table></div> : <p>No usage in the last 30 days.</p>}</div></section>}
   </main>
 }
