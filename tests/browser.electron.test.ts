@@ -110,9 +110,17 @@ test.afterEach(async ({}, info) => {
 test.afterAll(async () => {
   for (let response of heldResponses) response.end()
   for (let response of pendingPages) response.end()
-  await application?.close().catch(() => undefined)
-  await new Promise<void>(resolve => server?.close(() => resolve()))
-  await fs.rm(directory, { recursive: true, force: true })
+  if (application) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        application.close().catch(() => undefined),
+        new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) }),
+      ])
+    } finally { clearTimeout(timer) }
+  }
+  if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
+  if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 
 test('memory diagnostics map background pages without changing selection or page state', async () => {
@@ -1997,6 +2005,4 @@ test('idle unloading keeps protected panes and wakes safe panes on demand', asyn
   expect(panes.find((item: { paneId: string }) => item.paneId === bot.id).webContentsId).not.toBeNull()
   expect(await cli('eval', { pane: safe.id, expression: 'document.URL' })).toBe('about:blank')
   expect((await cli('list-panes', { window: safeWindow.id }))[0].runtimeState).toBe('live')
-  await fs.writeFile(configFile, config)
-  await cli('settings.reload')
 })
