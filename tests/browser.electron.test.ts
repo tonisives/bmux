@@ -785,6 +785,14 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).press('Enter')
   await expect(chrome.getByText('Projects', { exact: true })).toBeVisible()
   await expect(chrome.getByRole('button', { name: 'Unsupported bookmarklet', exact: true })).toBeDisabled()
+  let handleSize = await chrome.getByRole('button', { name: 'Drag Imported fixture to reorder' }).evaluate(handle => {
+    let title = handle.parentElement!.querySelector('[data-bookmark-id]')!
+    let handleBounds = handle.getBoundingClientRect()
+    let titleBounds = title.getBoundingClientRect()
+    let style = getComputedStyle(handle)
+    return { width: handleBounds.width, height: handleBounds.height, paddingLeft: style.paddingLeft, paddingRight: style.paddingRight, textGap: titleBounds.left - handleBounds.right }
+  })
+  expect(handleSize).toEqual({ width: 14, height: 18, paddingLeft: '0px', paddingRight: '0px', textGap: 2 })
   await chrome.screenshot({ path: path.join(root, 'artifacts/bookmarks.png') })
   await chrome.getByRole('textbox', { name: 'Search bookmarks' }).fill('Imported')
   await expect(chrome.getByRole('button', { name: 'Imported fixture', exact: true })).toBeVisible()
