@@ -162,6 +162,8 @@
 .sessionProfilePreference label { flex: 1; }
 .sessionProfilePreference select { min-width: 130px; height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .newSession { color: #87a9c4; }
+.panel .sessionLabelRow { display: flex; align-items: center; overflow-wrap: normal; white-space: nowrap; }
+.sessionLabelText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sessionRow { display: flex; align-items: stretch; }
 .sessionRow > .listRow { flex: 1; min-width: 0; }
 .sessionClose { flex: 0 0 34px; color: #778493; }
