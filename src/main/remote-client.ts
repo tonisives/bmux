@@ -39,7 +39,9 @@ export let createLocalRemote = () => {
     if (!listing.authenticated || !hostId || !sessionId) {
       if (!login || login.isDestroyed()) {
         login = new BrowserWindow({ title: 'Sign in to bmux remote', width: 850, height: 700, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
-        login.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+        login.webContents.setWindowOpenHandler(details => new URL(details.url).origin === 'https://accounts.google.com'
+          ? { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } }
+          : { action: 'deny' })
         login.on('closed', () => { login = undefined })
         await login.loadURL(origin)
       }
