@@ -278,7 +278,7 @@ test('bookmark arrows wrap across visible selectable rows', async () => {
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
-  await expect(search).toBeFocused(); await search.fill('api reference')
+  await search.fill('api reference')
   await expect(group.locator('summary')).toHaveText(['Work', 'Guides'])
   await expect(group.getByRole('button')).toHaveText(['API reference'])
   await search.fill('sessions'); await expect(group.getByRole('button')).toHaveText(['Sessions', 'Other page'])

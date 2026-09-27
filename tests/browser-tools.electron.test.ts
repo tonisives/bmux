@@ -45,7 +45,18 @@ test.beforeAll(async () => {
   tabId = (await state()).model.sessions[0].windows[0].panes[0].id
   await expect(page.locator('h1')).toBeVisible()
 })
-test.afterAll(async () => { await application?.close().catch(() => undefined); server?.closeAllConnections(); await new Promise<void>(resolve => server?.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) })
+test.afterAll(async () => {
+  if (application) {
+    let closed = application.close().then(() => undefined, () => undefined)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([closed, new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) })])
+      await closed
+    } finally { clearTimeout(timer) }
+  }
+  if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
+  if (directory) await fs.rm(directory, { recursive: true, force: true })
+})
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return
   let current = await state().catch(() => undefined)
