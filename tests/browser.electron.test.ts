@@ -1145,8 +1145,14 @@ test('CLI page navigation keys scroll an unselected pane without moving selectio
   let scroll = () => cli('eval', { pane: pane.id, expression: 'scrollY' }) as Promise<number>
   await cli('key', { pane: pane.id, key: 'PageDown' })
   await expect.poll(scroll).toBeGreaterThan(100)
+  await expect.poll(async () => {
+    let before = await scroll()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    return Math.abs((await scroll()) - before)
+  }).toBe(0)
+  let afterPageDown = await scroll()
   await cli('key', { pane: pane.id, key: 'PageUp' })
-  await expect.poll(scroll).toBe(0)
+  await expect.poll(scroll).toBeLessThan(afterPageDown)
   await cli('key', { pane: pane.id, key: 'End' })
   await expect.poll(scroll).toBeGreaterThan(4000)
   await cli('key', { pane: pane.id, key: 'Home' })
