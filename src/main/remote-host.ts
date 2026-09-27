@@ -32,6 +32,12 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let day = new Date().toISOString().slice(0, 10)
   let sequence = 0, started = 0, succeeded = 0, failed = 0, browserMs = 0, lastUsage = Date.now()
   let send = (value: unknown) => { if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 262144) socket.send(JSON.stringify(value)) }
+  let lastSessions = ''
+  let advertise = () => {
+    let sessions = runtime.model.sessions.map(session => ({ id: session.id, name: session.name, panes: session.windows.flatMap(window => window.panes.map(pane => ({ id: pane.id, title: pane.title }))) }))
+    let serialized = JSON.stringify(sessions)
+    if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
+  }
   let disconnect = (id: string) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); stream?.peer.close(); runtime.remote.disconnect(id) }
   let signal = (to: string, payload: unknown) => send({ type: 'signal', to, envelope: identity.seal(to, generation, payload) })
   let state = (id: string) => { let stream = streams.get(id); stream?.peer.send(JSON.stringify({ type: 'state', ...runtime.remote.state(), pane: stream.pane })) }
@@ -94,7 +100,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     socket.on('message', raw => {
       void (async () => {
         let message = JSON.parse(raw.toString())
-        if (message.type === 'ready') { iceServers = message.iceServers; backoff = 1000; return }
+        if (message.type === 'ready') { iceServers = message.iceServers; backoff = 1000; lastSessions = ''; advertise(); return }
         if (message.type === 'authorized') {
           if (message.permission !== 'watch' && message.permission !== 'control') return
           if (authorized.get(message.id)?.permission === 'control' && message.permission === 'watch') runtime.remote.disconnect(message.id)
@@ -105,7 +111,12 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
         let envelope = message.envelope as RemoteEnvelope
         if (envelope.from !== message.from) throw new Error('Identity mismatch')
         let payload = verify(envelope)
-        if (payload.type === 'open') { try { await open(message.from) } catch (error) { signal(message.from, { type: 'error', error: error instanceof Error ? error.message : 'Unable to watch' }) } }
+        if (payload.type === 'open') { try {
+          let session = runtime.model.sessions.find(session => session.id === payload.session)
+          let pane = session?.windows.flatMap(window => window.panes).find(pane => pane.id === payload.pane)
+          if (!pane) throw new Error('Session is no longer available')
+          await open(message.from, pane.id)
+        } catch (error) { signal(message.from, { type: 'error', error: error instanceof Error ? error.message : 'Unable to watch' }) } }
         else if (payload.type === 'answer') streams.get(message.from)?.peer.answer(payload.sdp as RTCSessionDescriptionInit)
         else if (payload.type === 'close') disconnect(message.from)
       })().catch(() => undefined)
@@ -129,6 +140,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   }
   let timer = setInterval(() => {
     usage()
+    advertise()
     try { for (let id of streams.keys()) { if (!allowed(id)) disconnect(id); else state(id) } } catch { for (let id of streams.keys()) disconnect(id) }
   }, 5000)
   let close = () => { opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }

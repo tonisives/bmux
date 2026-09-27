@@ -20,7 +20,8 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   if (key.kty !== 'OKP' || key.crv !== 'Ed25519' || typeof key.x !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key.x)) throw new Error('Invalid public key')
   return digest(key.x)
 }
-type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean }
+type ListedSession = { id: string; name: string; panes: { id: string; title: string }[] }
+type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[] }
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number }>()
 let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
@@ -38,7 +39,7 @@ let publish = async () => {
     for (let host of peers.values()) {
       if (host.role !== 'host') continue
       let access = viewer.owner === host.owner ? 'control' : accessByService.get(host.service!)
-      if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access })
+      if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [] })
     }
     send(viewer, { type: 'hosts', hosts })
   }
@@ -196,6 +197,15 @@ server.on('upgrade', (request, socket, head) => {
             if (!access) { send(current, { type: 'signal-error', to: target.id, error: 'Access revoked' }); return }
             if (current.role === 'viewer') send(host, { type: 'authorized', id: viewer.id, key: viewer.key, permission: access })
             send(target, { type: 'signal', from: current.id, envelope: message.envelope }); return
+          }
+          if (message.type === 'sessions' && current.role === 'host') {
+            let sessions = message.sessions
+            if (!Array.isArray(sessions) || sessions.length > 100 || !sessions.every((session: ListedSession) =>
+              typeof session.id === 'string' && session.id.length <= 128 && typeof session.name === 'string' && session.name.length <= 256 &&
+              Array.isArray(session.panes) && session.panes.length <= 100 && session.panes.every(pane =>
+                typeof pane.id === 'string' && pane.id.length <= 128 && typeof pane.title === 'string' && pane.title.length <= 512))) throw new Error('Invalid sessions')
+            current.sessions = sessions
+            await publish(); return
           }
           if (message.type === 'usage' && current.role === 'host') {
             let values = ['sequence', 'started', 'succeeded', 'failed', 'active', 'browserMs'].map(key => message[key])

@@ -1,6 +1,6 @@
 import { envelopeText, validEnvelope } from '../../src/shared/remote'
 import type { RemoteEnvelope } from '../../src/shared/remote'
-export type Host = { id: string; service: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control' }
+export type Host = { id: string; service: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; sessions: { id: string; name: string; panes: { id: string; title: string }[] }[] }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string }[] }[] }
 export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }> }
 let bytes = (text: string) => new TextEncoder().encode(text)
@@ -11,7 +11,7 @@ export let api = async (endpoint: string, value?: unknown) => {
   let response = await fetch(endpoint, { credentials: 'same-origin', ...(value === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) }) })
   if (!response.ok) {
     let result = await response.json().catch(() => ({}))
-    throw new Error(response.status === 401 ? 'Sign in or reconnect to continue' : result.error ?? 'Request failed')
+    throw new Error(response.status === 401 ? 'Sign in to continue' : result.error ?? 'Request failed')
   }
   return response.json()
 }
@@ -76,15 +76,16 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
   await ready
   return {
     id, publicKey, send,
-    watch: async (selected: Host) => {
+    watch: async (selected: Host, session: string, pane: string) => {
       if (host) await signal({ type: 'close' })
       finish(new Error('Watch replaced'))
       peer?.close(); peer = undefined; channel = undefined
       host = selected; seen.clear()
       let ready = new Promise<void>((resolve, reject) => { pending = { resolve, reject, timer: setTimeout(() => finish(new Error('Watch timed out. Check that the host is online.')), 20000) } })
-      try { await signal({ type: 'open' }) } catch (error) { finish(error instanceof Error ? error : new Error('Unable to watch')) }
+      try { await signal({ type: 'open', session, pane }) } catch (error) { finish(error instanceof Error ? error : new Error('Unable to watch')) }
       await ready
     },
+    stop: () => { if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('Watch stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined },
     close: () => { closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
   }
 }

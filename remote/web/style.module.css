@@ -9,7 +9,11 @@
 .main { max-width: 1200px; margin: auto; padding: 1rem; }
 .header { display: flex; align-items: center; gap: 1rem; }
 .header h1 { margin-right: auto; font-size: 1.3rem; }
+.hidden { display: none; }
 .row { display: flex; gap: .5rem; margin: .8rem 0; flex-wrap: wrap; align-items: center; }
 .row input { flex: 1; }
+.sessions { display: grid; gap: .5rem; }
+.session { display: flex; flex-direction: column; gap: .2rem; width: 100%; text-align: left; }
+.session span { color: #b7bec9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video { display: block; width: 100%; max-height: 75vh; min-height: 220px; background: #090a0c; object-fit: contain; touch-action: none; }
 @media (max-width: 640px) { .main { padding: .5rem; } .row input { flex-basis: 100%; } .header { flex-wrap: wrap; } :global(table) { font-size: .8rem; } }

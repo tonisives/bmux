@@ -64,7 +64,8 @@ shared secret only in service/TURN secret stores. Runtime code never prints it.
 Hosts connect outbound using revocable service API keys. Google login grants
 access to owned services and services shared with the signed-in account. The relay
 stores service keys as hashes, account grants, device public keys and operational
-metadata. Video, input, page URLs, titles and session state travel inside WebRTC.
+metadata. Session names and pane titles are advertised to authorized accounts
+for discovery. Video, input, page URLs and full session state travel inside WebRTC.
 Signed negotiation binds SDP fingerprints, recipient, runtime generation, nonce
 and expiry to the host and viewer keys authenticated by the relay. The web origin
 and relay are trusted to identify hosts and enforce account grants.

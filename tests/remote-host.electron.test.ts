@@ -5,7 +5,7 @@ import os from 'node:os'
 import http from 'node:http'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
@@ -14,7 +14,6 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2 })
   let origin = 'http://127.0.0.1:18889', owner = randomBytes(12).toString('hex'), service = `test-${owner}`, token = randomBytes(32).toString('hex'), cookie = randomBytes(32).toString('hex')
   let digest = (value: string) => createHash('sha256').update(value).digest('hex')
-  let viewerKey = generateKeyPairSync('ed25519'), viewerPublic = viewerKey.publicKey.export({ format: 'jwk' })
   let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><input autofocus aria-label="Fixture input"><div id="tick"></div><script>window.memory="retained";setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
   await new Promise<void>(resolve => fixture.listen(0, '127.0.0.1', resolve))
   let fixtureUrl = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`
@@ -34,7 +33,6 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await command('wait','-t',pane,'--selector','input')
     await command('eval','-t',pane,'document.querySelector("input").focus()')
     await expect.poll(async()=>(await command('remote','status')).connected).toBe(true)
-    let host = await command('remote','status')
     let other = await command('new-session','-s','uncontrolled')
     let otherPane = other.windows[0].panes[0].id
     await application.evaluate(async({BrowserWindow,session},{origin,cookie})=>{
@@ -45,11 +43,9 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{origin,cookie})
     await expect.poll(()=>application!.context().pages().some(page=>page.url()===origin+'/')).toBe(true)
     let viewer = application.context().pages().find(page=>page.url()===origin+'/')!
-    await viewer.evaluate(key=>localStorage.setItem('bmux-device-key',JSON.stringify(key)),viewerKey.privateKey.export({format:'jwk'}))
-    await viewer.getByRole('button',{name:'Reconnect',exact:true}).click()
-    await expect(viewer.getByLabel('Host',{exact:true}).getByRole('option',{name:new RegExp(service)})).toHaveCount(1)
-    await viewer.getByLabel('Host',{exact:true}).selectOption(host.hostId)
-    await viewer.getByRole('button',{name:'Watch',exact:true}).click()
+    await expect(viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})).toBeVisible()
+    await expect(viewer.getByRole('button',{name:'Reconnect'})).toHaveCount(0)
+    await viewer.getByRole('button',{name:new RegExp(`main.*${service}`)}).click()
     await expect(viewer.getByLabel('Pane',{exact:true})).toBeVisible()
     await expect.poll(()=>viewer.evaluate(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames),{timeout:15000}).toBeGreaterThan(5)
     expect(await command('eval','-t',pane,'window.memory')).toBe('retained')
@@ -69,9 +65,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
     await expect.poll(async()=>(await pool.query('SELECT succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
-    let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:digest(viewerPublic.x!)})})
+    let viewerDevice = (await pool.query('SELECT id FROM bmux_devices WHERE owner=$1',[owner])).rows[0].id
+    let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:viewerDevice})})
     expect(response.ok).toBe(true)
-    await expect(viewer.getByText('Disconnected. Reconnect to continue.')).toBeVisible()
+    await expect(viewer.getByText('Sign in to continue')).toBeVisible()
   } finally {
     await application?.close()
     server.kill('SIGTERM')
