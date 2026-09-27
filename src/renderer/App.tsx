@@ -1088,15 +1088,18 @@ let SessionPicker = () => {
   let profileKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session">
     <SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />
+    <h3 className={css.sessionGroupHeading}>Local sessions</h3>
     <div className={css.sessionProfilePreference}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={profileKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
     {backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>}
     {sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}
-    {remoteSessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
-    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={() => openRemote()}>sign in to remote</button>}
-    {!backSession && !sessions.length && !remoteSessions.length && <p role="status">No matching sessions.</p>}
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button>
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
+    <h3 className={css.sessionGroupHeading}>Remote sessions</h3>
+    {remoteSessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
+    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={() => openRemote()}>sign in to remote</button>}
+    {remote?.authenticated && !remoteSessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
+    {!backSession && !sessions.length && !remoteSessions.length && !!query && <p role="status">No matching sessions.</p>}
   </div>
 }
 let RemoteSessionRow = ({ host, service, session, name, onSelect }: { host: string; service: string; session: string; name: string; onSelect: (host: string, session: string) => void }) => {
