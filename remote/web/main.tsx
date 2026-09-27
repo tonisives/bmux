@@ -22,6 +22,7 @@ let Icon = ({ name }: { name: IconName }) => {
   }
   return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
+let GoogleIcon = () => <svg width="19" height="19" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.25 5.48-4.75 7.18l7.73 6C44.43 38.03 46.98 31.87 46.98 24.55z"/><path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.86.92 7.5 2.53 10.79l8-6.2z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.92-5.8l-7.73-6c-2.14 1.44-4.88 2.3-8.19 2.3-6.26 0-11.57-4.22-13.47-9.91l-8 6.2C6.51 42.62 14.62 48 24 48z"/></svg>
 let App = () => {
   let [viewer, setViewer] = useState<Viewer>(), [hosts, setHosts] = useState<Host[]>([]), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
@@ -32,10 +33,12 @@ let App = () => {
   let [grants, setGrants] = useState<{ service: string; user_id: string; permission: string }[]>([])
   let [view, setView] = useState<'sessions' | 'service'>('sessions')
   let [auth, setAuth] = useState<'checking' | 'signed-out' | 'connecting' | 'ready'>('checking')
+  let [knownAccount, setKnownAccount] = useState(() => localStorage.getItem('bmux-known-account') === '1')
+  let [googleReady, setGoogleReady] = useState(false)
   let [hostsLoaded, setHostsLoaded] = useState(false)
   let listed = hosts.flatMap(host => host.sessions.flatMap(session => session.panes.length ? [{ host, session, pane: session.panes[0] }] : []))
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
-  let video = useRef<HTMLVideoElement>(null), loginButton = useRef<HTMLDivElement>(null), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
+  let video = useRef<HTMLVideoElement>(null), googleClient = useRef<{ requestAccessToken: () => void } | undefined>(undefined), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
   let [inputMode, setInputMode] = useState<'address' | 'text'>('text')
   let viewport = state && state.viewports[state.pane]
   let session = state?.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
@@ -53,15 +56,23 @@ let App = () => {
   }
   useEffect(() => {
     let cancelled = false
-    void api('/api/me').then(() => { if (!cancelled) void connect().catch(report) }).catch(() => { if (!cancelled) setAuth('signed-out') })
+    void api('/api/me').then(() => { if (!cancelled) { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); void connect().catch(report) } }).catch(error => {
+      if (cancelled) return
+      if (error instanceof Error && error.message === 'Sign in to continue') { localStorage.removeItem('bmux-known-account'); setKnownAccount(false); setAuth('signed-out') }
+      else report(error)
+    })
     let script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.async = true
     script.nonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? ''
     script.onload = () => {
       void api('/api/config').then(config => {
         if (cancelled) return
         let google = (window as any).google
-        google.accounts.id.initialize({ client_id: config.googleClientId, callback: (response: { credential: string }) => { void api('/api/login', response).then(connect).catch(report) } })
-        google.accounts.id.renderButton(loginButton.current, { theme: 'outline', size: 'large', text: 'signin_with', width: 240 })
+        googleClient.current = google.accounts.oauth2.initTokenClient({ client_id: config.googleClientId, scope: 'openid email', callback: (response: { access_token?: string; error?: string }) => {
+          if (!response.access_token) { if (response.error) report(new Error('Google sign-in failed')); return }
+          setAuth('connecting')
+          void api('/api/login', { accessToken: response.access_token }).then(() => { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); return connect() }).catch(error => { setAuth('signed-out'); report(error) })
+        } })
+        setGoogleReady(true)
       }).catch(report)
     }
     document.head.append(script)
@@ -124,9 +135,9 @@ let App = () => {
   let openInput = (mode: 'address' | 'text') => { setInputMode(mode); inputDialog.current?.showModal(); inputField.current?.focus() }
   let showSessions = () => { inputDialog.current?.close(); leave(); setView('sessions') }
   return <main className={styles.main}>
-    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home">bmux</button><span className={styles.headerLabel}>{view === 'service' ? 'Account' : selected ? 'Remote session' : 'Remote sessions'}</span>{viewer && <button className={styles.avatar} onClick={() => { if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="Account" title="Account"><Icon name="user" /></button>}</header>
+    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home">bmux</button><span className={styles.headerLabel}>{view === 'service' ? 'Account' : selected ? 'Remote session' : 'Remote sessions'}</span>{(viewer || knownAccount) && <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button>}</header>
     {error && <p role="status" className={styles.error}>{error}</p>}
-    <section className={viewer ? styles.hidden : styles.signIn}><p>{auth === 'checking' ? 'Checking your session…' : auth === 'connecting' ? 'Connecting to your sessions…' : 'Sign in to see your sessions.'}</p><div ref={loginButton} /></section>
+    {!viewer && <section className={styles.signIn}>{auth === 'signed-out' ? <><p>Sign in to see your sessions.</p><button className={styles.googleButton} onClick={() => googleClient.current?.requestAccessToken()} disabled={!googleReady}><GoogleIcon />Sign in with Google</button></> : <p role="status" className={styles.loadingMessage}><span className={styles.spinner} />{auth === 'connecting' ? 'Connecting to your sessions…' : 'Checking your session…'}</p>}</section>}
     {view === 'sessions' && viewer && <div className={`${styles.workspace} ${selected ? styles.workspaceActive : ''}`}><section className={styles.library}><div className={styles.sectionHeading}><span>AVAILABLE SESSIONS</span><span>{hostsLoaded ? listed.length : '…'}</span></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
       <div className={styles.sessions}>{listed.map(({ host, session, pane }) => <button key={`${host.id}:${session.id}`} className={styles.session} aria-current={selectedId === `${host.id}:${session.id}` ? 'true' : undefined} onClick={() => watch(host, session)}>
         <span className={styles.sessionIcon}><Icon name="sessions" /></span><span className={styles.sessionCopy}><strong>{session.name}</strong><small>{host.service} · {pane.title || 'Blank page'}</small></span><span className={styles.sessionArrow}>›</span>
