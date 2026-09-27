@@ -56,7 +56,9 @@ Build `docker build --target service -t bmux-remote .`. Configure:
 - `BMUX_TURN_SECRET`: shared secret for coturn's REST credential authentication.
 - `BMUX_TURN_URLS`: comma-separated TURN UDP, TCP, and TLS URLs.
 
-The process creates its initial schema and exposes `/health`. Terminate HTTPS at
+The process creates its initial schema and exposes `/health`. It returns 503 while
+waiting for a temporarily unavailable database, then becomes ready without a
+container restart. Terminate HTTPS at
 an ingress that forwards WebSocket upgrades. coturn needs its own reachable relay
 address and UDP port range; an HTTP ingress cannot carry TURN. Keep the TURN
 shared secret only in service/TURN secret stores. Runtime code never prints it.

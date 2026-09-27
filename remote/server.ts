@@ -13,7 +13,18 @@ let audience = required('BMUX_GOOGLE_CLIENT_ID')
 let turnSecret = required('BMUX_TURN_SECRET')
 let turnUrls = required('BMUX_TURN_URLS').split(',')
 let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
-await pool.query(await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
+let ready = false, stopped = false
+let initialize = async () => {
+  let schema = await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8')
+  let retryable = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ENETUNREACH', 'EHOSTUNREACH', '57P03', '53300'])
+  while (!stopped) {
+    try { await pool.query(schema); ready = true; return }
+    catch (error) {
+      if (!retryable.has((error as { code?: string }).code ?? '')) throw error
+      await new Promise(resolve => setTimeout(resolve, 3000))
+    }
+  }
+}
 let googleKeys = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'))
 let digest = (value: string) => createHash('sha256').update(value).digest('hex')
 let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
@@ -61,6 +72,7 @@ let server = http.createServer((request, response) => {
   let json = (status: number, value: unknown) => { response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)) }
   void (async () => {
     let url = new URL(request.url ?? '/', publicOrigin)
+    if (!ready) { json(503, { error: 'Service starting' }); return }
     if (request.method === 'GET' && url.pathname === '/health') { await pool.query('SELECT 1'); json(200, { ok: true }); return }
     if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience }); return }
     if (request.method === 'POST' && request.headers.origin !== publicOrigin) throw new Error('Invalid origin')
@@ -153,6 +165,7 @@ let server = http.createServer((request, response) => {
 let sockets = new WebSocketServer({ noServer: true, maxPayload: 262144 })
 server.on('upgrade', (request, socket, head) => {
   void (async () => {
+    if (!ready) throw new Error('Service starting')
     let url = new URL(request.url ?? '/', publicOrigin)
     if (peers.size >= 10000) throw new Error('Connection capacity reached')
     if (url.pathname !== '/connect') throw new Error('Invalid endpoint')
@@ -226,10 +239,12 @@ server.on('upgrade', (request, socket, head) => {
   })().catch(() => socket.destroy())
 })
 let timer = setInterval(() => {
+  if (!ready) return
   for (let [ticket, value] of tickets) if (value.expires <= Date.now()) tickets.delete(ticket)
   for (let peer of peers.values()) { if (!peer.alive) peer.socket.terminate(); else { peer.alive = false; peer.socket.ping() } }
   void pool.query("DELETE FROM bmux_usage WHERE recorded<now()-interval '30 days'; DELETE FROM bmux_logins WHERE expires<now()").catch(() => undefined)
   void pool.query('SELECT id FROM bmux_services WHERE revoked').then(result => { for (let row of result.rows) for (let peer of peers.values()) if (peer.service === row.id) peer.socket.close(1008, 'Revoked') }).catch(() => { for (let peer of peers.values()) peer.socket.close(1011, 'Authorization unavailable') })
 }, 15000)
 server.listen(Number(process.env.PORT ?? 8788), '0.0.0.0')
-for (let signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { clearInterval(timer); for (let peer of peers.values()) peer.socket.close(); server.close(() => { void pool.end() }) })
+void initialize().catch(error => { console.error(`Database initialization failed: ${(error as { code?: string }).code ?? 'unknown'}`); process.exit(1) })
+for (let signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { stopped = true; clearInterval(timer); for (let peer of peers.values()) peer.socket.close(); server.close(() => { void pool.end() }) })

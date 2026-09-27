@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { Pool } from 'pg'
 import { WebSocket } from 'ws'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 
 let url = process.env.BMUX_TEST_DATABASE_URL
 if (!url || !new URL(url).hostname.match(/^(127\.0\.0\.1|localhost)$/)) throw new Error('A disposable localhost BMUX_TEST_DATABASE_URL is required')
@@ -17,6 +18,7 @@ await pool.query('INSERT INTO bmux_services (id,owner,token_hash,public_key) VAL
 await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '1 hour')", [digest(login),owner])
 await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '1 hour')", [digest(guestLogin),guest])
 let server = spawn(process.execPath, ['--import','tsx','remote/server.ts'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url, PORT:'18888', BMUX_PUBLIC_ORIGIN: origin, BMUX_GOOGLE_CLIENT_ID:'fixture', BMUX_TURN_SECRET:'fixture-only', BMUX_TURN_URLS:'turn:127.0.0.1:3478' }, stdio: ['ignore','ignore','pipe'] })
+let recoveryServer, proxy
 let failures = ''
 server.stderr.on('data', data => { failures += data })
 let sockets = []
@@ -32,6 +34,23 @@ let until = async predicate => { for (let n=0;n<100;n++) { if (await predicate()
 let post = (endpoint, session, value) => fetch(`${origin}${endpoint}`, { method:'POST', headers:{ Origin:origin, Cookie:`bmux_session=${session}`, 'Content-Type':'application/json' }, body:JSON.stringify(value) })
 try {
   await until(async () => { try { return (await fetch(`${origin}/health`)).ok } catch { return false } })
+  let recoveryUrl = new URL(url); recoveryUrl.port = '18891'
+  let recoveryOrigin = 'http://127.0.0.1:18890'
+  recoveryServer = spawn(process.execPath, ['--import','tsx','remote/server.ts'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: recoveryUrl.toString(), PORT:'18890', BMUX_PUBLIC_ORIGIN: recoveryOrigin, BMUX_GOOGLE_CLIENT_ID:'fixture', BMUX_TURN_SECRET:'fixture-only', BMUX_TURN_URLS:'turn:127.0.0.1:3478' }, stdio:'ignore' })
+  await until(async () => { try { return (await fetch(`${recoveryOrigin}/health`)).status===503 } catch { return false } })
+  assert.equal(recoveryServer.exitCode,null,'The relay remains running while PostgreSQL is unavailable')
+  proxy = net.createServer(socket => {
+    let upstream = net.connect(Number(new URL(url).port || 5432),'127.0.0.1')
+    socket.pipe(upstream).pipe(socket)
+    socket.on('error',()=>upstream.destroy())
+    upstream.on('error',()=>socket.destroy())
+  })
+  await new Promise(resolve=>proxy.listen(18891,'127.0.0.1',resolve))
+  await until(async () => { try { return (await fetch(`${recoveryOrigin}/health`)).ok } catch { return false } })
+  recoveryServer.kill('SIGTERM')
+  await new Promise(resolve=>{ if(recoveryServer.exitCode!==null)resolve();else recoveryServer.once('exit',resolve) })
+  await new Promise(resolve=>proxy.close(resolve))
+  recoveryServer = undefined; proxy = undefined
   let page = await fetch(origin), html = await page.text()
   let nonce = /<meta name="csp-nonce" content="([A-Za-z0-9+/]+)">/.exec(html)?.[1]
   assert(nonce, 'The viewer receives a style nonce for Google sign-in')
@@ -87,6 +106,8 @@ try {
   assert(browser.messages.some(m=>m.type==='revoked'))
   console.log('Passed: login boundary, API key hosts, account grants, single-use tickets, usage deduplication and revocation')
 } finally {
+  recoveryServer?.kill('SIGKILL')
+  proxy?.close()
   for (let socket of sockets) socket.terminate()
   server.kill('SIGTERM')
   await new Promise(resolve=> { if(server.exitCode!==null) resolve(); else server.once('exit',resolve); setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref() })
