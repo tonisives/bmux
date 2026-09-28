@@ -36,6 +36,12 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await address.press('Enter')
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
     let page = application.context().pages().find(page => page.url() === url)!
+    await page.locator('#text').click()
+    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 48'])
+    await expect(page.locator('#notes')).toBeFocused()
+    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 48 using shift down'])
+    await expect(page.locator('#text')).toBeFocused()
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
     let zoomed = () => chrome.evaluate(async () => {
       let state = await (window as any).bmux.state()
       return !!state.model.clients.find((client: any) => client.id === state.clientId).zoomedPaneId

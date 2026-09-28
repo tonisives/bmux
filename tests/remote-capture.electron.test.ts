@@ -6,11 +6,11 @@ import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-test('background panes deliver changing frames without a visible window', async () => {
+test('background panes deliver static frames without a visible window', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-'))
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end('<!doctype html><title>Capture fixture</title><style>body{margin:0}</style><canvas width="640" height="480"></canvas><script>let n=0;setInterval(()=>{let c=document.querySelector("canvas").getContext("2d");c.fillStyle=++n%2?"red":"blue";c.fillRect(0,0,640,480)},100)</script>')
+    response.end('<!doctype html><title>Capture fixture</title><style>body{margin:0}</style><canvas width="640" height="480"></canvas><script>let n=0;let timer=setInterval(()=>{let c=document.querySelector("canvas").getContext("2d");c.fillStyle=++n%2?"red":"blue";c.fillRect(0,0,640,480)},100);window.stopFrames=()=>clearInterval(timer)</script>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -41,6 +41,7 @@ test('background panes deliver changing frames without a visible window', async 
     await expect.poll(() => application.evaluate(() => (globalThis as typeof globalThis & { captureFrames: number }).captureFrames), { timeout: 15000 }).toBeGreaterThan(5)
     expect(await application.evaluate(() => (globalThis as typeof globalThis & { captureColors: Set<number> }).captureColors.size)).toBeGreaterThan(1)
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
+    await application.context().pages().find(page => page.url() === origin + '/')!.evaluate(() => (window as any).stopFrames())
     await application.evaluate(async ({ webContents }, { url, iceServers, relayOnly }) => {
       let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!
       contents.endFrameSubscription()
@@ -67,8 +68,15 @@ test('background panes deliver changing frames without a visible window', async 
       return peer.localDescription!.toJSON()
     }, { offer, iceServers, relayOnly })
     await application.evaluate((_electron, answer) => (globalThis as any).remoteCapture.answer(answer), answer)
-    await expect.poll(() => viewer.evaluate(() => document.querySelector('video')?.getVideoPlaybackQuality().totalVideoFrames ?? 0), { timeout: 15000 }).toBeGreaterThan(5)
     await expect.poll(() => viewer.evaluate(() => (window as any).testChannel?.readyState), { timeout: 15000 }).toBe('open')
+    await expect.poll(() => viewer.evaluate(() => document.querySelector('video')?.getVideoPlaybackQuality().totalVideoFrames ?? 0), { timeout: 15000 }).toBeGreaterThan(0)
+    let color = await viewer.evaluate(() => { let video = document.querySelector('video')!; let canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; let context = canvas.getContext('2d')!; context.drawImage(video, 0, 0); return [...context.getImageData(100, 100, 1, 1).data] })
+    expect(color[3]).toBe(255)
+    expect(color[1]).toBeLessThan(100)
+    expect(Math.max(color[0], color[2])).toBeGreaterThan(150)
+    await application.evaluate(({ webContents }, url) => webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!.endFrameSubscription(), origin)
+    await application.context().pages().find(page => page.url() === origin + '/')!.evaluate(() => { let canvas = document.querySelector('canvas')!; let context = canvas.getContext('2d')!; context.fillStyle = 'green'; context.fillRect(0, 0, canvas.width, canvas.height) })
+    await expect.poll(() => viewer.evaluate(() => { let video = document.querySelector('video')!; let canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; let context = canvas.getContext('2d')!; context.drawImage(video, 0, 0); return context.getImageData(100, 100, 1, 1).data[1] }), { timeout: 15000 }).toBeGreaterThan(100)
     await viewer.evaluate(() => (window as any).testChannel.send('capture-test'))
     await expect.poll(() => application.evaluate(() => (globalThis as any).remoteData), { timeout: 15000 }).toBe('capture-test')
     if (relayOnly) expect(await viewer.evaluate(async () => {

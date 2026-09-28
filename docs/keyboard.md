@@ -196,6 +196,8 @@ keyboard:
 ```
 
 `pane-not-editing` requires page focus in the active pane, outside text fields.
+By default, Tab and Shift+Tab use this context to switch windows only when a
+page field is not focused. In a field, they move focus through the page.
 The URL bar, browser prompts, website inputs, and editable page content retain
 their normal keyboard behavior. If focus cannot be determined, the shortcut is
 not intercepted. This includes unknown focusable controls and closed shadow
