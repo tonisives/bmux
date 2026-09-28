@@ -110,9 +110,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
     await command('attach-session','-t',status.model.sessions[0].id)
     let local = application.context().pages().find(page=>page.url().endsWith('/index.html'))!
-    await local.getByRole('button',{name:'Sessions',exact:true}).click()
-    await expect(local.getByRole('button',{name:/main.*remote/})).toBeVisible()
-    await local.getByRole('button',{name:/main.*remote/}).click()
+    await local.getByRole('button',{name:'Remote sessions',exact:true}).click()
+    let remotePicker = local.getByRole('dialog',{name:'Remote sessions'})
+    await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
+    await remotePicker.getByRole('button',{name:/main.*remote/}).click()
     await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
     let attached = application.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
     await expect(attached.getByLabel('Remote browser')).toBeVisible()
