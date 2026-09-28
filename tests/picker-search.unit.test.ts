@@ -12,7 +12,7 @@ test('bookmark search preserves folder context without including unrelated sibli
   let before = structuredClone(bookmarks)
   expect(searchBookmarks(bookmarks, 'api reference')).toEqual([{ ...bookmarks[0], children: [bookmarks[0].children![0]] }])
   expect(searchBookmarks(bookmarks, 'NOTES')[0].children?.map(item => item.id)).toEqual(['notes'])
-  expect(searchBookmarks(bookmarks, 'work')).toEqual([{ ...bookmarks[0], children: [] }])
+  expect(searchBookmarks(bookmarks, 'work')).toEqual([bookmarks[0]])
   expect(searchBookmarks(bookmarks, 'zzzz')).toEqual([])
   expect(searchBookmarks(bookmarks, '   ')).toBe(bookmarks)
   expect(bookmarks).toEqual(before)

@@ -23,11 +23,11 @@ let searchBookmarkResults = (bookmarks: Bookmark[], query: string): ScoredBookma
     let match = pageMatch(bookmark, query)
     return match ? [{ bookmark, match }] : []
   }
-  let children = searchBookmarkResults(bookmark.children, query), match = bestMatch([
-    fieldMatch(query, bookmark.title, 2),
+  let children = searchBookmarkResults(bookmark.children, query), folderMatch = fieldMatch(query, bookmark.title, 2), match = bestMatch([
+    folderMatch,
     children[0]?.match,
   ])
-  return match ? [{ bookmark: { ...bookmark, children: children.map(result => result.bookmark) }, match }] : []
+  return match ? [{ bookmark: { ...bookmark, children: folderMatch ? bookmark.children : children.map(result => result.bookmark) }, match }] : []
 }).sort((a, b) => compareMatches(a.match, b.match))
 
 let searchBookmarkPageResults = (bookmarks: Bookmark[], query: string): ScoredBookmark[] => bookmarks.flatMap(bookmark => {
