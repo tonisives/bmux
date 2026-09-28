@@ -8,19 +8,29 @@ export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHos
 export let createLocalRemote = () => {
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
-  let viewer: BrowserWindow | undefined, login: BrowserWindow | undefined
+  let viewer: BrowserWindow | undefined
+  let preferredProfileId: string | undefined, activeToken: string | undefined
   let selected: { host: LocalRemoteHost; session: string } | undefined
-  let cookie = async () => (await session.defaultSession.cookies.get({ url: origin })).find(item => item.name === 'bmux_session')?.value
+  let profiles: () => string[] = () => []
+  let useProfiles = (available: () => string[]) => { profiles = available }
+  let preferProfile = (profileId: string) => { preferredProfileId = profileId }
   let list = async (): Promise<LocalRemoteListing> => {
-    let token = await cookie()
-    if (!token) return { authenticated: false, hosts: [] }
-    let response = await fetch(`${origin}/api/hosts`, { headers: { Cookie: `bmux_session=${token}` }, signal: AbortSignal.timeout(10000) })
-    if (response.status === 401) return { authenticated: false, hosts: [] }
-    if (!response.ok) throw new Error('Remote sessions unavailable')
-    return { authenticated: true, hosts: await response.json() as LocalRemoteHost[] }
+    let ids = [...new Set([preferredProfileId, ...profiles()].filter((id): id is string => !!id))]
+    let browsers = [...ids.map(id => session.fromPartition(`persist:${id}`)), session.defaultSession]
+    for (let browser of browsers) {
+      let token = (await browser.cookies.get({ url: origin })).find(item => item.name === 'bmux_session')?.value
+      if (!token) continue
+      let response = await fetch(`${origin}/api/hosts`, { headers: { Cookie: `bmux_session=${token}` }, signal: AbortSignal.timeout(10000) })
+      if (response.status === 401) continue
+      if (!response.ok) throw new Error('Remote sessions unavailable')
+      activeToken = token
+      return { authenticated: true, hosts: await response.json() as LocalRemoteHost[] }
+    }
+    activeToken = undefined
+    return { authenticated: false, hosts: [] }
   }
   let connect = async (publicKey: JsonWebKey) => {
-    let token = await cookie()
+    let token = activeToken
     if (!token) throw new Error('Sign in to remote')
     let response = await fetch(`${origin}/api/connect`, { method: 'POST', headers: { Cookie: `bmux_session=${token}`, Origin: origin, 'Content-Type': 'application/json', 'X-Bmux-Desktop': '1' }, body: JSON.stringify({ publicKey }), signal: AbortSignal.timeout(10000) })
     if (!response.ok) throw new Error('Remote connection unavailable')
@@ -36,18 +46,8 @@ export let createLocalRemote = () => {
   })
   let open = async (hostId?: string, sessionId?: string) => {
     let listing = await list()
-    if (!listing.authenticated || !hostId || !sessionId) {
-      if (!login || login.isDestroyed()) {
-        login = new BrowserWindow({ title: 'Sign in to bmux remote', width: 850, height: 700, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
-        login.webContents.setWindowOpenHandler(details => new URL(details.url).origin === 'https://accounts.google.com'
-          ? { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } }
-          : { action: 'deny' })
-        login.on('closed', () => { login = undefined })
-        await login.loadURL(origin)
-      }
-      login.focus()
-      return
-    }
+    if (!listing.authenticated) throw new Error('Sign in to remote')
+    if (!hostId || !sessionId) throw new Error('Remote session required')
     let host = listing.hosts.find(item => item.id === hostId && item.sessions.some(item => item.id === sessionId))
     if (!host) throw new Error('Remote session unavailable')
     selected = { host, session: sessionId }
@@ -61,6 +61,6 @@ export let createLocalRemote = () => {
     viewer.show()
     viewer.focus()
   }
-  let close = () => { viewer?.close(); login?.close() }
-  return { list, open, close }
+  let close = () => { viewer?.close() }
+  return { origin, list, open, close, useProfiles, preferProfile }
 }

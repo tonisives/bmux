@@ -106,8 +106,9 @@ Watch reports a host rejection or timeout instead of showing an idle video area.
 
 ## Attach from the desktop app
 
-Open the local session picker. Sign in under **Remote sessions** once, then select a
-remote session from that section. bmux opens a local viewer window for that session;
+Click **Remote sessions** beside **Sessions** in the status bar. Sign-in opens
+`remote.bmux.cc` in a new bmux window while the remote picker stays open and
+checks for completion. Select a remote session to open a local viewer window;
 the stream and input still use the remote connection service. Closing the window
 leaves the hosted session running. Set `BMUX_REMOTE_URL` before launching bmux
 to use a different HTTPS service origin. The default is `https://remote.bmux.cc`.
