@@ -9,7 +9,6 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { display: inline-flex; align-items: center; min-width: 0; flex-shrink: 1; white-space: nowrap; color: #bdc9b4; }
-.status .remoteSessionsButton { flex: 0 0 auto; white-space: nowrap; color: #87a9c4; }
 .sessionName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status .profileButton, .status .proxyButton, .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .status .profileButton, .status .proxyButton { width: auto; height: 18px; }
@@ -110,6 +109,10 @@
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .panel header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; min-height: 42px; padding: 6px 8px 6px 20px; border-bottom: 1px solid #363c45; background: #191d23; }
 .panel header strong { font-weight: 500; color: #eceef2; }
+.sessionTabs { display: flex; align-self: stretch; align-items: stretch; gap: 16px; }
+.panel .sessionTabs button { padding: 0 2px; border-bottom: 2px solid transparent; color: #a8b2be; }
+.panel .sessionTabs button[aria-selected="true"] { border-bottom-color: #87a9c4; color: #eceef2; }
+.panel .sessionTabs button:hover { color: #eceef2; }
 .panelBody { padding: 12px 20px 20px; }
 .panel button { border: 0; background: transparent; }
 .panel p { color: #8e98a4; }
