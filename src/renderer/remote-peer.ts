@@ -6,14 +6,24 @@ let peer: RTCPeerConnection | undefined
 let channel: RTCDataChannel | undefined
 let track: CanvasCaptureMediaStreamTrack | undefined
 let drawing = false
-let connected = () => bridge.send({ type: 'connection', state: peer?.connectionState })
+let latestFrame: HTMLImageElement | undefined
+let connected = () => {
+  if (peer?.connectionState === 'connected') track?.requestFrame()
+  bridge.send({ type: 'connection', state: peer?.connectionState })
+}
+setInterval(() => {
+  if (peer?.connectionState !== 'connected' || !latestFrame) return
+  context.drawImage(latestFrame, 0, 0, canvas.width, canvas.height)
+  track?.requestFrame()
+}, 100)
 bridge.receive(message => {
   void (async () => {
     if (message.type === 'start') {
       peer?.close()
+      latestFrame = undefined
       peer = new RTCPeerConnection({ iceServers: message.iceServers, iceTransportPolicy: message.relayOnly ? 'relay' : 'all' })
       canvas.width = message.width ?? 1280; canvas.height = message.height ?? 800
-      let stream = canvas.captureStream(0)
+      let stream = canvas.captureStream(10)
       track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
       peer.addTrack(track, stream)
       channel = peer.createDataChannel('bmux')
@@ -29,8 +39,8 @@ bridge.receive(message => {
         let bitmap = new Image()
         bitmap.src = message.data
         await bitmap.decode()
-        if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) { canvas.width = bitmap.width; canvas.height = bitmap.height }
-        context.drawImage(bitmap, 0, 0); track?.requestFrame()
+        latestFrame = bitmap
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); track?.requestFrame()
       } finally { drawing = false; bridge.send({ type: 'frame-ack' }) }
     }
   })().catch(() => bridge.send({ type: 'error', error: 'Transport operation failed' }))
