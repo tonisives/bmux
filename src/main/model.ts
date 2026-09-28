@@ -202,6 +202,7 @@ export let validateModel = (value: unknown): Model => {
   }
   for (let session of model.sessions) {
     checkId(session.id)
+    if (session.device !== undefined) session.device = parseDevicePersona(session.device)
     if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
     if (session.profileExplicit !== undefined && typeof session.profileExplicit !== 'boolean') throw new Error('Invalid explicit profile setting')
     delete (session as WorkspaceSession & { searchApp?: string }).searchApp
@@ -226,11 +227,14 @@ export let validateModel = (value: unknown): Model => {
       if (leaves.length !== window.panes.length || new Set(leaves).size !== leaves.length) throw new Error('Invalid layout leaves')
       for (let pane of window.panes) {
         checkId(pane.id)
+        if (pane.device !== undefined) pane.device = parseDevicePersona(pane.device)
+        else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
         if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean')) throw new Error('Invalid pane page')
       }
     }
   }
+  for (let profile of model.profiles) delete profile.device
   if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
   if (model.newSessionProfileId !== undefined && !model.profiles.some(profile => profile.id === model.newSessionProfileId)) throw new Error('Invalid new session profile')
   return model

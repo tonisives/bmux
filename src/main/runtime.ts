@@ -460,7 +460,7 @@ export let createRuntime = (dataDirectory: string) => {
   let browserSession = (profileId: string, privateSessionId?: string) => {
     let profile = resolve(model.profiles, profileId, 'Profile')
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
-    let session = configureSessionIdentity(profile.id, profile.device, privateSessionId)
+    let session = configureSessionIdentity(profile.id, undefined, privateSessionId)
     if (configuredProfiles.has(key)) return session
     configuredProfiles.add(key)
     // The sandboxed media decoder cannot always open file URLs outside temporary storage.
@@ -550,12 +550,6 @@ export let createRuntime = (dataDirectory: string) => {
       delete crashes[tabId]
       live.contents.reloadIgnoringCache()
     }
-  }
-  let recreateProfileTabs = async (profileId: string) => {
-    let tabIds = [...tabs].filter(([tabId]) => tabById(model, tabId).pane.profileId === profileId).map(([tabId]) => tabId)
-    for (let tabId of tabIds) disposeTab(tabId)
-    await scheduleVisuals()
-    await Promise.all(tabIds.map(tabId => tabs.get(tabId)?.ready))
   }
   let updateProfileNetwork = async (profileId: string, proxy?: ReturnType<typeof parseProfileProxy>, replacement?: ProxyCredentials) => {
     browserSession(profileId)
@@ -820,7 +814,7 @@ export let createRuntime = (dataDirectory: string) => {
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
       profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
-      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(async () => {
+      (pane.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, pane.device!)) : Promise.resolve()).then(async () => {
         await pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)
         if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
         await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
@@ -937,13 +931,14 @@ export let createRuntime = (dataDirectory: string) => {
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
       let added = created.panes[0]
+      added.device = session.device
       added.openerPaneId = tabId
       if (!options?.webContents) { added.url = url; added.title = url }
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
       if (!options) {
-        if (profile.device) {
+        if (pane.device) {
           let popup = createLiveTab(added.id, false)
           void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url) }).catch(reportError)
         }
@@ -955,7 +950,7 @@ export let createRuntime = (dataDirectory: string) => {
       return popup.contents
     }
     contents.setWindowOpenHandler(details => {
-      if (profile.device) {
+      if (pane.device) {
         setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, false) }, 100)
         return { action: 'deny' }
       }
@@ -1324,7 +1319,7 @@ export let createRuntime = (dataDirectory: string) => {
       let { session, pane } = tabById(model, tabId)
       extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
-        let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
+        let persona = tabById(model, tabId).pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
         live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
         if (persona && live.deviceScale !== fitted.scale) {
@@ -1823,41 +1818,35 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'profile.device.set') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let { pane, session } = paneById(model, required(args, 'pane'))
+      if (pane.profileId !== required(args, 'profile')) throw new Error('Pane profile changed')
       let device = parseDevicePersona(args.device)
-      let previous = profile.device
-      try {
-        configureSessionIdentity(profile.id, device)
-        let liveTabs = [...tabs].filter(([tabId, live]) => !live.contents.isDestroyed() && tabById(model, tabId).pane.profileId === profile.id)
-        await Promise.all(liveTabs.map(([, live]) => applyDevicePersona(live.contents, device, live.deviceScale ?? 1)))
-        for (let [, live] of liveTabs) live.deviceScale = undefined
-        profile.device = device
-      } catch (error) {
-        configureSessionIdentity(profile.id, previous)
-        if (previous) {
-          try { await Promise.all([...tabs].filter(([tabId, live]) => !live.contents.isDestroyed() && tabById(model, tabId).pane.profileId === profile.id).map(([, live]) => applyDevicePersona(live.contents, previous, live.deviceScale ?? 1))) } catch { /* Preserve the original error. */ }
-        } else {
-          try { await recreateProfileTabs(profile.id) } catch { /* Preserve the original error. */ }
-        }
-        throw error
-      }
-      save(); reloadProfileTabs(profile.id); void scheduleVisuals(); return profile
+      pane.device = device
+      if (args.newPanes === true) session.device = device
+      else delete session.device
+      delete snapshots[pane.id]
+      disposeTab(pane.id)
+      save(); await scheduleVisuals()
+      let live = tabs.get(pane.id)
+      await live?.ready
+      await live?.initialNavigation?.catch(() => undefined)
+      if (live) live.initialNavigation = undefined
+      return pane
     }
     if (method === 'profile.device.clear') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
-      let previous = profile.device
-      try {
-        delete profile.device
-        configureSessionIdentity(profile.id)
-        await recreateProfileTabs(profile.id)
-      } catch (error) {
-        profile.device = previous
-        configureSessionIdentity(profile.id, previous)
-        try { await recreateProfileTabs(profile.id) } catch { /* Preserve the original error. */ }
-        throw error
-      }
-      save(); return profile
+      let { pane, session } = paneById(model, required(args, 'pane'))
+      if (pane.profileId !== required(args, 'profile')) throw new Error('Pane profile changed')
+      delete pane.device
+      delete session.device
+      delete snapshots[pane.id]
+      disposeTab(pane.id)
+      save(); await scheduleVisuals()
+      let live = tabs.get(pane.id)
+      await live?.ready
+      await live?.initialNavigation?.catch(() => undefined)
+      if (live) live.initialNavigation = undefined
+      return pane
     }
     if (method === 'profile.cache.status') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1986,6 +1975,7 @@ export let createRuntime = (dataDirectory: string) => {
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
+      if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
         tab.url = normalizeUrl(String(args.url), searchAppForSession(session))
@@ -2125,6 +2115,7 @@ export let createRuntime = (dataDirectory: string) => {
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
       let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
+      if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
       if (args.client && args.background !== true) {
@@ -2143,6 +2134,7 @@ export let createRuntime = (dataDirectory: string) => {
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
+      if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)

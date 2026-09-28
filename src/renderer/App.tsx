@@ -160,7 +160,7 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, run: UICo
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
 
 let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
-let profileDeviceLabel = (profile: Profile) => !profile.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: profile.device.platform === 'android' ? 'Android' : 'iOS' })[profile.device.preset]
+let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
 
 let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
   let hash = profileHash(id), background = AVATAR_COLORS[hash % AVATAR_COLORS.length], foreground = AVATAR_COLORS[(hash >>> 5) % AVATAR_COLORS.length]
@@ -738,7 +738,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [profilePickerOpen])
   let customProfile = profile && session && !session.private && profile.id !== session.defaultProfileId ? profile : undefined
   let proxyTest = customProfile ? state.profileProxyTests[customProfile.id] : undefined
-  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}` : ''
+  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(pane!)}` : ''
   let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
   let proxyRouteTitle = customProfile?.proxy ? `${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
   let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
@@ -755,7 +755,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!customProfile.device} />}</button>{customProfile?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
+    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>{customProfile?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -799,19 +799,37 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
   let tab = pane
   let ref = useRef<HTMLDivElement>(null)
+  let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   useLayoutEffect(() => {
     let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
     let observer = new ResizeObserver(publish)
     if (ref.current) observer.observe(ref.current)
+    let screen = ref.current?.querySelector<HTMLElement>('[data-browser-content]')
+    if (screen && screen !== ref.current) observer.observe(screen)
     publish()
     return () => observer.disconnect()
-  }, [tab.id, client!.windowId, state.statusBar])
+  }, [tab.id, client!.windowId, state.statusBar, pane.device])
+  useLayoutEffect(() => {
+    if (!pane.device || !ref.current) return
+    let element = ref.current
+    let measure = () => {
+      let portrait = pane.device!.orientation === 'portrait'
+      let width = portrait ? pane.device!.width : pane.device!.height
+      let height = portrait ? pane.device!.height : pane.device!.width
+      let scale = Math.min(1, Math.max(1, element.clientWidth - 32) / width, Math.max(1, element.clientHeight - 56) / height)
+      setDeviceSize({ width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) })
+    }
+    let observer = new ResizeObserver(measure)
+    observer.observe(element); measure()
+    return () => observer.disconnect()
+  }, [pane.device])
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-content-pane-id={pane.id} onMouseDown={focus}>
-    {state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>}
+  let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+    {pane.device ? <div className={css.deviceFrame} data-platform={pane.device.platform} style={{ width: deviceSize.width + 20, height: deviceSize.height + (pane.device.platform === 'ios' ? 40 : 32) }}><div className={css.deviceTop} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ width: deviceSize.width, height: deviceSize.height }}>{fallback}</div><div className={css.deviceHome} /></div> : fallback}
   </div></section>
 }
 
@@ -1154,10 +1172,10 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow}><button className={`${css.listRow} ${css.sessionLabelRow}`} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
-type DeviceSettingsProps = { profile: Profile; paneCount: number }
-let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
+type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
+let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) => {
   let { run } = useUI()
-  let current = profile.device
+  let current = pane.device
   let [preset, setPreset] = useState<DevicePreset>(current?.preset ?? 'pixel-8')
   let [platform, setPlatform] = useState<DevicePlatform>(current?.platform ?? 'android')
   let [width, setWidth] = useState(String(current?.width ?? 412)), [height, setHeight] = useState(String(current?.height ?? 915)), [dpr, setDpr] = useState(String(current?.deviceScaleFactor ?? 2.625))
@@ -1167,6 +1185,7 @@ let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
   let [locationEnabled, setLocationEnabled] = useState(!!current?.geolocation)
   let [latitude, setLatitude] = useState(String(current?.geolocation?.latitude ?? '')), [longitude, setLongitude] = useState(String(current?.geolocation?.longitude ?? '')), [accuracy, setAccuracy] = useState(String(current?.geolocation?.accuracy ?? 100))
   let [busy, setBusy] = useState(false)
+  let [newPanes, setNewPanes] = useState(!!session.device)
   let changePreset = (event: ChangeEvent<HTMLSelectElement>) => setPreset(event.target.value as DevicePreset)
   let changePlatform = (event: ChangeEvent<HTMLSelectElement>) => setPlatform(event.target.value as DevicePlatform)
   let changeOrientation = (event: ChangeEvent<HTMLSelectElement>) => setOrientation(event.target.value as 'portrait' | 'landscape')
@@ -1179,16 +1198,16 @@ let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
   let changeLatitude = (event: ChangeEvent<HTMLInputElement>) => setLatitude(event.target.value)
   let changeLongitude = (event: ChangeEvent<HTMLInputElement>) => setLongitude(event.target.value)
   let changeAccuracy = (event: ChangeEvent<HTMLInputElement>) => setAccuracy(event.target.value)
+  let changeNewPanes = (event: ChangeEvent<HTMLInputElement>) => setNewPanes(event.target.checked)
   let saveDevice = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return
     setBusy(true)
-    await run('profile.device.set', { profile: profile.id, device: { preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) } })
+    await run('profile.device.set', { profile: profile.id, pane: pane.id, newPanes, device: { preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) } })
     setBusy(false)
   }
-  let clearDevice = async () => { if (busy) return; setBusy(true); await run('profile.device.clear', { profile: profile.id }); setBusy(false) }
-  return <form className={css.profileProxy} onSubmit={saveDevice}>
-    <h2>Device</h2>
-    <p>{current ? 'Mobile identity active' : 'Desktop identity'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+  let clearDevice = async () => { if (busy) return; setBusy(true); await run('profile.device.clear', { profile: profile.id, pane: pane.id }); setBusy(false) }
+  return <form className={css.deviceSettings} onSubmit={saveDevice}>
+    <p>{current ? 'Mobile device active' : 'Desktop device active'} for this pane.</p>
     <div className={css.profileDeviceGrid}>
       <label>Device<select aria-label="Device" value={preset} onChange={changePreset}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select></label>
       <label>Orientation<select aria-label="Orientation" value={orientation} onChange={changeOrientation}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
@@ -1203,6 +1222,7 @@ let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
     </div>}
     <label className={css.profileProxyAuthentication}><input type="checkbox" checked={locationEnabled} onChange={changeLocationEnabled} />Set geolocation</label>
     {locationEnabled && <div className={css.profileDeviceLocation}><label>Latitude<input className={css.pluginInput} type="number" min="-90" max="90" step="any" value={latitude} onChange={changeLatitude} required /></label><label>Longitude<input className={css.pluginInput} type="number" min="-180" max="180" step="any" value={longitude} onChange={changeLongitude} required /></label><label>Accuracy<input className={css.pluginInput} type="number" min="0" max="100000" step="any" value={accuracy} onChange={changeAccuracy} required /></label></div>}
+    <label className={css.profileProxyAuthentication}><input type="checkbox" checked={newPanes} onChange={changeNewPanes} />Enable for all new panes</label>
     <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Apply device</button>{current && <button type="button" onClick={clearDevice} disabled={busy}>Use desktop</button>}</div>
   </form>
 }
@@ -1329,7 +1349,7 @@ let ProfileInfo = () => {
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
     </section></div>}
-    {tab === 'device' && <div role="tabpanel" aria-label="Device settings"><ProfileDeviceSettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
   </section>
 }

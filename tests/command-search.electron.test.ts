@@ -327,16 +327,22 @@ test('profile proxy settings route, test, and restore the selected profile conne
 
 test('profile device identity is applied before requests and cache status is public', async () => {
   let current = await state(), profile = current.model.profiles[0]
+  let tab = current.model.sessions[0].windows[0].panes[0].id
+  let other = await rpc('new-window', { session: current.model.sessions[0].id, url }) as { panes: { id: string }[] }
+  let otherTab = other.panes[0].id
+  await expect.poll(() => rpc('eval', { tab: otherTab, expression: 'document.title' })).toBe('Command search fixture')
+  await rpc('eval', { tab: otherTab, expression: 'window.deviceReloadMarker = true' })
   let panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByLabel('Device', { exact: true }).selectOption('pixel-8')
   await panel.getByLabel('Locale', { exact: true }).fill('fr-FR')
   await panel.getByLabel('Timezone', { exact: true }).fill('Europe/Paris')
   await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
-  await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('pixel-8')
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('pixel-8')
+  expect(await rpc('eval', { tab: otherTab, expression: 'window.deviceReloadMarker' })).toBe(true)
+  expect((await state()).model.sessions[0].device).toBeUndefined()
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toHaveCount(0)
   current = await state()
-  let tab = current.model.sessions[0].windows[0].panes[0].id
   await rpc('navigate', { tab, url: `${url}/device-android` })
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('Android 10')
   expect(identityRequests.get('/device-android')?.['accept-language']).toContain('fr-FR')
@@ -359,13 +365,20 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByLabel('Latitude', { exact: true }).fill('48.8566')
   await panel.getByLabel('Longitude', { exact: true }).fill('2.3522')
   await panel.getByLabel('Accuracy', { exact: true }).fill('12')
-  await panel.getByRole('heading', { name: 'Device', exact: true }).evaluate(element => element.scrollIntoView({ block: 'start' }))
+  await panel.getByLabel('Enable for all new panes').check()
+  await panel.getByRole('tabpanel', { name: 'Device settings' }).evaluate(element => element.scrollIntoView({ block: 'start' }))
   await chrome.screenshot({ path: path.resolve('artifacts/profile-device-controls.png') })
   await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
-  await expect.poll(async () => (await state()).model.profiles[0].device?.orientation).toBe('landscape')
-  expect((await state()).model.profiles[1].device).toBeUndefined()
-  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles[0].device?.geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.orientation).toBe('landscape')
+  expect((await state()).model.sessions[0].device?.orientation).toBe('landscape')
+  let future = await rpc('new-window', { session: current.model.sessions[0].id }) as { panes: { device?: { orientation: string } }[] }
+  expect(future.panes[0].device?.orientation).toBe('landscape')
+  expect((await state()).model.sessions[0].windows[0].panes[0].device?.platform).toBe('android')
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions[0].windows[0].panes[0].device?.geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(chrome.locator(`[data-pane-id="${tab}"] [data-platform="android"]`)).toBeVisible()
+  await expect(chrome.locator(`[data-pane-id="${tab}"] img[alt="Page preview"]`)).toHaveCount(0)
+  await chrome.screenshot({ path: path.resolve('artifacts/device-android-frame.png') })
   let contentBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${tab}"]`).boundingBox()
   await expect.poll(() => application.evaluate(({ BaseWindow }, path) => {
     for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
@@ -384,7 +397,7 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByLabel('Device', { exact: true }).selectOption('iphone-15-pro')
   await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
-  await expect.poll(async () => (await state()).model.profiles[0].device?.preset).toBe('iphone-15-pro')
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('iphone-15-pro')
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
   await rpc('navigate', { tab, url: `${url}/device-ios` })
   await expect.poll(() => identityRequests.get('/device-ios')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
@@ -392,6 +405,8 @@ test('profile device identity is applied before requests and cache status is pub
   expect(identityRequests.get('/device-ios')?.['sec-ch-ua']).toBeUndefined()
   expect(await rpc('eval', { tab, expression: '({cores:navigator.hardwareConcurrency,hasMemory:"deviceMemory" in navigator,memory:navigator.deviceMemory})' })).toEqual({ cores: 6, hasMemory: false })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(chrome.locator(`[data-pane-id="${tab}"] [data-platform="ios"]`)).toBeVisible()
+  await chrome.screenshot({ path: path.resolve('artifacts/device-ios-frame.png') })
   let windowsBeforePopup = (await state()).model.sessions[0].windows.length
   await rpc('eval', { tab, expression: `window.open(${JSON.stringify(`${url}/device-popup`)}, '_blank'); true` })
   await expect.poll(() => identityRequests.get('/device-popup')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
@@ -401,5 +416,5 @@ test('profile device identity is applied before requests and cache status is pub
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByRole('button', { name: 'Use desktop', exact: true }).click()
-  await expect.poll(async () => (await state()).model.profiles[0].device).toBeUndefined()
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device).toBeUndefined()
 })

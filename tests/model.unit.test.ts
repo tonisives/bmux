@@ -7,6 +7,15 @@ import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirect
 import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
+  it('moves a saved profile device to existing panes without setting a future-pane default', () => {
+    let model = initialModel()
+    model.profiles[0].device = { preset: 'pixel-8', platform: 'android', width: 412, height: 915, deviceScaleFactor: 2.625, orientation: 'portrait', locale: 'en-US', timezone: 'UTC' }
+    let pane = model.sessions[0].windows[0].panes[0]
+    validateModel(model)
+    expect(pane.device?.preset).toBe('pixel-8')
+    expect(model.profiles[0].device).toBeUndefined()
+    expect(model.sessions[0].device).toBeUndefined()
+  })
   it('resolves a window by session and one-based index', () => {
     let model = initialModel()
     let session = model.sessions[0]
