@@ -6,6 +6,16 @@ import type { Host, State } from './client'
 import styles from './style.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
+let sessionFromUrl = () => {
+  let params = new URLSearchParams(location.search), host = params.get('host'), session = params.get('session')
+  return host && session ? `${host}:${session}` : ''
+}
+let setSessionUrl = (host?: string, session?: string) => {
+  let url = new URL(location.href)
+  if (host && session) { url.searchParams.set('host', host); url.searchParams.set('session', session) }
+  else { url.searchParams.delete('host'); url.searchParams.delete('session') }
+  if (url.href !== location.href) history.pushState(null, '', url)
+}
 type IconName = 'back' | 'forward' | 'reload' | 'link' | 'type' | 'close' | 'sessions' | 'fit' | 'enter' | 'user'
 let Icon = ({ name }: { name: IconName }) => {
   let paths: Record<IconName, ReactNode> = {
@@ -27,6 +37,7 @@ let App = () => {
   let [viewer, setViewer] = useState<Viewer>(), [hosts, setHosts] = useState<Host[]>([]), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
   let [selectedId, setSelectedId] = useState(''), [usage, setUsage] = useState<{ service: string; started: number; succeeded: number; failed: number; browser_ms: number }[]>([])
+  let [target, setTarget] = useState(sessionFromUrl)
   let [owner, setOwner] = useState(''), [services, setServices] = useState<{ id: string; revoked: boolean }[]>([])
   let [serviceName, setServiceName] = useState(''), [createdKey, setCreatedKey] = useState(''), [keyService, setKeyService] = useState('')
   let [grantService, setGrantService] = useState(''), [grantUser, setGrantUser] = useState(''), [grantPermission, setGrantPermission] = useState<'watch' | 'control'>('watch')
@@ -88,14 +99,25 @@ let App = () => {
     let timer = setInterval(() => { void api('/api/usage').then(setUsage).catch(() => undefined) }, 15000)
     return () => clearInterval(timer)
   }, [viewer])
-  let watch = (host: Host, session: Host['sessions'][number]) => {
+  let watch = (host: Host, session: Host['sessions'][number], updateUrl = true) => {
     if (!viewer || !session.panes[0]) return
     let request = ++watchRequest.current
+    if (updateUrl) { setSessionUrl(host.id, session.id); setTarget(`${host.id}:${session.id}`) }
     setSelectedId(`${host.id}:${session.id}`); setWatching(true); setState(undefined); setError('')
     if (video.current) video.current.srcObject = null
     void viewer.watch(host, session.id, session.panes[0].id).catch(error => { if (request === watchRequest.current) report(error) }).finally(() => { if (request === watchRequest.current) setWatching(false) })
   }
-  let leave = () => { ++watchRequest.current; viewer?.stop(); setSelectedId(''); setWatching(false); setState(undefined); setError(''); if (video.current) video.current.srcObject = null }
+  let leave = (updateUrl = true) => { ++watchRequest.current; viewer?.stop(); if (updateUrl) { setSessionUrl(); setTarget('') } setSelectedId(''); setWatching(false); setState(undefined); setError(''); if (video.current) video.current.srcObject = null }
+  useEffect(() => {
+    if (!viewer || !hostsLoaded || !target || selectedId === target) return
+    let match = listed.find(item => `${item.host.id}:${item.session.id}` === target)
+    if (match) watch(match.host, match.session, false)
+  }, [viewer, hosts, hostsLoaded, target, selectedId])
+  useEffect(() => {
+    let restore = () => { leave(false); setTarget(sessionFromUrl()); setView('sessions') }
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [viewer])
   let createService = (event: FormEvent) => { event.preventDefault(); void api('/api/services', { service: serviceName.trim() }).then(async (result) => { setCreatedKey(result.key); setKeyService(result.service); setServiceName(''); setServices(await api('/api/services')); setError('') }).catch(report) }
   let rotateService = (service: string) => { void api('/api/services/rotate', { service }).then(result => { setCreatedKey(result.key); setKeyService(result.service); setError('') }).catch(report) }
   let revokeService = (service: string) => { if (!window.confirm(`Revoke ${service} and disconnect its hosts?`)) return; void api('/api/services/revoke', { service }).then(async () => { setServices(await api('/api/services')); setError('') }).catch(report) }
