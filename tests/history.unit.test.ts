@@ -34,6 +34,23 @@ test('Google Maps place IDs survive query URL changes; other sites retain meanin
   expect(history.map(entry => entry.url)).toEqual(['https://example.test/search?q=two', 'https://example.test/search?q=one', two])
 })
 
+test('Google search history groups repeated visits despite changing tracking parameters', () => {
+  let first = 'https://www.google.com/search?q=shell+directory+tool&udm=50&fbs=one'
+  let latest = 'https://www.google.com/search?fbs=two&udm=50&q=shell+directory+tool'
+  let otherMode = 'https://www.google.com/search?q=shell+directory+tool&udm=2'
+  let otherQuery = 'https://www.google.com/search?q=other+tool&udm=50'
+  let history = recordHistory([], first, 'shell directory tool - Google Search', 1)
+  history = recordHistory(history, latest, latest, 2)
+  history = recordHistory(history, otherMode, 'Images', 3)
+  history = recordHistory(history, otherQuery, 'Other', 4)
+  expect(history.map(entry => entry.url)).toEqual([otherQuery, otherMode, latest])
+  expect(history[2]).toEqual({ url: latest, title: 'shell directory tool - Google Search', visitedAt: 2 })
+  expect(compactHistory([
+    { url: latest, title: latest, visitedAt: 2 },
+    { url: first, title: 'shell directory tool - Google Search', visitedAt: 1 },
+  ])).toEqual([{ url: latest, title: 'shell directory tool - Google Search', visitedAt: 2 }])
+})
+
 test('existing Google Maps history is compacted without changing other entries', () => {
   let viewport = { url: 'https://www.google.com/maps/@40.3,-73.4,15z', title: 'Google Maps', visitedAt: 5 }
   let latest = { url: 'https://www.google.com/maps/place/City+Park/@40.2,-73.3,18z', title: 'https://www.google.com/maps/place/City+Park/@40.2,-73.3,18z', visitedAt: 4 }
