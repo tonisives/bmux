@@ -318,7 +318,7 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await search.press('Enter'); await expect(group).toBeVisible()
   await search.press('Escape'); await expect(group).toHaveCount(0)
   await open('bookmarks'); await expect(search).toHaveValue('bookmarklet')
-  await search.fill('guides'); await expect(group.locator('summary')).toHaveText(['Work', 'Guides']); await expect(group.locator('button[data-bookmark-id]')).toHaveCount(0)
+  await search.fill('guides'); await expect(group.locator('summary')).toHaveText(['Work', 'Guides']); await expect(group.locator('button[data-bookmark-id]')).toHaveText(['API reference', 'Disabled bookmarklet'])
   await search.fill('API reference')
   await chrome.screenshot({ path: path.resolve('artifacts/bookmark-search.png') })
   await search.press('ArrowDown'); await expect(group.getByRole('button', { name: 'API reference', exact: true })).toBeFocused()
