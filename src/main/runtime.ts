@@ -1383,9 +1383,10 @@ export let createRuntime = (dataDirectory: string) => {
     }
     return true
   }
-  let createClient = async (sessionId: string, restored?: Client, activate = true) => {
+  let createClient = async (sessionId: string, restored?: Client, activate = true, windowId?: string) => {
     let session = resolve(model.sessions, sessionId, 'Session')
-    let client: Client = restored ?? { id: id('client'), sessionId, windowId: session.windows[0].id, paneId: session.windows[0].panes[0]?.id ?? null, width: 1280, height: 850 }
+    let selectedWindow = session.windows.find(window => window.id === windowId) ?? session.windows[0]
+    let client: Client = restored ?? { id: id('client'), sessionId, windowId: selectedWindow.id, paneId: selectedWindow.panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
     repairClients()
     let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })

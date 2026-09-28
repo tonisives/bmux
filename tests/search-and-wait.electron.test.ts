@@ -43,6 +43,12 @@ let flattenBookmarks = (bookmarks: any[]): any[] => bookmarks.flatMap(bookmark =
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-search-wait-'))
   server = http.createServer((request, response) => {
+    if (request.url === '/api/hosts') {
+      let signedIn = request.headers.cookie?.includes('bmux_session=fixture-token')
+      response.writeHead(signedIn ? 200 : 401, { 'Content-Type': 'application/json' })
+      response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', service: 'fixture', sessions: [{ id: 'fixture-session', name: 'Remote fixture', panes: [{ id: 'fixture-pane', title: 'Fixture page' }] }] }] : { error: 'Login required' }))
+      return
+    }
     response.writeHead(200, { 'Content-Type': 'text/html' })
     let title = request.url === '/docs' ? 'Documentation' : request.url === '/notes' ? 'Research notes' : 'Search fixture'
     response.end(`<!doctype html><title>${title}</title><style>body{font:24px sans-serif;background:#e8eef8;color:#173353;padding:30px}p{margin:32px 0}</style><h1>${title}</h1><p>First lantern</p><p>Second lantern</p><p>Third lantern</p><div id="ready" hidden>Ready</div><div id="offscreen" style="position:absolute;top:3000px">Offscreen</div><div data-label="a'b">Quoted selector</div>`)
@@ -67,7 +73,7 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } } } }))
-  application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_REMOTE_URL: url, BMUX_BACKGROUND: '0' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   expect((await state()).configError).toBeNull()
@@ -107,7 +113,8 @@ test('session picker creates and attaches sessions with default names', async ()
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
   let create = sessions.getByRole('button', { name: 'new session', exact: true })
   await expect(sessions.getByRole('button', { name: 'new private session', exact: true })).toBeVisible()
-  await expect(sessions.getByRole('heading', { name: 'Remote sessions', exact: true })).toBeVisible()
+  await expect(sessions.getByRole('button', { name: 'sign in to remote' })).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: 'Remote sessions', exact: true })).toBeVisible()
   await create.click()
   await expect(sessions).toHaveCount(0)
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
@@ -116,6 +123,29 @@ test('session picker creates and attaches sessions with default names', async ()
   await chrome.getByRole('group', { name: 'Choose session', exact: true }).getByRole('button', { name: 'new session', exact: true }).click()
   current = await state(); client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('session-2')
+})
+
+test('remote sessions open from the status bar in a separate picker', async () => {
+  await activate()
+  await chrome.getByRole('button', { name: 'Remote sessions', exact: true }).click()
+  let picker = chrome.getByRole('group', { name: 'Choose remote session', exact: true })
+  await expect(picker.getByRole('textbox', { name: 'Search remote sessions' })).toBeFocused()
+  await expect(picker.getByRole('button', { name: 'new session', exact: true })).toHaveCount(0)
+  await expect(chrome.getByRole('group', { name: 'Choose session', exact: true })).toHaveCount(0)
+  let clients = (await state()).model.clients.length
+  await picker.getByRole('button', { name: 'sign in to remote' }).click()
+  await expect(picker.getByRole('status')).toHaveText('Waiting for sign-in in the new bmux window…')
+  await expect.poll(async () => (await state()).model.clients.length).toBe(clients + 1)
+  let current = await state(), login = current.model.clients.find((item: { id: string }) => item.id !== current.clientId && !model.clients.some(known => known.id === item.id))
+  expect(login).toBeDefined()
+  let window = current.model.sessions.flatMap((item: { windows: any[] }) => item.windows).find((item: { id: string }) => item.id === login.windowId)
+  expect(window.panes[0].url).toBe(`${url}/`)
+  await expect(picker).toBeVisible()
+  await application.evaluate(({ session }, value) => session.fromPartition('persist:profile_default').cookies.set({ url: value, name: 'bmux_session', value: 'fixture-token' }), url)
+  await expect(picker.getByRole('button', { name: 'Remote fixture fixture · remote' })).toBeVisible()
+  await application.evaluate(({ session }, value) => session.fromPartition('persist:profile_default').cookies.remove(value, 'bmux_session'), url)
+  await rpc('detach-client', { client: login.id })
+  await rpc('kill-window', { window: window.id, confirm: true })
 })
 
 test('session picker goes back to the previously selected session', async () => {

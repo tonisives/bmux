@@ -9,6 +9,7 @@
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { display: inline-flex; align-items: center; min-width: 0; flex-shrink: 1; white-space: nowrap; color: #bdc9b4; }
+.status .remoteSessionsButton { flex: 0 0 auto; white-space: nowrap; color: #87a9c4; }
 .sessionName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status .profileButton, .status .proxyButton, .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .status .profileButton, .status .proxyButton { width: auto; height: 18px; }
@@ -160,7 +161,6 @@
 .proxyTestSuccess dt { min-width: 64px; color: inherit; }
 @media (max-width: 650px) { .profileProxyEndpoint, .profileProxyProvider, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
 .sessionBack { color: #bdc9b4; }
-.sessionGroupHeading { margin: 18px 0 4px; padding: 8px 8px 0; border-top: 1px solid #363c45; color: #aeb9c5; font-size: 12px; font-weight: 600; }
 .sessionGroupEmpty { margin: 8px; }
 .sessionProfilePreference { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; color: #aeb9c5; }
 .sessionProfilePreference label { flex: 1; }

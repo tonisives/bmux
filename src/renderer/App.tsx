@@ -22,7 +22,7 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'remote-sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
@@ -93,7 +93,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousHistoryPopup.current || ['site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
@@ -246,6 +246,7 @@ let Status = () => {
     void run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
   }
   let sessions = () => show('sessions')
+  let remoteSessions = () => show('remote-sessions')
   let profiles = () => show('profiles')
   let proxy = () => show('proxy')
   let help = () => show('help')
@@ -282,6 +283,7 @@ let Status = () => {
   }, [client?.windowId, session?.windows.length])
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}>[<span className={css.sessionName}>{session!.name}</span>{session!.private && <PrivateIcon />}]</button>
+    <button onClick={remoteSessions} aria-label="Remote sessions" title="Remote sessions" className={css.remoteSessionsButton}>Remote sessions</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
@@ -818,8 +820,8 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
-  let title = type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  useEffect(() => { if (!['help', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
+  let title = type === 'remote-sessions' ? 'Remote sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'proxy' ? css.proxyPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header><strong>{title}</strong><CloseButton label="Close" onClick={dismiss} /></header>
@@ -831,6 +833,7 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'site-info' && <SiteInformation />}
       {type === 'settings' && <SettingsContent />}
       {type === 'sessions' && <SessionPicker />}
+      {type === 'remote-sessions' && <RemoteSessionPicker />}
       {type === 'profiles' && <ProfileInfo />}
       {type === 'proxy' && <ProxyInfo />}
       {type === 'bookmark' && <BookmarkEditor />}
@@ -1059,9 +1062,8 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
 }
 let PrivateIcon = () => <svg className={`${css.statusIcon} ${css.privateIcon}`} viewBox="0 0 20 20" aria-label="Private session" role="img"><rect x="5" y="9" width="10" height="8" rx="1" /><path d="M7 9V6a3 3 0 0 1 6 0v3" /></svg>
 let SessionPicker = () => {
-  let { state, run, dismiss, onMessage } = useUI()
+  let { state, run } = useUI()
   let [busy, setBusy] = useState(false)
-  let [remote, setRemote] = useState<RemoteSessionListing>()
   let [creatingProfile, setCreatingProfile] = useState(false)
   let [newProfileName, setNewProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
@@ -1069,15 +1071,6 @@ let SessionPicker = () => {
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
-  useEffect(() => {
-    let active = true
-    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
-    refresh()
-    let timer = setInterval(refresh, 5000)
-    return () => { active = false; clearInterval(timer) }
-  }, [])
-  let remoteSessions = remote?.hosts.flatMap(host => host.sessions.filter(session => fuzzyMatch(query, `${session.name} ${host.service}`)).map(session => ({ host, session }))) ?? []
-  let openRemote = (host?: string, session?: string) => { void bridge.openRemote(host, session).then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
   let create = async (privateSession: boolean) => {
     if (busy) return
@@ -1102,18 +1095,42 @@ let SessionPicker = () => {
   let profileKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session">
     <SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />
-    <h3 className={css.sessionGroupHeading}>Local sessions</h3>
     <div className={css.sessionProfilePreference}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={profileKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
     {backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>}
     {sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button>
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
-    <h3 className={css.sessionGroupHeading}>Remote sessions</h3>
-    {remoteSessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
-    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={() => openRemote()}>sign in to remote</button>}
-    {remote?.authenticated && !remoteSessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
-    {!backSession && !sessions.length && !remoteSessions.length && !!query && <p role="status">No matching sessions.</p>}
+    {!backSession && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
+  </div>
+}
+let RemoteSessionPicker = () => {
+  let { dismiss, onMessage } = useUI()
+  let [remote, setRemote] = useState<RemoteSessionListing>()
+  let [waitingForSignIn, setWaitingForSignIn] = useState(false)
+  let [openingSignIn, setOpeningSignIn] = useState(false)
+  let { ref, keys, input, query, change } = usePickerNavigation()
+  useEffect(() => {
+    let active = true
+    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) { setRemote(listing); if (listing.authenticated) setWaitingForSignIn(false) } }).catch(() => { if (active) setRemote(undefined) }) }
+    refresh()
+    let timer = setInterval(refresh, 2000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
+  let sessions = remote?.hosts.flatMap(host => host.sessions.filter(session => fuzzyMatch(query, `${session.name} ${host.service}`)).map(session => ({ host, session }))) ?? []
+  let openRemote = (host?: string, session?: string) => { void bridge.openRemote(host, session).then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
+  let signIn = () => {
+    if (openingSignIn) return
+    setOpeningSignIn(true); setWaitingForSignIn(true)
+    void bridge.openRemote().catch(error => { setWaitingForSignIn(false); onMessage(error instanceof Error ? error.message : String(error)) }).finally(() => setOpeningSignIn(false))
+  }
+  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose remote session">
+    <SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} />
+    {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
+    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>{waitingForSignIn ? 'open sign-in window again' : 'sign in to remote'}</button>}
+    {waitingForSignIn && <p role="status">Waiting for sign-in in the new bmux window…</p>}
+    {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
+    {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
   </div>
 }
 let RemoteSessionRow = ({ host, service, session, name, onSelect }: { host: string; service: string; session: string; name: string; onSelect: (host: string, session: string) => void }) => {

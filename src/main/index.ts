@@ -85,6 +85,7 @@ void app.whenReady().then(async () => {
   ]))
   runtime = createRuntime(dataDirectory)
   localRemote = createLocalRemote()
+  localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('state', event => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
@@ -99,9 +100,20 @@ void app.whenReady().then(async () => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     return localRemote!.list()
   })
-  ipcMain.handle('remote-open', (event, host?: string, session?: string) => {
-    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+  ipcMain.handle('remote-open', async (event, host?: string, session?: string) => {
+    let clientId = runtime!.sourceClient(event.sender.id)
+    if (!clientId) throw new Error('Untrusted renderer')
     if ((host !== undefined && typeof host !== 'string') || (session !== undefined && typeof session !== 'string')) throw new Error('Invalid remote session')
+    if (!host && !session) {
+      let client = runtime!.model.clients.find(item => item.id === clientId)!
+      let workspace = runtime!.model.sessions.find(item => item.id === client.sessionId)!
+      let pane = workspace.windows.flatMap(window => window.panes).find(item => item.id === client.paneId)
+      let profileId = pane?.profileId ?? workspace.defaultProfileId
+      localRemote!.preferProfile(profileId)
+      let window = await runtime!.execute({ method: 'new-window', args: { session: workspace.id, profile: profileId, url: localRemote!.origin } }, clientId) as { id: string }
+      await runtime!.createClient(workspace.id, undefined, true, window.id)
+      return
+    }
     return localRemote!.open(host, session)
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
