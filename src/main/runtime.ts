@@ -49,6 +49,7 @@ import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS
 import { createAutomationPolicy } from './automation-policy'
 import { matchingAutomationGroup } from '../shared/automation'
 import { recordHistory } from '../shared/history'
+import { localMediaResponse } from './local-media'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -462,6 +463,12 @@ export let createRuntime = (dataDirectory: string) => {
     let session = configureSessionIdentity(profile.id, profile.device, privateSessionId)
     if (configuredProfiles.has(key)) return session
     configuredProfiles.add(key)
+    // The sandboxed media decoder cannot always open file URLs outside temporary storage.
+    session.protocol.handle('file', async request => {
+      let origin = (request as Request & { initiatorOrigin?: string }).initiatorOrigin
+      if (origin && origin !== 'null' && !origin.startsWith('file:')) return net.fetch(request, { bypassCustomProtocolHandlers: true })
+      return await localMediaResponse(request) ?? net.fetch(request, { bypassCustomProtocolHandlers: true })
+    })
     let networkReady = (async () => {
       try {
         if (privateSessionId) {

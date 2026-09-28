@@ -1910,6 +1910,18 @@ test('open command renders a local HTML file given relative to home', async () =
   expect((await cli('list-windows', { session: session.id }))[0].panes[0].url).toBe(pathToFileURL(local).href)
 })
 
+test('local HTML plays an MP4 outside temporary storage', async () => {
+  let session = await cli('new-session', { name: 'local-media' })
+  let client = await cli('attach-session', { session: session.id })
+  let tab = session.windows[0].panes[0].id
+  await cli('navigate', { tab, url: pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href })
+  await expect.poll(() => cli('eval', { tab, expression: 'document.querySelector("video")?.videoWidth' })).toBe(32)
+  expect(await cli('eval', { tab, expression: 'document.querySelector("video")?.error?.message ?? null' })).toBeNull()
+  await cli('eval', { tab, expression: 'document.querySelector("video").muted = true; document.querySelector("video").play()' })
+  await expect.poll(() => cli('eval', { tab, expression: 'document.querySelector("video")?.currentTime' })).toBeGreaterThan(0.2)
+  await cli('detach-client', { client: client.id })
+})
+
 test('external web links open new internal windows without replacing the current page or history', async () => {
   let session = await cli('new-session', { name: 'external-web-links' })
   let client = await cli('attach-session', { session: session.id })
