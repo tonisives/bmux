@@ -4,7 +4,17 @@ let historyIdentity = (url: string): string | undefined => {
   let parsed: URL
   try { parsed = new URL(url) } catch { return url }
   let host = parsed.hostname.replace(/^(?:www|maps)\./, '')
-  if (!/^google\.(?:com(?:\.[a-z]{2})?|[a-z]{2,3})$/.test(host) || !/^\/maps(?:\/|$)/.test(parsed.pathname)) return url
+  if (!/^google\.(?:com(?:\.[a-z]{2})?|[a-z]{2,3})$/.test(host)) return url
+
+  if (parsed.pathname === '/search' && parsed.searchParams.has('q')) {
+    let search = new URLSearchParams()
+    for (let key of ['q', 'udm', 'tbm', 'tbs']) {
+      let value = parsed.searchParams.get(key)
+      if (value) search.set(key, value)
+    }
+    return `${parsed.protocol}//${host}/search?${search}`
+  }
+  if (!/^\/maps(?:\/|$)/.test(parsed.pathname)) return url
 
   let place = /^\/maps\/place\/([^/]+)/.exec(parsed.pathname)?.[1]
   if (place) return `${parsed.protocol}//${host}/maps/place/${place}`
