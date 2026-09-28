@@ -39,19 +39,28 @@ let subscribe = (contents: Electron.WebContents, listener: (data: string) => voi
 export let createRemoteCapture = async (options: CaptureOptions) => {
   let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, offscreen: true, partition: 'bmux-trusted-transport' } })
   window.webContents.setWebRTCIPHandlingPolicy('default')
-  let framePending = false, disposed = false
+  let framePending = false, captureInFlight = false, disposed = false
   let unsubscribe: (() => void) | undefined
+  let captureTimer: ReturnType<typeof setInterval> | undefined
   let send = (message: unknown) => { if (!disposed && !window.isDestroyed()) window.webContents.send('remote-message', message) }
   let sendFrame = (data: string) => {
     if (framePending) return
     framePending = true
     send({ type: 'frame', data })
   }
+  let startPolling = () => {
+    captureTimer = setInterval(() => {
+      if (disposed || framePending || captureInFlight) return
+      captureInFlight = true
+      void options.contents.capturePage().then(frame => { if (!disposed) sendFrame(encodeFrame(frame)) }).catch(() => undefined).finally(() => { captureInFlight = false })
+    }, 200)
+  }
   let close = () => {
     if (disposed) return
     disposed = true
     ipcMain.off('remote-message', receive)
     options.contents.off('destroyed', close)
+    clearInterval(captureTimer)
     unsubscribe?.()
     if (!window.isDestroyed()) window.destroy()
     options.closed()
@@ -63,11 +72,13 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
         if (disposed) return
         send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, ...frameSize(frame) })
         unsubscribe = subscribe(options.contents, sendFrame)
+        startPolling()
         sendFrame(encodeFrame(frame))
       }).catch(() => {
         if (disposed) return
         send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly })
         unsubscribe = subscribe(options.contents, sendFrame)
+        startPolling()
       })
     } else if (message.type === 'frame-ack') framePending = false
     else if (message.type === 'connection' && message.state === 'connected') {
