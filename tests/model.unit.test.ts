@@ -3,10 +3,18 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
+  it('resolves a window by session and one-based index', () => {
+    let model = initialModel()
+    let session = model.sessions[0]
+    for (let index = 2; index <= 5; index++) session.windows.push(newWindow(`window-${index}`, session.defaultProfileId))
+    expect(resolveWindow(model, 'main:5')).toBe(session.windows[4])
+    expect(resolveWindow(model, session.windows[4].id)).toBe(session.windows[4])
+    expect(() => resolveWindow(model, 'main:6')).toThrow("Window '6' not found")
+  })
   it('selects the nearest pane in each visual direction', () => {
     let tree = splitLayout(null, '', 'left', 'horizontal')
     tree = splitLayout(tree, 'left', 'top-right', 'horizontal')

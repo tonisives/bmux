@@ -34,6 +34,22 @@ export let resolve = <T extends { id: string; name?: string }>(items: T[], value
   if (matches.length !== 1) throw new Error(`${noun} '${String(value)}' ${matches.length ? 'is ambiguous; use an ID' : 'not found'}`)
   return matches[0]
 }
+export let resolveWindow = (model: Model, value: unknown): InternalWindow => {
+  let windows = model.sessions.flatMap(session => session.windows)
+  if (typeof value === 'string') {
+    let exact = windows.filter(window => window.id === value || window.name === value)
+    if (exact.length) return resolve(windows, value, 'Window')
+    let separator = value.indexOf(':')
+    if (separator > 0) {
+      let session = resolve(model.sessions, value.slice(0, separator), 'Session')
+      let selector = value.slice(separator + 1)
+      let index = /^[1-9]\d*$/.test(selector) ? Number(selector) - 1 : -1
+      if (index >= 0 && index < session.windows.length) return session.windows[index]
+      return resolve(session.windows, selector, 'Window')
+    }
+  }
+  return resolve(windows, value, 'Window')
+}
 export let paneById = (model: Model, paneId: unknown) => {
   let found = walkPanes(model).find(item => item.pane.id === paneId)
   if (!found) throw new Error(`Pane '${String(paneId)}' not found`)

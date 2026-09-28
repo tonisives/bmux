@@ -130,6 +130,8 @@ bmux save-layout -t <window-id> -n development
 bmux restore-layout -t <window-id> -n development --confirm
 ```
 
+For `list-panes`, you can also use a session name and one-based window index, such as `bmux list-panes -t main:5`.
+
 CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an error message, and a nonzero exit code. Browser actions require an explicit pane ID; `list-panes` and pane creation commands return those IDs. A pane ID stays stable across view transfers and session restarts. A page reload or process crash can reset JavaScript state while the pane ID remains the same.
 
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.

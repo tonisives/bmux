@@ -3,7 +3,7 @@ import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -1971,7 +1971,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'list-windows') return resolve(model.sessions, args.session, 'Session').windows
     if (method === 'list-panes') {
-      let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      let window = resolveWindow(model, args.window)
       return window.panes.map(pane => ({ ...pane, floating: window.floating?.find(item => item.paneId === pane.id) ?? null, runtimeState: !tabs.has(pane.id) ? 'unloaded' : (loading[pane.id] || tabs.get(pane.id)?.pendingNavigation ? 'loading' : 'live') }))
     }
     if (method === 'new-window') {
