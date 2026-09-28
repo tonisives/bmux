@@ -246,7 +246,6 @@ let Status = () => {
     void run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
   }
   let sessions = () => show('sessions')
-  let remoteSessions = () => show('remote-sessions')
   let profiles = () => show('profiles')
   let proxy = () => show('proxy')
   let help = () => show('help')
@@ -283,7 +282,6 @@ let Status = () => {
   }, [client?.windowId, session?.windows.length])
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}>[<span className={css.sessionName}>{session!.name}</span>{session!.private && <PrivateIcon />}]</button>
-    <button onClick={remoteSessions} aria-label="Remote sessions" title="Remote sessions" className={css.remoteSessionsButton}>Remote sessions</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
@@ -818,13 +816,17 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 }
 
 let Panel = ({ type }: { type: Control }) => {
-  let { state, dismiss } = useUI()
+  let { state, show, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => { if (!['help', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
-  let title = type === 'remote-sessions' ? 'Remote sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let sessionPicker = type === 'sessions' || type === 'remote-sessions'
+  let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'proxy' ? css.proxyPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
-    <header><strong>{title}</strong><CloseButton label="Close" onClick={dismiss} /></header>
+    <header>{sessionPicker ? <div className={css.sessionTabs} role="tablist" aria-label="Sessions">
+      <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
+      <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
+    </div> : <strong>{title}</strong>}<CloseButton label="Close" onClick={dismiss} /></header>
     <div className={css.panelBody}>
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}

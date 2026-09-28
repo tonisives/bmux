@@ -106,7 +106,7 @@ Watch reports a host rejection or timeout instead of showing an idle video area.
 
 ## Attach from the desktop app
 
-Click **Remote sessions** beside **Sessions** in the status bar. Sign-in opens
+Open the **Sessions** popup, then select **Remote sessions** in its title bar. Sign-in opens
 `remote.bmux.cc` in a new bmux window while the remote picker stays open and
 checks for completion. Select a remote session to open a local viewer window;
 the stream and input still use the remote connection service. Closing the window
