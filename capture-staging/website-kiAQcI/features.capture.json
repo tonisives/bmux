@@ -1,0 +1,94 @@
+{
+  "capturedAt": "2026-09-20T21:36:39.584Z",
+  "source": "Tart guest; native window captures; local fixtures; proxy endpoint is a fixture, not a real regional connection",
+  "shots": [
+    {
+      "feature": "floating-panes",
+      "file": "floating-panes-1.png",
+      "caption": "Start with the review page"
+    },
+    {
+      "feature": "floating-panes",
+      "file": "floating-panes-2.png",
+      "caption": "Split panes keep both pages visible"
+    },
+    {
+      "feature": "floating-panes",
+      "file": "floating-panes-3.png",
+      "caption": "Float the reference above your workspace"
+    },
+    {
+      "feature": "floating-panes",
+      "file": "floating-panes-4.png",
+      "caption": "Return the same pane to a split"
+    },
+    {
+      "feature": "click-mode",
+      "file": "click-mode-1.png",
+      "caption": "Double-tap Option to show click hints"
+    },
+    {
+      "feature": "click-mode",
+      "file": "click-mode-2.png",
+      "caption": "Choose f before typing the link hint"
+    },
+    {
+      "feature": "click-mode",
+      "file": "click-mode-3.png",
+      "caption": "The selected link opens in a floating pane"
+    },
+    {
+      "feature": "profile-proxies",
+      "file": "profile-proxies-1.png",
+      "caption": "Configure a local demonstration endpoint"
+    },
+    {
+      "feature": "profile-proxies",
+      "file": "profile-proxies-2.png",
+      "caption": "The profile has its own proxy panel"
+    },
+    {
+      "feature": "profile-proxies",
+      "file": "profile-proxies-3.png",
+      "caption": "Return this profile to the system connection"
+    },
+    {
+      "feature": "bookmarks",
+      "file": "bookmarks-1.png",
+      "caption": "Save a reusable search with Command+D"
+    },
+    {
+      "feature": "bookmarks",
+      "file": "bookmarks-2.png",
+      "caption": "Find the saved page by its title"
+    },
+    {
+      "feature": "bookmarks",
+      "file": "bookmarks-3.png",
+      "caption": "Edit query parameters before opening"
+    },
+    {
+      "feature": "bookmarks",
+      "file": "bookmarks-4.png",
+      "caption": "Open the customized bookmark"
+    },
+    {
+      "feature": "vim-navigation",
+      "file": "vim-navigation-1.png",
+      "caption": "Configured Vim bindings apply to page content"
+    },
+    {
+      "feature": "vim-navigation",
+      "file": "vim-navigation-2.png",
+      "caption": "Shift+G moves to the bottom of the page"
+    },
+    {
+      "feature": "vim-navigation",
+      "file": "vim-navigation-3.png",
+      "caption": "The same keys type normally inside a text field"
+    }
+  ],
+  "crop": "2008x1280+20+82; guest 2048x1536 desktop, crop verified visually",
+  "outputWidth": 1200,
+  "secondsPerStep": 4
+}
