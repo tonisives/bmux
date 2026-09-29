@@ -1908,6 +1908,11 @@ test('status tabs show loading and favicon, with optional close control', async 
   }
   await expect(tab.locator('img')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
   await expect(tab.locator('[data-tab-loading]')).toHaveCount(0)
+  await cli('detach-client', { client: client.id })
+  client = await cli('attach-session', { session: session.id })
+  chrome = application.context().pages().filter(page => page.url().endsWith('index.html')).at(-1)!
+  tab = chrome.locator(`[data-window-id="${session.windows[0].id}"]`)
+  await expect(tab.locator('img')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
   await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: true\nkeyboard: {}\n')
   await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(true)
   await expect(tab.locator('button[aria-label^="Close "]')).toBeVisible()

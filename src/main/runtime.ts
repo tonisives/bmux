@@ -50,6 +50,7 @@ import { createAutomationPolicy } from './automation-policy'
 import { matchingAutomationGroup } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
+import { createFaviconCache } from './favicon-cache'
 
 type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -215,6 +216,7 @@ export let createRuntime = (dataDirectory: string) => {
   let audio: PublicState['audio'] = {}
   let audibleMedia = new Set<string>()
   let favicons: Record<string, string> = {}
+  let faviconCache = createFaviconCache(dataDirectory)
   let faviconRevisions = new Map<string, number>()
   let findResults: Record<string, FindResult> = {}
   let permissions = new Map<string, PendingPermission>()
@@ -771,6 +773,8 @@ export let createRuntime = (dataDirectory: string) => {
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
     let { tab, pane, session } = tabById(model, tabId)
     let initialUrl = tab.url
+    let cachedIcon = faviconCache.get(pane.profileId, initialUrl, session.private ? session.id : undefined)
+    if (cachedIcon) favicons[tabId] = cachedIcon
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(pane.profileId, session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
     let parent = parkHost(pane.profileId)
@@ -870,7 +874,7 @@ export let createRuntime = (dataDirectory: string) => {
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
       catch { contents.stop() }
     })
-    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { scriptTouchedTabs.delete(tabId); if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; audio[tabId] = { playing: false, muted: contents.isAudioMuted() }; audibleMedia.delete(tabId); faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { scriptTouchedTabs.delete(tabId); if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; let cached = faviconCache.get(pane.profileId, url, session.private ? session.id : undefined); if (cached) favicons[tabId] = cached; else delete favicons[tabId]; audio[tabId] = { playing: false, muted: contents.isAudioMuted() }; audibleMedia.delete(tabId); faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -933,6 +937,7 @@ export let createRuntime = (dataDirectory: string) => {
         }
         if (live.disposed || faviconRevisions.get(tabId) !== revision) return
         favicons[tabId] = icon
+        faviconCache.set(pane.profileId, contents.getURL() || tab.url, icon, session.private ? session.id : undefined)
         publish()
       })().catch(() => undefined)
     })
@@ -2600,6 +2605,7 @@ export let createRuntime = (dataDirectory: string) => {
     automation?.close()
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
+    faviconCache.close()
     writeModel(dataDirectory, model, bookmarkFile)
     for (let tabId of tabs.keys()) disposeTab(tabId)
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
