@@ -17,6 +17,10 @@ let activate = async () => { let current = await state(); await expect.poll(asyn
 let prompt = () => chrome.getByRole('combobox', { name: 'Command', exact: true })
 let open = async () => { await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click(); await expect(prompt()).toBeFocused() }
 let openProfilePanel = async (profile: string) => {
+  await activate()
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  // A command can finish before React accepts the restored window/pane selection.
+  await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveAttribute('data-focused-pane', 'true')
   let panel = chrome.getByRole('dialog', { name: 'Profile', exact: true })
   let details = panel.getByRole('region', { name: `${profile} profile details`, exact: true })
   if (!await details.isVisible()) {
