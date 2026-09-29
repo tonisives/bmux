@@ -3,10 +3,44 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, reassignConflictingPaneIds, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
 
 describe('session layouts and persistence', () => {
+  it('uses the smallest available numeric pane ID and keeps IDs unique across windows', () => {
+    let model = initialModel()
+    let first = model.sessions[0].windows[0]
+    expect(first.panes[0].id).toBe('%1')
+    let second = newPane('profile_default', 'about:blank', model)
+    first.panes.push(second)
+    expect(second.id).toBe('%2')
+    let other = newWindow('other', 'profile_default', false, model)
+    model.sessions[0].windows.push(other)
+    expect(other.panes[0].id).toBe('%3')
+    first.panes = first.panes.filter(pane => pane !== second)
+    let reused = newPane('profile_default', 'about:blank', model)
+    expect(reused.id).toBe('%2')
+    first.panes.push(reused)
+    expect(cloneWindow(first, model).panes.map(pane => pane.id)).toEqual(['%4', '%5'])
+  })
+  it('remaps a reopened pane when its number has been reused', () => {
+    let model = initialModel()
+    let window = model.sessions[0].windows[0]
+    let closed = newPane('profile_default', 'about:blank', model)
+    closed.openerPaneId = window.panes[0].id
+    window.panes.push(closed)
+    window.layout = splitLayout(window.layout, window.panes[0].id, closed.id, 'horizontal')
+    window.panes.pop()
+    window.layout = removePane(window.layout, closed.id)
+    let replacement = newPane('profile_default', 'about:blank', model)
+    window.panes.push(replacement)
+    let reopened = { ...window, panes: [closed], layout: { kind: 'pane' as const, paneId: closed.id } }
+    reassignConflictingPaneIds(reopened, model)
+    expect(replacement.id).toBe('%2')
+    expect(closed.id).toBe('%3')
+    expect(closed.openerPaneId).toBe('%1')
+    expect(reopened.layout).toEqual({ kind: 'pane', paneId: '%3' })
+  })
   it('moves a saved profile device to existing panes without setting a future-pane default', () => {
     let model = initialModel()
     model.profiles[0].device = { preset: 'pixel-8', platform: 'android', width: 412, height: 915, deviceScaleFactor: 2.625, orientation: 'portrait', locale: 'en-US', timezone: 'UTC' }

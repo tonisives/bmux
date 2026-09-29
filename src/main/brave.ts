@@ -56,7 +56,7 @@ export let importBrave = (current: Model, directory = braveDirectory()) => {
     if (!profile) {
       profile = { id: id('profile'), name: uniqueName(item.name, model.profiles), background: /^bot$/i.test(item.name), braveSource: { root: source, directory: item.directory } } satisfies Profile
       model.profiles.push(profile)
-      model.sessions.push(newSession(uniqueName(profile.name, model.sessions), profile.id))
+      model.sessions.push(newSession(uniqueName(profile.name, model.sessions), profile.id, false, model))
     }
     profile.bookmarks = item.bookmarks
     return { profileId: profile.id, name: profile.name, sourceDirectory: item.directory, bookmarks: item.count, created }

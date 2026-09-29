@@ -3,7 +3,7 @@ import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -929,7 +929,7 @@ export let createRuntime = (dataDirectory: string) => {
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
-      let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
+      let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true, model)
       let added = created.panes[0]
       added.device = session.device
       added.openerPaneId = tabId
@@ -1872,7 +1872,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
       let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
       let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
-      let session = newSession(name, profile.id, args.private === true)
+      let session = newSession(name, profile.id, args.private === true, model)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
@@ -1974,7 +1974,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'new-window') {
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
-      let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
+      let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
       if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
@@ -1988,7 +1988,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'duplicate-window') {
       let original = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = resolve(model.sessions, model.sessions.find(item => item.windows.includes(original))?.id, 'Session')
-      let copy = cloneWindow(original)
+      let copy = cloneWindow(original, model)
       copy.name = `${original.name} copy`
       copy.automaticName = false
       session.windows.splice(session.windows.indexOf(original) + 1, 0, copy)
@@ -2006,6 +2006,7 @@ export let createRuntime = (dataDirectory: string) => {
         let session = model.sessions.find(session => session.id === closed.sessionId)
           ?? (client ? resolve(model.sessions, client.sessionId, 'Session') : undefined)
         if (!session) throw new Error('No session available for the closed window')
+        reassignConflictingPaneIds(closed.window, model)
         session.windows.splice(Math.min(closed.index, session.windows.length), 0, closed.window)
         if (client) { client.sessionId = session.id; client.windowId = closed.window.id; client.paneId = closed.window.panes[0]?.id ?? null }
         closedTabs.pop()
@@ -2014,6 +2015,8 @@ export let createRuntime = (dataDirectory: string) => {
       let window = resolve(model.sessions.flatMap(session => session.windows), closed.windowId, 'Window')
       let session = model.sessions.find(session => session.windows.includes(window))!
       let sameLayout = window.panes.length === closed.remainingPaneIds.length && window.panes.every(pane => closed.remainingPaneIds.includes(pane.id))
+      let restored = reassignConflictingPaneIds({ id: window.id, name: window.name, panes: [closed.pane], layout: closed.layout, floating: closed.floating }, model)
+      closed.layout = restored.layout; closed.floating = restored.floating
       window.panes.splice(Math.min(closed.index, window.panes.length), 0, closed.pane)
       if (sameLayout) { window.layout = closed.layout; window.floating = closed.floating }
       else window.layout = splitLayout(window.layout, window.panes.find(pane => pane.id !== closed.pane.id)?.id ?? '', closed.pane.id, 'horizontal')
@@ -2114,7 +2117,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === args.client) ?? model.clients.find(client => client.windowId === window.id)
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
-      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
+      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
@@ -2133,7 +2136,7 @@ export let createRuntime = (dataDirectory: string) => {
       let parent = args.pane ? paneById(model, args.pane) : undefined
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
-      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
+      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
@@ -2169,7 +2172,7 @@ export let createRuntime = (dataDirectory: string) => {
         changed(); await visualQueue; return placement
       }
       let targetSession = args.session ? resolve(model.sessions, args.session, 'Session') : undefined
-      let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true)
+      let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true, model)
         : args.destination ? paneById(model, args.destination).window : args.window ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : from
       let destinationSession = targetSession ?? model.sessions.find(session => session.windows.includes(to))!
       if (destinationSession.id !== fromSession.id && (fromSession.private || destinationSession.private)) throw new Error('Cannot move panes between private and other sessions')
@@ -2240,7 +2243,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!saved) throw new Error('Saved layout not found')
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
-      let replacement = cloneWindow(saved.window)
+      let replacement = cloneWindow(saved.window, model)
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
       changed(); await visualQueue; return window
     }

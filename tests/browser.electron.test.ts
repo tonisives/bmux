@@ -1411,6 +1411,23 @@ test('reopen closed internal windows and panes', async () => {
   await cli('detach-client', { client: client.id })
 })
 
+test('reuses a closed numeric pane ID and remaps the reopened pane', async () => {
+  let session = await cli('new-session', { name: 'numeric-pane-ids' })
+  let window = session.windows[0]
+  let first = window.panes[0]
+  let closed = await cli('split-window', { pane: first.id })
+  expect(first.id).toMatch(/^%[1-9]\d*$/)
+  expect(closed.id).toMatch(/^%[1-9]\d*$/)
+  await cli('kill-pane', { pane: closed.id })
+  let reused = await cli('split-window', { pane: first.id })
+  expect(reused.id).toBe(closed.id)
+  let reopened = await cli('reopen-closed')
+  expect(reopened.id).toMatch(/^%[1-9]\d*$/)
+  expect(reopened.id).not.toBe(reused.id)
+  expect((await cli('list-panes', { window: window.id })).map((pane: { id: string }) => pane.id)).toEqual([first.id, reopened.id, reused.id])
+  await cli('kill-session', { session: session.id, confirm: true })
+})
+
 test('window management shortcuts and keyboard session selection', async () => {
   let alpha = await cli('new-session', { name: 'keyboard-alpha' })
   let beta = await cli('new-session', { name: 'keyboard-beta' })
