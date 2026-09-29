@@ -1418,7 +1418,8 @@ test('window management shortcuts and keyboard session selection', async () => {
   let client = await cli('attach-session', { session: alpha.id })
   let first = alpha.windows[0]
   await cli('navigate', { tab: first.panes[0].id, url })
-  let temporary = await cli('new-window', { session: alpha.id, client: client.id, name: 'temporary' })
+  let temporary = await cli('new-window', { session: alpha.id, client: client.id, name: 'temporary', url })
+  await cli('wait', { tab: temporary.panes[0].id, selector: '#text' })
   let chrome = await rendererForClient(client.id)
   let shortcut = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = [], prefix = true) => {
     await cli('activate-client', { client: client.id })
