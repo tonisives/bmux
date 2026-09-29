@@ -3,8 +3,11 @@ import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
-import type { Bookmark, BookmarkParameters, Bridge, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
 import css from './App.module.css'
+import iphoneFrame from './device-frames/iphone-15-pro.png'
+import pixelFrame from './device-frames/pixel-8.png'
+import galaxyFrame from './device-frames/galaxy-s24.png'
 import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
@@ -129,6 +132,25 @@ export let App = () => {
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
+}
+
+let frameAssets = {
+  ios: { image: iphoneFrame, screen: { x: 192, y: 126, width: 640, height: 1342 } },
+  pixel: { image: pixelFrame, screen: { x: 202, y: 122, width: 620, height: 1345 } },
+  galaxy: { image: galaxyFrame, screen: { x: 195, y: 118, width: 634, height: 1352 } },
+}
+let frameAsset = (device: DevicePersona) => device.platform === 'ios' ? frameAssets.ios : device.preset === 'galaxy-s24' ? frameAssets.galaxy : frameAssets.pixel
+let frameGeometry = (device: DevicePersona, screenSize: { width: number; height: number }) => {
+  let { screen } = frameAsset(device)
+  let portrait = device.orientation === 'portrait'
+  let widthFactor = portrait ? 1024 / screen.width : 1536 / screen.height
+  let heightFactor = portrait ? 1536 / screen.height : 1024 / screen.width
+  return {
+    width: screenSize.width * widthFactor,
+    height: screenSize.height * heightFactor,
+    screenLeft: screenSize.width * (portrait ? screen.x / screen.width : (1536 - screen.y - screen.height) / screen.height),
+    screenTop: screenSize.height * (portrait ? screen.y / screen.height : screen.x / screen.width),
+  }
 }
 
 let useAddressTabSwitch = (control: Control | null, clientId: string | undefined, run: UIContext['run']) => useEffect(() => {
@@ -800,10 +822,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let tab = pane
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
-  let frameLongInset = pane.device?.platform === 'ios' ? 42 : 40
-  let frameShortInset = 24
-  let frameWidthInset = pane.device?.orientation === 'landscape' ? frameLongInset : frameShortInset
-  let frameHeightInset = pane.device?.orientation === 'landscape' ? frameShortInset : frameLongInset
+  let frame = pane.device ? frameGeometry(pane.device, deviceSize) : null
   useLayoutEffect(() => {
     let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
     let observer = new ResizeObserver(publish)
@@ -820,20 +839,21 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
       let portrait = pane.device!.orientation === 'portrait'
       let width = portrait ? pane.device!.width : pane.device!.height
       let height = portrait ? pane.device!.height : pane.device!.width
-      let scale = Math.min(1, Math.max(1, element.clientWidth - frameWidthInset - 8) / width, Math.max(1, element.clientHeight - frameHeightInset - 8) / height)
+      let geometry = frameGeometry(pane.device!, { width, height })
+      let scale = Math.min(1, Math.max(1, element.clientWidth - 16) / geometry.width, Math.max(1, element.clientHeight - 16) / geometry.height)
       setDeviceSize({ width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) })
     }
     let observer = new ResizeObserver(measure)
     observer.observe(element); measure()
     return () => observer.disconnect()
-  }, [pane.device, frameWidthInset, frameHeightInset])
+  }, [pane.device])
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>
   return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
-    {pane.device ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: deviceSize.width + frameWidthInset, height: deviceSize.height + frameHeightInset }}><div className={css.deviceTop} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ width: deviceSize.width, height: deviceSize.height }}>{fallback}</div><div className={css.deviceHome} /></div> : fallback}
+    {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height }}>{fallback}</div></div> : fallback}
   </div></section>
 }
 

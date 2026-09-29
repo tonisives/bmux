@@ -350,13 +350,13 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   let androidFrame = chrome.locator(`[data-pane-id="${tab}"] [data-platform="android"]`)
   await expect(androidFrame).toHaveAttribute('data-preset', 'pixel-8')
+  await expect(androidFrame.locator('img')).toHaveAttribute('src', /pixel-8/)
   let androidFrameBounds = (await androidFrame.boundingBox())!
   let androidScreenBounds = (await androidFrame.locator('[data-browser-content]').boundingBox())!
-  let androidCameraBounds = (await androidFrame.locator('[class*="deviceTop"]').boundingBox())!
-  expect(androidFrameBounds.width - androidScreenBounds.width).toBe(24)
-  expect(androidFrameBounds.height - androidScreenBounds.height).toBe(40)
-  expect(androidCameraBounds.width).toBeGreaterThanOrEqual(13)
-  expect(androidCameraBounds.y + androidCameraBounds.height).toBeLessThan(androidScreenBounds.y)
+  expect(androidFrameBounds.width).toBeGreaterThan(androidScreenBounds.width)
+  expect(androidFrameBounds.height).toBeGreaterThan(androidScreenBounds.height)
+  expect(Math.abs(androidFrameBounds.x + androidFrameBounds.width / 2 - androidScreenBounds.x - androidScreenBounds.width / 2)).toBeLessThanOrEqual(1)
+  expect(androidScreenBounds.y - androidFrameBounds.y).toBeGreaterThan(20)
   await chrome.screenshot({ path: path.resolve('artifacts/device-pixel-portrait-frame.png') })
   panel = await openProfilePanel(profile.name)
   await expect.poll(async () => (await state()).profileCaches[profile.id]?.limit).toBe(256 * 1024 * 1024)
@@ -392,21 +392,17 @@ test('profile device identity is applied before requests and cache status is pub
   await expect(chrome.locator(`[data-pane-id="${tab}"] img[alt="Page preview"]`)).toHaveCount(0)
   androidFrameBounds = (await androidFrame.boundingBox())!
   androidScreenBounds = (await androidFrame.locator('[data-browser-content]').boundingBox())!
-  androidCameraBounds = (await androidFrame.locator('[class*="deviceTop"]').boundingBox())!
-  expect(androidFrameBounds.width - androidScreenBounds.width).toBe(40)
-  expect(androidFrameBounds.height - androidScreenBounds.height).toBe(24)
-  expect(androidCameraBounds.height).toBeGreaterThanOrEqual(13)
-  expect(androidCameraBounds.x + androidCameraBounds.width).toBeLessThan(androidScreenBounds.x)
+  expect(androidFrameBounds.width).toBeGreaterThan(androidScreenBounds.width)
+  expect(androidFrameBounds.height).toBeGreaterThan(androidScreenBounds.height)
+  expect(Math.abs(androidFrameBounds.y + androidFrameBounds.height / 2 - androidScreenBounds.y - androidScreenBounds.height / 2)).toBeLessThanOrEqual(1)
+  expect(androidScreenBounds.x - androidFrameBounds.x).toBeGreaterThan(20)
   await chrome.screenshot({ path: path.resolve('artifacts/device-android-frame.png') })
   let contentBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${tab}"]`).boundingBox()
-  await expect.poll(() => application.evaluate(({ BaseWindow }, path) => {
-    for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
-  }, '/device-android')).toMatchObject({ width: 800, height: 400 })
   await expect.poll(async () => {
     let nativeBounds = await application.evaluate(({ BaseWindow }, path) => {
       for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
     }, '/device-android')
-    return Math.max(Math.abs(nativeBounds!.x + nativeBounds!.width / 2 - (contentBounds!.x + contentBounds!.width / 2)), Math.abs(nativeBounds!.y + nativeBounds!.height / 2 - (contentBounds!.y + contentBounds!.height / 2)))
+    return Math.max(Math.abs(nativeBounds!.x + nativeBounds!.width / 2 - (contentBounds!.x + contentBounds!.width / 2)), Math.abs(nativeBounds!.y + nativeBounds!.height / 2 - (contentBounds!.y + contentBounds!.height / 2)), Math.abs(nativeBounds!.width - contentBounds!.width), Math.abs(nativeBounds!.height - contentBounds!.height))
   }).toBeLessThanOrEqual(1)
   let geolocation = rpc('eval', { tab, expression: 'new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(position => resolve({latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy}), error => reject(new Error(error.message))))' })
   let permission: any
@@ -421,11 +417,10 @@ test('profile device identity is applied before requests and cache status is pub
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('galaxy-s24')
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(androidFrame).toHaveAttribute('data-preset', 'galaxy-s24')
-  await expect(androidFrame).toHaveCSS('border-radius', '27px')
+  await expect(androidFrame.locator('img')).toHaveAttribute('src', /galaxy-s24/)
   androidFrameBounds = (await androidFrame.boundingBox())!
   androidScreenBounds = (await androidFrame.locator('[data-browser-content]').boundingBox())!
-  expect(androidFrameBounds.width - androidScreenBounds.width).toBe(24)
-  expect(androidFrameBounds.height - androidScreenBounds.height).toBe(40)
+  expect(Math.abs(androidFrameBounds.x + androidFrameBounds.width / 2 - androidScreenBounds.x - androidScreenBounds.width / 2)).toBeLessThanOrEqual(1)
   await chrome.screenshot({ path: path.resolve('artifacts/device-galaxy-portrait-frame.png') })
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Device' }).click()
@@ -442,13 +437,12 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   let iosFrame = chrome.locator(`[data-pane-id="${tab}"] [data-platform="ios"]`)
   await expect(iosFrame).toBeVisible()
+  await expect(iosFrame.locator('img')).toHaveAttribute('src', /iphone-15-pro/)
   let iosFrameBounds = (await iosFrame.boundingBox())!
   let iosScreenBounds = (await iosFrame.locator('[data-browser-content]').boundingBox())!
-  let iosCameraBounds = (await iosFrame.locator('[class*="deviceTop"]').boundingBox())!
-  expect(iosFrameBounds.width - iosScreenBounds.width).toBe(42)
-  expect(iosFrameBounds.height - iosScreenBounds.height).toBe(24)
-  expect(iosCameraBounds.height).toBeGreaterThan(90)
-  expect(iosCameraBounds.x + iosCameraBounds.width).toBeLessThan(iosScreenBounds.x)
+  expect(iosFrameBounds.width).toBeGreaterThan(iosScreenBounds.width)
+  expect(iosFrameBounds.height).toBeGreaterThan(iosScreenBounds.height)
+  expect(Math.abs(iosFrameBounds.y + iosFrameBounds.height / 2 - iosScreenBounds.y - iosScreenBounds.height / 2)).toBeLessThanOrEqual(1)
   await chrome.screenshot({ path: path.resolve('artifacts/device-ios-frame.png') })
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Device' }).click()
@@ -458,11 +452,8 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   iosFrameBounds = (await iosFrame.boundingBox())!
   iosScreenBounds = (await iosFrame.locator('[data-browser-content]').boundingBox())!
-  iosCameraBounds = (await iosFrame.locator('[class*="deviceTop"]').boundingBox())!
-  expect(iosFrameBounds.width - iosScreenBounds.width).toBe(24)
-  expect(iosFrameBounds.height - iosScreenBounds.height).toBe(42)
-  expect(iosCameraBounds.width).toBeGreaterThan(90)
-  expect(iosCameraBounds.y + iosCameraBounds.height).toBeLessThan(iosScreenBounds.y)
+  expect(Math.abs(iosFrameBounds.x + iosFrameBounds.width / 2 - iosScreenBounds.x - iosScreenBounds.width / 2)).toBeLessThanOrEqual(1)
+  expect(iosScreenBounds.y - iosFrameBounds.y).toBeGreaterThan(20)
   await chrome.screenshot({ path: path.resolve('artifacts/device-ios-portrait-frame.png') })
   let windowsBeforePopup = (await state()).model.sessions[0].windows.length
   await rpc('eval', { tab, expression: `window.open(${JSON.stringify(`${url}/device-popup`)}, '_blank'); true` })
