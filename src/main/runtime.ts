@@ -579,12 +579,12 @@ export let createRuntime = (dataDirectory: string) => {
     let debuggerApi = contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     let viewport = deviceViewport(persona)
-    await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale })
+    // The native view owns its visible size; CDP only controls the emulated viewport.
+    await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale, dontSetVisibleSize: true })
   }
   let applyDevicePersona = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
     let debuggerApi = contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    let viewport = deviceViewport(persona)
     let metadata = deviceUserAgentMetadata(persona)
     let deviceMemoryScript = persona.platform === 'android'
       ? "Object.defineProperty(Navigator.prototype, 'deviceMemory', { configurable: true, get: () => 8 })"
@@ -592,7 +592,7 @@ export let createRuntime = (dataDirectory: string) => {
     await Promise.all([
       debuggerApi.sendCommand('Emulation.setUserAgentOverride', { userAgent: deviceUserAgent(persona), acceptLanguage: persona.locale, platform: persona.platform === 'android' ? 'Linux armv81' : 'iPhone', ...(metadata ? { userAgentMetadata: metadata } : {}) }),
       debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceMemoryScript }),
-      debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale }),
+      applyDeviceMetrics(contents, persona, scale),
       debuggerApi.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }),
       debuggerApi.sendCommand('Emulation.setLocaleOverride', { locale: persona.locale }),
       debuggerApi.sendCommand('Emulation.setTimezoneOverride', { timezoneId: persona.timezone }),
@@ -1338,7 +1338,8 @@ export let createRuntime = (dataDirectory: string) => {
         let floatingBounds = floatBounds(candidate, paneId)
         let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.paneId === tabId)
         if (!floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
-        if (!bounds) continue
+        // A remounted device frame has no screen size until its layout effect runs.
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue
         let entries = viewers.get(tabId) ?? []
         entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
       }
@@ -1364,7 +1365,13 @@ export let createRuntime = (dataDirectory: string) => {
         live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
         if (persona && live.deviceScale !== fitted.scale) {
           live.deviceScale = fitted.scale
-          void live.ready.then(() => applyDeviceMetrics(live.contents, persona, fitted.scale)).catch(error => { crashes[tabId] = `Device viewport failed: ${errorText(error)}`; publish() })
+          void live.ready.then(() => {
+            if (!live.disposed && live.deviceScale === fitted.scale) return applyDeviceMetrics(live.contents, persona, fitted.scale)
+          }).catch(error => {
+            if (live.disposed || live.deviceScale !== fitted.scale) return
+            live.deviceScale = undefined
+            reportError(error)
+          })
         }
       }
       let remoteSize = remoteSizes.get(tabId)

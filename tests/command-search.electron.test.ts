@@ -6,6 +6,8 @@ import os from 'node:os'
 import http from 'node:http'
 import { stringify } from 'yaml'
 import { Server as ProxyServer } from 'proxy-chain'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 
 let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server, proxy: ProxyServer, proxyRequests = 0
 let identityRequests = new Map<string, http.IncomingHttpHeaders>()
@@ -47,7 +49,7 @@ test.beforeAll(async () => {
     let deviceIndex = request.url?.indexOf('/device-') ?? -1
     if (request.url && deviceIndex >= 0) {
       identityRequests.set(request.url.slice(deviceIndex), request.headers)
-      response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Device fixture</title><h1>Device fixture</h1><a href="/device-popup" target="_blank">Open device popup</a>')
+      response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Device fixture</title><style>html{background:#234567}</style><h1>Device fixture</h1><a href="/device-popup" target="_blank">Open device popup</a>')
       return
     }
     if (request.url === '/ip') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9', city: 'Amsterdam', region: 'North Holland', country: 'Netherlands' })); return }
@@ -465,4 +467,45 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByRole('button', { name: 'Use desktop', exact: true }).click()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device).toBeUndefined()
+})
+
+test('mobile splits keep both pages loaded and paint the full native viewport', async () => {
+  let current = await state(), session = current.model.sessions[0], tab = session.windows[0].panes[0].id
+  await rpc('profile.device.set', { pane: tab, profile: session.windows[0].panes[0].profileId, newPanes: true, device: { preset: 'pixel-8', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+  await rpc('navigate', { tab, url: `${url}/device-split-original` })
+  await rpc('eval', { tab, expression: 'window.splitMarker = 42' })
+  let split = await rpc('split-window', { pane: tab, client: current.clientId, axis: 'vertical' }) as { id: string }
+  let pane = chrome.locator(`[data-pane-id="${split.id}"]`)
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  if (!await address.isVisible()) await pane.getByRole('button', { name: 'Address', exact: true }).click()
+  await address.fill(`${url}/device-split-new`); await address.press('Enter')
+  for (let id of [tab, split.id]) {
+    await expect.poll(() => rpc('eval', { tab: id, expression: 'document.title' })).toBe('Device fixture')
+    expect((await state()).crashes[id]).toBeUndefined()
+  }
+  expect(await rpc('eval', { tab, expression: 'window.splitMarker' })).toBe(42)
+  let painted = async (stage: string) => {
+    await expect(async () => {
+      let screenshotPath = path.resolve(`artifacts/device-split-${stage}.png`)
+      await promisify(execFile)('/usr/sbin/screencapture', ['-x', screenshotPath])
+      let colors = await application.evaluate(({ BaseWindow, nativeImage, screen }, { screenshotPath, url }) => {
+        let image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
+        let display = screen.getPrimaryDisplay().bounds, scale = size.width / display.width
+        return BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.flatMap(view => {
+          if (!('webContents' in view) || !(view as Electron.WebContentsView).webContents.getURL().startsWith(`${url}/device-split-`)) return []
+          let bounds = view.getBounds(), origin = window.getContentBounds()
+          return [[bounds.width - 8, bounds.height - 8], [8, bounds.height / 2]].map(([x, y]) => {
+            let offset = (Math.floor((origin.y + bounds.y + y - display.y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - display.x) * scale)) * 4
+            return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
+          })
+        }))
+      }, { screenshotPath, url })
+      expect(colors).toEqual(Array.from({ length: 4 }, () => [0x23, 0x45, 0x67]))
+    }).toPass({ timeout: 10000 })
+  }
+  await painted('initial')
+  await rpc('reload', { tab })
+  await painted('reloaded')
+  await rpc('close-pane', { pane: split.id })
+  await rpc('profile.device.clear', { pane: tab, profile: session.windows[0].panes[0].profileId })
 })
