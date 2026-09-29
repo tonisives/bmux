@@ -97,7 +97,7 @@ test.beforeAll(async () => {
     if (request.url?.startsWith('/held.js?')) { response.writeHead(200, { 'Cache-Control': 'no-store' }); heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
     if (request.url === '/download') { response.writeHead(200, { 'Content-Disposition': 'attachment; filename="fixture.txt"', 'Content-Type': 'text/plain' }); response.end('download fixture'); return }
     response.writeHead(200, { 'Content-Type': 'text/html' })
-    response.end(fixture)
+    response.end(request.url === '/paint-second' ? fixture.replace('#e8eef8', '#cdf0dc') : fixture)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -154,6 +154,68 @@ test('memory diagnostics map background pages without changing selection or page
   expect(after.panes.some((row: { paneId: string }) => row.paneId === bot.id)).toBe(false)
   expect(after.processes.every((row: { paneIds: string[] }) => !row.paneIds.includes(bot.id))).toBe(true)
   await expect(cli('memory', { history: 'yes' })).rejects.toThrow('history must be a boolean')
+})
+
+test('closing a shared window preserves full native page rendering after reload', async ({}, info) => {
+  let session = (await cli('state')).model.sessions[0]
+  let first = session.windows[0], tab = first.panes[0].id
+  let extensionPath = path.join(directory, 'handoff-extension')
+  await fs.mkdir(extensionPath)
+  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Handoff fixture', version: '1.0', permissions: ['tabs'] }))
+  let extension = await cli('extension.load', { profile: first.panes[0].profileId, path: extensionPath })
+  let large = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(large.id)
+  await cli('activate-client', { client: large.id })
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.fill(`${url}/paint-first`); await address.press('Enter')
+  await cli('wait', { tab, selector: '#text' })
+  let second = await cli('new-window', { session: session.id, url: `${url}/paint-second` })
+  let secondTab = second.panes[0].id
+  await cli('wait', { tab: secondTab, selector: '#text' })
+  let small = await cli('attach-session', { session: session.id })
+  let nativeClients = (await cli('diagnostics')).windows
+  let largeId = nativeClients.find((item: { id: string }) => item.id === large.id).nativeId
+  let smallId = nativeClients.find((item: { id: string }) => item.id === small.id).nativeId
+  await application.evaluate(({ BaseWindow }, { largeId, smallId }) => {
+    BaseWindow.fromId(largeId)!.setBounds({ x: 20, y: 50, width: 1100, height: 850 })
+    BaseWindow.fromId(smallId)!.setBounds({ x: 40, y: 70, width: 640, height: 600 })
+  }, { largeId, smallId })
+  for (let window of [second, first]) await cli('select-window', { client: small.id, window: window.id })
+  await cli('activate-client', { client: small.id })
+  await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.close(), smallId)
+  await cli('activate-client', { client: large.id })
+  for (let window of [first, second, first]) {
+    let pane = window.panes[0].id
+    await cli('select-window', { client: large.id, window: window.id })
+    for (let stage of ['selected', 'reloaded']) {
+      if (stage === 'reloaded') { await cli('reload', { tab: pane }); await cli('wait', { tab: pane, selector: '#text' }) }
+      await expect.poll(async () => {
+        let expected = Math.round((await chrome.locator(`[data-browser-content][data-content-pane-id="${pane}"]`).boundingBox())!.width)
+        return Math.abs(await cli('eval', { tab: pane, expression: 'innerWidth' }) - expected)
+      }).toBeLessThanOrEqual(1)
+      let windowInfo = JSON.parse((await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
+      await expect(async () => {
+        let screenshotPath = info.outputPath(`paint-${pane.slice(1)}-${stage}.png`)
+        await exec('/usr/sbin/screencapture', ['-x', '-o', '-l', String(windowInfo.kCGWindowNumber), screenshotPath])
+        let colors = await application.evaluate(({ BaseWindow, nativeImage }, { largeId, screenshotPath, windowBounds }) => {
+          let window = BaseWindow.fromId(largeId)!, origin = window.getContentBounds()
+          let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().includes('/paint-'))!
+          let bounds = view.getBounds(), image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
+          let scale = size.width / windowBounds.Width
+          return [20, bounds.width - 20].map(x => {
+            let offset = (Math.floor((origin.y + bounds.y + bounds.height / 2 - windowBounds.Y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - windowBounds.X) * scale)) * 4
+            return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
+          })
+        }, { largeId, screenshotPath, windowBounds: windowInfo.kCGWindowBounds })
+        let color = window.id === second.id ? [0xcd, 0xf0, 0xdc] : [0xe8, 0xee, 0xf8]
+        expect(colors).toEqual([color, color])
+      }).toPass({ timeout: 10000 })
+    }
+  }
+  await cli('detach-client', { client: large.id })
+  await cli('kill-window', { window: second.id, confirm: true })
+  await cli('extension.remove', { profile: first.panes[0].profileId, id: extension.id })
 })
 
 test('profiles, clients, handoff, hidden automation, and restart', async () => {
