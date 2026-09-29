@@ -347,6 +347,18 @@ test('profile device identity is applied before requests and cache status is pub
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('Android 10')
   expect(identityRequests.get('/device-android')?.['accept-language']).toContain('fr-FR')
   await expect.poll(() => rpc('eval', { tab, expression: '({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,cores:navigator.hardwareConcurrency,memory:navigator.deviceMemory,locale:Intl.DateTimeFormat().resolvedOptions().locale,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,uaPlatform:navigator.userAgentData?.platform,uaMobile:navigator.userAgentData?.mobile})' })).toEqual({ width: 412, height: 915, dpr: 2.625, touch: 5, cores: 8, memory: 8, locale: 'fr-FR', timezone: 'Europe/Paris', uaPlatform: 'Android', uaMobile: true })
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  let androidFrame = chrome.locator(`[data-pane-id="${tab}"] [data-platform="android"]`)
+  await expect(androidFrame).toHaveAttribute('data-preset', 'pixel-8')
+  let androidFrameBounds = (await androidFrame.boundingBox())!
+  let androidScreenBounds = (await androidFrame.locator('[data-browser-content]').boundingBox())!
+  let androidCameraBounds = (await androidFrame.locator('[class*="deviceTop"]').boundingBox())!
+  expect(androidFrameBounds.width - androidScreenBounds.width).toBe(24)
+  expect(androidFrameBounds.height - androidScreenBounds.height).toBe(40)
+  expect(androidCameraBounds.width).toBeGreaterThanOrEqual(13)
+  expect(androidCameraBounds.y + androidCameraBounds.height).toBeLessThan(androidScreenBounds.y)
+  await chrome.screenshot({ path: path.resolve('artifacts/device-pixel-portrait-frame.png') })
+  panel = await openProfilePanel(profile.name)
   await expect.poll(async () => (await state()).profileCaches[profile.id]?.limit).toBe(256 * 1024 * 1024)
   await panel.getByRole('tab', { name: 'Overview' }).click()
   await expect(panel.getByText(/MiB of 256 MiB/)).toBeVisible()
@@ -376,18 +388,26 @@ test('profile device identity is applied before requests and cache status is pub
   expect((await state()).model.sessions[0].windows[0].panes[0].device?.platform).toBe('android')
   await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions[0].windows[0].panes[0].device?.geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(chrome.locator(`[data-pane-id="${tab}"] [data-platform="android"]`)).toBeVisible()
+  await expect(androidFrame).toBeVisible()
   await expect(chrome.locator(`[data-pane-id="${tab}"] img[alt="Page preview"]`)).toHaveCount(0)
+  androidFrameBounds = (await androidFrame.boundingBox())!
+  androidScreenBounds = (await androidFrame.locator('[data-browser-content]').boundingBox())!
+  androidCameraBounds = (await androidFrame.locator('[class*="deviceTop"]').boundingBox())!
+  expect(androidFrameBounds.width - androidScreenBounds.width).toBe(40)
+  expect(androidFrameBounds.height - androidScreenBounds.height).toBe(24)
+  expect(androidCameraBounds.height).toBeGreaterThanOrEqual(13)
+  expect(androidCameraBounds.x + androidCameraBounds.width).toBeLessThan(androidScreenBounds.x)
   await chrome.screenshot({ path: path.resolve('artifacts/device-android-frame.png') })
   let contentBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${tab}"]`).boundingBox()
   await expect.poll(() => application.evaluate(({ BaseWindow }, path) => {
     for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
   }, '/device-android')).toMatchObject({ width: 800, height: 400 })
-  let nativeBounds = await application.evaluate(({ BaseWindow }, path) => {
-    for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
-  }, '/device-android')
-  expect(Math.abs(nativeBounds!.x + nativeBounds!.width / 2 - (contentBounds!.x + contentBounds!.width / 2))).toBeLessThanOrEqual(1)
-  expect(Math.abs(nativeBounds!.y + nativeBounds!.height / 2 - (contentBounds!.y + contentBounds!.height / 2))).toBeLessThanOrEqual(1)
+  await expect.poll(async () => {
+    let nativeBounds = await application.evaluate(({ BaseWindow }, path) => {
+      for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
+    }, '/device-android')
+    return Math.max(Math.abs(nativeBounds!.x + nativeBounds!.width / 2 - (contentBounds!.x + contentBounds!.width / 2)), Math.abs(nativeBounds!.y + nativeBounds!.height / 2 - (contentBounds!.y + contentBounds!.height / 2)))
+  }).toBeLessThanOrEqual(1)
   let geolocation = rpc('eval', { tab, expression: 'new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(position => resolve({latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy}), error => reject(new Error(error.message))))' })
   let permission: any
   await expect.poll(async () => { permission = (await rpc('permission.list') as any[]).find(item => item.permission === 'geolocation'); return !!permission }).toBe(true)
@@ -395,7 +415,22 @@ test('profile device identity is applied before requests and cache status is pub
   expect(await geolocation).toEqual({ latitude: 48.8566, longitude: 2.3522, accuracy: 12 })
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Device' }).click()
+  await panel.getByLabel('Device', { exact: true }).selectOption('galaxy-s24')
+  await panel.getByLabel('Orientation', { exact: true }).selectOption('portrait')
+  await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('galaxy-s24')
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(androidFrame).toHaveAttribute('data-preset', 'galaxy-s24')
+  await expect(androidFrame).toHaveCSS('border-radius', '27px')
+  androidFrameBounds = (await androidFrame.boundingBox())!
+  androidScreenBounds = (await androidFrame.locator('[data-browser-content]').boundingBox())!
+  expect(androidFrameBounds.width - androidScreenBounds.width).toBe(24)
+  expect(androidFrameBounds.height - androidScreenBounds.height).toBe(40)
+  await chrome.screenshot({ path: path.resolve('artifacts/device-galaxy-portrait-frame.png') })
+  panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Device' }).click()
   await panel.getByLabel('Device', { exact: true }).selectOption('iphone-15-pro')
+  await panel.getByLabel('Orientation', { exact: true }).selectOption('landscape')
   await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('iphone-15-pro')
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')

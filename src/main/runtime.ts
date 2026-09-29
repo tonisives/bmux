@@ -1297,7 +1297,7 @@ export let createRuntime = (dataDirectory: string) => {
         let tabId = paneById(model, paneId).pane.id
         let floatingBounds = floatBounds(candidate, paneId)
         let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.paneId === tabId)
-        if (!floatingBounds && paneIds.length === 1) bounds = singlePaneBounds(tabId, live, bounds)
+        if (!floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
         if (!bounds) continue
         let entries = viewers.get(tabId) ?? []
         entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)

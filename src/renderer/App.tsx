@@ -800,8 +800,10 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let tab = pane
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
-  let frameWidthInset = pane.device?.platform === 'ios' ? pane.device.orientation === 'landscape' ? 42 : 24 : 20
-  let frameHeightInset = pane.device?.platform === 'ios' ? pane.device.orientation === 'landscape' ? 24 : 42 : 32
+  let frameLongInset = pane.device?.platform === 'ios' ? 42 : 40
+  let frameShortInset = 24
+  let frameWidthInset = pane.device?.orientation === 'landscape' ? frameLongInset : frameShortInset
+  let frameHeightInset = pane.device?.orientation === 'landscape' ? frameShortInset : frameLongInset
   useLayoutEffect(() => {
     let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
     let observer = new ResizeObserver(publish)
@@ -831,7 +833,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>
   return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
-    {pane.device ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-orientation={pane.device.orientation} style={{ width: deviceSize.width + frameWidthInset, height: deviceSize.height + frameHeightInset }}><div className={css.deviceTop} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ width: deviceSize.width, height: deviceSize.height }}>{fallback}</div><div className={css.deviceHome} /></div> : fallback}
+    {pane.device ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: deviceSize.width + frameWidthInset, height: deviceSize.height + frameHeightInset }}><div className={css.deviceTop} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ width: deviceSize.width, height: deviceSize.height }}>{fallback}</div><div className={css.deviceHome} /></div> : fallback}
   </div></section>
 }
 
