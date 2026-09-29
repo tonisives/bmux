@@ -480,11 +480,13 @@ for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${axis} keep bo
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   if (!await address.isVisible()) await pane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill(`${url}/device-split-new`); await address.press('Enter')
+  await expect(address).toHaveCount(0)
   for (let id of [tab, split.id]) {
+    await expect.poll(async () => (await state()).loading[id]).not.toBe(true)
     await expect.poll(() => rpc('eval', { tab: id, expression: 'document.title' })).toBe('Device fixture')
     expect((await state()).crashes[id]).toBeUndefined()
   }
-  expect(await rpc('eval', { tab, expression: 'window.splitMarker' })).toBe(42)
+  await expect(async () => expect(await rpc('eval', { tab, expression: 'window.splitMarker' })).toBe(42)).toPass({ timeout: 5000 })
   // Capture the native app window without unrelated guest desktop notifications.
   let windowInfo = JSON.parse((await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
   let painted = async (stage: string) => {
