@@ -405,8 +405,30 @@ test('profile device identity is applied before requests and cache status is pub
   expect(identityRequests.get('/device-ios')?.['sec-ch-ua']).toBeUndefined()
   expect(await rpc('eval', { tab, expression: '({cores:navigator.hardwareConcurrency,hasMemory:"deviceMemory" in navigator,memory:navigator.deviceMemory})' })).toEqual({ cores: 6, hasMemory: false })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(chrome.locator(`[data-pane-id="${tab}"] [data-platform="ios"]`)).toBeVisible()
+  let iosFrame = chrome.locator(`[data-pane-id="${tab}"] [data-platform="ios"]`)
+  await expect(iosFrame).toBeVisible()
+  let iosFrameBounds = (await iosFrame.boundingBox())!
+  let iosScreenBounds = (await iosFrame.locator('[data-browser-content]').boundingBox())!
+  let iosCameraBounds = (await iosFrame.locator('[class*="deviceTop"]').boundingBox())!
+  expect(iosFrameBounds.width - iosScreenBounds.width).toBe(42)
+  expect(iosFrameBounds.height - iosScreenBounds.height).toBe(24)
+  expect(iosCameraBounds.height).toBeGreaterThan(90)
+  expect(iosCameraBounds.x + iosCameraBounds.width).toBeLessThan(iosScreenBounds.x)
   await chrome.screenshot({ path: path.resolve('artifacts/device-ios-frame.png') })
+  panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Device' }).click()
+  await panel.getByLabel('Orientation', { exact: true }).selectOption('portrait')
+  await panel.getByRole('button', { name: 'Apply device', exact: true }).click()
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.orientation).toBe('portrait')
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  iosFrameBounds = (await iosFrame.boundingBox())!
+  iosScreenBounds = (await iosFrame.locator('[data-browser-content]').boundingBox())!
+  iosCameraBounds = (await iosFrame.locator('[class*="deviceTop"]').boundingBox())!
+  expect(iosFrameBounds.width - iosScreenBounds.width).toBe(24)
+  expect(iosFrameBounds.height - iosScreenBounds.height).toBe(42)
+  expect(iosCameraBounds.width).toBeGreaterThan(90)
+  expect(iosCameraBounds.y + iosCameraBounds.height).toBeLessThan(iosScreenBounds.y)
+  await chrome.screenshot({ path: path.resolve('artifacts/device-ios-portrait-frame.png') })
   let windowsBeforePopup = (await state()).model.sessions[0].windows.length
   await rpc('eval', { tab, expression: `window.open(${JSON.stringify(`${url}/device-popup`)}, '_blank'); true` })
   await expect.poll(() => identityRequests.get('/device-popup')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
