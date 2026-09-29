@@ -554,6 +554,22 @@ test('middle and Command clicks load links in background bmux windows', async ()
   }
 })
 
+test('initial blank history is removed after navigation and restart', async () => {
+  let session = await cli('new-session', { name: 'initial-blank-history' })
+  let pane = session.windows[0].panes[0]
+  await cli('navigate', { pane: pane.id, url: `${url}/initial-page` })
+  for (let restarted of [false, true]) {
+    if (restarted) { await application.close(); await launch() }
+    await cli('eval', { pane: pane.id, expression: 'document.readyState' })
+    await expect.poll(async () => (await cli('state')).navigation[pane.id]?.entries.map((entry: { url: string }) => entry.url)).toEqual([`${url}/initial-page`])
+    await cli('back', { pane: pane.id })
+    expect(await cli('eval', { pane: pane.id, expression: 'location.href' })).toBe(`${url}/initial-page`)
+    await cli('navigate', { pane: pane.id, url: `${url}/second-page` })
+    await cli('back', { pane: pane.id })
+    await expect.poll(() => cli('eval', { pane: pane.id, expression: 'location.href' })).toBe(`${url}/initial-page`)
+  }
+})
+
 test('address controls navigate, refresh, and open the per-tab history on hold', async () => {
   let session = await cli('new-session', { name: 'address-navigation' })
   let pane = session.windows[0].panes[0]
@@ -585,7 +601,10 @@ test('address controls navigate, refresh, and open the per-tab history on hold',
     await menu.getByRole('menuitem').filter({ hasText: '/address-one' }).click()
     await expect.poll(() => cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-one')
     let stack = (await cli('state')).navigation[tabId]
-    expect(stack.entries[stack.activeIndex - 1]?.url).toBe('about:blank')
+    expect(stack.activeIndex).toBe(0)
+    expect(stack.entries.map((entry: { url: string }) => entry.url)).toEqual(['/address-one', '/address-two', '/address-three'].map(path => `${url}${path}`))
+    await cli('back', { tab: tabId })
+    expect(await cli('eval', { tab: tabId, expression: 'location.pathname' })).toBe('/address-one')
     await expect(back).toBeDisabled()
 
     box = await forward.boundingBox()
