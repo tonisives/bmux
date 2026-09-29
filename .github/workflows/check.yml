@@ -32,6 +32,7 @@ jobs:
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm check
       - name: Electron tests
+        timeout-minutes: 12
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
         run: |
