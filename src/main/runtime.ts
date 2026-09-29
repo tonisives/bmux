@@ -212,6 +212,8 @@ export let createRuntime = (dataDirectory: string) => {
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
+  let audio: PublicState['audio'] = {}
+  let audibleMedia = new Set<string>()
   let favicons: Record<string, string> = {}
   let faviconRevisions = new Map<string, number>()
   let findResults: Record<string, FindResult> = {}
@@ -297,7 +299,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -804,6 +806,7 @@ export let createRuntime = (dataDirectory: string) => {
     })
     let serializedRestore = restoringTabs
     tabs.set(tabId, live)
+    audio[tabId] = { playing: contents.isCurrentlyAudible(), muted: contents.isAudioMuted() }
     lastTabUse.set(tabId, Date.now())
     idleUnloaded.delete(tabId)
     let savedHistory = idleHistory.get(tabId)
@@ -822,6 +825,15 @@ export let createRuntime = (dataDirectory: string) => {
     ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
+    contents.on('audio-state-changed', ({ audible }) => {
+      if (live.disposed) return
+      if (audible) audibleMedia.add(tabId)
+      // Muting may report silence even while the media continues to play.
+      audio[tabId] = { playing: audible || !!audio[tabId]?.playing && contents.isAudioMuted(), muted: contents.isAudioMuted() }
+      publish()
+    })
+    contents.on('media-started-playing', () => { if (live.disposed || !audio[tabId]?.muted || !audibleMedia.has(tabId)) return; audio[tabId] = { playing: true, muted: true }; publish() })
+    contents.on('media-paused', () => { if (live.disposed || !audio[tabId]?.muted) return; audio[tabId] = { playing: false, muted: true }; publish() })
     let lastCountedUrl = initialUrl
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
     let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
@@ -843,7 +855,7 @@ export let createRuntime = (dataDirectory: string) => {
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
       catch { contents.stop() }
     })
-    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { scriptTouchedTabs.delete(tabId); if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { scriptTouchedTabs.delete(tabId); if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; delete favicons[tabId]; audio[tabId] = { playing: false, muted: contents.isAudioMuted() }; audibleMedia.delete(tabId); faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -1160,6 +1172,8 @@ export let createRuntime = (dataDirectory: string) => {
     delete snapshots[tabId]
     delete crashes[tabId]
     delete loading[tabId]
+    delete audio[tabId]
+    audibleMedia.delete(tabId)
     delete favicons[tabId]
     faviconRevisions.delete(tabId)
     delete findResults[tabId]
@@ -1505,6 +1519,23 @@ export let createRuntime = (dataDirectory: string) => {
       let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
       let searchApp = method === 'new-window' ? searchAppForSession(resolve(model.sessions, args.session, 'Session')) : typeof args.pane === 'string' ? searchAppForSession(paneById(model, args.pane).session) : undefined
       if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+    }
+    if (method === 'window.audio.toggle') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let window = resolve(session.windows, args.window, 'Window')
+      let playing = window.panes.filter(pane => audio[pane.id]?.playing)
+      if (!playing.length) return null
+      let muted = playing.some(pane => !audio[pane.id]?.muted)
+      for (let pane of window.panes) {
+        let live = tabs.get(pane.id)
+        if (!live || live.disposed || live.contents.isDestroyed()) continue
+        live.contents.setAudioMuted(muted)
+        audio[pane.id] = { playing: audio[pane.id]?.playing ?? false, muted }
+      }
+      publish()
+      return { window: window.id, muted }
     }
     if (method === 'window.menu') {
       if (!sourceClientId) throw new Error('Trusted UI required')
