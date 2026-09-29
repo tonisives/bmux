@@ -35,6 +35,10 @@
 .tabFavicon, .tabSpinner { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }
 .tabSpinner { border: 1.5px solid #64707e; border-top-color: #d6dcd2; border-radius: 50%; animation: tab-spin .8s linear infinite; }
+.status .windowAudio { display: grid; place-items: center; width: 16px; height: 18px; flex: 0 0 16px; color: #a7c88d; }
+.status .windowAudio[data-muted="true"] { color: #77818d; }
+.status .windowAudio:hover { color: #f0f2f5; }
+.windowAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .status .windowClose { display: grid; place-items: center; width: 14px; height: 18px; flex: 0 0 14px; color: #77818d; }
 .status .windowClose:hover { color: #e6a69c; }
 .windowClose svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }

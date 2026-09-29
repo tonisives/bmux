@@ -321,7 +321,10 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
   let tabId = pane?.id
   let label = `${index}:${window.name}${active ? '*' : ''}`
+  let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
+  let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
   let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
+  let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-drop-position={dropPosition} onContextMenu={menu}>
@@ -329,6 +332,7 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : null)}
       <span className={css.windowLabel}>{label}</span>
     </button>
+    {playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
     {state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
