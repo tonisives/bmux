@@ -17,4 +17,7 @@ Default direct shortcuts use Command. Find in page uses Command+F. Change shortc
 
 ## Linux and Windows
 
-Run bmux from source with `pnpm dev`. Platform-specific installers aren't configured in this repository yet. Find in page uses Control+F; other direct shortcuts can be changed in [keyboard configuration](keyboard.md#configuration).
+Run bmux from source with `pnpm dev`. GitHub releases provide Linux x64 and
+arm64 portable host archives and a Windows x64 desktop installer. Find in page
+uses Control+F; other direct shortcuts can be changed in [keyboard
+configuration](keyboard.md#configuration).
