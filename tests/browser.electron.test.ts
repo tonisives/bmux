@@ -208,10 +208,42 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   await cli('click', { tab: mainTab.id, selector: '#inc' })
   let identity = await cli('eval', { tab: mainTab.id, expression: 'window.identity' })
   let targetBefore = await cli('cdp', { tab: mainTab.id, method: 'Target.getTargetInfo' })
+  let nativeClients = (await cli('diagnostics')).windows
+  await application.evaluate(({ BaseWindow }, sizes) => {
+    for (let { nativeId, width } of sizes) {
+      let window = BaseWindow.fromId(nativeId)!
+      window.setBounds({ ...window.getBounds(), width })
+    }
+  }, [{ nativeId: nativeClients.find((item: { id: string }) => item.id === clientA.id).nativeId, width: 1100 }, { nativeId: nativeClients.find((item: { id: string }) => item.id === clientB.id).nativeId, width: 700 }])
   for (let client of [clientB, clientA, clientB]) {
     await cli('activate-client', { client: client.id })
     await expect.poll(async () => { await cli('activate-client', { client: client.id }); return (await cli('state')).focusedClientId }).toBe(client.id).catch(async error => { console.log(JSON.stringify(await cli('diagnostics'))); console.log('FRONTMOST', await frontmost()); throw error })
+    let chrome = await rendererForClient(client.id)
+    let nativeId = nativeClients.find((item: { id: string }) => item.id === client.id).nativeId
+    await expect.poll(async () => {
+      let expected = Math.round((await chrome.locator(`[data-browser-content][data-content-pane-id="${mainTab.id}"]`).boundingBox())!.width)
+      let page = await application.evaluate(({ BaseWindow }, { nativeId, url }) => {
+        let window = BaseWindow.fromId(nativeId)!
+        return window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)?.getBounds().width
+      }, { nativeId, url: `${url}/` })
+      return page === undefined ? null : Math.abs(page - expected)
+    }).toBeLessThanOrEqual(1)
   }
+  let smallClient = await cli('attach-session', { session: session.id })
+  await application.evaluate(({ BaseWindow }, nativeId) => {
+    let window = BaseWindow.fromId(nativeId)!
+    window.setBounds({ ...window.getBounds(), width: 640 })
+  }, (await cli('diagnostics')).windows.find((item: { id: string }) => item.id === smallClient.id).nativeId)
+  await cli('activate-client', { client: smallClient.id })
+  await expect.poll(async () => (await cli('state')).focusedClientId).toBe(smallClient.id)
+  await cli('detach-client', { client: smallClient.id })
+  await cli('activate-client', { client: clientA.id })
+  await expect.poll(async () => {
+    let chrome = await rendererForClient(clientA.id)
+    let expected = Math.round((await chrome.locator(`[data-browser-content][data-content-pane-id="${mainTab.id}"]`).boundingBox())!.width)
+    let page = await application.evaluate(({ BaseWindow }, { nativeId, url }) => BaseWindow.fromId(nativeId)!.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)?.getBounds().width, { nativeId: nativeClients.find((item: { id: string }) => item.id === clientA.id).nativeId, url: `${url}/` })
+    return page === undefined ? null : Math.abs(page - expected)
+  }).toBeLessThanOrEqual(1)
   expect(await cli('eval', { tab: mainTab.id, expression: '({text:document.querySelector("#text").value,count:window.count,identity:window.identity})' })).toEqual({ text: 'Retain this form', count: 1, identity })
   expect((await cli('cdp', { tab: mainTab.id, method: 'Target.getTargetInfo' })).targetInfo.targetId).toBe(targetBefore.targetInfo.targetId)
   await expect.poll(async () => Boolean((await cli('state')).snapshots[mainTab.id]?.image)).toBe(true)

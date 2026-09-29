@@ -95,6 +95,12 @@ export let createRuntime = (dataDirectory: string) => {
       remoteSizes.delete(pane)
     }
   }
+  let reclaimDesktopControl = (sessionId: string) => {
+    controls.release(sessionId)
+    clearRemoteSizes()
+    void scheduleVisuals()
+    publish()
+  }
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot'])
   let checkControl = (method: string, args: Record<string, unknown>) => {
@@ -1444,7 +1450,8 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('focus', () => {
       focusedClientId = client.id
       lastFocusedClientId = client.id
-      save()
+      resizeChrome()
+      reclaimDesktopControl(client.sessionId)
       void scheduleVisuals().then(() => {
         // Reattaching views after a blur can leave AppKit with no web first responder.
         if (window.isDestroyed() || !window.isFocused()) return
@@ -1498,7 +1505,7 @@ export let createRuntime = (dataDirectory: string) => {
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
-    if (method === 'remote.reclaim' && sourceClientId) { controls.release(resolve(model.clients, sourceClientId, 'Client').sessionId); clearRemoteSizes(); publish(); return { released: true } }
+    if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.acquire') {
