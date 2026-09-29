@@ -1917,6 +1917,30 @@ test('status tabs show loading and favicon, with optional close control', async 
   await cli('detach-client', { client: client.id })
 })
 
+test('window audio control appears during playback and toggles sound', async () => {
+  let session = await cli('new-session', { name: 'window-audio' })
+  let client = await cli('attach-session', { session: session.id })
+  let window = session.windows[0], tab = window.panes[0].id
+  let chrome = await rendererForClient(client.id)
+  let controls = chrome.locator(`[data-window-id="${window.id}"]`)
+  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+  await cli('navigate', { tab, url: pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href })
+  await cli('eval', { tab, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
+  await expect(controls.getByRole('button', { name: 'Mute main' })).toBeVisible()
+  await controls.getByRole('button', { name: 'Mute main' }).click()
+  await expect.poll(async () => (await cli('state')).audio[tab]?.muted).toBe(true)
+  await expect(controls.getByRole('button', { name: 'Unmute main' })).toBeVisible()
+  await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
+  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+  await cli('eval', { tab, expression: 'document.querySelector("video").play()' })
+  await expect(controls.getByRole('button', { name: 'Unmute main' })).toBeVisible()
+  await controls.getByRole('button', { name: 'Unmute main' }).click()
+  await expect.poll(async () => (await cli('state')).audio[tab]?.muted).toBe(false)
+  await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
+  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+  await cli('detach-client', { client: client.id })
+})
+
 test('open command renders a local HTML file given relative to home', async () => {
   let local = path.join(directory, 'local page.html')
   await fs.writeFile(local, '<!doctype html><title>Local file fixture</title><h1>Loaded local file</h1>')

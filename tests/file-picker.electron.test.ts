@@ -10,7 +10,7 @@ test('page file input uses the visible bmux window and receives the chosen file'
   let file = path.join(directory, 'sample.txt')
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end('<!doctype html><title>File picker fixture</title><label>Choose file<input id="file" type="file" accept="text/plain" multiple></label><p id="selection"></p><script>document.querySelector("#file").addEventListener("change", event => { document.querySelector("#selection").textContent = event.target.files[0]?.name || "none" })</script>')
+    response.end('<!doctype html><title>File picker fixture</title><label>Choose file<input id="file" type="file" accept="text/plain" multiple></label><button id="image">Image</button><input id="hidden" type="file" accept="image/*" multiple hidden><p id="selection"></p><script>document.querySelector("#image").addEventListener("click", () => document.querySelector("#hidden").click()); for (let input of document.querySelectorAll("input")) input.addEventListener("change", event => { document.querySelector("#selection").textContent = event.target.files[0]?.name || "none" })</script>')
   })
   let application: ElectronApplication | undefined
   try {
@@ -41,6 +41,23 @@ test('page file input uses the visible bmux window and receives the chosen file'
     await expect.poll(() => application!.evaluate(() => (globalThis as any).filePickerCalls.length)).toBe(1)
     await expect(page.locator('#selection')).toHaveText('sample.txt')
     expect(await application.evaluate(() => (globalThis as any).filePickerCalls)).toEqual([{ visible: true, properties: ['openFile', 'multiSelections'] }])
+    await page.locator('#image').click()
+    await expect.poll(() => application!.evaluate(() => (globalThis as any).filePickerCalls.length)).toBe(2)
+    expect(await application.evaluate(() => (globalThis as any).filePickerCalls)).toEqual([
+      { visible: true, properties: ['openFile', 'multiSelections'] },
+      { visible: true, properties: ['openFile', 'multiSelections'] },
+    ])
+    await application.evaluate(({ webContents }, pageUrl) => {
+      let contents = webContents.getAllWebContents().find(item => item.getURL() === pageUrl)!
+      let send = contents.debugger.sendCommand.bind(contents.debugger)
+      contents.debugger.sendCommand = ((method: string, params?: Record<string, unknown>, sessionId?: string) => {
+        if (method === 'DOM.describeNode') return Promise.reject(new Error('Input changed during click'))
+        return send(method, params, sessionId)
+      }) as typeof contents.debugger.sendCommand
+    }, url)
+    await page.locator('#image').click()
+    await expect.poll(() => application!.evaluate(() => (globalThis as any).filePickerCalls.length)).toBe(3)
+    await expect(page.locator('#selection')).toHaveText('sample.txt')
   } finally {
     await application?.close()
     server.closeAllConnections()
