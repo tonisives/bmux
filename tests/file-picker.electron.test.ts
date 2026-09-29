@@ -88,7 +88,10 @@ for (let picker of ['input', 'showOpenFilePicker']) test(`native image upload vi
     await expect.poll(() => clicks).toBe(1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker.png')])
-    await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\ndelay 0.3\nkey code 36\nend tell`)
+    await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\nend tell`)
+    let pickerProcess = `tell application "System Events" to tell first application process whose unix id is ${child.pid}`
+    await expect.poll(() => apple(`${pickerProcess} to get enabled of button "Open" of sheet 1 of window 1`).then(result => result.stdout.trim()).catch(() => 'false')).toBe('true')
+    await apple(`${pickerProcess} to click button "Open" of sheet 1 of window 1`)
     await expect.poll(() => pickerError || selected).toBe('sample.png')
     await expect.poll(() => uploaded.equals(png)).toBe(true)
     if (picker === 'showOpenFilePicker') expect(writePermission).toBe('denied')
