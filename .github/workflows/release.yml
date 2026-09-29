@@ -93,6 +93,65 @@ jobs:
           test -f "$artifact"
           gh release upload "$RELEASE_TAG" "$artifact" --clobber --repo "$GITHUB_REPOSITORY"
 
+  linux:
+    needs: check
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - name: Test Linux host
+        run: |
+          docker build --target test -t bmux-test:local .
+          scripts/test-linux.sh
+      - name: Package Linux host
+        run: |
+          docker build --target packaged -t bmux-package:local .
+          container=$(docker create bmux-package:local)
+          trap 'docker rm "$container" >/dev/null' EXIT
+          docker cp "$container:/opt/bmux/release/bmux-linux-${{ matrix.arch }}.tar.gz" .
+          tar -tzf "bmux-linux-${{ matrix.arch }}.tar.gz" >/dev/null
+      - name: Upload Linux archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" "bmux-linux-${{ matrix.arch }}.tar.gz" --clobber --repo "$GITHUB_REPOSITORY"
+
+  windows:
+    needs: check
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - name: Build Windows installer
+        run: |
+          pnpm build
+          pnpm exec electron-builder --win nsis --x64 --publish never
+          test -s "release/bmux-${RELEASE_TAG#v}-x64.exe"
+      - name: Upload Windows installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" "release/bmux-${RELEASE_TAG#v}-x64.exe" --clobber --repo "$GITHUB_REPOSITORY"
+
   update-homebrew:
     needs: build
     runs-on: macos-15

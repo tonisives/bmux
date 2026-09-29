@@ -8,6 +8,14 @@ pnpm package
 
 The command replaces the previous bundle only after the new build succeeds. It doesn't restart a running app. The `release/` directory is temporary packaging output.
 
+Published releases are created from the private workspace's main checkout with
+`make release-desktop`. That target increments the patch version in the public
+repository, pushes the release commit, and creates a GitHub release. The release
+workflow builds macOS arm64 and x64 DMGs, Linux arm64 and x64 host archives, and
+a Windows x64 installer. Linux archives contain the portable host runtime;
+Windows is an unsigned desktop installer. Verify the release workflow and its
+assets before announcing a release.
+
 The package step signs with bmux's Developer ID identity when it is installed in Keychain and verifies the complete bundle after installation. Set `BMUX_SIGNING_IDENTITY` to use another certificate hash. Builds without the bmux identity remain local unsigned builds and are not notarized. See [Platform notes](platforms.md) for host requirements and the status of other platforms.
 
 ## Custom output folder
