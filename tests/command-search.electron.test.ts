@@ -537,9 +537,9 @@ for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${axis} keep bo
   if (!await address.isVisible()) await pane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill(`${url}/device-split-new`); await address.press('Enter')
   await expect(address).toHaveCount(0)
-  for (let id of [tab, split.id]) {
+  for (let [id, destination] of [[tab, `${url}/device-split-original`], [split.id, `${url}/device-split-new`]]) {
+    await rpc('wait', { tab: id, expression: `location.href === ${JSON.stringify(destination)} && document.readyState === 'complete' && document.title === 'Device fixture'`, timeout: 5000 })
     await expect.poll(async () => (await state()).loading[id]).not.toBe(true)
-    await expect.poll(() => rpc('eval', { tab: id, expression: 'document.title' })).toBe('Device fixture')
     expect((await state()).crashes[id]).toBeUndefined()
   }
   await expect(async () => expect(await rpc('eval', { tab, expression: 'window.splitMarker' })).toBe(42)).toPass({ timeout: 5000 })
