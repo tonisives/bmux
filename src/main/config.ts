@@ -125,7 +125,7 @@ export let parseConfig = (text: string): Settings => {
       result.sequences[key] = object ? { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined } : name
     }
   }
-  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false } }
+  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false }, 'bmux.nordvpn': { enabled: true, hooks: false } }
   if (value.plugins !== undefined) {
     if (!value.plugins || typeof value.plugins !== 'object' || Array.isArray(value.plugins)) throw new Error('plugins must be a mapping')
     for (let [id, raw] of Object.entries(value.plugins)) {

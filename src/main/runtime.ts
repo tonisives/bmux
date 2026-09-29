@@ -1838,14 +1838,22 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.profiles.some(item => item.id !== profile.id && item.name === name)) throw new Error('Profile name already exists')
       profile.name = name; save(); return profile
     }
+    if (method === 'profile.proxy.username') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      return { username: profile.proxy?.authenticated ? proxyCredentials.get(profile.id)?.username ?? '' : '' }
+    }
     if (method === 'profile.proxy.set') {
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
       let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
-      if (!!username !== !!password) throw new Error('Enter both proxy username and password')
-      let replacement = username && password ? { username, password } : proxy.authenticated ? proxyCredentials.get(profile.id) : undefined
+      let credentialProfile = args.credentialProfile === '' ? undefined : args.credentialProfile ? resolve(model.profiles, args.credentialProfile, 'Profile') : profile
+      let savedCredentials = proxy.authenticated && credentialProfile?.proxy?.authenticated ? proxyCredentials.get(credentialProfile.id) : undefined
+      if (proxy.authenticated && password && !username) throw new Error('Enter both proxy username and password')
+      if (proxy.authenticated && username && !password && username !== savedCredentials?.username) throw new Error('Enter a password for this username')
+      let replacement = username && password ? { username, password } : savedCredentials
       if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
       let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
       let recovering = blockedProfileNetworks.has(profile.id)

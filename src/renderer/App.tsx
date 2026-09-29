@@ -1266,6 +1266,36 @@ let matchesProxyRegion = (region: PluginProxyRegion, profile: Profile) => region
 
 let ProxyProviderSelect = ({ value, entries, onChange }: { value: string; entries: ProxyProviderEntry[]; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Provider" value={value} onChange={onChange}><option value="custom">Custom</option>{entries.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select>
 
+let ProxyHostOption = ({ region, entry, onChoose }: { region: PluginProxyRegion; entry: ProxyProviderEntry; onChoose: (region: PluginProxyRegion, entry: ProxyProviderEntry) => void }) => {
+  let choose = () => onChoose(region, entry)
+  return <button type="button" onClick={choose}><span>{region.label}</span><small>{region.host}:{region.port}</small></button>
+}
+
+let ProxyHostPicker = ({ protocol, entries, onChoose, onClose }: { protocol: PluginProxyRegion['protocol']; entries: ProxyProviderEntry[]; onChoose: (region: PluginProxyRegion, entry: ProxyProviderEntry) => void; onClose: () => void }) => {
+  let dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { let element = dialog.current; element?.showModal(); return () => element?.close() }, [])
+  let handleKey = (event: KeyboardEvent<HTMLDialogElement>) => {
+    event.stopPropagation()
+    if (event.key === 'Escape') { event.preventDefault(); onClose() }
+    if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault()
+  }
+  let [query, setQuery] = useState('')
+  let [providerKey, setProviderKey] = useState('')
+  let available = entries.filter(entry => entry.provider.regions.some(region => region.protocol === protocol))
+  let selected = available.find(entry => entry.key === providerKey)
+  let regions = selected?.provider.regions.filter(region => region.protocol === protocol && `${region.group} ${region.label} ${region.host}`.toLowerCase().includes(query.toLowerCase())) ?? []
+  let groups = [...new Set(regions.map(region => region.group))]
+  let changeQuery = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let chooseProvider = (event: ChangeEvent<HTMLSelectElement>) => setProviderKey(event.target.value)
+  return <dialog ref={dialog} className={css.proxyHostPicker} aria-label="Proxy providers" onKeyDown={handleKey} onCancel={onClose}>
+    <header><strong>Choose a {protocol.toUpperCase()} host</strong><button type="button" onClick={onClose}>Close providers</button></header>
+    <label>Provider<select aria-label="Host provider" value={providerKey} onChange={chooseProvider}><option value="">Choose provider</option>{available.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select></label>
+    {!available.length && <p>No providers available for this protocol.</p>}
+    {selected && <><input aria-label="Search proxy locations" placeholder="Search country, city or host" value={query} onChange={changeQuery} />
+      <div className={css.proxyHostResults}>{groups.map(group => <section key={group} aria-label={group}><h3>{group}</h3>{regions.filter(region => region.group === group).map(region => <ProxyHostOption key={region.host} region={region} entry={selected} onChoose={onChoose} />)}</section>)}{!regions.length && <p>No matching locations.</p>}</div></>}
+  </dialog>
+}
+
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
   let { state, run } = useUI()
   let providers = proxyProviderEntries(state)
@@ -1279,6 +1309,33 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
   let [busy, setBusy] = useState(false)
+  let [credentialProfile, setCredentialProfile] = useState(profile.id)
+  let [pickerOpen, setPickerOpen] = useState(false)
+  let savedProfiles = state.model.profiles.filter(item => item.proxy)
+  useEffect(() => {
+    if (!credentialProfile) return
+    let cancelled = false
+    void run('profile.proxy.username', { profile: credentialProfile }).then(result => {
+      if (!cancelled && result) setUsername((result as { username: string }).username)
+    })
+    return () => { cancelled = true }
+  }, [credentialProfile, run])
+  let reuseCredentials = (source: Profile | undefined) => { let next = source?.id ?? ''; if (next !== credentialProfile) setUsername(''); setCredentialProfile(next); setPassword('') }
+  let applyRegion = (region: PluginProxyRegion, entry: ProxyProviderEntry) => {
+    setProviderKey(entry.key); setProviderRegion(region.host); setHost(region.host); setProtocol(region.protocol); setPort(String(region.port)); setAuthenticated(entry.provider.authenticated)
+    reuseCredentials(savedProfiles.find(item => item.proxy?.authenticated && entry.provider.regions.some(candidate => matchesProxyRegion(candidate, item))))
+  }
+  let chooseRegion = (region: PluginProxyRegion, entry: ProxyProviderEntry) => { applyRegion(region, entry); setPickerOpen(false) }
+  let openProviders = () => { if (!host) setPickerOpen(true) }
+  let closeProviders = () => setPickerOpen(false)
+  let changeSavedProxy = (event: ChangeEvent<HTMLSelectElement>) => {
+    let source = savedProfiles.find(item => item.id === event.target.value)
+    if (!source?.proxy) return
+    let entry = providers.find(item => item.provider.regions.some(region => matchesProxyRegion(region, source)))
+    setProviderKey(entry?.key ?? 'custom'); setProviderRegion(entry ? source.proxy.host : '')
+    setProtocol(source.proxy.protocol); setHost(source.proxy.host); setPort(String(source.proxy.port)); setAuthenticated(source.proxy.authenticated)
+    reuseCredentials(source)
+  }
   let proxyTest = state.profileProxyTests[profile.id]
   let providerEntry = providers.find(entry => entry.key === providerKey)
   let provider = providerEntry?.provider
@@ -1292,14 +1349,15 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
     if (region) setHost(region.host)
     else { setProviderRegion(''); setHost('') }
     if (region) { setProtocol(region.protocol); setPort(String(region.port)) }
+    reuseCredentials(savedProfiles.find(item => item.proxy?.authenticated && selectedProvider?.regions.some(candidate => matchesProxyRegion(candidate, item))))
   }
   let changeProviderRegion = (event: ChangeEvent<HTMLSelectElement>) => {
     let region = provider?.regions.find(item => item.host === event.target.value)
     if (!region) return
-    setProviderRegion(region.host); setHost(region.host); setProtocol(region.protocol); setPort(String(region.port))
+    if (providerEntry) applyRegion(region, providerEntry)
   }
   let changeProtocol = (event: ChangeEvent<HTMLSelectElement>) => { let value = event.target.value as 'http' | 'https' | 'socks5'; setProtocol(value); if (!profile.proxy) setPort(value === 'http' ? '80' : value === 'https' ? '443' : '1080') }
-  let changeHost = (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value)
+  let changeHost = (event: ChangeEvent<HTMLInputElement>) => { setHost(event.target.value); if (event.target.value) setPickerOpen(false) }
   let changePort = (event: ChangeEvent<HTMLInputElement>) => setPort(event.target.value)
   let changeAuthenticated = (event: ChangeEvent<HTMLInputElement>) => setAuthenticated(event.target.checked)
   let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
@@ -1307,8 +1365,8 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let saveProxy = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return
     setBusy(true)
-    let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password })
-    if (result) { setUsername(''); setPassword('') }
+    let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile })
+    if (result) { setCredentialProfile(profile.id); setPassword('') }
     setBusy(false)
   }
   let useSystem = async () => { if (busy) return; setBusy(true); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
@@ -1322,11 +1380,12 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
       <h2>Connection</h2>
       <div className={css.proxyFields}>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+      {savedProfiles.length > 0 && <label className={css.savedProxy}>Saved proxies (all profiles)<select aria-label="Saved proxies" value="" onChange={changeSavedProxy}><option value="" disabled>Choose a saved proxy</option>{savedProfiles.map(item => <option key={item.id} value={item.id}>{item.name} · {item.proxy!.protocol}://{item.proxy!.host}:{item.proxy!.port}</option>)}</select></label>}
       <div className={css.profileProxyProvider}><label>Provider<ProxyProviderSelect value={providerEntry ? providerKey : 'custom'} entries={providers} onChange={changeProvider} /></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
-      {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
+      {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} onClick={openProviders} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
+      {pickerOpen && <ProxyHostPicker protocol={protocol} entries={providers} onChoose={chooseRegion} onClose={closeProviders} />}
       {provider ? <p>Uses {protocol.toUpperCase()} proxy on port {port}. {provider.help}</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
-      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
-      {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
+      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={state.model.profiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={state.model.profiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
       </div>
       <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
@@ -1340,7 +1399,7 @@ let ProxyInfo = () => {
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   return <section className={css.profileInfo} aria-label={`${profile.name} proxy settings`}>
     <div className={css.profileHeading}><ProfileConnectionIcon proxy={!!profile.proxy} verified={!!state.profileProxyTests[profile.id]} /><strong>{profile.name}</strong></div>
-    <ProxySettings profile={profile} paneCount={paneCount} showRegion />
+    <ProxySettings key={`${profile.id}:${JSON.stringify(profile.proxy)}`} profile={profile} paneCount={paneCount} showRegion />
   </section>
 }
 
@@ -1378,7 +1437,7 @@ let ProfileInfo = () => {
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
     </section></div>}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
-    {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={`${profile.id}:${JSON.stringify(profile.proxy)}`} profile={profile} paneCount={paneCount} /></div>}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }

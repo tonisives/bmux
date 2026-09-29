@@ -334,3 +334,16 @@
 .proxyPanel .profileHeading, .proxyPanel h2, .proxyPanel .proxyFooter { flex-shrink: 0; }
 .proxyPanel .proxyFields { overflow: auto; min-height: 0; padding-right: 8px; }
 .proxyPanel .proxyFooter { position: static; margin-bottom: -8px; }
+
+.savedProxy { display: grid; gap: 6px; margin-bottom: 12px; }
+.savedProxy select, .proxyHostPicker select, .proxyHostPicker input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.proxyHostPicker { width: min(520px, 85vw); max-height: 75vh; box-sizing: border-box; padding: 12px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.proxyHostPicker::backdrop { background: #090b10a8; }
+.proxyHostPicker header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.proxyHostPicker label { display: grid; gap: 6px; }
+.proxyHostPicker input { margin-top: 10px; }
+.proxyHostResults { max-height: 230px; overflow: auto; }
+.proxyHostResults h3 { font: inherit; color: #a7c88d; margin: 12px 0 6px; }
+.proxyHostResults button { display: flex; flex-direction: column; width: 100%; text-align: left; padding: 8px; }
+.proxyHostResults button:hover, .proxyHostResults button:focus-visible { background: #292f38; }
+.proxyHostResults small { color: #aab2bd; overflow-wrap: anywhere; }

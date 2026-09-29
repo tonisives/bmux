@@ -39,6 +39,11 @@ In profile details, find **Connection**. Choose **Custom**, then HTTP, HTTPS,
 or SOCKS5. Enter the host and port. Enable authentication when needed and enter
 both credentials. Choose **Save proxy**.
 
+**Saved proxies (all profiles)** lists connections already configured in any
+profile. Selecting one fills the endpoint and saved username and reuses its
+encrypted credentials when you save. New panes using an existing profile show
+that profile's current connection.
+
 Changes reload open panes using this profile. Finish unsaved page work first.
 Other profiles retain their own settings.
 
@@ -68,9 +73,15 @@ not a general system-wide kill switch.
 
 ## Optional provider presets
 
-Enable `bmux.nordvpn` in the Plugins panel for its provider and region choices.
-It is disabled by default. Presets supply endpoint, protocol, and port; core bmux
-manages credentials and connections.
+Click an empty **Host** field to open the provider picker. Choose a provider,
+then search by country, city, or hostname. Locations are grouped geographically
+and filtered by the selected protocol. Selecting a location fills the endpoint
+and reuses a saved username and credentials from a profile using that provider.
+
+The bundled `bmux.nordvpn` catalog is enabled by default and can be disabled in
+the Plugins panel. Presets supply endpoint, protocol, and port; core bmux manages
+credentials and connections. NordVPN SOCKS5 locations are limited to its
+[published proxy hosts](https://support.nordvpn.com/hc/en-us/articles/20195967385745-NordVPN-proxy-setup-for-qBittorrent).
 
 Use the provider's required service credentials and test the connection. A preset
 does not create an account or include paid service. See [Plugins](plugins.md)

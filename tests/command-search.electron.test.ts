@@ -233,6 +233,60 @@ test('pane profile route uses icons only for a profile that differs from the ses
   }
 })
 
+test('proxy host picker filters SOCKS5 providers by location', async () => {
+  let current = await state(), profile = current.model.profiles[0]
+  let panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Connection' }).click()
+  await panel.getByLabel('Protocol', { exact: true }).selectOption('socks5')
+  await panel.getByLabel('Host', { exact: true }).click()
+  let picker = panel.getByRole('dialog', { name: 'Proxy providers', exact: true })
+  await expect(picker).toBeVisible()
+  await picker.getByLabel('Host provider').selectOption('bmux.nordvpn/nordvpn')
+  await expect(picker.getByRole('region', { name: 'Europe', exact: true })).toBeVisible()
+  await expect(picker.getByRole('region', { name: 'North America', exact: true })).toBeVisible()
+  await chrome.screenshot({ path: path.resolve('artifacts/proxy-provider-picker.png') })
+  await picker.getByLabel('Search proxy locations').fill('amsterdam')
+  await expect(picker.getByRole('region', { name: 'North America', exact: true })).toHaveCount(0)
+  await picker.getByRole('button', { name: /Amsterdam, Netherlands/ }).click()
+  await expect(picker).toHaveCount(0)
+  await expect(panel.getByLabel('Region', { exact: true })).toHaveValue('amsterdam.nl.socks.nordhold.net')
+  await expect(panel).toContainText('Uses SOCKS5 proxy on port 1080')
+})
+
+test('saved proxy settings and credentials are shared across panes and profiles', async () => {
+  let current = await state(), profile = current.model.profiles[0], client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  await rpc('profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'fixture-user', password: 'fixture-password' })
+  let other = await rpc('profile.create', { name: 'Shared proxy fixture' }) as { id: string; name: string }
+  let pane = await rpc('split-window', { pane: client.paneId, profile: profile.id, client: client.id }) as { id: string }
+  try {
+    await rpc('select-pane', { pane: pane.id, client: client.id, focus: false })
+    let panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Connection' }).click()
+    await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
+    await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('fixture-user')
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await rpc('pane.profile.set', { pane: pane.id, profile: other.id })
+    panel = await openProfilePanel(other.name)
+    await panel.getByRole('tab', { name: 'Connection' }).click()
+    await panel.getByLabel('Saved proxies', { exact: true }).selectOption(profile.id)
+    await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
+    await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('fixture-user')
+    await expect(panel.getByLabel('Password', { exact: true })).toHaveValue('')
+    await panel.getByRole('button', { name: 'Save proxy', exact: true }).click()
+    await expect.poll(async () => (await state()).model.profiles.find((item: { id: string }) => item.id === other.id)?.proxy?.host).toBe('127.0.0.1')
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    let before = proxyRequests
+    await rpc('navigate', { pane: pane.id, url })
+    await expect.poll(() => proxyRequests).toBeGreaterThan(before)
+    let result = await rpc('profile.proxy.test', { profile: other.id }) as { ip: string }
+    expect(result.ip).toBe('203.0.113.9')
+  } finally {
+    await rpc('profile.proxy.clear', { profile: profile.id })
+    await rpc('profile.proxy.clear', { profile: other.id })
+    await rpc('kill-pane', { pane: pane.id, confirm: true })
+  }
+})
+
 test('profile proxy settings route, test, and restore the selected profile connection', async () => {
   let current = await state(), profile = current.model.profiles[0]
   let panel = await openProfilePanel(profile.name)
