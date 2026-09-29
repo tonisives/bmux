@@ -503,7 +503,13 @@ export let createRuntime = (dataDirectory: string) => {
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
     filters?.attach(session, profileId)
-    session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${key}|${origin}|${permission}`) === true)
+    session.setPermissionCheckHandler((_contents, permission, origin, details) => {
+      let known = permissionGrants.get(`${key}|${origin}|${permission}`)
+      if (known !== undefined) return known
+      // A native file handle requires user selection. Reading an individual
+      // upload must not grant directory access or permission to modify files.
+      return permission === 'fileSystem' && details.fileAccessType === 'readable' && details.isDirectory === false
+    })
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
       let origin = details.requestingUrl ? new URL(details.requestingUrl).origin : new URL(contents.getURL()).origin
       let grantKey = `${key}|${origin}|${permission}`
@@ -796,38 +802,6 @@ export let createRuntime = (dataDirectory: string) => {
       if (choice === 1) event.preventDefault()
       else live.cancelClose?.()
     })
-    contents.debugger.on('message', (_event, method, params, sessionId) => {
-      if (method !== 'Page.fileChooserOpened' || live.disposed) return
-      let choose = async () => {
-        let backendNodeId = params.backendNodeId as number | undefined
-        if (!backendNodeId) { reportError(new Error('File chooser input was unavailable')); return }
-        if (contents.isDestroyed() || live.parent.isDestroyed() || !live.parent.isVisible()) return
-        let targets = sessionId ? [undefined, sessionId] : [undefined]
-        let attributes: string[] = []
-        let inputTarget: string | undefined
-        for (let target of targets) {
-          try {
-            let node = await contents.debugger.sendCommand('DOM.describeNode', { backendNodeId }, target)
-            attributes = (node.node.attributes ?? []) as string[]
-            inputTarget = target
-            break
-          } catch { /* The input may belong to a different frame or change during the click. */ }
-        }
-        let directory = attributes.includes('webkitdirectory')
-        let properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = directory ? ['openDirectory'] : ['openFile']
-        if (params.mode === 'selectMultiple' && !directory) properties.push('multiSelections')
-        let selected = await dialog.showOpenDialog(live.parent, { properties })
-        if (selected.canceled || !selected.filePaths.length || contents.isDestroyed() || live.disposed) return
-        let candidates = inputTarget === undefined ? targets : [inputTarget, ...targets.filter(target => target !== inputTarget)]
-        let error: unknown
-        for (let target of candidates) {
-          try { await contents.debugger.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: selected.filePaths }, target); return }
-          catch (cause) { error = cause }
-        }
-        throw error
-      }
-      void choose().catch(reportError)
-    })
     let serializedRestore = restoringTabs
     tabs.set(tabId, live)
     audio[tabId] = { playing: contents.isCurrentlyAudible(), muted: contents.isAudioMuted() }
@@ -841,12 +815,9 @@ export let createRuntime = (dataDirectory: string) => {
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
       profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
-      (pane.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, pane.device!)) : Promise.resolve()).then(async () => {
-        await pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)
-        if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
-        await contents.debugger.sendCommand('DOM.enable')
-        await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
-      }),
+      // Let Chromium open native pickers. CDP interception aborts the File System
+      // Access API, whose requests have no input node to receive selected files.
+      (pane.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, pane.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)),
     ]).then(startSecurity).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
