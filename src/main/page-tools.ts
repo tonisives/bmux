@@ -155,7 +155,11 @@ export let createPageTools = (options: Options) => {
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.
       target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target, false)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
-      contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { target.version++; target.styles = {} } })
+      let resetStyles = () => { target.version++; target.styles = {} }
+      contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) resetStyles() })
+      // Settings can reapply styles to the outgoing document while navigation waits.
+      // Those sheets and pending insertions must not count toward the new document.
+      contents.on('did-navigate', resetStyles)
       let apply = () => { void isolated(target, appearanceSource(profileId)).catch(() => undefined); void cosmetics(target).catch(() => undefined); void userStyles(target).catch(() => undefined) }
       contents.on('dom-ready', apply)
       contents.on('did-navigate-in-page', apply)
