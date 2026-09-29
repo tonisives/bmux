@@ -903,6 +903,11 @@ export let createRuntime = (dataDirectory: string) => {
     installKeys(contents)
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
+      // Bootstrap and new-window blanks must never become a Back destination.
+      let history = contents.navigationHistory
+      while (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === 'about:blank') {
+        if (!history.removeEntryAtIndex(0)) break
+      }
       tab.url = contents.getURL() || tab.url
       tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New window' : tab.url)
       if (!session.private && /^https?:\/\//.test(tab.url)) {
