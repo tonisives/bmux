@@ -39,28 +39,70 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
     let padding = { top: original.paddingTop, bottom: original.paddingBottom, left: original.paddingLeft, right: original.paddingRight }
     let swatch = document.createElement('canvas'); swatch.width = 1; swatch.height = 1
     let context = swatch.getContext('2d', { willReadFrequently: true })
-    let update = () => {
-      let cover = /viewport-fit\s*=\s*cover/i.test(document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '')
-      // Edge-to-edge sites use the emulated env(safe-area-inset-*) themselves.
-      spacing.textContent = cover ? '' : `html > body { ${Object.entries(insets).map(([edge, value]) => `padding-${edge}:calc(${padding[edge as keyof typeof padding]} + ${value}px)!important`).join(';')} }`
-      let theme = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].find(meta => !meta.media || matchMedia(meta.media).matches)?.content
-      let tint = theme && CSS.supports('color', theme) ? theme : [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).backgroundColor].find(color => color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') ?? '#fff'
-      host.style.setProperty('--tint', tint)
-      // Resolve named, hex and modern CSS colors before choosing readable symbols.
+    let set = (element: HTMLElement, property: string, value: string, priority = '') => {
+      if (element.style.getPropertyValue(property) !== value || element.style.getPropertyPriority(property) !== priority) element.style.setProperty(property, value, priority)
+    }
+    let surface = (y: number) => {
+      for (let element of document.elementsFromPoint(innerWidth / 2, y)) {
+        if (element === host || element.getBoundingClientRect().width < innerWidth * 0.7) continue
+        let color = getComputedStyle(element).backgroundColor
+        if (color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') return color
+      }
+    }
+    let tintBar = (bar: HTMLElement, tint: string) => {
+      set(bar, '--tint', tint)
       if (context) { context.clearRect(0, 0, 1, 1); context.fillStyle = tint; context.fillRect(0, 0, 1, 1) }
       let rgb = context?.getImageData(0, 0, 1, 1).data ?? [255, 255, 255]
-      host.style.setProperty('--ink', rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114 < 150 ? '#fff' : '#111')
+      set(bar, '--ink', rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114 < 150 ? '#fff' : '#111')
+    }
+    let discover = true, positioned: HTMLElement[] = []
+    let update = () => {
+      let cover = /viewport-fit\s*=\s*cover/i.test(document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '')
+      // A cover declaration alone does not mean the site actually adds safe-area padding.
+      let css = `html > body { ${Object.entries(insets).map(([edge, value]) => {
+        let existing = padding[edge as keyof typeof padding]
+        let extra = cover ? Math.max(0, value - parseFloat(existing)) : value
+        return `padding-${edge}:calc(${existing} + ${extra}px)!important`
+      }).join(';')} }`
+      if (spacing.textContent !== css) spacing.textContent = css
+      // Fixed headers ignore body padding; sticky headers also need a safe sticking point.
+      // Check geometry so sites already using env(safe-area-inset-*) aren't inset twice.
+      if (discover) {
+        discover = false
+        positioned = [...document.body.querySelectorAll<HTMLElement>('*')].filter(element => ['fixed', 'sticky'].includes(getComputedStyle(element).position))
+      }
+      for (let element of positioned) {
+        let computed = getComputedStyle(element)
+        if (computed.position !== 'fixed' && computed.position !== 'sticky') continue
+        let rect = element.getBoundingClientRect()
+        if (!rect.width || !rect.height) continue
+        for (let edge of ['top', 'bottom'] as const) {
+          let offset = parseFloat(computed[edge]), inset = insets[edge]
+          if (!Number.isFinite(offset) || !inset) continue
+          let visibleGap = edge === 'top' ? rect.top : innerHeight - rect.bottom
+          let gap = computed.position === 'sticky' ? Math.max(offset, visibleGap) : visibleGap
+          if (gap >= -1 && gap < inset - 1) set(element, edge, `${computed.position === 'sticky' ? inset : offset + inset - gap}px`, 'important')
+        }
+      }
+      let theme = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].find(meta => !meta.media || matchMedia(meta.media).matches)?.content
+      let fallback = theme && CSS.supports('color', theme) ? theme : '#fff'
+      // Match the painted surface at each edge, including app roots and fixed navigation.
+      let upper = surface(insets.top + 2) ?? fallback
+      let lower = surface(innerHeight - insets.bottom - 2) ?? fallback
+      tintBar(top, upper); tintBar(bottom, lower); tintBar(left, upper); tintBar(right, upper)
     }
     document.documentElement.append(spacing, host)
     update()
     let scheduled = false
     let schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(() => { scheduled = false; update() }) } }
-    let observer = new MutationObserver(schedule)
+    let observer = new MutationObserver(() => { discover = true; schedule() })
     if (document.head) observer.observe(document.head, { subtree: true, childList: true, attributes: true, characterData: true })
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] })
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style'] })
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', schedule)
     window.addEventListener('pageshow', schedule)
+    window.addEventListener('resize', () => { discover = true; schedule() })
+    document.addEventListener('scroll', schedule, { passive: true, capture: true })
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true })
   else mount()

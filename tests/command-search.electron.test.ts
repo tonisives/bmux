@@ -52,7 +52,7 @@ test.beforeAll(async () => {
   server = http.createServer((request, response) => {
     if (request.url?.includes('/safe-area')) {
       response.writeHead(200, { 'Content-Type': 'text/html' })
-      response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1${request.url.includes('cover') ? ', viewport-fit=cover' : ''}"><meta name="theme-color" content="#234567"><title>Safe area fixture</title><style>html,body{margin:0;background:#234567;color:white}main{height:1800px;background:linear-gradient(#234567,#abcdef)}#end{height:20px}${request.url.includes('cover') ? 'body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}' : ''}</style><main>First line below the camera</main><div id="end">Last line above home indicator</div>`)
+      response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1${request.url.includes('cover') ? ', viewport-fit=cover' : ''}"><meta name="theme-color" content="#234567"><title>Safe area fixture</title><style>html,body{margin:0;background:#234567;color:white}main{height:1800px;background:linear-gradient(#234567,#abcdef)}#end{height:20px}${request.url.includes('cover') && !request.url.includes('fixed') ? 'body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}' : ''}</style><main>First line below the camera</main><div id="end">Last line above home indicator</div>`)
       return
     }
     let deviceIndex = request.url?.indexOf('/device-') ?? -1
@@ -649,7 +649,7 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
     expect((await inspect()).barY).toBe(0)
     await rpc('eval', { tab: pane.id, expression: 'scrollTo(0, document.documentElement.scrollHeight)' })
     await expect.poll(async () => { let result = await inspect(); return result.height - result.end }).toBe(initial.bottom)
-    await rpc('eval', { tab: pane.id, expression: `document.querySelector('meta[name="theme-color"]').content = '#eeeeee'` })
+    await rpc('eval', { tab: pane.id, expression: `document.querySelector('meta[name="theme-color"]').content = '#888888'; document.body.style.background = '#eeeeee'` })
     await expect.poll(async () => (await inspect()).tint).toBe('color(srgb 0.933333 0.933333 0.933333 / 0.92)')
     expect((await inspect()).ink).toBe('rgb(17, 17, 17)')
     await rpc('reload', { tab: pane.id })
@@ -658,4 +658,45 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
   }
   await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
   await rpc('wait', { tab: pane.id, expression: "document.readyState === 'complete' && !document.querySelector('bmux-device-bars')", timeout: 5000 })
+})
+
+for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${preset} protect fixed headers and match painted surfaces`, async () => {
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('profile.device.set', { pane: pane.id, profile: pane.profileId, device: { preset, orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+  await rpc('navigate', { tab: pane.id, url: `${url}/safe-area-cover-fixed` })
+  await rpc('wait', { tab: pane.id, expression: "!!document.querySelector('bmux-device-bars')", timeout: 5000 })
+  await rpc('eval', { tab: pane.id, expression: `
+    document.querySelector('meta[name="theme-color"]').content = '#888888';
+    document.body.innerHTML = '<header style="position:fixed;top:0;left:0;width:100%;height:48px;background:white;color:black">Video logo</header><main style="height:2000px;background:white"></main><footer style="position:fixed;bottom:0;left:0;width:100%;height:48px;background:white">Navigation</footer>';
+  ` })
+  let inspect = () => rpc('eval', { tab: pane.id, expression: `(() => {
+    let bars = document.querySelector('bmux-device-bars').shadowRoot;
+    return { top: document.querySelector('header').getBoundingClientRect().top, bottom: innerHeight - document.querySelector('footer').getBoundingClientRect().bottom, tint: getComputedStyle(bars.querySelector('.top')).backgroundColor, bottomTint: getComputedStyle(bars.querySelector('.bottom')).backgroundColor };
+  })()` }) as Promise<any>
+  await expect.poll(inspect).toEqual({ top: preset === 'iphone-15-pro' ? 59 : 40, bottom: preset === 'iphone-15-pro' ? 34 : 24, tint: 'color(srgb 1 1 1 / 0.92)', bottomTint: 'color(srgb 1 1 1 / 0.92)' })
+  await rpc('eval', { tab: pane.id, expression: 'scrollTo(0, 300)' })
+  await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+  await rpc('eval', { tab: pane.id, expression: `document.querySelector('header').style.top = '0px'` })
+  await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+  await rpc('eval', { tab: pane.id, expression: `document.querySelector('header').style.top = 'env(safe-area-inset-top)'` })
+  await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+  // Allow the compositor to present the resized native device surface.
+  await new Promise(resolve => setTimeout(resolve, 300))
+  let windowId = (await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); String(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0).kCGWindowNumber);`])).stdout.trim()
+  await promisify(execFile)('/usr/sbin/screencapture', ['-x', '-o', '-l', windowId, path.resolve(`artifacts/safe-area-fixed-${preset}.png`)])
+  let homePixel = await application.evaluate(({ BaseWindow, nativeImage }, { preset, url }) => {
+    let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+    let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === `${url}/safe-area-cover-fixed`)!
+    let bounds = view.getBounds(), image = nativeImage.createFromPath(`artifacts/safe-area-fixed-${preset}.png`), size = image.getSize(), pixels = image.toBitmap()
+    let scale = size.width / window.getBounds().width
+    let x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height - 10.5 * bounds.width / (preset === 'iphone-15-pro' ? 393 : 360)
+    let offset = (Math.floor(y * scale) * size.width + Math.floor(x * scale)) * 4
+    return [...pixels.subarray(offset, offset + 3)]
+  }, { preset, url })
+  expect(homePixel.every(channel => channel < 40)).toBe(true)
+
+  await rpc('eval', { tab: pane.id, expression: `scrollTo(0,0); document.querySelector('header').style.cssText = 'position:sticky;top:0;height:48px;background:white'` })
+  await rpc('eval', { tab: pane.id, expression: 'scrollTo(0,300)' })
+  await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+  await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
 })
