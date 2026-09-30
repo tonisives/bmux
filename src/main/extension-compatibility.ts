@@ -49,7 +49,10 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
       if (!oldParent) api.addTab(contents, parent)
       else if (oldParent !== parent) {
         if (ctx.store.windowToActiveTab.get(oldParent) === contents) ctx.store.windowToActiveTab.delete(oldParent)
-        ctx.store.windowDetailsCache.delete(oldParent.id)
+        // Closing a client parks its pages before the next reconciliation. The
+        // old native window may already be destroyed; its close handler clears
+        // the window cache, and reading its id here would abort page layout.
+        if (!oldParent.isDestroyed()) ctx.store.windowDetailsCache.delete(oldParent.id)
         ctx.store.tabToWindow.set(contents, parent)
         ctx.store.addWindow(parent)
         ctx.store.tabDetailsCache.delete(contents.id)

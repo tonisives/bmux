@@ -49,7 +49,13 @@ test.beforeAll(async () => {
   await expect(application.context().pages().find(page => page.url() === `${url}/fixture`)!.locator('h1')).toHaveText('Download fixture')
 })
 test.afterAll(async () => {
-  await application?.close()
+  if (application) {
+    let closed = application.close().catch(() => undefined)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([closed, new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) })])
+    } finally { clearTimeout(timer) }
+  }
   server?.closeAllConnections()
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
   if (directory) await fs.rm(directory, { recursive: true, force: true })

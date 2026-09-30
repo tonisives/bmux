@@ -17,6 +17,10 @@ let activate = async () => { let current = await state(); await expect.poll(asyn
 let prompt = () => chrome.getByRole('combobox', { name: 'Command', exact: true })
 let open = async () => { await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click(); await expect(prompt()).toBeFocused() }
 let openProfilePanel = async (profile: string) => {
+  await activate()
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  // A command can finish before React accepts the restored window/pane selection.
+  await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveAttribute('data-focused-pane', 'true')
   let panel = chrome.getByRole('dialog', { name: 'Profile', exact: true })
   let details = panel.getByRole('region', { name: `${profile} profile details`, exact: true })
   if (!await details.isVisible()) {
@@ -266,7 +270,9 @@ test('saved proxy settings and credentials are shared across panes and profiles'
     await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('fixture-user')
     await panel.getByRole('button', { name: 'Close', exact: true }).click()
     await rpc('pane.profile.set', { pane: pane.id, profile: other.id })
-    panel = await openProfilePanel(other.name)
+    await rpc('navigate', { pane: pane.id, url })
+    await chrome.getByRole('button', { name: `Profile ${other.name}, desktop`, exact: true }).click()
+    await expect(panel.getByRole('region', { name: `${other.name} profile details`, exact: true })).toBeVisible()
     await panel.getByRole('tab', { name: 'Connection' }).click()
     await panel.getByLabel('Saved proxies', { exact: true }).selectOption(profile.id)
     await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
@@ -535,9 +541,9 @@ for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${axis} keep bo
   if (!await address.isVisible()) await pane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill(`${url}/device-split-new`); await address.press('Enter')
   await expect(address).toHaveCount(0)
-  for (let id of [tab, split.id]) {
+  for (let [id, destination] of [[tab, `${url}/device-split-original`], [split.id, `${url}/device-split-new`]]) {
+    await rpc('wait', { tab: id, expression: `location.href === ${JSON.stringify(destination)} && document.readyState === 'complete' && document.title === 'Device fixture'`, timeout: 5000 })
     await expect.poll(async () => (await state()).loading[id]).not.toBe(true)
-    await expect.poll(() => rpc('eval', { tab: id, expression: 'document.title' })).toBe('Device fixture')
     expect((await state()).crashes[id]).toBeUndefined()
   }
   await expect(async () => expect(await rpc('eval', { tab, expression: 'window.splitMarker' })).toBe(42)).toPass({ timeout: 5000 })
