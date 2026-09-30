@@ -50,6 +50,11 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane', Q: 'close-window' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true }, 'bmux.nordvpn': { enabled: true } } }))
   server = http.createServer((request, response) => {
+    if (request.url?.includes('/safe-area')) {
+      response.writeHead(200, { 'Content-Type': 'text/html' })
+      response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1${request.url.includes('cover') ? ', viewport-fit=cover' : ''}"><meta name="theme-color" content="#234567"><title>Safe area fixture</title><style>html,body{margin:0;background:#234567;color:white}main{height:1800px;background:linear-gradient(#234567,#abcdef)}#end{height:20px}${request.url.includes('cover') ? 'body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}' : ''}</style><main>First line below the camera</main><div id="end">Last line above home indicator</div>`)
+      return
+    }
     let deviceIndex = request.url?.indexOf('/device-') ?? -1
     if (request.url && deviceIndex >= 0) {
       identityRequests.set(request.url.slice(deviceIndex), request.headers)
@@ -568,7 +573,7 @@ for (let preset of ['pixel-8', 'galaxy-s24', 'iphone-15-pro']) for (let axis of 
             return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
           }
           return [{
-            page: [pixel(bounds.width / 2, bounds.height - 8), pixel(8, bounds.height * 0.8)],
+            page: [pixel(bounds.width / 2, bounds.height * 0.7), pixel(8, bounds.height * 0.8)],
             corners: [[1, 1], [bounds.width - 2, 1], [1, bounds.height - 2], [bounds.width - 2, bounds.height - 2]].map(([x, y]) => pixel(x, y)),
             camera: pixel(camera.x + camera.width / 2, camera.y + camera.height / 2),
             besideCamera: camera.width > camera.height ? pixel(camera.x - 5, camera.y + camera.height / 2) : pixel(camera.x + camera.width / 2, camera.y - 5),
@@ -577,10 +582,11 @@ for (let preset of ['pixel-8', 'galaxy-s24', 'iphone-15-pro']) for (let axis of 
       }, { screenshotPath, url, windowBounds: windowInfo.kCGWindowBounds })
       expect(colors).toHaveLength(2)
       for (let screen of colors) {
-        expect(screen.page).toEqual([[0x23, 0x45, 0x67], [0x23, 0x45, 0x67]])
+        for (let pixel of screen.page) for (let [channel, expected] of [0x23, 0x45, 0x67].entries()) expect(Math.abs(pixel[channel] - expected)).toBeLessThanOrEqual(2)
         for (let corner of screen.corners) expect(corner).not.toEqual([0x23, 0x45, 0x67])
         expect(screen.camera).toEqual([8, 8, 8])
-        expect(screen.besideCamera).toEqual([0x23, 0x45, 0x67])
+        // Translucent system bars can round a composited channel by one.
+        for (let [channel, expected] of [0x23, 0x45, 0x67].entries()) expect(Math.abs(screen.besideCamera[channel] - expected)).toBeLessThanOrEqual(2)
       }
     }).toPass({ timeout: 10000 })
   }
@@ -611,4 +617,40 @@ test('mobile link preview stays at the bottom left of the whole pane', async () 
     expect(preview.bounds.y + preview.bounds.height).toBe(Math.round(paneBounds.y + paneBounds.height))
   }).toPass({ timeout: 5000 })
   await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
+})
+
+for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${preset} tint bars and scroll beneath them`, async () => {
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('profile.device.set', { pane: pane.id, profile: pane.profileId, device: { preset, orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+  for (let suffix of ['', '-cover']) {
+    await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.fill(`${url}/safe-area${suffix}`); await address.press('Enter')
+    await rpc('wait', { tab: pane.id, expression: "!!document.querySelector('bmux-device-bars')", timeout: 5000 })
+    let inspect = () => rpc('eval', { tab: pane.id, expression: `(() => {
+      let bars = document.querySelector('bmux-device-bars'), top = bars.shadowRoot.querySelector('.top'), bottom = bars.shadowRoot.querySelector('.bottom');
+      return { start: document.querySelector('main').getBoundingClientRect().top, end: document.querySelector('#end').getBoundingClientRect().bottom, height: innerHeight, top: top.getBoundingClientRect().height, bottom: bottom.getBoundingClientRect().height, tint: getComputedStyle(top).backgroundColor, ink: getComputedStyle(top).color, barY: top.getBoundingClientRect().top };
+    })()` }) as Promise<any>
+    let initial = await inspect()
+    expect(initial.start).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+    expect(initial.tint).toBe('color(srgb 0.137255 0.270588 0.403922 / 0.92)')
+    expect(initial.ink).toBe('rgb(255, 255, 255)')
+    if (!suffix) {
+      let windowId = (await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); String(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0).kCGWindowNumber);`])).stdout.trim()
+      await promisify(execFile)('/usr/sbin/screencapture', ['-x', '-o', '-l', windowId, path.resolve(`artifacts/safe-area-${preset}.png`)])
+    }
+    await rpc('eval', { tab: pane.id, expression: 'scrollTo(0, 200)' })
+    await expect.poll(async () => (await inspect()).start).toBe(initial.start - 200)
+    expect((await inspect()).barY).toBe(0)
+    await rpc('eval', { tab: pane.id, expression: 'scrollTo(0, document.documentElement.scrollHeight)' })
+    await expect.poll(async () => { let result = await inspect(); return result.height - result.end }).toBe(initial.bottom)
+    await rpc('eval', { tab: pane.id, expression: `document.querySelector('meta[name="theme-color"]').content = '#eeeeee'` })
+    await expect.poll(async () => (await inspect()).tint).toBe('color(srgb 0.933333 0.933333 0.933333 / 0.92)')
+    expect((await inspect()).ink).toBe('rgb(17, 17, 17)')
+    await rpc('reload', { tab: pane.id })
+    await rpc('wait', { tab: pane.id, expression: "!!document.querySelector('bmux-device-bars')", timeout: 5000 })
+    expect(await rpc('eval', { tab: pane.id, expression: "document.querySelectorAll('bmux-device-bars').length" })).toBe(1)
+  }
+  await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
+  await rpc('wait', { tab: pane.id, expression: "document.readyState === 'complete' && !document.querySelector('bmux-device-bars')", timeout: 5000 })
 })

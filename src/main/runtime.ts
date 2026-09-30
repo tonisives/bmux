@@ -1,3 +1,4 @@
+import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
 import type { DownloadItem, View, WebContents } from 'electron'
@@ -600,6 +601,8 @@ export let createRuntime = (dataDirectory: string) => {
     await Promise.all([
       debuggerApi.sendCommand('Emulation.setUserAgentOverride', { userAgent: deviceUserAgent(persona), acceptLanguage: persona.locale, platform: persona.platform === 'android' ? 'Linux armv81' : 'iPhone', ...(metadata ? { userAgentMetadata: metadata } : {}) }),
       debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceMemoryScript }),
+      debuggerApi.sendCommand('Emulation.setSafeAreaInsetsOverride', { insets: deviceSafeAreaInsets(persona) }),
+      debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceSafeAreaScript(persona), worldName: 'bmux:device-safe-areas', runImmediately: true }),
       applyDeviceMetrics(contents, persona, scale),
       debuggerApi.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }),
       debuggerApi.sendCommand('Emulation.setLocaleOverride', { locale: persona.locale }),
