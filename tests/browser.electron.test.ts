@@ -898,13 +898,17 @@ test('removes a pane after an interrupted navigation and reports the recovery on
 })
 
 test('restores concurrently normally and one at a time after an application crash', async () => {
-  let configFile = path.join(directory, 'config.yaml')
-  let originalConfig = await fs.readFile(configFile, 'utf8')
+  let sharedDirectory = directory
+  let originalConfig = await fs.readFile(path.join(sharedDirectory, 'config.yaml'), 'utf8')
+  for (let response of heldResponses) response.end()
+  await application.close()
+  // Earlier tests leave slow pages in the shared profile. Restore only this fixture.
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-serialized-restore-'))
   let eagerConfig = parseDocument(originalConfig)
   eagerConfig.setIn(['memory', 'lazyRestore'], false)
-  await fs.writeFile(configFile, eagerConfig.toString())
-  await cli('settings.reload')
+  await fs.writeFile(path.join(directory, 'config.yaml'), eagerConfig.toString())
   try {
+    await launch()
     let session = await cli('new-session', { name: 'serialized restore' })
     let first = session.windows[0].panes[0]
     let second = await cli('split-window', { pane: first.id })
@@ -932,9 +936,11 @@ test('restores concurrently normally and one at a time after an application cras
     await expect.poll(() => fs.access(path.join(directory, 'navigation-crash.json')).then(() => false, () => true)).toBe(true)
   } finally {
     for (let response of heldResponses) response.end()
-    await fs.writeFile(configFile, originalConfig)
+    await application.close()
+    await fs.rm(directory, { recursive: true, force: true })
+    directory = sharedDirectory
+    await launch()
   }
-  await cli('settings.reload')
 })
 
 test('imports Brave bookmark folders, opens them in the correct profile, and persists them', async () => {
