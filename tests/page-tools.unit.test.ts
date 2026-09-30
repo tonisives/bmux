@@ -7,13 +7,15 @@ import type { WebContents } from 'electron'
 import { parseBrowserSettings } from '../src/main/browser-config'
 import { createPageTools } from '../src/main/page-tools'
 
-let fixture = async () => {
+let fixture = async (adblock?: () => boolean | undefined) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-page-tools-'))
   let css = '.custom { color: red !important }', ads = '.ad { display: none !important }'
   fs.writeFileSync(path.join(directory, 'style.css'), css)
   let settings = parseBrowserSettings({ userscripts: [{ id: 'style', file: 'style.css', enabled: true, matches: ['https://page.test/*'] }] })
   let url = 'https://page.test/first', sheets = new Map<string, string>(), sequence = 0
-  let sendCommand = vi.fn(async (method: string): Promise<any> => {
+  let sendCommand = vi.fn(async (method: string, params: Record<string, any> = {}): Promise<any> => {
+    if (method === 'CSS.createStyleSheet') return { styleSheetId: String(++sequence) }
+    if (method === 'CSS.setStyleSheetText') { if (params.text) sheets.set(params.styleSheetId, params.text); else sheets.delete(params.styleSheetId); return {} }
     if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', url } } }
     if (method === 'Target.getTargetInfo') return { targetInfo: { targetId: 'main' } }
     if (method === 'Target.getTargets') return { targetInfos: [] }
@@ -28,7 +30,7 @@ let fixture = async () => {
     insertCSS: vi.fn(async (source: string) => { let key = String(++sequence); sheets.set(key, source); return key }),
     removeInsertedCSS: vi.fn(async (key: string) => { sheets.delete(key) }),
   }) as unknown as WebContents
-  let tools = createPageTools({ directory, settings: () => settings, changed: () => undefined, visible: () => false, styles: () => ads })
+  let tools = createPageTools({ directory, settings: () => settings, changed: () => undefined, visible: () => false, adblock, styles: () => ads })
   await tools.attach('tab', 'profile_default', contents, false)
   await tools.reload()
   return {
@@ -84,5 +86,19 @@ test('preserves styles during same-document navigation without adding duplicate 
     await tools.reload()
     expect([...sheets.entries()]).toEqual(before)
     expect(contents.insertCSS).toHaveBeenCalledTimes(count)
+  } finally { close() }
+})
+
+
+test('pane blocking overrides remove and restore cosmetic sheets without changing user styles', async () => {
+  let enabled = true
+  let { tools, sheets, css, ads, close } = await fixture(() => enabled)
+  try {
+    enabled = false
+    await tools.refresh('tab')
+    expect([...sheets.values()]).toEqual([css])
+    enabled = true
+    await tools.refresh('tab')
+    expect([...sheets.values()].sort()).toEqual([css, ads].sort())
   } finally { close() }
 })

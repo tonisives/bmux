@@ -271,7 +271,7 @@ export let validateModel = (value: unknown): Model => {
         else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
-        if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean')) throw new Error('Invalid pane page')
+        if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }
     }
   }

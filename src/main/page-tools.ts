@@ -10,7 +10,7 @@ import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
 
 type Script = UserScript & { source: string; error?: string }
 type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
-type Options = { directory: string; settings: () => BrowserSettings; changed: () => void; visible: (contentsId: number) => boolean; styles: (url: string, ids: string[], classes: string[]) => string }
+type Options = { directory: string; settings: () => BrowserSettings; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
 let world = 'bmux:appearance'
@@ -72,6 +72,17 @@ export let createPageTools = (options: Options) => {
     target.styleWork = target.styleWork.catch(() => undefined).then(async () => {
       if (target.closed || target.version !== version || target.contents.isDestroyed() || target.styles[kind]?.css === css) return
       let previous = target.styles[kind]?.key
+      if (kind === 'ads') {
+        // Clear the active inspector sheet when blocking is disabled.
+        let key = previous
+        if (!key && css) {
+          let { frameTree } = await send(target, 'Page.getFrameTree')
+          key = (await send(target, 'CSS.createStyleSheet', { frameId: frameTree.frame.id, force: true })).styleSheetId
+        }
+        if (key) await send(target, 'CSS.setStyleSheetText', { styleSheetId: key, text: target.closed || target.version !== version ? '' : css })
+        if (!target.closed && target.version === version) target.styles[kind] = { css, key }
+        return
+      }
       let key = css ? await target.contents.insertCSS(css, { cssOrigin: 'user' }) : undefined
       if (target.closed || target.version !== version) { if (key && !target.contents.isDestroyed()) await target.contents.removeInsertedCSS(key); return }
       target.styles[kind] = { css, key }
@@ -93,7 +104,7 @@ export let createPageTools = (options: Options) => {
     void target.frames?.refresh().then(target.focus.identify)
     let url = target.contents.getURL(), version = target.version
     if (!pageOrigin(url)) return
-    let enabled = siteSettings(options.settings(), target.profileId, url).adblock
+    let enabled = options.adblock?.(target.contents.id) ?? siteSettings(options.settings(), target.profileId, url).adblock
     let details = enabled ? await isolated(target, cosmeticTokens) : undefined
     if (target.closed || target.version !== version || target.contents.getURL() !== url) return
     let value = details?.result.value ?? { ids: [], classes: [] }
@@ -143,6 +154,7 @@ export let createPageTools = (options: Options) => {
   reload()
   return {
     reload,
+    refresh: (tabId: string) => { let target = targets.get(tabId); if (target) { target.version++; return cosmetics(target) } },
     readyForScripts: () => Promise.all([...targets.values()].map(target => target.ready)),
     list: (): BrowserToolsState['scripts'] => scripts.map(({ id, name, enabled, error }) => ({ id, name, enabled, error })),
     editing: (tabId: string) => targets.get(tabId)?.focus.editing(),
@@ -150,7 +162,7 @@ export let createPageTools = (options: Options) => {
     error: (tabId: string) => targets.get(tabId)?.error,
     attach: (tabId: string, profileId: string, contents: WebContents, bootstrap = true) => {
       let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }
-      target.frames = createFrameCosmetics({ contents, focusSource: target.focus.source, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && siteSettings(options.settings(), profileId, contents.getURL()).adblock, styles: options.styles })
+      target.frames = createFrameCosmetics({ contents, focusSource: target.focus.source, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.

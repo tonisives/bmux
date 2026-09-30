@@ -749,6 +749,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [popup, setHistoryPopup])
   let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
+  let blocking = tab ? state.browserTools?.tabs[tab.id] : undefined
+  let toggleAdblock = () => { if (tab) void run('browser.set', { tab: tab.id, setting: 'adblock', value: 'toggle', scope: 'pane' }) }
   let openSiteInfo = () => show('site-info', paneId)
   let openProfile = () => show('profiles', paneId)
   let openProxy = () => show('proxy', paneId)
@@ -788,6 +790,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
     {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>{customProfile && paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
+    {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {

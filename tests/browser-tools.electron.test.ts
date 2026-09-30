@@ -85,6 +85,36 @@ test('plugin screen shows live tool status and opens blocking configuration', as
   await tools.getByRole('button', { name: 'Close', exact: true }).click()
 })
 
+test('address bar toggles blocking independently for panes sharing a profile and site', async () => {
+  let other = await rpc('split-window', { pane: tabId, axis: 'horizontal', url: `${url}/other-pane` }) as { id: string }
+  let bar = chrome.locator(`[data-pane-id="${tabId}"]`).getByRole('group', { name: 'Pane address', exact: true })
+  let toggle = bar.getByRole('button', { name: 'Ad blocking', exact: true })
+  let otherToggle = chrome.locator(`[data-pane-id="${other.id}"]`).getByRole('button', { name: 'Ad blocking', exact: true })
+  try {
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(otherToggle).toHaveAttribute('aria-pressed', 'true')
+    expect(await toggle.evaluate(element => element === element.parentElement?.lastElementChild)).toBe(true)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(otherToggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.bmux-ad')).toBeVisible()
+    await Promise.all([page.waitForEvent('domcontentloaded'), rpc('reload', { tab: tabId })])
+    await expect.poll(() => page.evaluate(() => (window as any).adLoaded)).toBe(true)
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    let otherPage = application.context().pages().find(page => page.url() === `${url}/other-pane`)!
+    await expect(otherPage.locator('.bmux-ad')).toBeHidden()
+    expect(await otherPage.evaluate(() => (window as any).adLoaded)).toBeUndefined()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.bmux-ad')).toBeHidden()
+    await Promise.all([page.waitForEvent('domcontentloaded'), rpc('navigate', { tab: tabId, url: `${url}/fixture` })])
+    expect(await page.evaluate(() => (window as any).adLoaded)).toBeUndefined()
+  } finally {
+    await rpc('browser.set', { tab: tabId, setting: 'adblock', value: 'inherit', scope: 'pane' })
+    await rpc('kill-pane', { pane: other.id })
+  }
+})
+
 test('settings tabs change preferences without editing YAML', async () => {
   await command('settings')
   let panel = chrome.getByRole('dialog', { name: 'Settings', exact: true })

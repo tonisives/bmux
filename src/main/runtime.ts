@@ -281,7 +281,7 @@ export let createRuntime = (dataDirectory: string) => {
     tabs: Object.fromEntries([...tabs].map(([tabId, live]) => {
       let url = live.contents.isDestroyed() ? '' : live.contents.getURL()
       let { pane } = tabById(model, tabId)
-      return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), ...siteSettings(browserSettings(), pane.profileId, url), ...filters!.counts(tabId) }]
+      return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
     })),
   } : undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
@@ -1754,6 +1754,17 @@ export let createRuntime = (dataDirectory: string) => {
       let tabId = required(args, 'tab'), { pane } = tabById(model, tabId)
       let url = tabs.get(tabId)?.contents.getURL() ?? '', origin = pageOrigin(url)
       let setting = required(args, 'setting'), scope = args.scope ?? 'site'
+      if (scope === 'pane') {
+        if (setting !== 'adblock') throw new Error('Pane scope supports adblock only')
+        let current = pane.adblock ?? siteSettings(browserSettings(), pane.profileId, url).adblock
+        let value = args.value === 'toggle' ? !current : args.value
+        if (value !== 'inherit' && typeof value !== 'boolean') throw new Error('Use a boolean or inherit for pane adblock')
+        if (value === 'inherit') delete pane.adblock; else pane.adblock = value
+        save()
+        await pageTools?.refresh(tabId)
+        publish()
+        return toolsState()
+      }
       if (!['adblock', 'darkMode'].includes(setting) || !['site', 'profile', 'global'].includes(String(scope))) throw new Error('Use adblock or darkMode with site, profile, or global scope')
       if (scope === 'site' && !origin) throw new Error('Open an http(s) page first')
       let current = scope === 'global' ? browserSettings() : siteSettings(browserSettings(), pane.profileId, scope === 'profile' ? '' : url)
@@ -2634,9 +2645,12 @@ export let createRuntime = (dataDirectory: string) => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       if (!entry || entry[1].contents.isDestroyed()) return undefined
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
-      return { tabId: entry[0], url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
+      return { tabId: entry[0], adblock: tabById(model, entry[0]).pane.adblock, url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
-    pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
+    pageTools = createPageTools({ adblock: contentsId => {
+      let entry = [...tabs].find(([, live]) => !live.contents.isDestroyed() && live.contents.id === contentsId)
+      return entry ? tabById(model, entry[0]).pane.adblock : undefined
+    }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })

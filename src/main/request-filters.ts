@@ -8,7 +8,7 @@ import { pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BlockedRequest, BrowserSettings, BrowserToolsState } from '../shared/browser-tools'
 
 export let FILTER_SOURCES = ['https://easylist.to/easylist/easylist.txt', 'https://easylist.to/easylist/easyprivacy.txt']
-type Options = { resources: string; directory: string; settings: () => BrowserSettings; changed: () => void; context: (contentsId: number) => { tabId: string; url: string } | undefined }
+type Options = { resources: string; directory: string; settings: () => BrowserSettings; changed: () => void; context: (contentsId: number) => { tabId: string; url: string; adblock?: boolean } | undefined }
 export let createRequestFilters = (options: Options) => {
   let engine = FiltersEngine.empty(), custom = FiltersEngine.empty(), rules = ''
   let updatedAt = 0, updating = false, error: string | undefined, closed = false
@@ -47,7 +47,7 @@ export let createRequestFilters = (options: Options) => {
       try {
         let context = details.webContentsId ? options.context(details.webContentsId) : undefined
         let page = details.resourceType === 'mainFrame' ? details.url : context?.url || details.referrer
-        if (!pageOrigin(page) || !siteSettings(options.settings(), profileId, page).adblock || details.resourceType === 'mainFrame') { reply({}); return }
+        if (!pageOrigin(page) || !(context?.adblock ?? siteSettings(options.settings(), profileId, page).adblock) || details.resourceType === 'mainFrame') { reply({}); return }
         let blocked = match(details)
         if (blocked && context) {
           let record = counters.get(context.tabId) ?? { blocked: 0, recent: [] }

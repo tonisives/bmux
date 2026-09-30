@@ -128,6 +128,7 @@ describe('session layouts and persistence', () => {
     try {
       let model = initialModel()
       model.sessions[0].name = 'persistent'
+      model.sessions[0].windows[0].panes[0].adblock = false
       writeModel(directory, model)
       expect(readModel(directory)).toEqual(model)
       expect(fs.existsSync(path.join(directory, 'state.json.tmp'))).toBe(false)
