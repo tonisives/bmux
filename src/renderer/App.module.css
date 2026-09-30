@@ -27,6 +27,8 @@
 .windowTab:has(.windowClose) { min-width: 53px; }
 .windowTab:has(.windowAudio) { min-width: 55px; }
 .windowTab:has(.windowClose):has(.windowAudio) { min-width: 71px; }
+.windowTab[data-selected="false"]:hover { background: #303844; }
+.status .windowTab[data-selected="false"]:hover .windowClose:not(:hover) { background: inherit; }
 .windowTab[data-selected="true"] { border-color: #56616f; background: #343c48; color: #f0f2f5; }
 .app[data-status-bar="bottom"] .windows { align-items: flex-start; }
 .app[data-status-bar="bottom"] .windowTab { border-top: 0; border-bottom: 1px solid #343c48; border-radius: 0 0 4px 4px; }
