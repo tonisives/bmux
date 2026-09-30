@@ -306,7 +306,7 @@ let Status = () => {
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows.length])
   let reclaim = () => { void run('remote.reclaim') }
-  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}>[<span className={css.sessionName}>{session!.name}</span>{session!.private && <PrivateIcon />}]</button>
+  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
@@ -323,7 +323,9 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let client = state.model.clients.find(client => client.id === state.clientId)
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
   let tabId = pane?.id
-  let label = `${index}:${window.name}${active ? '*' : ''}`
+  let characters = Array.from(window.name)
+  let name = window.automaticName && characters.length > 24 ? `${characters.slice(0, 23).join('')}…` : window.name
+  let label = `${index}:${name}${active ? '*' : ''}`
   let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
   let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
   let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }

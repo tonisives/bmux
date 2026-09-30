@@ -8,8 +8,7 @@
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
-.status .session { display: inline-flex; align-items: center; min-width: 0; flex-shrink: 1; white-space: nowrap; color: #bdc9b4; }
-.sessionName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status .session { display: inline-flex; align-items: center; flex-shrink: 0; max-width: none; white-space: nowrap; color: #bdc9b4; }
 .status .profileButton, .status .proxyButton, .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .status .profileButton, .status .proxyButton { width: auto; height: 18px; }
 .status .proxyButton { margin-left: -7px; color: #a7c88d; }
@@ -26,12 +25,12 @@
 @media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
 .windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; -webkit-app-region: no-drag; }
 .windows::-webkit-scrollbar { display: none; }
-.windowTab { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 260px; }
+.windowTab { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .windowTab[data-drop-position="before"]::before, .windowTab[data-drop-position="after"]::after { content: ''; position: absolute; top: 1px; bottom: 1px; width: 2px; background: #c2d8a7; pointer-events: none; }
 .windowTab[data-drop-position="before"]::before { left: -5px; }
 .windowTab[data-drop-position="after"]::after { right: -5px; }
-.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 238px; cursor: grab; }
-.windowLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; max-width: none; cursor: grab; }
+.windowLabel { white-space: nowrap; }
 .tabFavicon, .tabSpinner { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }
 .tabSpinner { border: 1.5px solid #64707e; border-top-color: #d6dcd2; border-radius: 50%; animation: tab-spin .8s linear infinite; }

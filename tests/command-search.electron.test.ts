@@ -474,12 +474,14 @@ test('profile device identity is applied before requests and cache status is pub
   expect(Math.abs(androidFrameBounds.y + androidFrameBounds.height / 2 - androidScreenBounds.y - androidScreenBounds.height / 2)).toBeLessThanOrEqual(1)
   expect(androidScreenBounds.x - androidFrameBounds.x).toBeGreaterThan(20)
   await chrome.screenshot({ path: path.resolve('artifacts/device-android-frame.png') })
-  let contentBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${tab}"]`).boundingBox()
   await expect.poll(async () => {
+    let contentBounds = await chrome.locator(`[data-browser-content][data-content-pane-id="${tab}"]`).boundingBox()
     let nativeBounds = await application.evaluate(({ BaseWindow }, path) => {
       for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if ('webContents' in view && (view as any).webContents.getURL().includes(path)) return view.getBounds()
     }, '/device-android')
-    return Math.max(Math.abs(nativeBounds!.x + nativeBounds!.width / 2 - (contentBounds!.x + contentBounds!.width / 2)), Math.abs(nativeBounds!.y + nativeBounds!.height / 2 - (contentBounds!.y + contentBounds!.height / 2)), Math.abs(nativeBounds!.width - contentBounds!.width), Math.abs(nativeBounds!.height - contentBounds!.height))
+    // Closing the settings overlay reattaches the native page asynchronously.
+    if (!nativeBounds || !contentBounds) return Infinity
+    return Math.max(Math.abs(nativeBounds.x + nativeBounds.width / 2 - (contentBounds.x + contentBounds.width / 2)), Math.abs(nativeBounds.y + nativeBounds.height / 2 - (contentBounds.y + contentBounds.height / 2)), Math.abs(nativeBounds.width - contentBounds.width), Math.abs(nativeBounds.height - contentBounds.height))
   }).toBeLessThanOrEqual(1)
   let geolocation = rpc('eval', { tab, expression: 'new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(position => resolve({latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:position.coords.accuracy}), error => reject(new Error(error.message))))' })
   let permission: any

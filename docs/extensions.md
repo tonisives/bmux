@@ -53,6 +53,11 @@ Bitwarden registers its passkey scripts only after an account is signed in.
 For the first manual check, sign in with email and master password, unlock the
 vault, reload the website, and choose that website's passkey sign-in option.
 
+If Bitwarden reports "Attempting to use a disconnected port object", disable
+and re-enable it in the affected pane's profile, then reopen its popup. This
+reloads the extension's background process and retains its saved browser storage.
+Sign in or unlock that profile's vault and reload the login page afterward.
+
 For other unpacked extensions, use `extension load /absolute/path`. The directory
 must contain `manifest.json` and remain at that path between launches. Packaged
 CRX files are not supported. To remove an extension, use `extension remove ID`.
