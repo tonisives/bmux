@@ -54,7 +54,15 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
       }
     }
   } finally {
-    await application?.close().catch(() => undefined)
+    if (application) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          application.close().catch(() => undefined),
+          new Promise<void>(resolve => { timer = setTimeout(() => { application!.process().kill('SIGKILL'); resolve() }, 10000) }),
+        ])
+      } finally { clearTimeout(timer) }
+    }
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })
   }
