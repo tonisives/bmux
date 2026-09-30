@@ -57,6 +57,9 @@ import { createFaviconCache } from './favicon-cache'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+// Debugger detach can settle pending work inside Chromium's WebContents destructor,
+// before isDestroyed() changes. A requested close must block new navigation too.
+let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
@@ -843,8 +846,8 @@ export let createRuntime = (dataDirectory: string) => {
       profileNetworkReady.get(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)),
       // Let Chromium open native pickers. CDP interception aborts the File System
       // Access API, whose requests have no input node to receive selected files.
-      (pane.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, pane.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)),
-    ]).then(startSecurity).finally(() => { bootstrapping = false })
+      (pane.device ? contents.loadURL('about:blank').then(() => { if (isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device!) }) : Promise.resolve()).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents) }),
+    ]).then(() => { if (isLiveTabOpen(live)) return startSecurity() }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('audio-state-changed', ({ audible }) => {
@@ -984,12 +987,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (!options) {
         if (pane.device || loadOptions) {
           let popup = createLiveTab(added.id, false)
-          void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
+          void popup.ready.then(() => { if (isLiveTabOpen(popup)) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
         }
         changed(); return undefined
       }
       let popup = createLiveTab(added.id, false, options)
-      if (!options.webContents) void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
+      if (!options.webContents) void popup.ready.then(() => { if (isLiveTabOpen(popup)) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
       changed()
       return popup.contents
     }
@@ -1040,7 +1043,7 @@ export let createRuntime = (dataDirectory: string) => {
         }
         if (linkUrl) {
           template.push(
-            { label: 'Open link', click: () => { void contents.loadURL(linkUrl).catch(reportError) } },
+            { label: 'Open link', click: () => { if (isLiveTabOpen(live)) void contents.loadURL(linkUrl).catch(reportError) } },
             { label: 'Open link in floating pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
             { label: 'Open link in new window', click: () => { openLinkWindow(linkUrl, true) } },
             { label: 'Copy link address', click: () => clipboard.writeText(linkUrl) },
@@ -1069,7 +1072,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (load && initialUrl !== 'about:blank') {
       let navigate = async () => {
         await live.ready
-        if (live.disposed) return
+        if (!isLiveTabOpen(live)) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
         if (savedHistory?.entries.length) await contents.navigationHistory.restore(savedHistory)
         else await contents.loadURL(initialUrl)
@@ -1088,12 +1091,13 @@ export let createRuntime = (dataDirectory: string) => {
     lastTabUse.set(tabId, Date.now())
     let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
     await live.ready
+    if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
     if (load && live.initialNavigation) {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
       live.initialNavigation = undefined
     } else if (load && !live.pendingNavigation && !live.contents.getURL() && tab.url !== 'about:blank') await live.contents.loadURL(tab.url)
-    if (live.disposed || live.contents.isDestroyed() || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
+    if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
     return live
   }
   let canUnloadIdleTab = async (tabId: string, live: LiveTab) => {
@@ -2487,7 +2491,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.ready.then(() => { checkControl(method, args); if (!live.disposed) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url) live.pendingUrl = undefined
