@@ -515,7 +515,8 @@ test('profile device identity is applied before requests and cache status is pub
   iosFrameBounds = (await iosFrame.boundingBox())!
   iosScreenBounds = (await iosFrame.locator('[data-browser-content]').boundingBox())!
   expect(Math.abs(iosFrameBounds.x + iosFrameBounds.width / 2 - iosScreenBounds.x - iosScreenBounds.width / 2)).toBeLessThanOrEqual(1)
-  expect(iosScreenBounds.y - iosFrameBounds.y).toBeGreaterThan(20)
+  expect(iosScreenBounds.y - iosFrameBounds.y).toBeGreaterThan(0)
+  expect(iosScreenBounds.y - iosFrameBounds.y).toBeLessThan(20)
   await chrome.screenshot({ path: path.resolve('artifacts/device-ios-portrait-frame.png') })
   let windowsBeforePopup = (await state()).model.sessions[0].windows.length
   await rpc('eval', { tab, expression: `window.open(${JSON.stringify(`${url}/device-popup`)}, '_blank'); true` })
@@ -529,9 +530,9 @@ test('profile device identity is applied before requests and cache status is pub
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device).toBeUndefined()
 })
 
-for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${axis} keep both pages loaded and paint the full native viewport`, async () => {
+for (let preset of ['pixel-8', 'galaxy-s24', 'iphone-15-pro']) for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${preset} ${axis} clip the screen and preserve the camera cutout`, async () => {
   let current = await state(), session = current.model.sessions[0], tab = session.windows[0].panes[0].id
-  await rpc('profile.device.set', { pane: tab, profile: session.windows[0].panes[0].profileId, newPanes: true, device: { preset: 'pixel-8', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+  await rpc('profile.device.set', { pane: tab, profile: session.windows[0].panes[0].profileId, newPanes: true, device: { preset, orientation: axis === 'horizontal' ? 'portrait' : 'landscape', locale: 'en-US', timezone: 'UTC' } })
   await rpc('navigate', { tab, url: `${url}/device-split-original` })
   await rpc('eval', { tab, expression: 'window.splitMarker = 42' })
   let split = await rpc('split-window', { pane: tab, client: current.clientId, axis }) as { id: string }
@@ -551,7 +552,7 @@ for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${axis} keep bo
   let windowInfo = JSON.parse((await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
   let painted = async (stage: string) => {
     await expect(async () => {
-      let screenshotPath = path.resolve(`artifacts/device-split-${axis}-${stage}.png`)
+      let screenshotPath = path.resolve(`artifacts/device-split-${preset}-${axis}-${stage}.png`)
       await promisify(execFile)('/usr/sbin/screencapture', ['-x', '-o', '-l', String(windowInfo.kCGWindowNumber), screenshotPath])
       let colors = await application.evaluate(({ BaseWindow, nativeImage }, { screenshotPath, url, windowBounds }) => {
         let image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
@@ -559,13 +560,26 @@ for (let axis of ['horizontal', 'vertical']) test(`mobile splits ${axis} keep bo
         return BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.flatMap(view => {
           if (!('webContents' in view) || !(view as Electron.WebContentsView).webContents.getURL().startsWith(`${url}/device-split-`)) return []
           let bounds = view.getBounds(), origin = window.getContentBounds()
-          return [[bounds.width - 8, bounds.height - 8], [8, bounds.height / 2]].map(([x, y]) => {
+          let camera = view.children[0].getBounds()
+          let pixel = (x: number, y: number) => {
             let offset = (Math.floor((origin.y + bounds.y + y - windowBounds.Y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - windowBounds.X) * scale)) * 4
             return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
-          })
+          }
+          return [{
+            page: [pixel(bounds.width / 2, bounds.height - 8), pixel(8, bounds.height / 2)],
+            corners: [[1, 1], [bounds.width - 2, 1], [1, bounds.height - 2], [bounds.width - 2, bounds.height - 2]].map(([x, y]) => pixel(x, y)),
+            camera: pixel(camera.x + camera.width / 2, camera.y + camera.height / 2),
+            besideCamera: camera.width > camera.height ? pixel(camera.x - 5, camera.y + camera.height / 2) : pixel(camera.x + camera.width / 2, camera.y - 5),
+          }]
         }))
       }, { screenshotPath, url, windowBounds: windowInfo.kCGWindowBounds })
-      expect(colors).toEqual(Array.from({ length: 4 }, () => [0x23, 0x45, 0x67]))
+      expect(colors).toHaveLength(2)
+      for (let screen of colors) {
+        expect(screen.page).toEqual([[0x23, 0x45, 0x67], [0x23, 0x45, 0x67]])
+        for (let corner of screen.corners) expect(corner).not.toEqual([0x23, 0x45, 0x67])
+        expect(screen.camera).toEqual([8, 8, 8])
+        expect(screen.besideCamera).toEqual([0x23, 0x45, 0x67])
+      }
     }).toPass({ timeout: 10000 })
   }
   await painted('initial')

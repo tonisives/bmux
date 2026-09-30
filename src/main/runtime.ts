@@ -1,5 +1,6 @@
-import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
-import type { DownloadItem, View, WebContents } from 'electron'
+import { deviceScreenShape } from '../shared/device-frame'
+import { app, BaseWindow, BrowserWindow, WebContentsView, View, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
+import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
@@ -52,7 +53,7 @@ import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
 import { createFaviconCache } from './favicon-cache'
 
-type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
+type LiveTab = { view: WebContentsView; camera?: View; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -1339,6 +1340,19 @@ export let createRuntime = (dataDirectory: string) => {
         let persona = tabById(model, tabId).pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
         live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
+        let shape = persona ? deviceScreenShape(persona, fitted) : undefined
+        live.view.setBorderRadius(shape ? Math.round(shape.radius) : 0)
+        if (shape) {
+          if (!live.camera) {
+            live.camera = new View()
+            live.camera.setBackgroundColor('#080808')
+            live.view.addChildView(live.camera)
+          }
+          let camera = shape.camera
+          live.camera.setBounds({ x: Math.round(camera.x), y: Math.round(camera.y), width: Math.max(1, Math.round(camera.width)), height: Math.max(1, Math.round(camera.height)) })
+          live.camera.setBorderRadius(Math.round(Math.min(camera.width, camera.height) / 2))
+        }
+        live.camera?.setVisible(!!shape)
         if (persona && live.deviceScale !== fitted.scale) {
           live.deviceScale = fitted.scale
           void live.ready.then(() => {
