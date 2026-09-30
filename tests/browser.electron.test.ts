@@ -1541,6 +1541,28 @@ test('reuses a closed numeric pane ID and remaps the reopened pane', async () =>
   await cli('kill-session', { session: session.id, confirm: true })
 })
 
+test('switching sessions restores each client’s last selected window', async () => {
+  let alpha = await cli('new-session', { name: 'remember-alpha' })
+  let beta = await cli('new-session', { name: 'remember-beta' })
+  let client = await cli('attach-session', { session: alpha.id })
+  let alphaLast = await cli('new-window', { session: alpha.id, name: 'alpha-last' })
+  let betaLast = await cli('new-window', { session: beta.id, name: 'beta-last' })
+
+  await cli('select-window', { client: client.id, window: alphaLast.id })
+  expect(await cli('switch-client', { client: client.id, session: beta.id })).toMatchObject({ sessionId: beta.id, windowId: beta.windows[0].id })
+  await cli('select-window', { client: client.id, window: betaLast.id })
+  expect(await cli('switch-client', { client: client.id, session: alpha.id })).toMatchObject({ sessionId: alpha.id, windowId: alphaLast.id, paneId: alphaLast.panes[0].id })
+  expect(await cli('switch-client', { client: client.id, session: beta.id })).toMatchObject({ sessionId: beta.id, windowId: betaLast.id, paneId: betaLast.panes[0].id })
+  expect(await cli('switch-client', { client: client.id, session: beta.id })).toMatchObject({ sessionId: beta.id, windowId: betaLast.id })
+
+  await cli('switch-client', { client: client.id, session: alpha.id })
+  await cli('kill-window', { window: betaLast.id, confirm: true })
+  expect(await cli('switch-client', { client: client.id, session: beta.id })).toMatchObject({ sessionId: beta.id, windowId: beta.windows[0].id, paneId: beta.windows[0].panes[0].id })
+  await cli('detach-client', { client: client.id })
+  await cli('kill-session', { session: alpha.id, confirm: true })
+  await cli('kill-session', { session: beta.id, confirm: true })
+})
+
 test('window management shortcuts and keyboard session selection', async () => {
   let alpha = await cli('new-session', { name: 'keyboard-alpha' })
   let beta = await cli('new-session', { name: 'keyboard-beta' })

@@ -2040,7 +2040,10 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
-      client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0]?.id ?? null
+      let windowId = client.sessionId === session.id ? client.windowId : client.windowHistory?.find(id => session.windows.some(window => window.id === id))
+      let window = session.windows.find(window => window.id === windowId) ?? session.windows[0]
+      if (client.windowId !== window.id) client.paneId = window.panes[0]?.id ?? null
+      client.sessionId = session.id; client.windowId = window.id
       changed(); await visualQueue; return client
     }
     if (method === 'list-windows') return resolve(model.sessions, args.session, 'Session').windows
