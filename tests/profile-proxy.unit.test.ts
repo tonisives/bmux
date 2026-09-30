@@ -4,7 +4,7 @@ import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy } from '../src/main/profile-proxy'
+import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, testProxyRelay } from '../src/main/profile-proxy'
 
 let close: (() => Promise<void>)[] = []
 let listen = (server: net.Server | http.Server) => new Promise<number>(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as net.AddressInfo).port)))
@@ -86,9 +86,20 @@ describe('profile proxies', () => {
     let relays = createProfileProxyRelays(store); close.push(() => relays.closeAll())
     let relay = await relays.create('profile_default', { protocol: 'socks5', host: '127.0.0.1', port: upstream.port, authenticated: true })
     expect((await requestThrough(relay, `http://127.0.0.1:${destinationPort}/ip`)).body).toContain('203.0.113.8')
+    expect(await testProxyRelay(relay, `http://127.0.0.1:${destinationPort}/ip`)).toMatchObject({ ip: '203.0.113.8' })
     expect(upstream.wasAuthenticated()).toBe(true)
-    expect(destinationHits).toBe(1)
+    expect(destinationHits).toBe(2)
     expect((await requestThrough(relay, `http://127.0.0.1:${destinationPort}/ip`, false)).status).toBe(407)
-    expect(destinationHits).toBe(1)
+    expect(destinationHits).toBe(2)
+    let rejected = await relays.create('profile_default', { protocol: 'socks5', host: '127.0.0.1', port: upstream.port, authenticated: true }, { username: 'service-user', password: 'wrong-password' })
+    await expect(testProxyRelay(rejected, 'https://example.invalid/ip')).rejects.toThrow('Proxy authentication failed')
+    expect(destinationHits).toBe(2)
   })
+})
+
+it.each([[597, 'authentication failed'], [593, 'host could not be found'], [594, 'refused the connection'], [504, 'timed out']])('explains HTTPS tunnel failures without leaking credentials (%s)', async (status, message) => {
+  let proxy = http.createServer()
+  proxy.on('connect', (_request, socket) => { socket.end(`HTTP/1.1 ${status} Failed\r\nConnection: close\r\n\r\n`) })
+  let port = await listen(proxy); close.push(() => stop(proxy))
+  await expect(testProxyRelay({ host: '127.0.0.1', port, username: 'fixture-user', password: 'fixture-secret' }, 'https://example.invalid/ip')).rejects.toThrow(String(message))
 })
