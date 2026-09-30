@@ -23,23 +23,28 @@
 .downloadCount { position: absolute; top: -3px; right: -5px; min-width: 11px; padding: 0 2px; border-radius: 6px; background: #9ca3ad; color: #1b1f24; font: 8px/11px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 @keyframes download-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
-.windows { display: flex; gap: 10px; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; -webkit-app-region: no-drag; }
+.windows { display: flex; align-items: flex-end; gap: 3px; height: 100%; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; -webkit-app-region: no-drag; }
 .windows::-webkit-scrollbar { display: none; }
-.windowTab { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
+.windowTab[data-selected="true"] { border-color: #56616f; background: #343c48; color: #f0f2f5; }
+.app[data-status-bar="bottom"] .windows { align-items: flex-start; }
+.app[data-status-bar="bottom"] .windowTab { border-top: 0; border-bottom: 1px solid #343c48; border-radius: 0 0 4px 4px; }
+.app[data-status-bar="bottom"] .windowTab[data-selected="true"] { border-bottom-color: #56616f; }
 .windowTab[data-drop-position="before"]::before, .windowTab[data-drop-position="after"]::after { content: ''; position: absolute; top: 1px; bottom: 1px; width: 2px; background: #c2d8a7; pointer-events: none; }
-.windowTab[data-drop-position="before"]::before { left: -5px; }
-.windowTab[data-drop-position="after"]::after { right: -5px; }
-.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; max-width: none; cursor: grab; }
+.windowTab[data-drop-position="before"]::before { left: -3px; }
+.windowTab[data-drop-position="after"]::after { right: -3px; }
+.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 7px; flex-shrink: 0; max-width: none; cursor: grab; }
+.status .windowSelect:hover { color: inherit; }
 .windowLabel { white-space: nowrap; }
 .tabFavicon, .tabSpinner { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }
 .tabSpinner { border: 1.5px solid #64707e; border-top-color: #d6dcd2; border-radius: 50%; animation: tab-spin .8s linear infinite; }
 .status .windowAudio { display: grid; place-items: center; width: 16px; height: 18px; flex: 0 0 16px; color: #a7c88d; }
 .status .windowAudio[data-muted="true"] { color: #77818d; }
-.status .windowAudio:hover { color: #f0f2f5; }
+.status .windowAudio:hover { border-radius: 3px; background: #48525f; color: #f0f2f5; }
 .windowAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .status .windowClose { display: grid; place-items: center; width: 14px; height: 18px; flex: 0 0 14px; color: #77818d; }
-.status .windowClose:hover { color: #e6a69c; }
+.status .windowClose:hover { border-radius: 3px; background: #48525f; color: #e6a69c; }
 .windowClose svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 @keyframes tab-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .tabSpinner { animation: none; } }
