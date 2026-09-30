@@ -900,13 +900,23 @@ let Panel = ({ type }: { type: Control }) => {
   </div></div>
 }
 let SiteInformation = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
   let { tab, profile } = selection(state)
+  let [busy, setBusy] = useState(false)
+  let [notice, setNotice] = useState('')
+  useEffect(() => { setNotice('') }, [tab?.id, tab?.url])
   if (!tab) return <p>Open a page to see its connection.</p>
   let security = state.security?.[tab.id] ?? initialSecurity(tab.url)
   let origin = (() => { try { let parsed = new URL(security.url); return parsed.origin === 'null' ? parsed.protocol : parsed.origin } catch { return security.url } })()
   let certificate = security.certificate
   let date = (seconds: number) => Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : 'Unavailable'
+  let clearSiteData = async () => {
+    setBusy(true); setNotice('')
+    try {
+      let result = await run('site-data.clear', { tab: tab.id, origin })
+      if (result !== undefined) setNotice('Cookies and site data cleared. Page reloaded.')
+    } finally { setBusy(false) }
+  }
   return <section aria-label="Connection details">
     <p><strong>{origin}</strong><br />{profile?.name}</p>
     <p role="status">{connectionLabels[security.status]}</p>
@@ -915,6 +925,8 @@ let SiteInformation = () => {
     {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
     <p>Encryption protects the connection. It does not establish that a website is trustworthy.</p>
     {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
+    {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
+    {notice && <p role="status">{notice}</p>}
   </section>
 }
 let ExtensionManager = () => {
