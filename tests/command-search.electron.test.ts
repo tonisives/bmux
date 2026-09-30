@@ -568,7 +568,7 @@ for (let preset of ['pixel-8', 'galaxy-s24', 'iphone-15-pro']) for (let axis of 
             return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
           }
           return [{
-            page: [pixel(bounds.width / 2, bounds.height - 8), pixel(8, bounds.height / 2)],
+            page: [pixel(bounds.width / 2, bounds.height - 8), pixel(8, bounds.height * 0.8)],
             corners: [[1, 1], [bounds.width - 2, 1], [1, bounds.height - 2], [bounds.width - 2, bounds.height - 2]].map(([x, y]) => pixel(x, y)),
             camera: pixel(camera.x + camera.width / 2, camera.y + camera.height / 2),
             besideCamera: camera.width > camera.height ? pixel(camera.x - 5, camera.y + camera.height / 2) : pixel(camera.x + camera.width / 2, camera.y - 5),
