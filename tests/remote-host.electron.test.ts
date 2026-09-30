@@ -43,12 +43,13 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     let localClient = await command('attach-session','-t',status.model.sessions[0].id)
     let localWindowId = (await command('rpc','diagnostics','{}')).windows.find((window: { id: string }) => window.id === localClient.id).nativeId
     await application.evaluate(({BaseWindow},id)=>BaseWindow.fromId(id)!.hide(),localWindowId)
-    await application.evaluate(async({BrowserWindow,session},{origin,cookie})=>{
+    let viewerWindowId = await application.evaluate(async({BrowserWindow,session},{origin,cookie})=>{
       await session.defaultSession.cookies.set({url:origin,name:'bmux_session',value:cookie,httpOnly:true})
       session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('http://127.0.0.1:') && !details.url.startsWith('ws://127.0.0.1:') && !details.url.startsWith('file://')}))
       // Playwright's click stability checks need compositor frames from a visible window.
       let viewer = new BrowserWindow({show:true,width:1280,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}})
       await viewer.loadURL(origin)
+      return viewer.id
     },{origin,cookie})
     await expect.poll(()=>application!.context().pages().some(page=>page.url()===origin+'/')).toBe(true)
     let viewer = application.context().pages().find(page=>page.url()===origin+'/')!
@@ -132,14 +133,18 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await application.evaluate(({BaseWindow},id)=>{let window=BaseWindow.fromId(id)!;window.show();window.focus()},localWindowId)
     await expect.poll(async () => (await command('status')).focusedClientId).toBe(localClient.id)
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(700)
+    // Return native focus to the viewer before sending its next mouse input.
+    await application.evaluate(({BrowserWindow},id)=>BrowserWindow.fromId(id)!.focus(),viewerWindowId)
+    await expect.poll(()=>application!.evaluate(({BrowserWindow},id)=>BrowserWindow.fromId(id)!.isFocused(),viewerWindowId)).toBe(true)
     // The host broadcasts external control changes every five seconds.
     await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeVisible({timeout:10000})
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()
     await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
     await viewer.getByRole('button',{name:'Release control',exact:true}).click()
     await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
-    await command('attach-session','-t',status.model.sessions[0].id)
-    let local = application.context().pages().find(page=>page.url().endsWith('/index.html'))!
+    let attachedClient = await command('attach-session','-t',status.model.sessions[0].id)
+    let localPages = await Promise.all(application.context().pages().filter(page=>page.url().endsWith('/index.html')).map(async page=>({page,clientId:(await page.evaluate(()=>(window as any).bmux.state())).clientId})))
+    let local = localPages.find(item=>item.clientId===attachedClient.id)!.page
     await local.getByRole('button',{name:'Sessions',exact:true}).click()
     let remotePicker = local.getByRole('dialog',{name:'Sessions'})
     await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
