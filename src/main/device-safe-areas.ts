@@ -19,7 +19,7 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
     let style = document.createElement('style')
     style.textContent = `
       :host { --tint: #fff; --ink: #111; }
-      .bar { position:absolute; background:color-mix(in srgb,var(--tint) 92%,transparent); backdrop-filter:blur(16px); color:var(--ink); font:600 14px -apple-system,sans-serif; box-sizing:border-box; }
+      .bar { position:absolute; background:var(--paint); backdrop-filter:var(--blur); color:var(--ink); font:600 14px -apple-system,sans-serif; box-sizing:border-box; }
       .top { top:0; left:0; right:0; height:${insets.top}px; display:${insets.top ? 'flex' : 'none'}; align-items:center; justify-content:space-between; padding:0 28px; }
       .bottom { bottom:0; left:0; right:0; height:${insets.bottom}px; }
       .home { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:32%; max-width:140px; height:5px; border-radius:5px; background:var(--ink); }
@@ -62,8 +62,13 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
         if (color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') return color
       }
     }
-    let tintBar = (bar: HTMLElement, tint: string) => {
+    let tintBar = (bar: HTMLElement, tint: string, navigation?: { element: HTMLElement; color: string }, edge?: 'top' | 'bottom') => {
       set(bar, '--tint', tint)
+      let rect = navigation?.element.getBoundingClientRect()
+      let covered = rect && edge && (edge === 'top' ? rect.top <= 0 && rect.bottom >= insets.top : rect.bottom >= innerHeight && rect.top <= innerHeight - insets.bottom)
+      // Preserve a site's own safe-area paint and blur instead of compositing it twice.
+      set(bar, '--paint', covered ? 'transparent' : navigation ? tint : 'color-mix(in srgb,var(--tint) 92%,transparent)')
+      set(bar, '--blur', covered ? 'none' : 'blur(16px)')
       if (context) { context.clearRect(0, 0, 1, 1); context.fillStyle = tint; context.fillRect(0, 0, 1, 1) }
       let rgb = context?.getImageData(0, 0, 1, 1).data ?? [255, 255, 255]
       set(bar, '--ink', rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114 < 150 ? '#fff' : '#111')
@@ -84,6 +89,13 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
       }
       adjusted.clear()
     }
+    let settleOffsets = (element: HTMLElement) => {
+      // Flush style changes so CSS creates any transitions for the new offsets.
+      getComputedStyle(element).top
+      for (let animation of element.getAnimations()) {
+        if (animation instanceof CSSTransition && ['top', 'bottom'].includes(animation.transitionProperty)) animation.finish()
+      }
+    }
     let navigationSurface = (edge: Edge) => {
       for (let element of positioned) {
         let rect = element.getBoundingClientRect(), computed = getComputedStyle(element)
@@ -91,7 +103,7 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
         if (rect.width < innerWidth * 0.7 || rect.height > innerHeight / 3 || !rect.height || !Number.isFinite(offset) || offset < 0 || offset > 128) continue
         if (edge === 'top' ? rect.top > insets.top + 128 || rect.bottom < 0 : rect.bottom < innerHeight - insets.bottom - 128 || rect.top > innerHeight) continue
         let color = computed.backgroundColor
-        if (color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') return color
+        if (color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') return { element, color }
       }
     }
     let update = () => {
@@ -109,8 +121,12 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
       // Recompute authored offsets on DOM/style changes, never from an animated screen position.
       if (discover) {
         discover = false
+        // Computed offsets include active CSS transitions. Resolve their target values
+        // before restoring/reapplying our inset, so intermediate pixels cannot accumulate.
+        let previous = [...adjusted.keys()]
         restore()
         positioned = [...document.body.querySelectorAll<HTMLElement>('*')].filter(element => ['fixed', 'sticky'].includes(getComputedStyle(element).position))
+        for (let element of new Set([...previous, ...positioned])) settleOffsets(element)
         for (let element of [...positioned].sort((a, b) => (parseFloat(getComputedStyle(a).top) || 0) - (parseFloat(getComputedStyle(b).top) || 0))) {
           let computed = getComputedStyle(element), rect = element.getBoundingClientRect()
           if (!rect.width || !rect.height) continue
@@ -133,13 +149,15 @@ let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {
             set(element, edge, applied, 'important')
           }
         }
+        for (let element of adjusted.keys()) settleOffsets(element)
       }
       let theme = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].find(meta => !meta.media || matchMedia(meta.media).matches)?.content
       let fallback = theme && CSS.supports('color', theme) ? theme : '#fff'
       // Match the painted surface at each edge, including app roots and fixed navigation.
-      let upper = navigationSurface('top') ?? surface(insets.top + 2) ?? fallback
-      let lower = navigationSurface('bottom') ?? surface(innerHeight - insets.bottom - 2) ?? fallback
-      tintBar(top, upper); tintBar(bottom, lower); tintBar(left, upper); tintBar(right, upper)
+      let topNavigation = navigationSurface('top'), bottomNavigation = navigationSurface('bottom')
+      let upper = topNavigation?.color ?? surface(insets.top + 2) ?? fallback
+      let lower = bottomNavigation?.color ?? surface(innerHeight - insets.bottom - 2) ?? fallback
+      tintBar(top, upper, topNavigation, 'top'); tintBar(bottom, lower, bottomNavigation, 'bottom'); tintBar(left, upper, topNavigation); tintBar(right, upper, topNavigation)
       if (observer) observe()
     }
     document.head.append(spacing)
