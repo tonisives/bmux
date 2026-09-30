@@ -48,6 +48,6 @@ test('official Bitwarden keeps login ports working across profiles and idle time
     }
   } finally {
     await test.step('Close the disposable extension browser', () => closeTestApplication(application))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
