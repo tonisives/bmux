@@ -418,7 +418,8 @@ test('profile device identity is applied before requests and cache status is pub
   expect(androidFrameBounds.width).toBeGreaterThan(androidScreenBounds.width)
   expect(androidFrameBounds.height).toBeGreaterThan(androidScreenBounds.height)
   expect(Math.abs(androidFrameBounds.x + androidFrameBounds.width / 2 - androidScreenBounds.x - androidScreenBounds.width / 2)).toBeLessThanOrEqual(1)
-  expect(androidScreenBounds.y - androidFrameBounds.y).toBeGreaterThan(20)
+  expect(androidScreenBounds.y - androidFrameBounds.y).toBeGreaterThan(0)
+  expect(androidScreenBounds.y - androidFrameBounds.y).toBeLessThan(20)
   await chrome.screenshot({ path: path.resolve('artifacts/device-pixel-portrait-frame.png') })
   panel = await openProfilePanel(profile.name)
   await expect.poll(async () => (await state()).profileCaches[profile.id]?.limit).toBe(256 * 1024 * 1024)
@@ -560,7 +561,8 @@ for (let preset of ['pixel-8', 'galaxy-s24', 'iphone-15-pro']) for (let axis of 
         return BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.flatMap(view => {
           if (!('webContents' in view) || !(view as Electron.WebContentsView).webContents.getURL().startsWith(`${url}/device-split-`)) return []
           let bounds = view.getBounds(), origin = window.getContentBounds()
-          let camera = view.children[0].getBounds()
+          let camera = window.contentView.children[window.contentView.children.indexOf(view) + 1].getBounds()
+          camera = { ...camera, x: camera.x - bounds.x, y: camera.y - bounds.y }
           let pixel = (x: number, y: number) => {
             let offset = (Math.floor((origin.y + bounds.y + y - windowBounds.Y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - windowBounds.X) * scale)) * 4
             return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
@@ -587,4 +589,26 @@ for (let preset of ['pixel-8', 'galaxy-s24', 'iphone-15-pro']) for (let axis of 
   await painted('reloaded')
   await rpc('kill-pane', { pane: split.id, confirm: true })
   await rpc('profile.device.clear', { pane: tab, profile: session.windows[0].panes[0].profileId })
+})
+
+test('mobile link preview stays at the bottom left of the whole pane', async () => {
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('profile.device.set', { pane: pane.id, profile: pane.profileId, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+  await rpc('navigate', { tab: pane.id, url: `${url}/device-link-preview` })
+  let content = chrome.locator(`[data-pane-id="${pane.id}"] [data-pane-content]`)
+  await expect(content).toBeVisible()
+  await application.evaluate(({ webContents }, url) => {
+    webContents.getAllWebContents().find(contents => contents.getURL() === `${url}/device-link-preview`)!.emit('update-target-url', {}, `${url}/destination`)
+  }, url)
+  await expect(async () => {
+    let paneBounds = (await content.boundingBox())!
+    let preview = await application.evaluate(({ BaseWindow }) => {
+      let view = BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#link-preview'))!
+      return { bounds: view.getBounds(), visible: view.getVisible() }
+    })
+    expect(preview.visible).toBe(true)
+    expect(preview.bounds.x).toBe(Math.round(paneBounds.x))
+    expect(preview.bounds.y + preview.bounds.height).toBe(Math.round(paneBounds.y + paneBounds.height))
+  }).toPass({ timeout: 5000 })
+  await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
 })

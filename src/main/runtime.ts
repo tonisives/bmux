@@ -1,6 +1,6 @@
 import { deviceScreenShape } from '../shared/device-frame'
-import { app, BaseWindow, BrowserWindow, WebContentsView, View, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
-import type { DownloadItem, WebContents } from 'electron'
+import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
+import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
@@ -53,7 +53,7 @@ import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
 import { createFaviconCache } from './favicon-cache'
 
-type LiveTab = { view: WebContentsView; camera?: View; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
+type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -333,7 +333,8 @@ export let createRuntime = (dataDirectory: string) => {
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
-    let bounds = live.linkTabId ? (client && target ? floatBounds(client, target.pane.id) : undefined) ?? live.bounds.find(bounds => bounds.paneId === live.linkTabId) : undefined
+    let reported = live.bounds.find(bounds => bounds.paneId === live.linkTabId)
+    let bounds = live.linkTabId ? (client && target ? floatBounds(client, target.pane.id) : undefined) ?? reported?.paneBounds ?? reported : undefined
     let page = live.linkTabId ? tabs.get(live.linkTabId) : undefined
     let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.id === live.linkTabId && !!bounds
     if (!visible || !bounds) { live.linkPreview.setVisible(false); return }
@@ -1167,6 +1168,8 @@ export let createRuntime = (dataDirectory: string) => {
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
       if (!live.parent.isDestroyed() && live.parent.contentView.children.includes(live.view)) live.parent.contentView.removeChildView(live.view)
+      if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
+      live.camera?.webContents.close()
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
     }
@@ -1256,7 +1259,9 @@ export let createRuntime = (dataDirectory: string) => {
     // Reparenting a focused view directly into a hidden host can resign the client.
     keepClientFocus(live)
     if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
+    if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
     parent.contentView.addChildView(live.view)
+    if (live.camera) parent.contentView.addChildView(live.camera)
     live.parent = parent
   }
   let requestPreview = (tabId: string, live: LiveTab) => {
@@ -1344,15 +1349,20 @@ export let createRuntime = (dataDirectory: string) => {
         live.view.setBorderRadius(shape ? Math.round(shape.radius) : 0)
         if (shape) {
           if (!live.camera) {
-            live.camera = new View()
+            live.camera = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+            void live.camera.webContents.loadURL('about:blank').catch(reportError)
             live.camera.setBackgroundColor('#080808')
-            live.view.addChildView(live.camera)
+            live.parent.contentView.addChildView(live.camera)
           }
           let camera = shape.camera
-          live.camera.setBounds({ x: Math.round(camera.x), y: Math.round(camera.y), width: Math.max(1, Math.round(camera.width)), height: Math.max(1, Math.round(camera.height)) })
+          live.camera.setBounds({ x: fitted.x + Math.round(camera.x), y: fitted.y + Math.round(camera.y), width: Math.max(1, Math.round(camera.width)), height: Math.max(1, Math.round(camera.height)) })
           live.camera.setBorderRadius(Math.round(Math.min(camera.width, camera.height) / 2))
         }
-        live.camera?.setVisible(!!shape)
+        if (!shape && live.camera) {
+          live.parent.contentView.removeChildView(live.camera)
+          live.camera.webContents.close()
+          live.camera = undefined
+        }
         if (persona && live.deviceScale !== fitted.scale) {
           live.deviceScale = fitted.scale
           void live.ready.then(() => {
@@ -1375,7 +1385,7 @@ export let createRuntime = (dataDirectory: string) => {
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
-        if (page?.parent === live.window) ordered.push(page.view)
+        if (page?.parent === live.window) { ordered.push(page.view); if (page.camera) ordered.push(page.camera) }
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
@@ -1383,6 +1393,7 @@ export let createRuntime = (dataDirectory: string) => {
         let page = tabs.get(paneById(model, placement.paneId).pane.id)
         if (page?.parent === live.window) {
           ordered.push(page.view)
+          if (page.camera) ordered.push(page.camera)
         }
       }
       let current = live.window.contentView.children.filter(view => ordered.includes(view))

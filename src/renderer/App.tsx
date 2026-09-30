@@ -829,7 +829,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let frame = pane.device ? frameGeometry(pane.device, deviceSize) : null
   useLayoutEffect(() => {
-    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
+    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(), pane = element.closest('[data-pane-content]')!.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height, paneBounds: { x: pane.x, y: pane.y, width: pane.width, height: pane.height } } }))
     let observer = new ResizeObserver(publish)
     if (ref.current) observer.observe(ref.current)
     let screen = ref.current?.querySelector<HTMLElement>('[data-browser-content]')
@@ -857,7 +857,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
     {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>
 }
