@@ -1,3 +1,4 @@
+import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
@@ -76,7 +77,6 @@ export let createRuntime = (dataDirectory: string) => {
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
-  if (hostProxy) for (let profile of model.profiles) profile.proxy = hostProxy
   let controls = createControlLeases()
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
@@ -182,7 +182,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === focusedClientId)
       let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
       let owner = pane && paneById(model, pane.id).session
-      if (!pane || (owner?.private ? `private:${owner.id}:${pane.profileId}` : pane.profileId) !== profileId) throw new Error('Select a pane in the extension profile first')
+      if (!pane || (owner?.private ? `private:${owner.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)) !== profileId) throw new Error('Select a pane in the extension profile first')
       let tab = await execute({ method: 'tab.create', args: { pane: pane.id, url: details.url ?? 'about:blank', ...(details.active !== false ? { client: client!.id } : {}) } }) as { id: string }
       let live = tabs.get(tab.id)!
       return [live.contents, live.parent]
@@ -406,7 +406,7 @@ export let createRuntime = (dataDirectory: string) => {
   let proxySettings = (args: Record<string, unknown>, profile: Model['profiles'][number]) => {
     let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
     let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
-    let credentialProfile = args.credentialProfile === '' ? undefined : args.credentialProfile ? resolve(model.profiles, args.credentialProfile, 'Profile') : profile
+    let credentialProfile = args.credentialProfile === '' ? undefined : args.credentialProfile ? connectionProfile(model, String(args.credentialProfile)) : connectionProfile(model, defaultConnectionId(profile))
     let savedCredentials = proxy.authenticated && credentialProfile?.proxy?.authenticated ? proxyCredentials.get(credentialProfile.id) : undefined
     if (proxy.authenticated && password && !username) throw new Error('Enter both proxy username and password')
     if (proxy.authenticated && username && !password && username !== savedCredentials?.username) throw new Error('Enter a password for this username')
@@ -415,7 +415,7 @@ export let createRuntime = (dataDirectory: string) => {
     return { proxy, replacement }
   }
   let applyProfileNetwork = async (profileId: string, override?: ReturnType<typeof parseProfileProxy> | null, replacement?: ProxyCredentials) => {
-    let proxy = hostProxy ?? (override === undefined ? resolve(model.profiles, profileId, 'Profile').proxy : override ?? undefined)
+    let proxy = hostProxy ?? (override === undefined ? connectionProfile(model, profileId).proxy : override ?? undefined)
     let browser = electronSession.fromPartition(`persist:${profileId}`)
     if (proxy) {
       let relay = await proxyRelays.create(profileId, proxy, replacement)
@@ -462,7 +462,7 @@ export let createRuntime = (dataDirectory: string) => {
     return result
   }
   let browserSession = (profileId: string, privateSessionId?: string) => {
-    let profile = resolve(model.profiles, profileId, 'Profile')
+    let profile = connectionProfile(model, profileId)
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
     let session = configureSessionIdentity(profile.id, undefined, privateSessionId)
     if (configuredProfiles.has(key)) return session
@@ -475,8 +475,9 @@ export let createRuntime = (dataDirectory: string) => {
     })
     let networkReady = (async () => {
       try {
+        if (!privateSessionId) await seedConnectionCookies(profileId, session)
         if (privateSessionId) {
-          if (profile.proxy) {
+          if (profile.proxy || hostProxy) {
             browserSession(profileId)
             await profileNetworkReady.get(profileId)
             let relay = proxyRelays.get(profileId)
@@ -493,10 +494,11 @@ export let createRuntime = (dataDirectory: string) => {
         await waitForProfileProxyRecovery(profileId, error)
       }
     })()
-    let ready = privateSessionId ? networkReady.then(() => extensions.attachPrivate(key, session)) : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
+    let ready = privateSessionId ? networkReady.then(() => extensions.attachPrivate(key, session)) : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session, model.profiles.find(owner => owner.connections?.some(connection => connection.id === profileId))?.id))
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
-    filters?.attach(session, profileId)
+    let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
+    filters?.attach(session, ownerId)
     session.setPermissionCheckHandler((_contents, permission, origin, details) => {
       let known = permissionGrants.get(`${key}|${origin}|${permission}`)
       if (known !== undefined) return known
@@ -510,7 +512,7 @@ export let createRuntime = (dataDirectory: string) => {
       let known = permissionGrants.get(grantKey)
       if (known !== undefined) { reply(known); return }
       let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''
-      let request = { id: id('permission'), profileId, origin, permission, paneId: tabId, reply, privateSessionId }
+      let request = { id: id('permission'), profileId: ownerId, origin, permission, paneId: tabId, reply, privateSessionId }
       permissions.set(request.id, request)
       publish()
     })
@@ -521,7 +523,7 @@ export let createRuntime = (dataDirectory: string) => {
       let directory = app.getPath('downloads')
       let target = path.join(directory, requestedName)
       for (let index = 1; fsSync.existsSync(target) || downloadPaths.has(target); index++) target = path.join(directory, `${stem} (${index})${extension}`)
-      let record: Download = { id: id('download'), profileId, name: path.basename(target), path: target, state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
+      let record: Download = { id: id('download'), profileId: ownerId, name: path.basename(target), path: target, state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
       // Avoid a Save As dialog activating the application during bot work.
       item.setSavePath(target)
       downloadPaths.add(target)
@@ -554,18 +556,42 @@ export let createRuntime = (dataDirectory: string) => {
     }))
     await fs.rm(path.join(privateStorageRoot, sessionId), { recursive: true, force: true })
   }
-  let reloadProfileTabs = (profileId: string) => {
-    for (let [tabId, live] of tabs) {
-      if (live.contents.isDestroyed() || tabById(model, tabId).pane.profileId !== profileId) continue
-      delete crashes[tabId]
-      live.contents.reloadIgnoringCache()
+  let seedConnectionCookies = async (connectionId: string, target: Electron.Session, visited = new Set<string>()) => {
+    let owner = model.profiles.find(profile => profile.connections?.some(connection => connection.id === connectionId))
+    let connection = owner?.connections?.find(connection => connection.id === connectionId)
+    if (!connection?.seedFrom) return
+    if (visited.has(connectionId)) throw new Error('Invalid cookie source')
+    visited.add(connectionId)
+    let source = electronSession.fromPartition(`persist:${connection.seedFrom}`)
+    await seedConnectionCookies(connection.seedFrom, source, visited)
+    for (let cookie of await source.cookies.get({})) {
+      let { name, value, domain, path: cookiePath, secure, httpOnly, expirationDate, sameSite, hostOnly } = cookie
+      if (!domain) continue
+      let url = `${secure ? 'https' : 'http'}://${domain.replace(/^\./, '')}${cookiePath || '/'}`
+      await target.cookies.set({ url, name, value, ...(hostOnly ? {} : { domain }), path: cookiePath, secure, httpOnly, expirationDate, sameSite })
     }
+    await target.cookies.flushStore()
+    delete connection.seedFrom
+    save()
   }
-  let updateProfileNetwork = async (profileId: string, proxy?: ReturnType<typeof parseProfileProxy>, replacement?: ProxyCredentials) => {
-    browserSession(profileId)
-    let applying = applyProfileNetwork(profileId, proxy ?? null, replacement)
-    profileNetworkReady.set(profileId, applying)
-    await applying
+  let saveDefaultConnection = (profile: Model['profiles'][number], proxy?: ReturnType<typeof parseProfileProxy>, credentials?: ProxyCredentials) => {
+    let currentId = defaultConnectionId(profile)
+    let currentCredentials = profile.proxy?.authenticated ? proxyCredentials.get(currentId) : undefined
+    if (JSON.stringify(profile.proxy) === JSON.stringify(proxy) && (!proxy?.authenticated || credentials?.username === currentCredentials?.username && credentials?.password === currentCredentials?.password)) return profile
+    let saved = profile.connections?.find(connection => {
+      if (JSON.stringify(connection.proxy) !== JSON.stringify(proxy)) return false
+      let previous = proxy?.authenticated ? proxyCredentials.get(connection.id) : undefined
+      return !proxy?.authenticated || previous?.username === credentials?.username && previous?.password === credentials?.password
+    })
+    if (saved) { profile.connectionId = saved.id; profile.proxy = saved.proxy; save(); return profile }
+    let connectionId = id('profile')
+    proxyCredentials.set(connectionId, proxy?.authenticated ? credentials : undefined)
+    profile.connections ??= [{ id: profile.id, ...(profile.proxy ? { proxy: { ...profile.proxy } } : {}) }]
+    profile.connections.push({ id: connectionId, ...(proxy ? { proxy } : {}), seedFrom: currentId })
+    profile.connectionId = connectionId
+    profile.proxy = proxy
+    save()
+    return profile
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false) => {
     let live = await ensureLiveTab(tabId)
@@ -784,7 +810,7 @@ export let createRuntime = (dataDirectory: string) => {
     let cachedIcon = faviconCache.get(pane.profileId, initialUrl, session.private ? session.id : undefined)
     if (cachedIcon) favicons[tabId] = cachedIcon
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
-    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(pane.profileId, session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
+    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(paneConnectionId(pane), session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
@@ -807,10 +833,10 @@ export let createRuntime = (dataDirectory: string) => {
     idleHistory.delete(tabId)
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
-    extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, contents, parent)
+    extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), contents, parent)
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
-      profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
+      profileNetworkReady.get(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)),
       // Let Chromium open native pickers. CDP interception aborts the File System
       // Access API, whose requests have no input node to receive selected files.
       (pane.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, pane.device!)) : Promise.resolve()).then(() => pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)),
@@ -952,9 +978,9 @@ export let createRuntime = (dataDirectory: string) => {
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
       if (!options) {
-        if (pane.device) {
+        if (pane.device || loadOptions) {
           let popup = createLiveTab(added.id, false)
-          void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url) }).catch(reportError)
+          void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
         }
         changed(); return undefined
       }
@@ -964,8 +990,8 @@ export let createRuntime = (dataDirectory: string) => {
       return popup.contents
     }
     contents.setWindowOpenHandler(details => {
-      if (pane.device) {
-        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, false) }, 100)
+      if (pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
+        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }) }, 100)
         return { action: 'deny' }
       }
       return {
@@ -1338,7 +1364,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed) continue
       moveView(live, target)
       let { session, pane } = tabById(model, tabId)
-      extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
+      extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
         let persona = tabById(model, tabId).pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
@@ -1608,9 +1634,11 @@ export let createRuntime = (dataDirectory: string) => {
       return placement
     }
     if (method.startsWith('extension.')) {
-      let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined
+      let selected = sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
+      let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : selected ? tabById(model, selected) : undefined
       let privateOwner = typeof args.session === 'string' ? model.sessions.find(item => item.id === args.session && item.private) : tab?.session.private ? tab.session : undefined
-      let profile = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
+      let owner = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
+      let profile = connectionProfile(model, tab?.pane.profileId === owner.id ? paneConnectionId(tab.pane) : defaultConnectionId(owner))
       let extensionKey = privateOwner ? `private:${privateOwner.id}:${profile.id}` : profile.id
       browserSession(profile.id, privateOwner?.id)
       await profileNetworkReady.get(extensionKey)
@@ -1635,7 +1663,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'extension.open' || method === 'extension.options') {
         let client = sourceClientId ? model.clients.find(client => client.id === sourceClientId) : undefined
         let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-        let activeTab = pane?.profileId === profile.id && (!privateOwner || paneById(model, pane.id).session.id === privateOwner.id) ? tabs.get(pane.id) : undefined
+        let activeTab = pane && paneConnectionId(pane) === profile.id && (!privateOwner || paneById(model, pane.id).session.id === privateOwner.id) ? tabs.get(pane.id) : undefined
         return extensions.open(extensionKey, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent }, method === 'extension.options' ? 'options' : 'popup')
       }
       throw new Error('Unknown extension command')
@@ -1834,7 +1862,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'profile.proxy.username') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let profile = connectionProfile(model, String(args.profile))
       return { username: profile.proxy?.authenticated ? proxyCredentials.get(profile.id)?.username ?? '' : '' }
     }
     if (method === 'profile.proxy.set') {
@@ -1842,40 +1870,20 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let { proxy, replacement } = proxySettings(args, profile)
-      let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
-      let recovering = blockedProfileNetworks.has(profile.id)
-      try {
-        await updateProfileNetwork(profile.id, proxy, replacement)
-        if (recovering) await verifyProfileProxy(profile.id)
-        proxyCredentials.set(profile.id, proxy.authenticated ? replacement : undefined)
-        profile.proxy = proxy
-        if (!recovering) delete profileProxyTests[profile.id]
-      } catch (error) {
-        try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }
-        throw error
-      }
-      save(); reloadProfileTabs(profile.id); return profile
+      return saveDefaultConnection(profile, proxy, replacement)
     }
     if (method === 'profile.proxy.clear') {
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
-      let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
-      try {
-        await updateProfileNetwork(profile.id)
-        proxyCredentials.set(profile.id); delete profile.proxy; delete profileProxyTests[profile.id]
-        if (profileProxyFailures[profile.id]) { let next = { ...profileProxyFailures }; delete next[profile.id]; profileProxyFailures = next }
-        releaseProfileNetwork(profile.id)
-      }
-      catch (error) { try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }; throw error }
-      save(); reloadProfileTabs(profile.id); return profile
+      return saveDefaultConnection(resolve(model.profiles, args.profile, 'Profile'))
     }
     if (method === 'profile.proxy.test') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
+      let connectionId = defaultConnectionId(profile)
       if (args.host !== undefined && !hostProxy) {
         let { proxy, replacement } = proxySettings(args, profile)
-        let savedCredentials = profile.proxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
+        let savedCredentials = profile.proxy?.authenticated ? proxyCredentials.get(connectionId) : undefined
         let unchanged = JSON.stringify(proxy) === JSON.stringify(profile.proxy) && (!proxy.authenticated || replacement?.username === savedCredentials?.username && replacement?.password === savedCredentials?.password)
         if (!unchanged) {
           let probeId = id('profile')
@@ -1886,12 +1894,12 @@ export let createRuntime = (dataDirectory: string) => {
         }
       }
       if (!profile.proxy) throw new Error('Configure a proxy first')
-      delete profileProxyTests[profile.id]
+      delete profileProxyTests[connectionId]
       publish()
-      browserSession(profile.id)
-      if (!blockedProfileNetworks.has(profile.id)) await profileNetworkReady.get(profile.id)
-      else if (!appliedProfileProxies.has(profile.id)) await applyProfileNetwork(profile.id)
-      return verifyProfileProxy(profile.id)
+      browserSession(connectionId)
+      if (!blockedProfileNetworks.has(connectionId)) await profileNetworkReady.get(connectionId)
+      else if (!appliedProfileProxies.has(connectionId)) await applyProfileNetwork(connectionId)
+      return verifyProfileProxy(connectionId)
     }
     if (method === 'profile.device.set') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1961,7 +1969,7 @@ export let createRuntime = (dataDirectory: string) => {
       let panes = reassignablePanes(session)
       session.profileExplicit = true
       if (session.defaultProfileId === profile.id) { save(); return session }
-      for (let pane of panes ?? []) { disposeTab(pane.id); pane.profileId = profile.id }
+      for (let pane of panes ?? []) { disposeTab(pane.id); pane.profileId = profile.id; pane.connectionId = profile.connectionId }
       session.defaultProfileId = profile.id
       changed(); await visualQueue; return session
     }
@@ -1977,6 +1985,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (pane.profileId === profile.id) return pane
       disposeTab(pane.id)
       pane.profileId = profile.id
+      pane.connectionId = profile.connectionId
       changed(); await visualQueue; return pane
     }
     if (method === 'rename-session') {
@@ -1988,6 +1997,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (panes) {
         disposeTab(panes[0].id)
         panes[0].profileId = previousProfileId!
+        panes[0].connectionId = model.profiles.find(profile => profile.id === previousProfileId)?.connectionId
         session.defaultProfileId = previousProfileId!
       }
       session.name = name
@@ -2499,14 +2509,14 @@ export let createRuntime = (dataDirectory: string) => {
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
         if (method === 'navigate') {
-          let failures = proxyRelays.get(pane.profileId)?.failures ?? 0
+          let failures = proxyRelays.get(paneConnectionId(pane))?.failures ?? 0
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
           try { await contents.loadURL(normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
           finally { contents.off('did-navigate', response) }
-          if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(pane.profileId)?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
+          if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(paneConnectionId(pane))?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
           return { id: tab.id, url: contents.getURL() }
         }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }

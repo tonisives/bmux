@@ -1,3 +1,4 @@
+import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
@@ -122,7 +123,7 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...proxyFailureNotices(state, window, run, show),
+    ...proxyFailureNotices(state, window, show),
   ]
   let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
@@ -173,11 +174,11 @@ let useBookmarkMemory = () => {
   return { bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection }
 }
 
-let proxyFailureNotices = (state: PublicState, window: InternalWindow, run: UIContext['run'], show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
-  let pane = window.panes.find(item => item.profileId === profileId)
+let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
+  let pane = window.panes.find(item => paneConnectionId(item) === profileId)
   if (!pane) return []
-  let name = state.model.profiles.find(item => item.id === profileId)?.name ?? profileId
-  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }, { label: 'Disable proxy and continue', run: () => { void run('profile.proxy.clear', { profile: profileId }) } }] }]
+  let name = state.model.profiles.find(item => item.id === pane.profileId)?.name ?? profileId
+  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -235,7 +236,7 @@ let Notifications = ({ notices }: { notices: Notification[] }) => <div className
 
 let Status = () => {
   let { state, show, run, acknowledgedDownloads } = useUI()
-  let { client, session, profile } = selection(state)
+  let { client, session, profile, pane } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let draggedWindow = useRef<string | null>(null)
   let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
@@ -285,10 +286,11 @@ let Status = () => {
   let downloadTitle = progressingDownloads.length
     ? `${progressingDownloads.length} download${progressingDownloads.length === 1 ? '' : 's'} in progress${downloadProgress === undefined ? '' : ` · ${downloadProgress}%`}`
     : 'Downloads'
-  let proxyTest = profile ? state.profileProxyTests[profile.id] : undefined
-  let proxyFailure = profile ? state.profileProxyFailures[profile.id] : undefined
+  let connection = pane ? connectionProfile(state.model, paneConnectionId(pane)) : profile
+  let proxyTest = connection ? state.profileProxyTests[connection.id] : undefined
+  let proxyFailure = connection ? state.profileProxyFailures[connection.id] : undefined
   let profileTitle = profile ? `Profile: ${profile.name}` : 'Profile'
-  let proxyTitle = proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : profile?.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : ''
+  let proxyTitle = proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : connection?.proxy ? `${connection.proxy.protocol}://${connection.proxy.host}:${connection.proxy.port}` : ''
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
@@ -309,7 +311,7 @@ let Status = () => {
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {!session!.private && <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>}
-    {profile?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
+    {profile && connection?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={extensions} aria-label="Extensions" title="Extensions" className={css.extensionsButton}><ExtensionsIcon /></button>
@@ -764,10 +766,11 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [profilePickerOpen])
   let customProfile = profile && session && !session.private && profile.id !== session.defaultProfileId ? profile : undefined
-  let proxyTest = customProfile ? state.profileProxyTests[customProfile.id] : undefined
+  let paneProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)) : undefined
+  let proxyTest = customProfile && paneProxy ? state.profileProxyTests[paneProxy.id] : undefined
   let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(pane!)}` : ''
-  let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
-  let proxyRouteTitle = customProfile?.proxy ? `${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
+  let proxyRouteLabel = customProfile && paneProxy?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
+  let proxyRouteTitle = customProfile && paneProxy?.proxy ? `${paneProxy.proxy.protocol}://${paneProxy.proxy.host}:${paneProxy.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
   let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
   if (clickState && !editing) return <div className={css.addressBar} role="group" aria-label="Pane address"><ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /></div>
   return <div className={css.addressBar} role="group" aria-label="Pane address">
@@ -782,7 +785,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>{customProfile?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
+    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>{customProfile && paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -1310,9 +1313,9 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
   let [busy, setBusy] = useState(false)
-  let [credentialProfile, setCredentialProfile] = useState(profile.id), [savedUsername, setSavedUsername] = useState('')
+  let [credentialProfile, setCredentialProfile] = useState(defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useState('')
   let [pickerOpen, setPickerOpen] = useState(false)
-  let savedProfiles = state.model.profiles.filter(item => item.proxy)
+  let savedProfiles = savedProxyProfiles(state.model)
   useEffect(() => {
     if (!credentialProfile) return
     let cancelled = false
@@ -1339,8 +1342,8 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   }
   let [tested, setTested] = useState<{ ip: string; region?: string }>(), testRevision = useRef(0)
   useEffect(() => { testRevision.current++; setTested(undefined) }, [protocol, host, port, authenticated, username, password, credentialProfile])
-  let savedEndpoint = protocol === profile.proxy?.protocol && host === profile.proxy?.host && Number(port) === profile.proxy?.port && authenticated === profile.proxy?.authenticated && !password && username === savedUsername && credentialProfile === profile.id
-  let proxyTest = tested ?? (savedEndpoint ? state.profileProxyTests[profile.id] : undefined)
+  let savedEndpoint = protocol === profile.proxy?.protocol && host === profile.proxy?.host && Number(port) === profile.proxy?.port && authenticated === profile.proxy?.authenticated && !password && username === savedUsername && credentialProfile === defaultConnectionId(profile)
+  let proxyTest = tested ?? (savedEndpoint ? state.profileProxyTests[defaultConnectionId(profile)] : undefined)
   let providerEntry = providers.find(entry => entry.key === providerKey)
   let provider = providerEntry?.provider
   let changeProvider = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -1370,7 +1373,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
     event.preventDefault(); if (busy) return
     setBusy(true)
     let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile })
-    if (result) { setCredentialProfile(profile.id); setPassword('') }
+    if (result) { setCredentialProfile(defaultConnectionId(result as Profile)); setPassword('') }
     setBusy(false)
   }
   let useSystem = async () => { if (busy) return; setBusy(true); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
@@ -1383,29 +1386,31 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
     setBusy(false)
   }
   return <form className={css.profileProxy} onSubmit={saveProxy}>
-      <h2>Connection</h2>
+      <h2>New panes</h2>
       <div className={css.proxyFields}>
-      <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+      <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Used for new panes. {paneCount} existing pane{paneCount === 1 ? ' keeps' : 's keep'} their current connection.</p>
       {savedProfiles.length > 0 && <label className={css.savedProxy}>Saved proxies (all profiles)<select aria-label="Saved proxies" value="" onChange={changeSavedProxy}><option value="" disabled>Choose a saved proxy</option>{savedProfiles.map(item => <option key={item.id} value={item.id}>{item.name} · {item.proxy!.protocol}://{item.proxy!.host}:{item.proxy!.port}</option>)}</select></label>}
       <div className={css.profileProxyProvider}><label>Provider<ProxyProviderSelect value={providerEntry ? providerKey : 'custom'} entries={providers} onChange={changeProvider} /></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
       {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} onClick={openProviders} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
       {pickerOpen && <ProxyHostPicker protocol={protocol} entries={providers} onChoose={chooseRegion} onClose={closeProviders} />}
       {provider ? <p>Uses {protocol.toUpperCase()} proxy on port {port}. {provider.help}</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
-      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={state.model.profiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={state.model.profiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
+      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
       </div>
-      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Save proxy</button><button type="button" onClick={testProxy} disabled={busy || !host}>Test connection</button>{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
+      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Use for new panes</button><button type="button" onClick={testProxy} disabled={busy || !host}>Test connection</button>{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
     </form>
 }
 
 let ProxyInfo = () => {
   let { state } = useUI()
-  let { profile } = selection(state)
+  let { profile, pane } = selection(state)
   if (!profile) return <p>No profile is selected.</p>
+  let current = pane ? connectionProfile(state.model, paneConnectionId(pane)) : profile
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   return <section className={css.profileInfo} aria-label={`${profile.name} proxy settings`}>
-    <div className={css.profileHeading}><ProfileConnectionIcon proxy={!!profile.proxy} verified={!!state.profileProxyTests[profile.id]} /><strong>{profile.name}</strong></div>
-    <ProxySettings key={`${profile.id}:${JSON.stringify(profile.proxy)}`} profile={profile} paneCount={paneCount} showRegion />
+    <div className={css.profileHeading}><ProfileConnectionIcon proxy={!!current.proxy} verified={!!state.profileProxyTests[current.id]} /><strong>{profile.name}</strong></div>
+    <p>This pane: {current.proxy ? `${current.proxy.protocol}://${current.proxy.host}:${current.proxy.port}` : 'system connection'}</p>
+    <ProxySettings key={`${profile.id}:${defaultConnectionId(profile)}`} profile={profile} paneCount={paneCount} showRegion />
   </section>
 }
 

@@ -34,7 +34,8 @@ proxy_providers:
       - { group: Asia Pacific, label: "Kuala Lumpur, Malaysia", host: my67.proxy.nordvpn.com, protocol: https, port: 89 }
       - { group: Asia Pacific, label: "Auckland, New Zealand", host: nz123.proxy.nordvpn.com, protocol: https, port: 89 }
       - { group: Asia Pacific, label: "Manila, Philippines", host: ph20.proxy.nordvpn.com, protocol: https, port: 89 }
-      - { group: Asia Pacific, label: Singapore, host: sg640.proxy.nordvpn.com, protocol: https, port: 89 }
+      # Verified with service credentials on 2026-09-30.
+      - { group: Asia Pacific, label: Singapore, host: sg651.proxy.nordvpn.com, protocol: https, port: 89 }
       - { group: Asia Pacific, label: "Seoul, South Korea", host: kr169.proxy.nordvpn.com, protocol: https, port: 89 }
       - { group: Asia Pacific, label: "Taipei, Taiwan", host: tw246.proxy.nordvpn.com, protocol: https, port: 89 }
       - { group: Asia Pacific, label: "Bangkok, Thailand", host: th45.proxy.nordvpn.com, protocol: https, port: 89 }

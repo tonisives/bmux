@@ -37,22 +37,27 @@ Profiles are not an authorization boundary against the local CLI.
 
 In profile details, find **Connection**. Choose **Custom**, then HTTP, HTTPS,
 or SOCKS5. Enter the host and port. Enable authentication when needed and enter
-both credentials. Choose **Save proxy**.
+both credentials. Choose **Use for new panes**.
 
 **Saved proxies (all profiles)** lists connections already configured in any
 profile. Selecting one fills the endpoint and saved username and reuses its
 encrypted credentials when you save. New panes using an existing profile show
-that profile's current connection.
+the default selected when they were created.
 
-Changes reload open panes using this profile. Finish unsaved page work first.
-Other profiles retain their own settings.
+Changes apply to newly created panes and windows. Existing panes retain their
+connection, including after restart. Previous endpoints and their encrypted
+credentials remain available in **Saved proxies (all profiles)**.
+
+Each connection uses separate browser site storage. On first use, a new
+connection copies cookies from the previous default to preserve most logins;
+local storage and IndexedDB remain separate. Existing panes are not reloaded.
 
 Credentials are encrypted with Electron safeStorage and stored separately from
 ordinary profile state. Saving credentials fails if OS encryption is unavailable.
 Authenticated SOCKS5 uses a private loopback relay because Chromium does not
 directly support SOCKS5 credentials.
 
-**Use system connection** removes the profile proxy. It does not disable a system
+**Use system connection** selects the system connection for new panes. It does not disable a system
 VPN or proxy. HTTP/HTTPS describes the proxy protocol, not the destination's security.
 
 ## Verify and troubleshoot
@@ -68,7 +73,7 @@ and does not make a signed-in account anonymous.
 
 At startup, configured proxies are verified before page navigation is restored.
 If setup or verification fails, affected profile pages are paused. The notification
-offers **Proxy settings** and **Disable proxy and continue**. Check protocol,
+offers **Proxy settings**. Choosing a new default leaves paused panes on their original connection. Check protocol,
 host, port, credentials, and service availability. This startup protection is
 not a general system-wide kill switch.
 

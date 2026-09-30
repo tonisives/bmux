@@ -10,7 +10,10 @@ export let nextPaneId = (model: Model, reserved: Iterable<string> = []) => {
   while (used.has(`%${number}`)) number++
   return `%${number}`
 }
-export let newPane = (profileId: string, url = 'about:blank', model?: Model): Pane => ({ id: model ? nextPaneId(model) : id('pane'), profileId, url, title: url === 'about:blank' ? 'New window' : url, zoom: 1 })
+export let newPane = (profileId: string, url = 'about:blank', model?: Model): Pane => {
+  let connectionId = model?.profiles.find(profile => profile.id === profileId)?.connectionId
+  return { id: model ? nextPaneId(model) : id('pane'), profileId, ...(connectionId ? { connectionId } : {}), url, title: url === 'about:blank' ? 'New window' : url, zoom: 1 }
+}
 export let newWindow = (name: string, profileId: string, automaticName = false, model?: Model): InternalWindow => {
   let pane = newPane(profileId, 'about:blank', model)
   return { id: id('win'), name, automaticName, panes: [pane], layout: { kind: 'pane', paneId: pane.id } }
@@ -142,6 +145,7 @@ export let cloneWindow = (window: InternalWindow, model?: Model): InternalWindow
     let paneId = model ? nextPaneId(model, paneIds.values()) : id('pane')
     paneIds.set(pane.id, paneId)
     pane.id = paneId
+    if (model) pane.connectionId = model.profiles.find(profile => profile.id === pane.profileId)?.connectionId
   }
   for (let pane of copy.panes) if (pane.openerPaneId) pane.openerPaneId = paneIds.get(pane.openerPaneId)
   copy.layout = mapLayout(copy.layout, node => node.kind === 'pane' ? { ...node, paneId: paneIds.get(node.paneId)! } : { ...node, id: id('split') })
@@ -220,6 +224,19 @@ export let validateModel = (value: unknown): Model => {
     checkId(profile.id)
     if (typeof profile.name !== 'string' || typeof profile.background !== 'boolean') throw new Error('Invalid profile')
     if (profile.proxy !== undefined) profile.proxy = parseProfileProxy(profile.proxy)
+    if (profile.connections !== undefined) {
+      if (!Array.isArray(profile.connections)) throw new Error('Invalid profile connections')
+      let connectionIds = new Set<string>()
+      for (let connection of profile.connections) {
+        if (!/^profile_[a-zA-Z0-9_-]+$/.test(connection.id) || connectionIds.has(connection.id)) throw new Error('Invalid connection ID')
+        connectionIds.add(connection.id)
+        if (connection.id !== profile.id) checkId(connection.id)
+        if (connection.proxy !== undefined) connection.proxy = parseProfileProxy(connection.proxy)
+      }
+      if (!connectionIds.has(profile.id) || !connectionIds.has(profile.connectionId ?? profile.id)) throw new Error('Missing profile connection')
+      for (let connection of profile.connections) if (connection.seedFrom !== undefined && (!connectionIds.has(connection.seedFrom) || connection.seedFrom === connection.id)) throw new Error('Invalid cookie source')
+      if (JSON.stringify(profile.proxy) !== JSON.stringify(profile.connections.find(connection => connection.id === (profile.connectionId ?? profile.id))?.proxy)) throw new Error('Invalid default connection')
+    } else if (profile.connectionId !== undefined) throw new Error('Missing profile connections')
     if (profile.device !== undefined) profile.device = parseDevicePersona(profile.device)
   }
   for (let session of model.sessions) {
@@ -251,6 +268,7 @@ export let validateModel = (value: unknown): Model => {
         checkId(pane.id)
         if (pane.device !== undefined) pane.device = parseDevicePersona(pane.device)
         else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
+        if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
         if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean')) throw new Error('Invalid pane page')
       }
