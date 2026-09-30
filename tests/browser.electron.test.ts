@@ -2131,6 +2131,11 @@ test('status shares constrained space equally between automatic tabs and proport
     await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: true\nkeyboard: {}\n')
     await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(true)
     for (let index = 0; index < 8; index++) await cli('new-window', { session: session.id, client: client.id })
+    let activeClose = list.locator('[data-selected="true"]').getByRole('button', { name: /^Close / })
+    await expect.poll(async () => {
+      let button = (await activeClose.boundingBox())!, bounds = (await list.boundingBox())!
+      return button.width === 14 && button.x >= bounds.x && button.x + button.width <= bounds.x + bounds.width
+    }).toBe(true)
     await cli('select-window', { client: client.id, window: windows[0].id })
     let first = list.locator(`[data-window-id="${windows[0].id}"]`)
     await expect.poll(() => first.locator('span').last().evaluate(element => element.clientWidth)).toBe(0)

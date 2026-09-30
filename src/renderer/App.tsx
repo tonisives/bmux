@@ -297,7 +297,7 @@ let Status = () => {
       let automaticWidth = Math.max(0, ...widths.filter((_, index) => tabs[index].dataset.automatic === 'true'))
       list.style.setProperty('--automatic-tab-width', `${automaticWidth}px`)
       list.dataset.compressed = String(widths.reduce((total, width) => total + width, 0) + Math.max(0, tabs.length - 1) * 3 > list.clientWidth)
-      let active = list.querySelector<HTMLElement>('[data-active="true"]')
+      let active = list.querySelector<HTMLElement>('[data-selected="true"]')
       if (!active) return
       let item = active.getBoundingClientRect(), bounds = list.getBoundingClientRect()
       if (item.left < bounds.left) list.scrollLeft = Math.max(0, list.scrollLeft - (bounds.left - item.left) - 1)
