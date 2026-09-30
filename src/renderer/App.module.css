@@ -319,6 +319,13 @@
 @media (max-width: 480px) { .panel .extensionMetadata > div { display: block; } }
 
 .proxyFooter { position: sticky; bottom: -20px; z-index: 1; padding: 12px 0; background: #191d23; border-top: 1px solid #363c45; }
+.proxyDefault { display: flex; align-items: center; cursor: pointer; }
+.panel input.proxyToggle { appearance: none; flex-shrink: 0; width: 32px; height: 18px; padding: 2px; border: 1px solid #68717c; border-radius: 10px; background: #303640; cursor: pointer; }
+.proxyToggle::after { content: ''; display: block; width: 12px; height: 12px; border-radius: 50%; background: #c0c6ce; }
+.panel input.proxyToggle:checked { background: #a7b69c; border-color: #a7b69c; }
+.proxyToggle:checked::after { transform: translateX(14px); background: #191d23; }
+.proxyToggle:focus-visible { outline: 2px solid #a7b69c; outline-offset: 3px; }
+.proxyToggle:disabled { opacity: 0.5; cursor: wait; }
 .proxyPanel { display: flex; flex-direction: column; overflow: hidden; }
 .proxyPanel > header { flex-shrink: 0; }
 .proxyPanel .panelBody, .proxyPanel .profileInfo, .proxyPanel .profileProxy { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }

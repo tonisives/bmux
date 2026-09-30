@@ -1,4 +1,5 @@
 import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
+import { copyConnectionCookies } from './connection-cookies'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
@@ -460,14 +461,14 @@ export let createRuntime = (dataDirectory: string) => {
     publish()
     return blocked.wait
   }
-  let verifyProfileProxy = async (profileId: string) => {
-    let result = await testProfileProxy(profileId)
+  let acceptProfileProxyTest = (profileId: string, result: Awaited<ReturnType<typeof testProfileProxy>>) => {
     profileProxyTests = { ...profileProxyTests, [profileId]: result }
     if (profileProxyFailures[profileId]) { let next = { ...profileProxyFailures }; delete next[profileId]; profileProxyFailures = next }
     releaseProfileNetwork(profileId)
     publish()
     return result
   }
+  let verifyProfileProxy = async (profileId: string) => acceptProfileProxyTest(profileId, await testProfileProxy(profileId))
   let browserSession = (profileId: string, privateSessionId?: string) => {
     let profile = connectionProfile(model, profileId)
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
@@ -481,8 +482,9 @@ export let createRuntime = (dataDirectory: string) => {
       return await localMediaResponse(request) ?? net.fetch(request, { bypassCustomProtocolHandlers: true })
     })
     let networkReady = (async () => {
+      // Cookie migration must never be reported as a proxy failure or pause navigation.
+      if (!privateSessionId) await seedConnectionCookies(profileId, session).catch(() => console.warn('bmux: Could not finish copying connection cookies'))
       try {
-        if (!privateSessionId) await seedConnectionCookies(profileId, session)
         if (privateSessionId) {
           if (profile.proxy || hostProxy) {
             browserSession(profileId)
@@ -571,13 +573,8 @@ export let createRuntime = (dataDirectory: string) => {
     visited.add(connectionId)
     let source = electronSession.fromPartition(`persist:${connection.seedFrom}`)
     await seedConnectionCookies(connection.seedFrom, source, visited)
-    for (let cookie of await source.cookies.get({})) {
-      let { name, value, domain, path: cookiePath, secure, httpOnly, expirationDate, sameSite, hostOnly } = cookie
-      if (!domain) continue
-      let url = `${secure ? 'https' : 'http'}://${domain.replace(/^\./, '')}${cookiePath || '/'}`
-      await target.cookies.set({ url, name, value, ...(hostOnly ? {} : { domain }), path: cookiePath, secure, httpOnly, expirationDate, sameSite })
-    }
-    await target.cookies.flushStore()
+    let rejected = await copyConnectionCookies(source.cookies, target.cookies)
+    if (rejected) console.warn(`bmux: Skipped ${rejected} cookies rejected while copying a connection`)
     delete connection.seedFrom
     save()
   }
@@ -1889,25 +1886,27 @@ export let createRuntime = (dataDirectory: string) => {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let connectionId = defaultConnectionId(profile)
+      let proxy = hostProxy ?? profile.proxy
+      let credentials = proxy?.authenticated ? proxyCredentials.get(connectionId) : undefined
+      let saved = true
       if (args.host !== undefined && !hostProxy) {
-        let { proxy, replacement } = proxySettings(args, profile)
-        let savedCredentials = profile.proxy?.authenticated ? proxyCredentials.get(connectionId) : undefined
-        let unchanged = JSON.stringify(proxy) === JSON.stringify(profile.proxy) && (!proxy.authenticated || replacement?.username === savedCredentials?.username && replacement?.password === savedCredentials?.password)
-        if (!unchanged) {
-          let probeId = id('profile')
-          try {
-            let relay = await proxyRelays.create(probeId, proxy, replacement)
-            return await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/')
-          } finally { await proxyRelays.close(probeId) }
-        }
+        let draft = proxySettings(args, profile)
+        saved = JSON.stringify(draft.proxy) === JSON.stringify(proxy) && (!draft.proxy.authenticated || draft.replacement?.username === credentials?.username && draft.replacement?.password === credentials?.password)
+        proxy = draft.proxy; credentials = draft.replacement
       }
-      if (!profile.proxy) throw new Error('Configure a proxy first')
-      delete profileProxyTests[connectionId]
-      publish()
-      browserSession(connectionId)
-      if (!blockedProfileNetworks.has(connectionId)) await profileNetworkReady.get(connectionId)
-      else if (!appliedProfileProxies.has(connectionId)) await applyProfileNetwork(connectionId)
-      return verifyProfileProxy(connectionId)
+      if (!proxy) throw new Error('Configure a proxy first')
+      if (saved) { delete profileProxyTests[connectionId]; publish() }
+      // A paused pane waits for successful verification, so tests must not await its readiness.
+      let probeId = id('profile')
+      try {
+        let relay = await proxyRelays.create(probeId, proxy, credentials)
+        let result = await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/')
+        if (saved) {
+          if (blockedProfileNetworks.has(connectionId) && !appliedProfileProxies.has(connectionId)) await applyProfileNetwork(connectionId)
+          acceptProfileProxyTest(connectionId, result)
+        }
+        return result
+      } finally { await proxyRelays.close(probeId) }
     }
     if (method === 'profile.device.set') {
       if (!sourceClientId) throw new Error('Trusted UI required')
