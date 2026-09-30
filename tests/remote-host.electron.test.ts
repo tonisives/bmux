@@ -131,7 +131,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await application.evaluate(({BaseWindow},id)=>{let window=BaseWindow.fromId(id)!;window.show();window.focus()},localWindowId)
     await expect.poll(async () => (await command('status')).focusedClientId).toBe(localClient.id)
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(700)
-    await expect.poll(() => viewer.getByRole('button',{name:'Take control',exact:true}).isVisible()).toBe(true)
+    // The host broadcasts external control changes every five seconds.
+    await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeVisible({timeout:10000})
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()
     await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
     await viewer.getByRole('button',{name:'Release control',exact:true}).click()
