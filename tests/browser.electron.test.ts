@@ -2046,7 +2046,7 @@ test('status keeps full session and manual names while shortening website titles
     await address.fill(`${url}/status-names`); await address.press('Enter')
     await cli('wait', { pane: pane.id, selector: '#text' })
     await cli('eval', { pane: pane.id, expression: `document.title = ${JSON.stringify(longTitle)}` })
-    await expect(windowButton).toHaveText(`1:${longTitle.slice(0, 23)}…*`)
+    await expect(windowButton).toHaveText(`1:${longTitle.slice(0, 17)}…*`)
     await expect(windowButton).toHaveAttribute('title', longTitle)
     expect((await cli('list-windows', { session: session.id }))[0].name).toBe(longTitle)
     await cli('rename-window', { window: window.id, name: manualName })
