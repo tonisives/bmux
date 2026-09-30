@@ -80,6 +80,57 @@ test.afterAll(async () => {
   if (directory) await fs.rm(directory, { recursive: true, force: true })
 })
 
+test('clears cookies and site storage from the lock panel without affecting other sites or profiles', async () => {
+  await open(urls.http)
+  await expect.poll(async () => (await security())?.status).toBe('http')
+  let page = application.context().pages().find(page => page.url() === `${urls.http}/`)!
+  await expect(page.locator('h1')).toHaveText('Connection fixture')
+  let otherUrl = urls.http.replace('localhost', '127.0.0.1')
+  await application.evaluate(async ({ session }, { url, otherUrl }) => {
+    let browser = session.fromPartition('persist:profile_default')
+    await browser.cookies.set({ url: `${url}/account`, name: 'fixture', value: 'clear', path: '/account', httpOnly: true })
+    await browser.cookies.set({ url: otherUrl, name: 'fixture', value: 'keep' })
+    await session.fromPartition('site-data-other-profile').cookies.set({ url, name: 'fixture', value: 'keep' })
+  }, { url: urls.http, otherUrl })
+  await page.evaluate(async () => {
+    localStorage.setItem('fixture', 'clear')
+    await new Promise<void>((resolve, reject) => {
+      let request = indexedDB.open('fixture')
+      request.onupgradeneeded = () => request.result.createObjectStore('fixture')
+      request.onsuccess = () => { request.result.close(); resolve() }
+      request.onerror = () => reject(request.error)
+    })
+    await (await caches.open('fixture')).put('/fixture', new Response('clear'))
+  })
+  let other = await rpc('split-window', { pane: pane.id, axis: 'horizontal', url: otherUrl }) as any
+  await expect.poll(() => application.context().pages().some(candidate => candidate.url() === `${otherUrl}/`)).toBe(true)
+  let otherPage = application.context().pages().find(candidate => candidate.url() === `${otherUrl}/`)!
+  await expect(otherPage.locator('h1')).toHaveText('Connection fixture')
+  await otherPage.evaluate(() => localStorage.setItem('fixture', 'keep'))
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Site information: Connection is not encrypted' }).click()
+  let panel = chrome.getByRole('dialog', { name: 'Site information', exact: true })
+  await panel.getByRole('button', { name: 'Clear cookies and site data', exact: true }).click()
+  await expect(panel).toContainText('Cookies and site data cleared.')
+  await expect.poll(async () => (await state()).loading[tab.id] ?? false).toBe(false)
+  await expect(page.locator('h1')).toHaveText('Connection fixture')
+  expect(await page.evaluate(async () => ({ local: localStorage.getItem('fixture'), databases: await indexedDB.databases(), caches: await caches.keys() }))).toEqual({ local: null, databases: [], caches: [] })
+  let cookies = await application.evaluate(async ({ session }, { url, otherUrl }) => ({
+    cleared: await session.fromPartition('persist:profile_default').cookies.get({ url: `${url}/account` }),
+    other: await session.fromPartition('persist:profile_default').cookies.get({ url: otherUrl }),
+    profile: await session.fromPartition('site-data-other-profile').cookies.get({ url }),
+  }), { url: urls.http, otherUrl })
+  expect(cookies.cleared).toHaveLength(0)
+  expect(cookies.other).toHaveLength(1)
+  expect(cookies.profile).toHaveLength(1)
+  expect(await otherPage.evaluate(() => localStorage.getItem('fixture'))).toBe('keep')
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  await rpc('kill-pane', { pane: other.id })
+  await open('about:blank')
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Site information: Local or internal page' }).click()
+  await expect(panel.getByRole('button', { name: 'Clear cookies and site data', exact: true })).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
 test('shows verified TLS details, rejects invalid certificates, and follows redirects and panes', async () => {
   test.setTimeout(120000)
   await open(urls.valid)

@@ -2434,6 +2434,16 @@ export let createRuntime = (dataDirectory: string) => {
       findResults[tabId] = { requestId, text, matches: repeat ? current.matches : 0, activeMatchOrdinal: repeat ? current.activeMatchOrdinal : 0, finalUpdate: false }
       publish(); return { text, requestId }
     }
+    if (method === 'site-data.clear') {
+      let tabId = required(args, 'tab'); tabById(model, tabId)
+      let contents = (await ensureLiveTab(tabId)).contents
+      let url = new URL(contents.getURL())
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Open a website to clear its data')
+      if (url.origin !== required(args, 'origin')) throw new Error('The page changed. Reopen Site information and try again')
+      await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
+      if (!contents.isDestroyed() && contents.getURL() === url.href) contents.reload()
+      return { origin: url.origin }
+    }
     if (method === 'reload' || method === 'hard-reload') {
       let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)
       delete crashes[tabId]; loading[tabId] = true; publish()

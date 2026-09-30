@@ -54,7 +54,7 @@ test.beforeAll(async () => {
     if (request.url?.includes('/safe-area-trusted')) {
       response.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "require-trusted-types-for 'script'; trusted-types 'none'" })
       response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#888"><title>Trusted mobile app fixture</title><style>
-        html,body{margin:0;background:#eee;color:#111}body{padding:0}header,footer{position:fixed;left:0;width:100%;height:48px;background:white}header{top:0;z-index:2}header input{width:90%;height:32px;background:#ddd}#filters{position:fixed;top:48px;left:0;width:100%;height:48px;background:white;z-index:2}footer{bottom:0;z-index:2}main{padding-top:96px;height:2200px;background:white}#sticky{position:sticky;top:0;margin-top:180px;height:40px;background:white}#nested{position:fixed;top:0;left:0;height:10px;width:20px}
+        html,body{margin:0;background:#eee;color:#111}body{padding:0}header,footer{position:fixed;left:0;width:100%;height:48px;background:white;transition:top .225s,bottom .225s}header{top:0;z-index:2}header input{width:90%;height:32px;background:#ddd}#filters{position:fixed;top:48px;left:0;width:100%;height:48px;background:white;z-index:2;transition:all .225s}footer{bottom:0;z-index:2}main{padding-top:96px;height:2200px;background:white}#sticky{position:sticky;top:0;margin-top:180px;height:40px;background:white}#nested{position:fixed;top:0;left:0;height:10px;width:20px}
       </style><header><input aria-label="Search"><span id="nested">Logo</span></header><div id="filters">Filters</div><main><div id="sticky">Sticky section</div><p>Scrolling content</p></main><footer>Navigation</footer>`)
       return
     }
@@ -765,7 +765,7 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
     let bars = document.querySelector('bmux-device-bars').shadowRoot;
     return { top: document.querySelector('header').getBoundingClientRect().top, bottom: innerHeight - document.querySelector('footer').getBoundingClientRect().bottom, tint: getComputedStyle(bars.querySelector('.top')).backgroundColor, bottomTint: getComputedStyle(bars.querySelector('.bottom')).backgroundColor };
   })()` }) as Promise<any>
-  await expect.poll(inspect).toEqual({ top: preset === 'iphone-15-pro' ? 59 : 40, bottom: preset === 'iphone-15-pro' ? 34 : 24, tint: 'color(srgb 1 1 1 / 0.92)', bottomTint: 'color(srgb 1 1 1 / 0.92)' })
+  await expect.poll(inspect).toEqual({ top: preset === 'iphone-15-pro' ? 59 : 40, bottom: preset === 'iphone-15-pro' ? 34 : 24, tint: 'rgb(255, 255, 255)', bottomTint: 'rgb(255, 255, 255)' })
   await rpc('eval', { tab: pane.id, expression: 'scrollTo(0, 300)' })
   await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
   await rpc('eval', { tab: pane.id, expression: `document.querySelector('header').style.top = '0px'` })
@@ -777,17 +777,22 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
   // Device layout can settle before the native compositor presents the new surface.
   await expect(async () => {
     await promisify(execFile)('/usr/sbin/screencapture', ['-x', '-o', '-l', windowId, screenshotPath])
-    let homePixel = await application.evaluate(({ BaseWindow, nativeImage }, { preset, url, screenshotPath }) => {
+    let samples = await application.evaluate(({ BaseWindow, nativeImage }, { preset, url, screenshotPath }) => {
       let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
       let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === `${url}/safe-area-cover-fixed`)!
       let bounds = view.getBounds(), image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap()
       let scale = size.width / window.getBounds().width
-      let x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height - 10.5 * bounds.width / (preset === 'iphone-15-pro' ? 393 : 360)
-      let offset = (Math.floor(y * scale) * size.width + Math.floor(x * scale)) * 4
-      return [...pixels.subarray(offset, offset + 3)]
+      let deviceScale = bounds.width / (preset === 'iphone-15-pro' ? 393 : 360)
+      let pixel = (x: number, y: number) => {
+        let offset = (Math.floor((bounds.y + y * deviceScale) * scale) * size.width + Math.floor((bounds.x + x * deviceScale) * scale)) * 4
+        return [...pixels.subarray(offset, offset + 3)]
+      }
+      let width = bounds.width / deviceScale, height = bounds.height / deviceScale
+      return { home: pixel(width / 2, height - 10.5), top: pixel(width / 2, (preset === 'iphone-15-pro' ? 59 : 40) - 4), bottom: pixel(width / 4, height - (preset === 'iphone-15-pro' ? 34 : 24) / 2) }
     }, { preset, url, screenshotPath })
-    expect(homePixel).toHaveLength(3)
-    for (let channel of homePixel) expect(channel).toBeLessThan(40)
+    expect(samples.home).toHaveLength(3)
+    for (let channel of samples.home) expect(channel).toBeLessThan(40)
+    for (let channel of [...samples.top, ...samples.bottom]) expect(channel).toBeGreaterThanOrEqual(254)
   }).toPass({ timeout: 5000 })
 
   await rpc('eval', { tab: pane.id, expression: `scrollTo(0,0); document.querySelector('header').style.cssText = 'position:sticky;top:0;height:48px;background:white'` })
@@ -806,16 +811,25 @@ for (let preset of ['iphone-15-pro-max', 'pixel-8']) test(`mobile safe areas ${p
     let bars = document.querySelector('bmux-device-bars')?.shadowRoot, header = document.querySelector('header'), footer = document.querySelector('footer');
     return { top: header.getBoundingClientRect().top, offset: parseFloat(getComputedStyle(header).top), filters: document.querySelector('#filters').getBoundingClientRect().top, stickyOffset: parseFloat(getComputedStyle(document.querySelector('#sticky')).top), nestedTop: document.querySelector('#nested').getBoundingClientRect().top, bottom: innerHeight - footer.getBoundingClientRect().bottom, tint: bars && getComputedStyle(bars.querySelector('.top')).backgroundColor, bottomTint: bars && getComputedStyle(bars.querySelector('.bottom')).backgroundColor, icons: bars?.querySelector('svg')?.children.length };
   })()` }) as Promise<any>
-  await expect.poll(inspect).toEqual({ top: inset, offset: inset, filters: inset + 48, stickyOffset: inset, nestedTop: inset, bottom, tint: 'color(srgb 1 1 1 / 0.92)', bottomTint: 'color(srgb 1 1 1 / 0.92)', icons: 4 })
+  await expect.poll(inspect).toEqual({ top: inset, offset: inset, filters: inset + 48, stickyOffset: inset, nestedTop: inset, bottom, tint: 'rgb(255, 255, 255)', bottomTint: 'rgb(255, 255, 255)', icons: 4 })
+  // Unrelated site updates during a bar transition must not add interpolated gaps.
+  for (let revision of [1, 2, 3, 4]) {
+    await rpc('eval', { tab: pane.id, expression: `document.querySelector('main').className = 'revision-${revision}'` })
+    await expect.poll(async () => { let result = await inspect(); return { top: result.top, filters: result.filters, bottom: result.bottom } }).toEqual({ top: inset, filters: inset + 48, bottom })
+  }
   // A site's reveal/hide transform must not be fed back into the safe offset.
   for (let translate of [12, -20, -48, 0]) {
     await rpc('eval', { tab: pane.id, expression: `document.querySelector('header').style.transform = 'translateY(${translate}px)'; scrollTo(0,${300 + translate})` })
-    await expect.poll(async () => { let result = await inspect(); return { top: result.top, nestedTop: result.nestedTop, offset: result.offset, tint: result.tint } }).toEqual({ top: inset + translate, nestedTop: inset + translate, offset: inset, tint: 'color(srgb 1 1 1 / 0.92)' })
+    await expect.poll(async () => { let result = await inspect(); return { top: result.top, nestedTop: result.nestedTop, offset: result.offset, tint: result.tint } }).toEqual({ top: inset + translate, nestedTop: inset + translate, offset: inset, tint: 'rgb(255, 255, 255)' })
   }
   await expect.poll(() => rpc('eval', { tab: pane.id, expression: "document.querySelector('#sticky').getBoundingClientRect().top" })).toBe(inset)
   // Native safe padding already reserves space for bottom navigation controls.
-  await rpc('eval', { tab: pane.id, expression: "document.querySelector('footer').style.cssText = 'bottom:0;padding-bottom:env(safe-area-inset-bottom)'" })
+  await rpc('eval', { tab: pane.id, expression: "document.querySelector('footer').style.cssText = 'bottom:0;padding-bottom:env(safe-area-inset-bottom);background:rgba(15,15,15,.7);backdrop-filter:blur(24px)'" })
   await expect.poll(async () => (await inspect()).bottom).toBe(0)
+  await expect.poll(() => rpc('eval', { tab: pane.id, expression: `(() => {
+    let bottom = document.querySelector('bmux-device-bars').shadowRoot.querySelector('.bottom'), footer = document.querySelector('footer');
+    return { background: getComputedStyle(bottom).backgroundColor, blur: getComputedStyle(bottom).backdropFilter, siteBlur: getComputedStyle(footer).backdropFilter, home: getComputedStyle(bottom.querySelector('.home')).backgroundColor };
+  })()` })).toEqual({ background: 'rgba(0, 0, 0, 0)', blur: 'none', siteBlur: 'blur(24px)', home: 'rgb(255, 255, 255)' })
   // Site DOM cleanup must not permanently remove the emulated system bars.
   await rpc('eval', { tab: pane.id, expression: "document.querySelector('bmux-device-bars').remove()" })
   await expect.poll(async () => (await inspect()).icons).toBe(4)
