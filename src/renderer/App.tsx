@@ -236,7 +236,7 @@ let Notifications = ({ notices }: { notices: Notification[] }) => <div className
 
 let Status = () => {
   let { state, show, run, acknowledgedDownloads } = useUI()
-  let { client, session, profile, pane } = selection(state)
+  let { client, session, profile } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let draggedWindow = useRef<string | null>(null)
   let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
@@ -270,8 +270,6 @@ let Status = () => {
     void run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
   }
   let sessions = () => show('sessions')
-  let profiles = () => show('profiles')
-  let proxy = () => show('proxy')
   let help = () => show('help')
   let commands = () => show('command')
   let activity = () => show('activity')
@@ -286,11 +284,6 @@ let Status = () => {
   let downloadTitle = progressingDownloads.length
     ? `${progressingDownloads.length} download${progressingDownloads.length === 1 ? '' : 's'} in progress${downloadProgress === undefined ? '' : ` · ${downloadProgress}%`}`
     : 'Downloads'
-  let connection = pane ? connectionProfile(state.model, paneConnectionId(pane)) : profile
-  let proxyTest = connection ? state.profileProxyTests[connection.id] : undefined
-  let proxyFailure = connection ? state.profileProxyFailures[connection.id] : undefined
-  let profileTitle = profile ? `Profile: ${profile.name}` : 'Profile'
-  let proxyTitle = proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : connection?.proxy ? `${connection.proxy.protocol}://${connection.proxy.host}:${connection.proxy.port}` : ''
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
@@ -319,8 +312,6 @@ let Status = () => {
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
-    {!session!.private && <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>}
-    {profile && connection?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={extensions} aria-label="Extensions" title="Extensions" className={css.extensionsButton}><ExtensionsIcon /></button>
@@ -780,10 +771,12 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [profilePickerOpen])
   let customProfile = profile && session && !session.private && profile.id !== session.defaultProfileId ? profile : undefined
   let paneProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)) : undefined
-  let proxyTest = customProfile && paneProxy ? state.profileProxyTests[paneProxy.id] : undefined
-  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(pane!)}` : ''
-  let proxyRouteLabel = customProfile && paneProxy?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
-  let proxyRouteTitle = customProfile && paneProxy?.proxy ? `${paneProxy.proxy.protocol}://${paneProxy.proxy.host}:${paneProxy.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
+  let proxyTest = paneProxy ? state.profileProxyTests[paneProxy.id] : undefined
+  let profileRouteLabel = profile ? `Profile: ${profile.name}` : 'Profile'
+  let profileRouteTitle = profile ? `${profileRouteLabel}, ${profileDeviceLabel(pane!)}` : profileRouteLabel
+  let proxyFailure = paneProxy ? state.profileProxyFailures[paneProxy.id] : undefined
+  let proxyRouteLabel = profile && paneProxy?.proxy ? `Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}` : ''
+  let proxyRouteTitle = proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : paneProxy?.proxy ? `${paneProxy.proxy.protocol}://${paneProxy.proxy.host}:${paneProxy.proxy.port}` : ''
   let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
   if (clickState && !editing) return <div className={css.addressBar} role="group" aria-label="Pane address"><ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /></div>
   return <div className={css.addressBar} role="group" aria-label="Pane address">
@@ -798,7 +791,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
     {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>{customProfile && paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
+    {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
   </div>
 }
