@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { closeTestApplication } from './electron-fixture'
 
 test('official Bitwarden keeps login ports working across profiles and idle time', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extension-probe-'))
@@ -46,14 +47,7 @@ test('official Bitwarden keeps login ports working across profiles and idle time
       })
     }
   } finally {
-    // Extension workers and their open ports can outlive graceful fixture shutdown.
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await test.step('Close the disposable extension browser', () => Promise.race([
-        application.close().catch(() => undefined),
-        new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) }),
-      ]))
-    } finally { clearTimeout(timer) }
+    await test.step('Close the disposable extension browser', () => closeTestApplication(application))
     await fs.rm(directory, { recursive: true, force: true })
   }
 })

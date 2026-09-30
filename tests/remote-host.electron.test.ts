@@ -7,6 +7,7 @@ import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
+import { closeTestApplication } from './electron-fixture'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
@@ -160,7 +161,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
     await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
   } finally {
-    await application?.close()
+    await closeTestApplication(application)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
     await new Promise<void>(resolve=>fixture.close(()=>resolve()))

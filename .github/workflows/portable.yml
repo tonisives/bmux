@@ -19,6 +19,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build --target test -t bmux-test:local .
       - run: scripts/test-linux.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: linux-test-results-${{ matrix.arch }}
+          path: test-results/
+          if-no-files-found: ignore
       - run: docker build --target host -t bmux-host:local .
       - run: docker build --target packaged -t bmux-package:local .
       - run: |
