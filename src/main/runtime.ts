@@ -393,14 +393,18 @@ export let createRuntime = (dataDirectory: string) => {
     browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(key)!, persona?.locale)
     return browser
   }
+  let profileCacheSessions = (connectionId: string) => {
+    let profile = model.profiles.find(profile => profile.id === connectionId || profile.connections?.some(connection => connection.id === connectionId))!
+    return { profile, sessions: (profile.connections ?? [{ id: profile.id }]).map(connection => electronSession.fromPartition(`persist:${connection.id}`)) }
+  }
   let maintainCache = async (profileId: string, force = false) => {
-    let last = lastCacheChecks.get(profileId) ?? 0
+    let { profile, sessions } = profileCacheSessions(profileId)
+    let last = lastCacheChecks.get(profile.id) ?? 0
     if (!force && Date.now() - last < 30 * 60 * 1000) return
-    lastCacheChecks.set(profileId, Date.now())
-    let browser = electronSession.fromPartition(`persist:${profileId}`)
-    let limit = 256 * 1024 * 1024, bytes = await browser.getCacheSize()
-    if (bytes > limit) { await browser.clearCache(); bytes = 0 }
-    profileCaches = { ...profileCaches, [profileId]: { bytes, limit, checkedAt: Date.now() } }
+    lastCacheChecks.set(profile.id, Date.now())
+    let limit = 256 * 1024 * 1024, bytes = (await Promise.all(sessions.map(browser => browser.getCacheSize()))).reduce((sum, size) => sum + size, 0)
+    if (bytes > limit) { await Promise.all(sessions.map(browser => browser.clearCache())); bytes = 0 }
+    profileCaches = { ...profileCaches, [profile.id]: { bytes, limit, checkedAt: Date.now() } }
     publish()
   }
   let proxySettings = (args: Record<string, unknown>, profile: Model['profiles'][number]) => {
@@ -1936,14 +1940,14 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'profile.cache.status') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      let bytes = await browserSession(profile.id).getCacheSize(), limit = 256 * 1024 * 1024
+      let bytes = (await Promise.all(profileCacheSessions(profile.id).sessions.map(browser => browser.getCacheSize()))).reduce((sum, size) => sum + size, 0), limit = 256 * 1024 * 1024
       profileCaches = { ...profileCaches, [profile.id]: { bytes, limit, checkedAt: Date.now() } }; publish()
       return profileCaches[profile.id]
     }
     if (method === 'profile.cache.clear') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      await browserSession(profile.id).clearCache()
+      await Promise.all(profileCacheSessions(profile.id).sessions.map(browser => browser.clearCache()))
       lastCacheChecks.set(profile.id, Date.now())
       profileCaches = { ...profileCaches, [profile.id]: { bytes: 0, limit: 256 * 1024 * 1024, checkedAt: Date.now() } }; publish()
       return profileCaches[profile.id]
