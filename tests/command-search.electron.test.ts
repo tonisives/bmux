@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -95,7 +96,7 @@ test.beforeEach(async () => {
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
   let current = await state(); await rpc('select-window', { client: current.clientId, window: current.model.sessions[0].windows[0].id }); await activate()
 })
-test.afterAll(async () => { await application?.close(); await proxy?.close(true); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (directory) await fs.rm(directory, { recursive: true, force: true }) })
+test.afterAll(async () => { await closeTestApplication(application); await proxy?.close(true); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
 
 test('command finder accepts fuzzy selection and restores the native page', async () => {
   await expect.poll(nativeVisible).toBe(true)

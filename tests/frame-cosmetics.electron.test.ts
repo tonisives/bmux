@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -70,19 +71,10 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   console.log('Frame fixture: closing Electron')
-  if (application) {
-    let closed = application.close().then(() => true, () => true)
-    if (!await Promise.race([closed, sleep(5000).then(() => false)])) {
-      // Chromium can leave an out-of-process iframe renderer alive after the
-      // browser close request. The test profile is disposable, so terminate
-      // the fixture process instead of consuming the entire worker timeout.
-      application.process().kill('SIGKILL')
-      await closed
-    }
-  }
+  await closeTestApplication(application)
   console.log('Frame fixture: closing HTTP server')
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   console.log('Frame fixture: cleanup complete')
 })
 test.afterEach(async ({}, info) => {

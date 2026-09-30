@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -48,9 +49,9 @@ test.beforeAll(async () => {
   let current = await state(); await rpc('activate-client', { client: current.clientId })
 })
 test.afterAll(async () => {
-  await application?.close().catch(() => undefined)
+  await closeTestApplication(application).catch(() => undefined)
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.beforeEach(async ({}, info) => {

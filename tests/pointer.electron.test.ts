@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -88,8 +89,8 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     throw error
   } finally {
     await promisify(execFile)(process.execPath, ['-e', 'require(process.argv[1]).move(Number(process.argv[2]), Number(process.argv[3]))', path.join(process.cwd(), 'out/native/pointer.node'), String(originalPointer.x), String(originalPointer.y)])
-    await application.close()
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

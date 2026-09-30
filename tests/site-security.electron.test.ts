@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -65,19 +66,11 @@ test.beforeAll(async () => {
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
 })
 test.afterAll(async () => {
-  if (application) {
-    let child = application.process(), timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await Promise.race([
-        application.close(),
-        new Promise<void>(resolve => { timer = setTimeout(() => { child.kill('SIGKILL'); resolve() }, 10000) }),
-      ])
-    } finally { clearTimeout(timer) }
-  }
+  await closeTestApplication(application)
   for (let server of servers) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
   // GitHub Actions discards its desktop after this job; local Tart keeps its keychain.
   if (rootFingerprint && !process.env.CI) await execute('sudo', ['-n', 'security', 'delete-certificate', '-t', '-Z', rootFingerprint, '/Library/Keychains/System.keychain'], { timeout: 10000 })
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 test('clears cookies and site storage from the lock panel without affecting other sites or profiles', async () => {

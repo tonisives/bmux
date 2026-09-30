@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -46,16 +47,9 @@ test.beforeAll(async () => {
   await expect(page.locator('h1')).toBeVisible()
 })
 test.afterAll(async () => {
-  if (application) {
-    let closed = application.close().then(() => undefined, () => undefined)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await Promise.race([closed, new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) })])
-      await closed
-    } finally { clearTimeout(timer) }
-  }
+  await closeTestApplication(application)
   if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return

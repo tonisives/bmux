@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -41,10 +42,10 @@ for (let protocol of ['http', 'https'] as const) test(`tests an HTTPS destinatio
     expect((await chrome.evaluate(() => (window as any).bmux.state())).model.profiles[0].proxy.port).toBe(proxyPort)
     if (protocol === 'https') await expect(command('profile.proxy.test', { profile: profile.id, protocol, host: 'localhost', port: proxyPort, authenticated: true })).rejects.toThrow('599')
   } finally {
-    await application.close()
+    await closeTestApplication(application)
     await proxy.close(true)
     await new Promise<void>(resolve => secureProxy.close(() => resolve()))
     await new Promise<void>(resolve => destination.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

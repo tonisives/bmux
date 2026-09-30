@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -249,8 +250,8 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect((await rpc('extension.list', { profile })).extensions).toEqual([])
     expect(JSON.parse(await fs.readFile(path.join(directory, 'extensions.json'), 'utf8'))).toEqual([])
   } finally {
-    await application?.close()
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

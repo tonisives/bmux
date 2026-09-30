@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -54,16 +55,8 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
       }
     }
   } finally {
-    if (application) {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      try {
-        await Promise.race([
-          application.close().catch(() => undefined),
-          new Promise<void>(resolve => { timer = setTimeout(() => { application!.process().kill('SIGKILL'); resolve() }, 10000) }),
-        ])
-      } finally { clearTimeout(timer) }
-    }
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

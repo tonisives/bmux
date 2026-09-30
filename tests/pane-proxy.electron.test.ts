@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -84,7 +85,7 @@ test('proxy defaults affect only new panes and preserve routes, cookies and cred
     expect(requests[1].some(url => url.endsWith('/second'))).toBe(true)
     expect(requests[1].some(url => url.endsWith('/first-again'))).toBe(false)
     expect(requests.flat().some(url => url.endsWith('/original-again'))).toBe(false)
-    await application.close(); application = undefined
+    await closeTestApplication(application); application = undefined
     requests.forEach(hits => { hits.length = 0 })
     application = await launch(); chrome = await chromeFor(application)
     await command(chrome, 'navigate', { pane: a.panes[0].id, url: `${origin}/restored-first` })
@@ -98,9 +99,9 @@ test('proxy defaults affect only new panes and preserve routes, cookies and cred
     await command(chrome, 'navigate', { pane: direct.panes[0].id, url: `${origin}/new-direct` })
     expect(requests.flat().some(url => url.endsWith('/new-direct'))).toBe(false)
   } finally {
-    await application?.close()
+    await closeTestApplication(application)
     await Promise.all(proxies.map(proxy => proxy.close(true)))
     await new Promise<void>(resolve => destination.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

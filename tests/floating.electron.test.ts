@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -79,10 +80,10 @@ test.beforeAll(async () => {
 })
 test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.afterAll(async () => {
-  await application?.close().catch(() => undefined)
+  await closeTestApplication(application).catch(() => undefined)
   server?.closeAllConnections()
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 test('floating frame border stays visible around square composited pages after repainting', async ({}, info) => {
@@ -213,7 +214,7 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
   let saved = (await state()).model.sessions[0].windows[0].floating
   expect(saved).toHaveLength(1)
   await rpc('save-layout', { window: window.id, name: 'floats' })
-  await application.close()
+  await closeTestApplication(application)
   await launch()
   expect((await state()).model.sessions[0].windows[0].floating).toEqual(saved)
   await frame(second.id)

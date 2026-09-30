@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import http from 'node:http'
 import fs from 'node:fs/promises'
@@ -110,17 +111,9 @@ test.afterEach(async ({}, info) => {
 test.afterAll(async () => {
   for (let response of heldResponses) response.end()
   for (let response of pendingPages) response.end()
-  if (application) {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await Promise.race([
-        application.close().catch(() => undefined),
-        new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) }),
-      ])
-    } finally { clearTimeout(timer) }
-  }
+  await closeTestApplication(application)
   if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 test('memory diagnostics map background pages without changing selection or page state', async () => {
@@ -359,7 +352,7 @@ test('profiles, clients, handoff, hidden automation, and restart', async () => {
   expect(await cli('list-clients')).toHaveLength(0)
   expect(await cli('eval', { tab: botTab.id, expression: 'localStorage.getItem("profile")' })).toBe('bot')
 
-  await application.close()
+  await closeTestApplication(application)
   await launch()
   expect((await cli('list-sessions'))[0].windows).toHaveLength(3)
   await cli('wait', { tab: mainTab.id, selector: '#text' })
@@ -624,7 +617,7 @@ test('initial blank history is removed after navigation and restart', async () =
   let pane = session.windows[0].panes[0]
   await cli('navigate', { pane: pane.id, url: `${url}/initial-page` })
   for (let restarted of [false, true]) {
-    if (restarted) { await application.close(); await launch() }
+    if (restarted) { await closeTestApplication(application); await launch() }
     await cli('eval', { pane: pane.id, expression: 'document.readyState' })
     await expect.poll(async () => (await cli('state')).navigation[pane.id]?.entries.map((entry: { url: string }) => entry.url)).toEqual([`${url}/initial-page`])
     await cli('back', { pane: pane.id })
@@ -857,7 +850,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
 
   let client = await cli('attach-session', { session: session.id })
   await cli('select-window', { client: client.id, window: sourceWindow.id })
-  await application.close()
+  await closeTestApplication(application)
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
@@ -877,7 +870,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await cli('wait', { tab: crashed.id, selector: '#text' })
   let client = await cli('attach-session', { session: session.id })
   await cli('select-pane', { client: client.id, pane: crashed.id })
-  await application.close()
+  await closeTestApplication(application)
   await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.id, url: 'https://chromewebstore.google.com/detail/example' }))
   await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: true }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
@@ -893,7 +886,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await notice.getByRole('button', { name: 'Dismiss notification' }).click()
   await expect(notice).toHaveCount(0)
   await cli('detach-client', { client: client.id })
-  await application.close()
+  await closeTestApplication(application)
   await launch()
 })
 
@@ -901,7 +894,7 @@ test('restores concurrently normally and one at a time after an application cras
   let sharedDirectory = directory
   let originalConfig = await fs.readFile(path.join(sharedDirectory, 'config.yaml'), 'utf8')
   for (let response of heldResponses) response.end()
-  await application.close()
+  await closeTestApplication(application)
   // Earlier tests leave slow pages in the shared profile. Restore only this fixture.
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-serialized-restore-'))
   let eagerConfig = parseDocument(originalConfig)
@@ -912,7 +905,7 @@ test('restores concurrently normally and one at a time after an application cras
     let session = await cli('new-session', { name: 'serialized restore' })
     let first = session.windows[0].panes[0]
     let second = await cli('split-window', { pane: first.id })
-    await application.close()
+    await closeTestApplication(application)
     let stateFile = path.join(directory, 'state.json')
     let persisted = JSON.parse(await fs.readFile(stateFile, 'utf8'))
     let saved = persisted.sessions.find((item: { id: string }) => item.id === session.id)
@@ -924,7 +917,7 @@ test('restores concurrently normally and one at a time after an application cras
     await expect.poll(() => heldRequests).toBeGreaterThan(before)
     await expect.poll(async () => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), `${url}/serialized-restore-second`)).toBe(true)
     for (let response of heldResponses) response.end()
-    await application.close()
+    await closeTestApplication(application)
     await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
     before = heldRequests
     await launch()
@@ -936,8 +929,8 @@ test('restores concurrently normally and one at a time after an application cras
     await expect.poll(() => fs.access(path.join(directory, 'navigation-crash.json')).then(() => false, () => true)).toBe(true)
   } finally {
     for (let response of heldResponses) response.end()
-    await application.close()
-    await fs.rm(directory, { recursive: true, force: true })
+    await closeTestApplication(application)
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     directory = sharedDirectory
     await launch()
   }
@@ -1015,7 +1008,7 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await expect.poll(async () => (await cli('profile.list')).find((item: { id: string }) => item.id === profileId).bookmarks[0].children[0].children[0].title).toBe('Imported fixture')
   expect(await cli('eval', { pane: pane.id, expression: 'localStorage.getItem("profile")' })).toBeNull()
   await cli('detach-client', { client: client.id })
-  await application.close()
+  await closeTestApplication(application)
   await launch()
   let profile = (await cli('profile.list')).find((profile: { id: string }) => profile.id === profileId)
   expect(profile.bookmarks[0].children[0].children).toHaveLength(3)
@@ -1757,7 +1750,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
   await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    Cmd+ShiftRight: move-window-right\n    Cmd+ShiftLeft: move-window-left\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')
   await expect.poll(async () => (await cli('state')).keyboard.prefix).toBe('Ctrl+2')
   await expect.poll(async () => (await cli('diagnostics')).accessibilityFeatures).toContain('nativeAPIs')
-  await application.close(); await launch()
+  await closeTestApplication(application); await launch()
   expect(await application.evaluate(({ app }) => app.isAccessibilitySupportEnabled())).toBe(true)
   let session = await cli('new-session', { name: 'custom-shortcuts' })
   let second = await cli('new-window', { session: session.id })
@@ -2299,7 +2292,7 @@ test('restored inactive pages wake when addressed by an agent', async () => {
   let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot-restore` })
   await cli('wait', { pane: inactive.id, selector: '#text' })
   await cli('wait', { pane: bot.id, selector: '#text' })
-  await application.close()
+  await closeTestApplication(application)
   await launch()
   let before = (await cli('memory')).current.panes
   expect(before.find((item: { paneId: string }) => item.paneId === inactive.id).webContentsId).toBeNull()

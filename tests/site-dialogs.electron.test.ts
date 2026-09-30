@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -23,10 +24,10 @@ let fixture = async () => {
   let page = application.context().pages().find(page => page.url() === url)!
   await expect(page.getByRole('heading')).toHaveText('Comment fixture')
   let close = async () => {
-    await application.close()
+    await closeTestApplication(application)
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   return { application, chrome, page, url, close }
 }

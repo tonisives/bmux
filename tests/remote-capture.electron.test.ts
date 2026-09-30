@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -86,8 +87,8 @@ test('background panes deliver static frames without a visible window', async ()
     })).toBe('relay')
     await application.evaluate(() => (globalThis as any).remoteCapture.close())
   } finally {
-    await application.close()
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

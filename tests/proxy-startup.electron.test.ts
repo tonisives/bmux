@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -42,7 +43,7 @@ test('keeps unavailable restored panes blocked while new panes can use the syste
     await command(chrome, 'navigate', { pane: proxied.panes[0].id, url: `${origin}/page` })
     await command(chrome, 'kill-window', { window: current.model.sessions[0].windows[0].id, confirm: true })
     await expect.poll(() => proxyRequests).toBeGreaterThan(0)
-    await application.close(); application = undefined
+    await closeTestApplication(application); application = undefined
     pageRequests = 0
 
     application = await launch()
@@ -50,7 +51,7 @@ test('keeps unavailable restored panes blocked while new panes can use the syste
     await expect.poll(async () => (await currentState(chrome)).profileProxyTests[connectionId]?.ip, { timeout: 15000 }).toBe('203.0.113.12')
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/page`)).toBe(true)
     expect((await currentState(chrome)).profileProxyFailures[connectionId]).toBeUndefined()
-    await application.close(); application = undefined
+    await closeTestApplication(application); application = undefined
     await proxy.close(true)
     pageRequests = 0
 
@@ -87,9 +88,9 @@ test('keeps unavailable restored panes blocked while new panes can use the syste
     await expect.poll(() => pageRequests).toBeGreaterThan(0)
     await expect.poll(async () => (await currentState(chrome)).model.profiles[0].proxy).toBeUndefined()
   } finally {
-    await application?.close()
+    await closeTestApplication(application)
     await proxy.close(true).catch(() => undefined)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
