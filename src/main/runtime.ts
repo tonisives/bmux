@@ -660,35 +660,36 @@ export let createRuntime = (dataDirectory: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
     let focused = clients.get(client.id)!
+    let invoke = (command: Command) => { void execute(command, client.id).catch(reportError) }
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
     let tab = pane?.id
     let control = (name: string) => { pointerTarget = undefined; let chrome = name === 'address' && pane && !client.zoomedPaneId ? focused.floats.get(pane.id) ?? focused.chrome : focused.chrome; chrome.webContents.focus(); chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
-    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
+    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { invoke({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
     let session = model.sessions.find(session => session.id === client.sessionId)!
     let window = session.windows.find(window => window.id === client.windowId)!
     if (action === 'close-pane' || (action === 'close-pane-or-window' && pane && window.floating?.some(item => item.paneId === pane.id))) {
-      void execute({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }).catch(reportError); return
+      invoke({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }); return
     }
     if (action === 'close-window' || action === 'close-pane-or-window') {
       let behavior = windowCloseBehavior(session, window)
-      if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
+      if (behavior === 'close-window') { invoke({ method: 'kill-window', args: { window: window.id, confirm: true } }); return }
     }
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
-    if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
+    if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { invoke({ method: action, args: { tab } }); return }
     if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
     if (action.startsWith('zoom-') && tab) {
       let current = tabById(model, tab).tab.zoom
-      void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
+      invoke({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }); return
     }
     let windowNumber = action.match(/^select-window-([1-9])$/)?.[1]
     let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : windowNumber ? `select-window -t ${windowNumber}` : action
     let command = parseCommandLine(line, state(client.id))
     if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
-    void execute(command).catch(reportError)
+    invoke(command)
   }
   let closeFocusedWindow = () => {
     let focused = [...clients.values()].find(client => client.window.isFocused()) ?? (focusedClientId ? clients.get(focusedClientId) : undefined)
@@ -2433,13 +2434,26 @@ export let createRuntime = (dataDirectory: string) => {
       findResults[tabId] = { requestId, text, matches: repeat ? current.matches : 0, activeMatchOrdinal: repeat ? current.activeMatchOrdinal : 0, finalUpdate: false }
       publish(); return { text, requestId }
     }
-    if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
+    if (method === 'reload' || method === 'hard-reload') {
+      let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)
+      delete crashes[tabId]; loading[tabId] = true; publish()
+      try {
+        // A reload must be able to interrupt an unfinished initial navigation.
+        let live = await ensureLiveTab(tabId, false), contents = live.contents
+        live.initialNavigation = undefined
+        contents.stop()
+        loading[tabId] = true; publish()
+        if (!contents.getURL() || contents.getURL() === 'about:blank' && tab.url !== 'about:blank') void contents.loadURL(tab.url).catch(reportError)
+        else if (method === 'hard-reload') contents.reloadIgnoringCache()
+        else contents.reload()
+      } catch (error) { delete loading[tabId]; publish(); throw error }
+      return { pane: tabId }
+    }
+    if (['stop', 'back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
       let contents = (await ensureLiveTab(tabId)).contents
       delete crashes[tabId]
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
-      if (method === 'reload') { contents.stop(); contents.reload() }
-      if (method === 'hard-reload') contents.reloadIgnoringCache()
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
         else {

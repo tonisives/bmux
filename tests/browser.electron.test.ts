@@ -692,6 +692,51 @@ test('address controls navigate, refresh, and open the per-tab history on hold',
   }
 })
 
+test('refresh shows loading before Chromium begins the reload', async () => {
+  let session = await cli('new-session', { name: 'immediate-refresh' })
+  let tab = session.windows[0].panes[0], client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id, client)
+  try {
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.fill(`${url}/immediate-refresh`); await address.press('Enter')
+    await cli('wait', { tab: tab.id, selector: '#text' })
+    let identity = await cli('eval', { tab: tab.id, expression: 'window.identity' })
+    await application.evaluate(({ webContents }, target) => {
+      let contents = webContents.getAllWebContents().find(contents => contents.getURL() === target)!
+      let reload = contents.reload.bind(contents)
+      // Hold Chromium's reload so its loading events cannot satisfy the assertion.
+      ;(globalThis as any).bmuxTestReleaseReload = () => { contents.reload = reload; reload() }
+      contents.reload = () => undefined
+    }, `${url}/immediate-refresh`)
+    await chrome.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(chrome.getByRole('group', { name: 'Pane address' }).getByText('loading…', { exact: true })).toBeVisible()
+    await expect(chrome.locator(`[data-window-id="${session.windows[0].id}"] [data-tab-loading]`)).toBeVisible()
+    await application.evaluate(() => { (globalThis as any).bmuxTestReleaseReload(); delete (globalThis as any).bmuxTestReleaseReload })
+    await expect.poll(async () => {
+      let next = await cli('eval', { tab: tab.id, expression: 'window.identity' }).catch(() => undefined)
+      return typeof next === 'number' && next !== identity
+    }).toBe(true)
+    await expect(chrome.getByRole('group', { name: 'Pane address' }).getByText('loading…', { exact: true })).toHaveCount(0)
+  } finally {
+    await application.evaluate(() => { (globalThis as any).bmuxTestReleaseReload?.(); delete (globalThis as any).bmuxTestReleaseReload })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
+test('refresh interrupts an unfinished initial page load', async () => {
+  let session = await cli('new-session', { name: 'initial-refresh' })
+  let requests = heldRequests
+  let window = await cli('new-window', { session: session.id, url: `${url}/slow-initial-refresh` })
+  let tab = window.panes[0]
+  await expect.poll(() => heldRequests).toBeGreaterThan(requests)
+  requests = heldRequests
+  await cli('reload', { tab: tab.id })
+  await expect.poll(() => heldRequests).toBeGreaterThan(requests)
+  await cli('stop', { tab: tab.id })
+  await expect.poll(async () => Boolean((await cli('state')).loading[tab.id])).toBe(false)
+})
+
 test('mouse history buttons target their pane and pane shortcuts keep native keyboard focus', async () => {
   let config = path.join(directory, 'config.yaml')
   let original = await fs.readFile(config, 'utf8')

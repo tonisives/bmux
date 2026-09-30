@@ -5,10 +5,11 @@ import path from 'node:path'
 import http from 'node:http'
 import { spawnSync } from 'node:child_process'
 import { stringify } from 'yaml'
+import { sendNativeKeys } from './native-focus'
 
 test('a site plugin owns a lease while direct agent commands are denied', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-automation-ui-'))
-  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Automation fixture</title><main>Visible fixture page</main>') })
+  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Automation fixture</title><main>Visible fixture page</main><script>window.identity = Math.random()</script>') })
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -32,6 +33,26 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
     await expect.poll(async () => (await command('plugin.runs') as any[]).find(item => item.id === run.id)?.status).toBe('completed')
     expect((await command('plugin.runs') as any[]).find(item => item.id === run.id)?.result).toEqual({ read: true })
     expect(cli(['automation', 'status']).result[0]?.group).toBe('fixture')
+    for (let device of [undefined, { preset: 'pixel-8', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' }]) {
+      if (device) await command('profile.device.set', { profile: pane.profileId, pane: pane.id, device })
+      await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+      let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+      await address.fill(url); await address.press('Enter')
+      await command('wait', { tab: pane.id, selector: 'main' })
+      expect(cli(['reload', '-t', pane.id]).ok).toBe(false)
+      let clientId = (await chrome.evaluate(() => (window as any).bmux.state())).clientId
+      for (let modifiers of [['meta'], ['meta', 'shift']] as Electron.KeyboardInputEvent['modifiers'][]) {
+        let identity = await command('eval', { tab: pane.id, expression: 'window.identity' })
+        await command('activate-client', { client: clientId })
+        await command('focus-page', { client: clientId })
+        await sendNativeKeys(application, [{ keyCode: 'r', modifiers }])
+        await expect.poll(async () => {
+          let next = await command('eval', { tab: pane.id, expression: 'window.identity' }).catch(() => undefined)
+          return typeof next === 'number' && next !== identity
+        }).toBe(true)
+        expect(cli(['reload', '-t', pane.id]).ok).toBe(false)
+      }
+    }
   } finally {
     await application?.close().catch(() => undefined)
     await new Promise<void>(resolve => server.close(() => resolve()))
