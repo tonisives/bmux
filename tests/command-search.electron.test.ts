@@ -51,6 +51,13 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'plugins/fixture/plugin.yaml'), stringify({ schema_version: 1, id: 'fixture', name: 'Fixture plugin', version: '1', actions: [{ id: 'greet', title: 'Fixture greeting', command: ['node', '-e', 'process.exit(0)'], capabilities: [] }] }))
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { prefix: 'Ctrl+X', shortcuts: { 'Cmd+Alt+D': 'browser-tools', 'Cmd+Alt+P': 'plugin:fixture/greet' }, prefixBindings: { q: 'close-pane', Q: 'close-window' } }, browser: { autoUpdateFilters: false }, plugins: { fixture: { enabled: true }, 'bmux.nordvpn': { enabled: true } } }))
   server = http.createServer((request, response) => {
+    if (request.url?.includes('/safe-area-trusted')) {
+      response.writeHead(200, { 'Content-Type': 'text/html', 'Content-Security-Policy': "require-trusted-types-for 'script'; trusted-types 'none'" })
+      response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#888"><title>Trusted mobile app fixture</title><style>
+        html,body{margin:0;background:#eee;color:#111}body{padding:0}header,footer{position:fixed;left:0;width:100%;height:48px;background:white}header{top:0;z-index:2}header input{width:90%;height:32px;background:#ddd}#filters{position:fixed;top:48px;left:0;width:100%;height:48px;background:white;z-index:2}footer{bottom:0;z-index:2}main{padding-top:96px;height:2200px;background:white}#sticky{position:sticky;top:0;margin-top:180px;height:40px;background:white}#nested{position:fixed;top:0;left:0;height:10px;width:20px}
+      </style><header><input aria-label="Search"><span id="nested">Logo</span></header><div id="filters">Filters</div><main><div id="sticky">Sticky section</div><p>Scrolling content</p></main><footer>Navigation</footer>`)
+      return
+    }
     if (request.url?.includes('/safe-area')) {
       response.writeHead(200, { 'Content-Type': 'text/html' })
       response.end(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1${request.url.includes('cover') ? ', viewport-fit=cover' : ''}"><meta name="theme-color" content="#234567"><title>Safe area fixture</title><style>html,body{margin:0;background:#234567;color:white}main{height:1800px;background:linear-gradient(#234567,#abcdef)}#end{height:20px}${request.url.includes('cover') && !request.url.includes('fixed') ? 'body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}' : ''}</style><main>First line below the camera</main><div id="end">Last line above home indicator</div>`)
@@ -786,5 +793,31 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
   await rpc('eval', { tab: pane.id, expression: `scrollTo(0,0); document.querySelector('header').style.cssText = 'position:sticky;top:0;height:48px;background:white'` })
   await rpc('eval', { tab: pane.id, expression: 'scrollTo(0,300)' })
   await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+  await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
+})
+
+for (let preset of ['iphone-15-pro-max', 'pixel-8']) test(`mobile safe areas ${preset} support Trusted Types and stable app bars`, async () => {
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
+  let inset = preset === 'iphone-15-pro-max' ? 59 : 40, bottom = preset === 'iphone-15-pro-max' ? 34 : 24
+  await rpc('profile.device.set', { pane: pane.id, profile: pane.profileId, device: { preset, orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+  await rpc('navigate', { tab: pane.id, url: `${url}/safe-area-trusted` })
+  await rpc('wait', { tab: pane.id, expression: "!!document.querySelector('bmux-device-bars')", timeout: 5000 })
+  let inspect = () => rpc('eval', { tab: pane.id, expression: `(() => {
+    let bars = document.querySelector('bmux-device-bars')?.shadowRoot, header = document.querySelector('header'), footer = document.querySelector('footer');
+    return { top: header.getBoundingClientRect().top, offset: parseFloat(getComputedStyle(header).top), filters: document.querySelector('#filters').getBoundingClientRect().top, stickyOffset: parseFloat(getComputedStyle(document.querySelector('#sticky')).top), nestedTop: document.querySelector('#nested').getBoundingClientRect().top, bottom: innerHeight - footer.getBoundingClientRect().bottom, tint: bars && getComputedStyle(bars.querySelector('.top')).backgroundColor, bottomTint: bars && getComputedStyle(bars.querySelector('.bottom')).backgroundColor, icons: bars?.querySelector('svg')?.children.length };
+  })()` }) as Promise<any>
+  await expect.poll(inspect).toEqual({ top: inset, offset: inset, filters: inset + 48, stickyOffset: inset, nestedTop: inset, bottom, tint: 'color(srgb 1 1 1 / 0.92)', bottomTint: 'color(srgb 1 1 1 / 0.92)', icons: 4 })
+  // A site's reveal/hide transform must not be fed back into the safe offset.
+  for (let translate of [12, -20, -48, 0]) {
+    await rpc('eval', { tab: pane.id, expression: `document.querySelector('header').style.transform = 'translateY(${translate}px)'; scrollTo(0,${300 + translate})` })
+    await expect.poll(async () => { let result = await inspect(); return { top: result.top, nestedTop: result.nestedTop, offset: result.offset, tint: result.tint } }).toEqual({ top: inset + translate, nestedTop: inset + translate, offset: inset, tint: 'color(srgb 1 1 1 / 0.92)' })
+  }
+  await expect.poll(() => rpc('eval', { tab: pane.id, expression: "document.querySelector('#sticky').getBoundingClientRect().top" })).toBe(inset)
+  // Native safe padding already reserves space for bottom navigation controls.
+  await rpc('eval', { tab: pane.id, expression: "document.querySelector('footer').style.cssText = 'bottom:0;padding-bottom:env(safe-area-inset-bottom)'" })
+  await expect.poll(async () => (await inspect()).bottom).toBe(0)
+  // Site DOM cleanup must not permanently remove the emulated system bars.
+  await rpc('eval', { tab: pane.id, expression: "document.querySelector('bmux-device-bars').remove()" })
+  await expect.poll(async () => (await inspect()).icons).toBe(4)
   await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
 })
