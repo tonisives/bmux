@@ -88,8 +88,13 @@ test.beforeAll(async () => {
 })
 test.beforeEach(async () => {
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
-  await rpc('switch-client', { client: (await state()).clientId, session: session.id })
+  let client = (await state()).clientId
+  await rpc('switch-client', { client, session: session.id })
+  // Session switching restores its last window; each test needs the fixture window.
+  await rpc('select-window', { client, window: session.windows[0].id })
+  await rpc('select-pane', { client, pane: original })
   await rpc('navigate', { pane: original, url: `${url}/fixture` }); await activate()
+  await expect(chrome.locator(`[data-pane-id="${original}"]`)).toHaveAttribute('data-focused-pane', 'true')
 })
 test.afterAll(async () => {
   await application?.close()

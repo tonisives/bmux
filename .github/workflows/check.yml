@@ -31,6 +31,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm check
+      - name: Keep crash dialogs from obscuring later GUI tests
+        run: defaults write com.apple.CrashReporter DialogType none
       - name: Electron tests
         timeout-minutes: 12
         env:
@@ -45,5 +47,7 @@ jobs:
         if: failure()
         with:
           name: electron-test-results
-          path: test-results/
+          path: |
+            test-results/
+            ~/Library/Logs/DiagnosticReports/
           if-no-files-found: ignore
