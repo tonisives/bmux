@@ -4,6 +4,12 @@ on:
     branches: [main, feat/portable-bmux]
   pull_request:
   workflow_dispatch:
+    inputs:
+      repeat_each:
+        description: Repeat each Linux test (1-32)
+        required: false
+        default: 1
+        type: number
 jobs:
   linux:
     strategy:
@@ -15,10 +21,19 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: docker build --target test -t bmux-test:local .
-      - run: scripts/test-linux.sh
+      - name: Linux tests
+        env:
+          REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
+        run: |
+          case "$REPEAT_EACH" in
+            [1-9]|[12][0-9]|3[0-2]) ;;
+            *) echo "repeat_each must be between 1 and 32"; exit 1 ;;
+          esac
+          scripts/test-linux.sh --repeat-each "$REPEAT_EACH"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

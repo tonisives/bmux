@@ -46,7 +46,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await application.evaluate(async({BrowserWindow,session},{origin,cookie})=>{
       await session.defaultSession.cookies.set({url:origin,name:'bmux_session',value:cookie,httpOnly:true})
       session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('http://127.0.0.1:') && !details.url.startsWith('ws://127.0.0.1:') && !details.url.startsWith('file://')}))
-      let viewer = new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}})
+      // Playwright's click stability checks need compositor frames from a visible window.
+      let viewer = new BrowserWindow({show:true,width:1280,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}})
       await viewer.loadURL(origin)
     },{origin,cookie})
     await expect.poll(()=>application!.context().pages().some(page=>page.url()===origin+'/')).toBe(true)
