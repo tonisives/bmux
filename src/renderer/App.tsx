@@ -324,7 +324,7 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
   let tabId = pane?.id
   let characters = Array.from(window.name)
-  let name = window.automaticName && characters.length > 24 ? `${characters.slice(0, 23).join('')}…` : window.name
+  let name = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
   let label = `${index}:${name}${active ? '*' : ''}`
   let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
   let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
