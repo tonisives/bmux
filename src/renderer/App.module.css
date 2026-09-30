@@ -6,7 +6,7 @@
 .status { display: flex; order: -2; align-items: center; flex-shrink: 0; height: 28px; gap: 10px; padding: 0 8px; background: #1b1f24; color: #9ca3ad; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-app-region: drag; }
 .app[data-status-bar="bottom"] .status { order: 1; }
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
-.status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .session { display: inline-flex; align-items: center; flex-shrink: 0; max-width: none; white-space: nowrap; color: #bdc9b4; }
 .status .profileButton, .status .proxyButton, .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
@@ -23,9 +23,12 @@
 .downloadCount { position: absolute; top: -3px; right: -5px; min-width: 11px; padding: 0 2px; border-radius: 6px; background: #9ca3ad; color: #1b1f24; font: 8px/11px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 @keyframes download-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
-.windows { display: flex; align-items: flex-end; gap: 3px; height: 100%; min-width: 0; overflow-x: auto; flex: 0 1 auto; padding-right: 1px; scrollbar-width: none; -webkit-app-region: no-drag; }
+.windows { display: flex; align-items: flex-end; gap: 3px; height: 100%; min-width: 0; overflow-x: auto; flex: 0 1 auto; scrollbar-width: none; -webkit-app-region: no-drag; }
 .windows::-webkit-scrollbar { display: none; }
-.windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
+.windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 37px; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
+.windowTab:has(.windowClose) { min-width: 53px; }
+.windowTab:has(.windowAudio) { min-width: 55px; }
+.windowTab:has(.windowClose):has(.windowAudio) { min-width: 71px; }
 .windowTab[data-selected="true"] { border-color: #56616f; background: #343c48; color: #f0f2f5; }
 .app[data-status-bar="bottom"] .windows { align-items: flex-start; }
 .app[data-status-bar="bottom"] .windowTab { border-top: 0; border-bottom: 1px solid #343c48; border-radius: 0 0 4px 4px; }
@@ -33,11 +36,12 @@
 .windowTab[data-drop-position="before"]::before, .windowTab[data-drop-position="after"]::after { content: ''; position: absolute; top: 1px; bottom: 1px; width: 2px; background: #c2d8a7; pointer-events: none; }
 .windowTab[data-drop-position="before"]::before { left: -3px; }
 .windowTab[data-drop-position="after"]::after { right: -3px; }
-.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 7px; flex-shrink: 0; max-width: none; cursor: grab; }
+.status .windowSelect { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 7px; flex: 1 1 auto; min-width: 0; max-width: none; cursor: grab; }
 .status .windowSelect:hover { color: inherit; }
-.windowLabel { white-space: nowrap; }
-.tabFavicon, .tabSpinner { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
+.windowLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabFavicon, .tabSpinner, .tabPlaceholder { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }
+.tabPlaceholder { fill: none; stroke: currentColor; stroke-width: 1.2; }
 .tabSpinner { border: 1.5px solid #64707e; border-top-color: #d6dcd2; border-radius: 50%; animation: tab-spin .8s linear infinite; }
 .status .windowAudio { display: grid; place-items: center; width: 16px; height: 18px; flex: 0 0 16px; color: #a7c88d; }
 .status .windowAudio[data-muted="true"] { color: #77818d; }
@@ -48,7 +52,7 @@
 .windowClose svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 @keyframes tab-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .tabSpinner { animation: none; } }
-.drag { flex: 1; min-width: 24px; align-self: stretch; }
+.drag { flex: 1; min-width: 0; margin: 0 -5px; align-self: stretch; }
 .prompt .error { color: #e6a69c; }
 .notifications { position: relative; z-index: 101; order: -1; flex: 0 0 auto; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app[data-status-bar="bottom"] .notifications { order: 2; }

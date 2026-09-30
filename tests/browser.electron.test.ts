@@ -2055,10 +2055,8 @@ test('status keeps full session and manual names while shortening website titles
     await cli('eval', { pane: pane.id, expression: "document.title = 'Changed website title'" })
     await expect(windowButton).toHaveText(`1:${manualName}*`)
     await expect(sessionButton).toHaveText(sessionName)
-    await expect.poll(() => status.locator('[data-window-list]').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
-    for (let button of [sessionButton, windowButton]) {
-      expect(await button.evaluate(element => ({ fits: element.scrollWidth <= element.clientWidth, maxWidth: getComputedStyle(element).maxWidth, shrink: getComputedStyle(element).flexShrink }))).toEqual({ fits: true, maxWidth: 'none', shrink: '0' })
-    }
+    await expect.poll(() => windowButton.locator('span').last().evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+    expect(await sessionButton.evaluate(element => ({ fits: element.scrollWidth <= element.clientWidth, maxWidth: getComputedStyle(element).maxWidth, shrink: getComputedStyle(element).flexShrink }))).toEqual({ fits: true, maxWidth: 'none', shrink: '0' })
   } finally { await cli('detach-client', { client: client.id }) }
 })
 
@@ -2076,7 +2074,23 @@ test('status window list uses available room and hides its native scrollbar', as
     let window = BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow()
     window?.setBounds({ x: 90, y: 90, width: 480, height: 700 })
   }, client.id)
+  await expect.poll(() => list.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  let tab = list.locator('[data-window-id]').last()
+  await expect.poll(() => tab.locator('span').last().evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  let profile = status.getByRole('button', { name: /^Profile:/ })
+  let help = status.getByRole('button', { name: 'Help', exact: true })
+  await expect.poll(async () => {
+    let last = (await tab.boundingBox())!, avatar = (await profile.boundingBox())!, question = (await help.boundingBox())!, bar = (await status.boundingBox())!
+    return { gap: Math.round(avatar.x - last.x - last.width), helpFits: question.x + question.width <= bar.x + bar.width - 8 }
+  }).toEqual({ gap: 10, helpFits: true })
+  for (let index = 4; index <= 12; index++) await cli('new-window', { session: session.id, client: client.id, name: `descriptive-window-${index}` })
   await expect.poll(() => list.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  await expect.poll(() => list.locator('[data-window-id]').last().locator('span').last().evaluate(element => element.clientWidth)).toBe(0)
+  await expect.poll(async () => {
+    let question = (await help.boundingBox())!, bar = (await status.boundingBox())!
+    return question.width > 0 && question.x + question.width <= bar.x + bar.width - 8
+  }).toBe(true)
+  await chrome.screenshot({ path: 'artifacts/status-overflow.png' })
   await expect.poll(() => list.evaluate(element => {
     let active = element.querySelector('[data-active="true"]')!.getBoundingClientRect(), bounds = element.getBoundingClientRect()
     return { scrollbar: (element as HTMLElement).offsetHeight - element.clientHeight, activeVisible: active.left >= bounds.left && active.right <= bounds.right }
