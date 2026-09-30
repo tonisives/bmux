@@ -40,11 +40,36 @@ test('proxy defaults affect only new panes and preserve routes, cookies and cred
     await command(chrome, 'extension.load', { profile: profile.id, path: extensionDirectory })
     await command(chrome, 'navigate', { pane: original.id, url: `${origin}/original` })
     await command(chrome, 'eval', { pane: original.id, expression: "document.cookie = 'fixture_login=present; path=/'" })
+    await application.evaluate(async ({ session }, profileId) => {
+      let cookies = session.fromPartition(`persist:${profileId}`).cookies
+      await cookies.set({ url: 'https://cookie-fixture.test/', name: 'overlap', value: 'secure', path: '/', secure: true, httpOnly: true })
+      await cookies.set({ url: 'https://cookie-fixture.test/account', name: 'overlap', value: 'insecure', path: '/account', secure: false, httpOnly: true })
+      await cookies.set({ url: 'https://cookie-fixture.test/', name: 'keep', value: 'older' })
+    }, profile.id)
     let set = (index: number) => command(chrome, 'profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxies[index].port, authenticated: true, username: `user-${index}`, password: `password-${index}` })
     let first = await set(0)
+    await application.evaluate(async ({ session }, connectionId) => {
+      let cookies = session.fromPartition(`persist:${connectionId}`).cookies
+      // Simulate a previous partial copy: its Secure cookie blocks an HTTP restore.
+      await cookies.set({ url: 'https://cookie-fixture.test/', name: 'overlap', value: 'secure', path: '/', secure: true, httpOnly: true })
+      await cookies.set({ url: 'https://cookie-fixture.test/', name: 'keep', value: 'newer' })
+      try {
+        await cookies.set({ url: 'http://cookie-fixture.test/account', name: 'overlap', value: 'insecure', path: '/account', secure: false, httpOnly: true })
+        throw new Error('Fixture did not reproduce the Secure cookie conflict')
+      } catch (error) {
+        if (!String(error).includes('EXCLUDE_OVERWRITE_SECURE')) throw error
+      }
+    }, first.connectionId)
     let a = await command(chrome, 'new-window', { session: session.id, profile: profile.id, client: state.clientId })
     await command(chrome, 'navigate', { pane: a.panes[0].id, url: `${origin}/first` })
     expect(await command(chrome, 'eval', { pane: a.panes[0].id, expression: "document.cookie.includes('fixture_login=present')" })).toBe(true)
+    let copied = await application.evaluate(({ session }, connectionId) => session.fromPartition(`persist:${connectionId}`).cookies.get({ domain: 'cookie-fixture.test' }), first.connectionId)
+    expect(copied).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'overlap', path: '/', value: 'secure', secure: true, httpOnly: true }),
+      expect.objectContaining({ name: 'overlap', path: '/account', value: 'insecure', secure: false, httpOnly: true }),
+      expect.objectContaining({ name: 'keep', value: 'newer' }),
+    ]))
+    expect((await command(chrome, 'state')).profileProxyFailures[first.connectionId]).toBeUndefined()
     await command(chrome, 'wait', { pane: a.panes[0].id, expression: "document.documentElement.dataset.connectionExtension === 'ready'" })
     expect(requests[0].some(url => url.endsWith('/first'))).toBe(true)
     let second = await set(1)

@@ -11,6 +11,7 @@ import { promisify } from 'node:util'
 
 let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server, proxy: ProxyServer, proxyRequests = 0
 let identityRequests = new Map<string, http.IncomingHttpHeaders>()
+let holdProxyTest = false, pendingProxyTest: (() => void) | undefined
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
@@ -61,7 +62,12 @@ test.beforeAll(async () => {
       response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>Device fixture</title><style>html{background:#234567}</style><h1>Device fixture</h1><a href="/device-popup" target="_blank">Open device popup</a>')
       return
     }
-    if (request.url === '/ip') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9', city: 'Amsterdam', region: 'North Holland', country: 'Netherlands' })); return }
+    if (request.url === '/ip') {
+      let respond = () => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9', city: 'Amsterdam', region: 'North Holland', country: 'Netherlands' })) }
+      if (holdProxyTest) pendingProxyTest = respond
+      else respond()
+      return
+    }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
@@ -283,11 +289,15 @@ test('saved proxy settings and credentials are shared across panes and profiles'
     await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
     await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('fixture-user')
     await expect(panel.getByLabel('Password', { exact: true })).toHaveValue('')
-    await panel.getByRole('button', { name: 'Use for new panes', exact: true }).click()
+    await panel.getByRole('switch', { name: 'Use for new panes', exact: true }).click()
+    await expect(panel.getByRole('switch', { name: 'Use for new panes', exact: true })).toBeChecked()
+    await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
+    await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
     await expect.poll(async () => (await state()).model.profiles.find((item: { id: string }) => item.id === other.id)?.proxy?.host).toBe('127.0.0.1')
     await panel.getByRole('button', { name: 'Close', exact: true }).click()
     let before = proxyRequests
     let next = await rpc('split-window', { pane: pane.id, profile: other.id, url }) as { id: string }
+    await rpc('wait', { pane: next.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
     await expect.poll(() => proxyRequests).toBeGreaterThan(before)
     await rpc('kill-pane', { pane: next.id, confirm: true })
     let result = await rpc('profile.proxy.test', { profile: other.id }) as { ip: string }
@@ -295,6 +305,68 @@ test('saved proxy settings and credentials are shared across panes and profiles'
   } finally {
     await rpc('profile.proxy.clear', { profile: profile.id })
     await rpc('profile.proxy.clear', { profile: other.id })
+    await rpc('kill-pane', { pane: pane.id, confirm: true })
+  }
+})
+
+test('proxy toggle keeps testing available after errors and while changing the default', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let profile = await rpc('profile.create', { name: 'Proxy toggle fixture' }) as { id: string; name: string }
+  let pane = await rpc('split-window', { pane: client.paneId, profile: profile.id, client: client.id }) as { id: string }
+  try {
+    await rpc('select-pane', { pane: pane.id, client: client.id, focus: false })
+    let panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Connection' }).click()
+    await panel.getByLabel('Protocol', { exact: true }).selectOption('http')
+    await panel.getByLabel('Host', { exact: true }).fill('127.0.0.1')
+    await panel.getByLabel('Port', { exact: true }).fill(String(proxy.port))
+    let toggle = panel.getByRole('switch', { name: 'Use for new panes', exact: true })
+    let testConnection = panel.getByRole('button', { name: 'Test connection', exact: true })
+    // A rejected save must leave both controls usable.
+    await toggle.click()
+    await expect(chrome.getByRole('status')).toContainText('Proxy username and password are required')
+    await expect(toggle).not.toBeChecked()
+    await expect(toggle).toBeEnabled()
+    await expect(testConnection).toBeEnabled()
+    await panel.getByLabel('Username', { exact: true }).fill('fixture-user')
+    await panel.getByLabel('Password', { exact: true }).fill('wrong-password')
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+    await testConnection.click()
+    await expect(chrome.getByRole('status')).toContainText('Proxy authentication failed')
+    await expect(testConnection).toBeEnabled()
+    await panel.getByLabel('Password', { exact: true }).fill('fixture-password')
+    await testConnection.click()
+    await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
+    await expect(chrome.getByRole('status').filter({ hasText: 'Proxy authentication failed' })).toHaveCount(0)
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+    await expect(panel.getByLabel('Password', { exact: true })).toHaveValue('')
+    await expect(testConnection).toBeEnabled()
+    let connectionId = (await state()).model.profiles.find((item: { id: string }) => item.id === profile.id).connectionId
+    holdProxyTest = true
+    await testConnection.click()
+    await expect.poll(() => !!pendingProxyTest).toBe(true)
+    await expect(testConnection).toHaveText('Testing…')
+    await expect(toggle).toBeEnabled()
+    await toggle.click()
+    await expect.poll(async () => (await state()).model.profiles.find((item: { id: string }) => item.id === profile.id).proxy).toBeUndefined()
+    await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
+    await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('fixture-user')
+    holdProxyTest = false; pendingProxyTest!(); pendingProxyTest = undefined
+    await expect(testConnection).toBeEnabled()
+    await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
+    await testConnection.click()
+    await expect(testConnection).toBeEnabled()
+    await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
+    await expect(toggle).not.toBeChecked()
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+    expect((await state()).model.profiles.find((item: { id: string }) => item.id === profile.id).connectionId).toBe(connectionId)
+    await chrome.screenshot({ path: path.resolve('artifacts/proxy-toggle.png') })
+  } finally {
+    holdProxyTest = false; pendingProxyTest?.(); pendingProxyTest = undefined
+    await rpc('profile.proxy.clear', { profile: profile.id })
     await rpc('kill-pane', { pane: pane.id, confirm: true })
   }
 })
@@ -325,9 +397,11 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
   expect((await state()).model.profiles[0].proxy).toBeUndefined()
   let before = proxyRequests
-  await panel.getByRole('button', { name: 'Use for new panes', exact: true }).click()
+  await panel.getByRole('switch', { name: 'Use for new panes', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy?.host).toBe('127.0.0.1')
   expect(proxyRequests).toBe(before)
+  await expect(panel.getByRole('switch', { name: 'Use for new panes', exact: true })).toBeChecked()
+  await expect(panel.getByRole('button', { name: 'Test connection', exact: true })).toBeEnabled()
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop, proxy connection`, exact: true })).toHaveCount(0)
   await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
   await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
@@ -359,7 +433,8 @@ test('profile proxy settings route, test, and restore the selected profile conne
   try {
     for (let scroll of [0, 10000]) {
       await proxyPanel.locator('[class*=proxyFields]').evaluate((element, top) => { element.scrollTop = top }, scroll)
-      for (let name of ['Use for new panes', 'Test connection', 'Use system connection']) await expect(proxyPanel.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
+      await expect(proxyPanel.getByRole('switch', { name: 'Use for new panes', exact: true })).toBeInViewport({ ratio: 1 })
+      await expect(proxyPanel.getByRole('button', { name: 'Test connection', exact: true })).toBeInViewport({ ratio: 1 })
     }
   } finally {
     await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(item => item.isVisible())!.setBounds(bounds), originalBounds)
@@ -385,8 +460,12 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await rpc('select-window', { window: proxyWindow.id, client: current.clientId })
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Connection' }).click()
-  await panel.getByRole('button', { name: 'Use system connection', exact: true }).click()
+  await panel.getByRole('switch', { name: 'Use for new panes', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy).toBeUndefined()
+  await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
+  await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
+  await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
+  await expect(panel.getByRole('switch', { name: 'Use for new panes', exact: true })).not.toBeChecked()
   await expect(proxyButton).toBeVisible()
   await rpc('kill-window', { window: proxyWindow.id, confirm: true })
   await expect(proxyButton).toHaveCount(0)

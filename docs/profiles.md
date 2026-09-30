@@ -37,7 +37,7 @@ Profiles are not an authorization boundary against the local CLI.
 
 In profile details, find **Connection**. Choose **Custom**, then HTTP, HTTPS,
 or SOCKS5. Enter the host and port. Enable authentication when needed and enter
-both credentials. Choose **Use for new panes**.
+both credentials. Turn on **Use for new panes** to save these settings as the default.
 
 **Saved proxies (all profiles)** lists connections already configured in any
 profile. Selecting one fills the endpoint and saved username and reuses its
@@ -51,19 +51,22 @@ credentials remain available in **Saved proxies (all profiles)**.
 Each connection uses separate browser site storage. On first use, a new
 connection copies cookies from the previous default to preserve most logins;
 local storage and IndexedDB remain separate. Existing panes are not reloaded.
+Cookies already present in the destination are preserved. Cookies Chromium
+rejects are skipped without blocking navigation.
 
 Credentials are encrypted with Electron safeStorage and stored separately from
 ordinary profile state. Saving credentials fails if OS encryption is unavailable.
 Authenticated SOCKS5 uses a private loopback relay because Chromium does not
 directly support SOCKS5 credentials.
 
-**Use system connection** selects the system connection for new panes. It does not disable a system
-VPN or proxy. HTTP/HTTPS describes the proxy protocol, not the destination's security.
+Turn off **Use for new panes** to select the system connection for new panes. The
+displayed settings stay available for testing and reuse. This does not disable a
+system VPN or proxy. HTTP/HTTPS describes the proxy protocol, not the destination's security.
 
 ## Verify and troubleshoot
 
 Choose **Test connection** to check the settings currently shown, including
-unsaved changes. Testing does not replace the saved connection. Success shows the
+unsaved changes, whether **Use for new panes** is on or off. Testing does not replace the saved connection. Success shows the
 reported exit IP. Authentication failures require the provider’s service credentials. Open the **Proxy** panel from the proxy icon to inspect the
 connection and reported region when available.
 

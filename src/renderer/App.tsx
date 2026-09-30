@@ -1302,8 +1302,24 @@ let ProxyHostPicker = ({ protocol, entries, onChoose, onClose }: { protocol: Plu
   </dialog>
 }
 
+let useProxyDefault = (args: Record<string, unknown>, onSaved: (profile: Profile) => void) => {
+  let { run, onMessage } = useUI()
+  let [saving, setSaving] = useState(false)
+  let changeNewPanes = async (event: ChangeEvent<HTMLInputElement>) => {
+    let enabled = event.target.checked
+    if (saving || enabled && !event.target.form?.reportValidity()) return
+    onMessage(''); setSaving(true)
+    try {
+      if (!enabled) { await run('profile.proxy.clear', { profile: args.profile }); return }
+      let result = await run('profile.proxy.set', args)
+      if (result) onSaved(result as Profile)
+    } finally { setSaving(false) }
+  }
+  return { saving, changeNewPanes }
+}
+
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
-  let { state, run } = useUI()
+  let { state, run, onMessage } = useUI()
   let providers = proxyProviderEntries(state)
   let configuredProvider = providers.find(entry => entry.provider.regions.some(region => matchesProxyRegion(region, profile)))
   let configuredRegion = configuredProvider?.provider.regions.find(region => matchesProxyRegion(region, profile))?.host ?? ''
@@ -1314,7 +1330,8 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
   let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
-  let [busy, setBusy] = useState(false)
+  let [testing, setTesting] = useState(false)
+  let form = useRef<HTMLFormElement>(null)
   let [credentialProfile, setCredentialProfile] = useState(defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useState('')
   let [pickerOpen, setPickerOpen] = useState(false)
   let savedProfiles = savedProxyProfiles(state.model)
@@ -1371,23 +1388,20 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let changeAuthenticated = (event: ChangeEvent<HTMLInputElement>) => setAuthenticated(event.target.checked)
   let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
   let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
-  let saveProxy = async (event: FormEvent) => {
-    event.preventDefault(); if (busy) return
-    setBusy(true)
-    let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile })
-    if (result) { setCredentialProfile(defaultConnectionId(result as Profile)); setPassword('') }
-    setBusy(false)
-  }
-  let useSystem = async () => { if (busy) return; setBusy(true); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
+  let proxyArgs = { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile }
+  let proxySaved = (saved: Profile) => { setCredentialProfile(defaultConnectionId(saved)); setSavedUsername(username); setPassword('') }
+  let { saving, changeNewPanes } = useProxyDefault(proxyArgs, proxySaved)
+  let preventSubmit = (event: FormEvent) => event.preventDefault()
   let testProxy = async () => {
-    if (busy) return
-    setBusy(true); let revision = testRevision.current
+    if (testing || !form.current?.reportValidity()) return
+    onMessage(''); setTesting(true); let revision = testRevision.current
     setTested(undefined)
-    let result = await run('profile.proxy.test', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile })
-    if (result && revision === testRevision.current) setTested(result as { ip: string; region?: string })
-    setBusy(false)
+    try {
+      let result = await run('profile.proxy.test', proxyArgs)
+      if (result && revision === testRevision.current) setTested(result as { ip: string; region?: string })
+    } finally { setTesting(false) }
   }
-  return <form className={css.profileProxy} onSubmit={saveProxy}>
+  return <form ref={form} className={css.profileProxy} onSubmit={preventSubmit}>
       <h2>New panes</h2>
       <div className={css.proxyFields}>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Used for new panes. {paneCount} existing pane{paneCount === 1 ? ' keeps' : 's keep'} their current connection.</p>
@@ -1399,7 +1413,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
       </div>
-      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Use for new panes</button><button type="button" onClick={testProxy} disabled={busy || !host}>Test connection</button>{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
+      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><label className={css.proxyDefault}><input className={css.proxyToggle} type="checkbox" role="switch" checked={savedEndpoint} onChange={changeNewPanes} disabled={saving} />Use for new panes</label><button type="button" aria-label="Test connection" onClick={testProxy} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</button></div>
     </form>
 }
 
@@ -1412,7 +1426,7 @@ let ProxyInfo = () => {
   return <section className={css.profileInfo} aria-label={`${profile.name} proxy settings`}>
     <div className={css.profileHeading}><ProfileConnectionIcon proxy={!!current.proxy} verified={!!state.profileProxyTests[current.id]} /><strong>{profile.name}</strong></div>
     <p>This pane: {current.proxy ? `${current.proxy.protocol}://${current.proxy.host}:${current.proxy.port}` : 'system connection'}</p>
-    <ProxySettings key={`${profile.id}:${defaultConnectionId(profile)}`} profile={profile} paneCount={paneCount} showRegion />
+    <ProxySettings key={profile.id} profile={profile} paneCount={paneCount} showRegion />
   </section>
 }
 
@@ -1450,7 +1464,7 @@ let ProfileInfo = () => {
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
     </section></div>}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
-    {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={`${profile.id}:${JSON.stringify(profile.proxy)}`} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }
