@@ -678,8 +678,21 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
   await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
   await rpc('eval', { tab: pane.id, expression: `document.querySelector('header').style.top = 'env(safe-area-inset-top)'` })
   await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
+  // Allow the compositor to present the resized native device surface.
+  await new Promise(resolve => setTimeout(resolve, 300))
   let windowId = (await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); String(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0).kCGWindowNumber);`])).stdout.trim()
   await promisify(execFile)('/usr/sbin/screencapture', ['-x', '-o', '-l', windowId, path.resolve(`artifacts/safe-area-fixed-${preset}.png`)])
+  let homePixel = await application.evaluate(({ BaseWindow, nativeImage }, { preset, url }) => {
+    let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+    let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === `${url}/safe-area-cover-fixed`)!
+    let bounds = view.getBounds(), image = nativeImage.createFromPath(`artifacts/safe-area-fixed-${preset}.png`), size = image.getSize(), pixels = image.toBitmap()
+    let scale = size.width / window.getBounds().width
+    let x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height - 10.5 * bounds.width / (preset === 'iphone-15-pro' ? 393 : 360)
+    let offset = (Math.floor(y * scale) * size.width + Math.floor(x * scale)) * 4
+    return [...pixels.subarray(offset, offset + 3)]
+  }, { preset, url })
+  expect(homePixel.every(channel => channel < 40)).toBe(true)
+
   await rpc('eval', { tab: pane.id, expression: `scrollTo(0,0); document.querySelector('header').style.cssText = 'position:sticky;top:0;height:48px;background:white'` })
   await rpc('eval', { tab: pane.id, expression: 'scrollTo(0,300)' })
   await expect.poll(async () => (await inspect()).top).toBe(preset === 'iphone-15-pro' ? 59 : 40)
