@@ -1,8 +1,10 @@
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
+import { parseDevicePersona } from '../shared/device-persona'
+import { DeviceEmulationDetails } from './DeviceEmulationDetails'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
@@ -1224,9 +1226,52 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   return <div className={css.sessionRow}><button className={`${css.listRow} ${css.sessionLabelRow}`} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
+let DevicePresetSelect = ({ value, onChange }: { value: DevicePreset; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Device" value={value} onChange={onChange}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select>
+let DeviceOrientationSelect = ({ value, onChange }: { value: DevicePersona['orientation']; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Orientation" value={value} onChange={onChange}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select>
+let DevicePlatformSelect = ({ value, onChange }: { value: DevicePlatform; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Platform" value={value} onChange={onChange}><option value="android">Android</option><option value="ios">iOS</option></select>
+type DeviceAutoSaveProps = { current?: DevicePersona; sessionDevice?: DevicePersona; draft: { device?: DevicePersona; error?: string }; newPanes: boolean; busy: boolean; form: RefObject<HTMLFormElement | null>; profileId: string; paneId: string; saveDevice: (device: DevicePersona, newPanes: boolean) => Promise<unknown> }
+let useDeviceAutoSave = ({ current, sessionDevice, draft, newPanes, busy, form, profileId, paneId, saveDevice }: DeviceAutoSaveProps) => {
+  let { run, onMessage } = useUI()
+  let [focusRevision, setFocusRevision] = useState(0)
+  let lastAutoSave = useRef('')
+  let editingText = useRef(false)
+  let pendingSave = useRef<{ device: DevicePersona; newPanes: boolean } | undefined>(undefined)
+  let deviceKey = JSON.stringify(draft.device), currentKey = JSON.stringify(current), sessionKey = JSON.stringify(sessionDevice)
+  let pendingSaveKey = `${deviceKey}:${newPanes}`
+  let hasChanges = deviceKey !== currentKey || (newPanes ? sessionKey !== deviceKey : !!sessionKey)
+  useEffect(() => {
+    pendingSave.current = current && draft.device && hasChanges && !busy && form.current?.checkValidity() ? { device: draft.device, newPanes } : undefined
+  })
+  useEffect(() => () => {
+    let pending = pendingSave.current
+    if (pending) void run('profile.device.set', { profile: profileId, pane: paneId, ...pending })
+  }, [profileId, paneId, run])
+  useEffect(() => {
+    if (!current || !draft.device || busy || !form.current?.checkValidity()) return
+    if (!hasChanges || lastAutoSave.current === pendingSaveKey) return
+    if (editingText.current) return
+    let timer = setTimeout(() => { pendingSave.current = undefined; lastAutoSave.current = pendingSaveKey; void saveDevice(draft.device!, newPanes) }, 400)
+    return () => clearTimeout(timer)
+  }, [currentKey, draft.device, busy, hasChanges, pendingSaveKey, newPanes, saveDevice, focusRevision])
+  let commitField = (event: FocusEvent<HTMLFormElement>) => {
+    editingText.current = false
+    setFocusRevision(revision => revision + 1)
+    if (!current || busy || !form.current?.checkValidity()) return
+    if (draft.error) { onMessage(draft.error); return }
+    if (hasChanges && !form.current.contains(event.relatedTarget as Node | null)) {
+      pendingSave.current = undefined
+      lastAutoSave.current = pendingSaveKey
+      void saveDevice(draft.device!, newPanes)
+    }
+  }
+  let queueField = (event: ChangeEvent<HTMLFormElement>) => { editingText.current = event.target instanceof HTMLInputElement && event.target.type !== 'checkbox' }
+  return { commitField, queueField }
+}
 let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) => {
-  let { run } = useUI()
+  let { run, onMessage } = useUI()
+  let form = useRef<HTMLFormElement>(null)
   let current = pane.device
+  let [active, setActive] = useState(!!current)
   let [preset, setPreset] = useState<DevicePreset>(current?.preset ?? 'pixel-8')
   let [platform, setPlatform] = useState<DevicePlatform>(current?.platform ?? 'android')
   let [width, setWidth] = useState(String(current?.width ?? 412)), [height, setHeight] = useState(String(current?.height ?? 915)), [dpr, setDpr] = useState(String(current?.deviceScaleFactor ?? 2.625))
@@ -1237,6 +1282,17 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
   let [latitude, setLatitude] = useState(String(current?.geolocation?.latitude ?? '')), [longitude, setLongitude] = useState(String(current?.geolocation?.longitude ?? '')), [accuracy, setAccuracy] = useState(String(current?.geolocation?.accuracy ?? 100))
   let [busy, setBusy] = useState(false)
   let [newPanes, setNewPanes] = useState(!!session.device)
+  let draft = useMemo(() => {
+    try { return { device: parseDevicePersona({ preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) }) } }
+    catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+  }, [preset, platform, width, height, dpr, orientation, locale, timezone, locationEnabled, latitude, longitude, accuracy])
+  let saveDevice = useCallback(async (device: DevicePersona, newPanes: boolean) => {
+    setBusy(true)
+    try { return await run('profile.device.set', { profile: profile.id, pane: pane.id, newPanes, device }) }
+    finally { setBusy(false) }
+  }, [profile.id, pane.id, run])
+  useEffect(() => { if (!busy) setActive(!!current) }, [current, busy])
+  let { commitField, queueField } = useDeviceAutoSave({ current, sessionDevice: session.device, draft, newPanes, busy, form, profileId: profile.id, paneId: pane.id, saveDevice })
   let changePreset = (event: ChangeEvent<HTMLSelectElement>) => setPreset(event.target.value as DevicePreset)
   let changePlatform = (event: ChangeEvent<HTMLSelectElement>) => setPlatform(event.target.value as DevicePlatform)
   let changeOrientation = (event: ChangeEvent<HTMLSelectElement>) => setOrientation(event.target.value as 'portrait' | 'landscape')
@@ -1250,23 +1306,31 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
   let changeLongitude = (event: ChangeEvent<HTMLInputElement>) => setLongitude(event.target.value)
   let changeAccuracy = (event: ChangeEvent<HTMLInputElement>) => setAccuracy(event.target.value)
   let changeNewPanes = (event: ChangeEvent<HTMLInputElement>) => setNewPanes(event.target.checked)
-  let saveDevice = async (event: FormEvent) => {
-    event.preventDefault(); if (busy) return
-    setBusy(true)
-    await run('profile.device.set', { profile: profile.id, pane: pane.id, newPanes, device: { preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) } })
-    setBusy(false)
+  let changeActive = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (busy) return
+    if (event.target.checked) {
+      if (!form.current?.reportValidity()) return
+      if (!draft.device) { onMessage(draft.error ?? 'Check the device settings'); return }
+      setActive(true)
+      if (!await saveDevice(draft.device, newPanes)) setActive(!!current)
+      return
+    }
+    setActive(false); setBusy(true)
+    try { if (await run('profile.device.clear', { profile: profile.id, pane: pane.id })) setNewPanes(false); else setActive(!!current) }
+    finally { setBusy(false) }
   }
-  let clearDevice = async () => { if (busy) return; setBusy(true); await run('profile.device.clear', { profile: profile.id, pane: pane.id }); setBusy(false) }
-  return <form className={css.deviceSettings} onSubmit={saveDevice}>
-    <p>{current ? 'Mobile device active' : 'Desktop device active'} for this pane.</p>
+  let preventSubmit = (event: FormEvent) => { event.preventDefault(); if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur() }
+  return <form ref={form} className={css.deviceSettings} onSubmit={preventSubmit} onBlur={commitField} onChange={queueField}>
+    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={active} onChange={changeActive} disabled={busy} />Mobile device</label>
+    <fieldset className={css.deviceFields} disabled={busy}>
     <div className={css.profileDeviceGrid}>
-      <label>Device<select aria-label="Device" value={preset} onChange={changePreset}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select></label>
-      <label>Orientation<select aria-label="Orientation" value={orientation} onChange={changeOrientation}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+      <label>Device<DevicePresetSelect value={preset} onChange={changePreset} /></label>
+      <label>Orientation<DeviceOrientationSelect value={orientation} onChange={changeOrientation} /></label>
       <label>Locale<input className={css.pluginInput} value={locale} onChange={changeLocale} required spellCheck={false} /></label>
       <label>Timezone<input className={css.pluginInput} value={timezone} onChange={changeTimezone} required spellCheck={false} /></label>
     </div>
     {preset === 'custom' && <div className={css.profileDeviceGrid}>
-      <label>Platform<select aria-label="Platform" value={platform} onChange={changePlatform}><option value="android">Android</option><option value="ios">iOS</option></select></label>
+      <label>Platform<DevicePlatformSelect value={platform} onChange={changePlatform} /></label>
       <label>Width<input className={css.pluginInput} type="number" min="240" max="1440" value={width} onChange={changeWidth} required /></label>
       <label>Height<input className={css.pluginInput} type="number" min="320" max="2560" value={height} onChange={changeHeight} required /></label>
       <label>DPR<input className={css.pluginInput} type="number" min="1" max="4" step="0.125" value={dpr} onChange={changeDpr} required /></label>
@@ -1274,7 +1338,8 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
     <label className={css.profileProxyAuthentication}><input type="checkbox" checked={locationEnabled} onChange={changeLocationEnabled} />Set geolocation</label>
     {locationEnabled && <div className={css.profileDeviceLocation}><label>Latitude<input className={css.pluginInput} type="number" min="-90" max="90" step="any" value={latitude} onChange={changeLatitude} required /></label><label>Longitude<input className={css.pluginInput} type="number" min="-180" max="180" step="any" value={longitude} onChange={changeLongitude} required /></label><label>Accuracy<input className={css.pluginInput} type="number" min="0" max="100000" step="any" value={accuracy} onChange={changeAccuracy} required /></label></div>}
     <label className={css.profileProxyAuthentication}><input type="checkbox" checked={newPanes} onChange={changeNewPanes} />Enable for all new panes</label>
-    <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Apply device</button>{current && <button type="button" onClick={clearDevice} disabled={busy}>Use desktop</button>}</div>
+    </fieldset>
+    {draft.device && <DeviceEmulationDetails device={draft.device} active={!!current} />}
   </form>
 }
 

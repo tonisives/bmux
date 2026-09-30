@@ -1,11 +1,7 @@
 import type { DevicePersona } from '../shared/types'
 
-export let deviceSafeAreaInsets = (device: DevicePersona) => {
-  let top = device.platform === 'ios' ? 59 : 40
-  return device.orientation === 'portrait'
-    ? { top, bottom: device.platform === 'ios' ? 34 : 24, left: 0, right: 0 }
-    : { top: 0, bottom: device.platform === 'ios' ? 21 : 24, left: top, right: top }
-}
+import { deviceSafeAreaInsets } from '../shared/device-persona'
+export { deviceSafeAreaInsets } from '../shared/device-persona'
 
 // Runs in an isolated, unprivileged world. The native camera remains above this UI.
 let installSafeAreas = (insets: ReturnType<typeof deviceSafeAreaInsets>) => {

@@ -1,0 +1,8 @@
+.details { margin-top: 16px; border-top: 1px solid #363c45; padding-top: 12px; }
+.details > summary { cursor: pointer; color: #d6dcd2; }
+.details dl { font-size: 12px; }
+.details dl > div { flex-wrap: wrap; padding: 6px 0; }
+.details dt { flex: 0 0 160px; }
+.details dd { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.details code { font: inherit; }
+.details dd p { margin: 6px 0 0; }

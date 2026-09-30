@@ -1925,9 +1925,11 @@ export let createRuntime = (dataDirectory: string) => {
       let { pane, session } = paneById(model, required(args, 'pane'))
       if (pane.profileId !== required(args, 'profile')) throw new Error('Pane profile changed')
       let device = parseDevicePersona(args.device)
+      let changed = JSON.stringify(pane.device) !== JSON.stringify(device)
       pane.device = device
       if (args.newPanes === true) session.device = device
       else delete session.device
+      if (!changed) { save(); return pane }
       delete snapshots[pane.id]
       disposeTab(pane.id)
       save(); await scheduleVisuals()

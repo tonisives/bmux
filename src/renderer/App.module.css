@@ -153,6 +153,8 @@
 .profileHeading .profileAvatar { width: 28px; height: 28px; flex-basis: 28px; }
 .profileInfo dl > div { padding: 5px 0; }
 .deviceSettings { margin-top: 14px; }
+.deviceActive { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; color: #eceef2; }
+.deviceFields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .sessionProfileChange, .sessionCreate label { display: grid; gap: 6px; margin-top: 14px; }
 .sessionProfileChange select, .sessionCreate select, .sessionCreate input { height: 34px; padding: 0 8px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
 .sessionCreateActions { display: flex; gap: 16px; margin-top: 16px; }
