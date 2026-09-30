@@ -869,7 +869,7 @@ let Panel = ({ type }: { type: Control }) => {
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'proxy' ? css.proxyPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
-    <header>{sessionPicker ? <div className={css.sessionTabs} role="tablist" aria-label="Sessions">
+    <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
       <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
     </div> : <strong>{title}</strong>}<CloseButton label="Close" onClick={dismiss} /></header>
@@ -1424,7 +1424,7 @@ let ProfileInfo = () => {
   let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection')
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
-    <div className={css.profileTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button></div>
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button></div>
     {tab === 'overview' && <div role="tabpanel" aria-label="Profile overview"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
@@ -1919,7 +1919,7 @@ let SettingsContent = () => {
   let changeSearch = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   return <div ref={root} className={css.settings} onKeyDown={typeToSearch}>
     <SearchInput ref={searchInput} aria-label="Search settings" placeholder="Search settings" value={query} onChange={changeSearch} onKeyDown={searchKeys} autoFocus />
-    <div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{SETTINGS_TABS.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
+    <div className={css.panelTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{SETTINGS_TABS.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
     <section id="settings-panel" role="tabpanel" aria-label={SETTINGS_TABS.find(item => item.id === tab)?.label} className={css.settingsContent}>
       {query.trim() ? <SettingsSearchResults results={results} changeSetting={changeSetting} makeDefault={makeDefault} prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} /> : <>
       {tab === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} />}
