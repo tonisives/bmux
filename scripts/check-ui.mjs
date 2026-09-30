@@ -14,7 +14,6 @@ let server = http.createServer((request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 let fixtureUrl = `http://127.0.0.1:${server.address().port}`
 let target = process.env.BMUX_TEST_URL ?? process.env.BROWMUX_TEST_URL ?? `${fixtureUrl}/first-pane`
-let targetWindowName = new URL(target).hostname.replace(/^www\./, '')
 let selector = process.env.BMUX_TEST_SELECTOR ?? process.env.BROWMUX_TEST_SELECTOR
 let failedRequests = []
 let pageErrors = []
@@ -43,7 +42,8 @@ try {
   await expect(status.getByRole('button', { name: '1:main*', exact: true })).toBeVisible()
   await prompt.press('Enter')
   await expect(prompt).toHaveCount(0, { timeout: 45000 })
-  await expect(status.getByRole('button', { name: `1:${targetWindowName}*`, exact: true })).toBeVisible()
+  let firstWindow = status.locator('[data-window-id] > button').first()
+  await expect(firstWindow).toBeVisible()
   await expect.poll(() => chrome.getByRole('button', { name: 'Address', exact: true }).inputValue(), { timeout: 45000 }).toContain(new URL(target).hostname)
   if (selector) {
     await expect.poll(() => application.context().pages().some(page => page.url().startsWith(target)), { timeout: 30000 }).toBe(true)
@@ -58,6 +58,7 @@ try {
     return view ? { bounds: view.getBounds(), url: view.webContents.getURL(), title: view.webContents.getTitle() } : null
   }, target)
   if (!visible || visible.bounds.width < 600 || visible.bounds.height < 300) throw new Error('The URL loaded without attaching a visible page')
+  if (!process.env.BMUX_TEST_URL && !process.env.BROWMUX_TEST_URL) await expect(firstWindow).toHaveAttribute('title', 'bmux URL fixture')
   await fs.mkdir(path.join(root, 'artifacts'), { recursive: true })
   // Park the view briefly to capture its actual rendered preview together with the status bar.
   let clientId = await chrome.evaluate(async () => (await window.bmux.state()).clientId)
@@ -78,7 +79,7 @@ try {
     let urls = await chrome.evaluate(async () => (await window.bmux.state()).model.sessions[0].windows.map(window => window.panes[0].tabs[0].url))
     if (urls[0] !== target || urls[1] !== secondUrl) throw new Error('Internal windows did not preserve their own URLs')
     await activate()
-    await chrome.getByRole('button', { name: `1:${targetWindowName}`, exact: true }).click()
+    await firstWindow.click()
     await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && view.webContents.getURL() === target)), target)).toBe(true)
     console.log(JSON.stringify({ passed: 'Two internal windows kept distinct URLs and switching restored the correct native view', urls }))
   }

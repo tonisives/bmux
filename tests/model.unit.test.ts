@@ -101,22 +101,27 @@ describe('session layouts and persistence', () => {
     window.panes[0].url = 'https://www.example.com/first'
     expect(updateAutomaticWindowName(window)).toBe(true)
     expect(window.name).toBe('example.com')
+    window.panes[0].title = 'Example page title'
+    expect(updateAutomaticWindowName(window)).toBe(true)
+    expect(window.name).toBe('Example page title')
+    expect(updateAutomaticWindowName(window)).toBe(false)
     window.panes[0].url = 'https://docs.example.test/latest'
+    window.panes[0].title = 'Documentation and guides'
     updateAutomaticWindowName(window)
-    expect(window.name).toBe('docs.example.test')
+    expect(window.name).toBe('Documentation and guides')
     let second = newPane('profile_default', 'https://second.test')
     window.panes.push(second)
     updateAutomaticWindowName(window)
-    expect(window.name).toBe('docs.example.test')
+    expect(window.name).toBe('Documentation and guides')
     updateAutomaticWindowName(window, second.id)
     expect(window.name).toBe('second.test')
     let pane = newPane('profile_default', 'https://third.test')
     window.panes.push(pane)
     updateAutomaticWindowName(window, pane.id)
     expect(window.name).toBe('third.test')
-    window.name = 'research'; window.automaticName = false
+    window.name = 'Research with a deliberately long manual window name'; window.automaticName = false
     updateAutomaticWindowName(window, window.panes[0].id)
-    expect(window.name).toBe('research')
+    expect(window.name).toBe('Research with a deliberately long manual window name')
   })
   it('round-trips state atomically and refuses corrupt state without replacing it', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-unit-'))

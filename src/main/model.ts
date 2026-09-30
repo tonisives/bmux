@@ -31,7 +31,8 @@ export let updateAutomaticWindowName = (window: InternalWindow, paneId = window.
   let automatic = window.automaticName === true || (window.automaticName === undefined && /^(main|window-\d+)$/.test(window.name))
   if (!automatic) return false
   let pane = window.panes.find(pane => pane.id === paneId) ?? window.panes[0]
-  let name = pane ? domainName(pane.url) : 'empty'
+  let title = pane?.title.replace(/\s+/g, ' ').trim()
+  let name = pane ? (pane.url !== 'about:blank' && title && title !== pane.url && title !== 'New window' ? title : domainName(pane.url)) : 'empty'
   if (!name) name = /^(main|window-\d+)$/.test(window.name) ? window.name : pane?.url.startsWith('file:') ? 'file' : 'new-window'
   if (window.name === name && window.automaticName === true) return false
   window.name = name; window.automaticName = true
