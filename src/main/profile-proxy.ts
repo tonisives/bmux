@@ -10,7 +10,7 @@ import type { ProfileProxy, ProxyProtocol } from '../shared/types'
 
 export type ProxyCredentials = { username: string; password: string }
 type CredentialStoreOptions = { directory: string; available: () => boolean; encrypt: (text: string) => Buffer; decrypt: (data: Buffer) => string }
-type Relay = { server: Server; username: string; password: string; host: string; port: number; failures: number }
+type Relay = { server: Server; username: string; password: string; host: string; port: number; failures: number; httpsAgent?: https.Agent }
 
 export let requiredHostProxy = (endpoint?: string): ProfileProxy | undefined => {
   if (!endpoint) return undefined
@@ -81,26 +81,28 @@ export let createProfileProxyRelays = (credentials: ReturnType<typeof createProx
     let upstreamCredentials = proxy.authenticated ? replacement ?? credentials.get(profileId) : undefined
     if (proxy.authenticated && !upstreamCredentials) throw new Error('Proxy credentials are required')
     let username = randomBytes(18).toString('hex'), password = randomBytes(24).toString('hex')
+    // CONNECT's Host identifies the destination. TLS must authenticate the proxy.
+    let httpsAgent = proxy.protocol === 'https' ? new https.Agent({ servername: isIP(proxy.host) ? '' : proxy.host }) : undefined
     let server = new Server({
       host: '127.0.0.1', port: 0, verbose: false, authRealm: 'bmux',
       prepareRequestFunction: request => request.username !== username || request.password !== password
         ? { requestAuthentication: true, failMsg: 'Proxy authentication required' }
-        : { upstreamProxyUrl: upstreamUrl(proxy, upstreamCredentials) },
+        : { upstreamProxyUrl: upstreamUrl(proxy, upstreamCredentials), httpsAgent },
     })
     await server.listen()
-    let relay = { server, username, password, host: '127.0.0.1', port: server.port, failures: 0 }
+    let relay = { server, username, password, host: '127.0.0.1', port: server.port, failures: 0, httpsAgent }
     server.on('requestFailed', () => { relay.failures++ })
     let previous = relays.get(profileId)
     relays.set(profileId, relay)
-    if (previous) await previous.server.close(true)
+    if (previous) { await previous.server.close(true); previous.httpsAgent?.destroy() }
     return relay
   }
   let close = async (profileId: string) => {
     let relay = relays.get(profileId)
     relays.delete(profileId)
-    if (relay) await relay.server.close(true)
+    if (relay) { await relay.server.close(true); relay.httpsAgent?.destroy() }
   }
-  let closeAll = async () => { let current = [...relays.values()]; relays.clear(); await Promise.all(current.map(relay => relay.server.close(true))) }
+  let closeAll = async () => { let current = [...relays.values()]; relays.clear(); await Promise.all(current.map(async relay => { await relay.server.close(true); relay.httpsAgent?.destroy() })) }
   let authentication = (host: string, port: number) => [...relays.values()].find(relay => relay.host === host && relay.port === port)
   return { create, close, closeAll, authentication, get: (profileId: string) => relays.get(profileId) }
 }
