@@ -26,6 +26,7 @@
 .windows { display: flex; align-items: flex-end; gap: 3px; height: 100%; min-width: 0; overflow-x: auto; flex: 0 1 auto; scrollbar-width: none; -webkit-app-region: no-drag; }
 .windows::-webkit-scrollbar { display: none; }
 .windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 37px; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
+.windows[data-compressed="true"] .windowTab[data-automatic="true"] { flex-basis: var(--automatic-tab-width); }
 .windowTab:has(.windowClose) { min-width: 53px; }
 .windowTab:has(.windowAudio) { min-width: 55px; }
 .windowTab:has(.windowClose):has(.windowAudio) { min-width: 71px; }

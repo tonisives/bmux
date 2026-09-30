@@ -295,6 +295,15 @@ let Status = () => {
     let list = windows.current
     if (!list) return
     let reveal = () => {
+      let tabs = Array.from(list.querySelectorAll<HTMLElement>('[data-window-id]'))
+      let widths = tabs.map(tab => {
+        let range = document.createRange()
+        range.selectNodeContents(tab.querySelector(`.${css.windowLabel}`)!)
+        return range.getBoundingClientRect().width + parseFloat(getComputedStyle(tab).minWidth)
+      })
+      let automaticWidth = Math.max(0, ...widths.filter((_, index) => tabs[index].dataset.automatic === 'true'))
+      list.style.setProperty('--automatic-tab-width', `${automaticWidth}px`)
+      list.dataset.compressed = String(widths.reduce((total, width) => total + width, 0) + Math.max(0, tabs.length - 1) * 3 > list.clientWidth)
       let active = list.querySelector<HTMLElement>('[data-active="true"]')
       if (!active) return
       let item = active.getBoundingClientRect(), bounds = list.getBoundingClientRect()
@@ -304,7 +313,7 @@ let Status = () => {
     let observer = new ResizeObserver(reveal)
     observer.observe(list); reveal()
     return () => observer.disconnect()
-  }, [client?.windowId, session?.windows.length])
+  }, [client?.windowId, session?.windows])
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
@@ -332,7 +341,7 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-selected={active} data-drop-position={dropPosition} onContextMenu={menu}>
+  return <span className={css.windowTab} data-window-id={window.id} data-automatic={window.automaticName === true} data-selected={active} data-drop-position={dropPosition} onContextMenu={menu}>
     <button onClick={select} className={css.windowSelect} data-active={active} aria-pressed={active} title={window.name} draggable>
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>)}
       <span className={css.windowLabel}>{label}</span>

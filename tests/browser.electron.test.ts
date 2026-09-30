@@ -2098,6 +2098,56 @@ test('status window list uses available room and hides its native scrollbar', as
   await cli('detach-client', { client: client.id })
 })
 
+test('status shares constrained space equally between automatic tabs and proportionally with renamed tabs', async () => {
+  let session = await cli('new-session', { name: 'tab-widths' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  let windows = [session.windows[0]]
+  try {
+    await cli('navigate', { pane: windows[0].panes[0].id, url })
+    for (let index = 0; index < 3; index++) windows.push(await cli('new-window', { session: session.id, client: client.id, url }))
+    for (let [index, window] of windows.entries()) {
+      await cli('wait', { pane: window.panes[0].id, selector: '#text' })
+      await cli('eval', { pane: window.panes[0].id, expression: `document.title = ${JSON.stringify(['A', 'Medium title', 'A much longer website title', 'Manual'][index])}` })
+    }
+    await cli('rename-window', { window: windows[3].id, name: 'A manually renamed tab with a much longer descriptive title' })
+    let list = chrome.locator('[data-window-list]')
+    await expect(list.locator('[data-automatic="true"]')).toHaveCount(3)
+    let widths = () => list.locator('[data-window-id]').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width))
+    await expect(list.locator('[data-window-id]').last().locator('button[data-active]')).toHaveAttribute('title', 'A manually renamed tab with a much longer descriptive title')
+    let roomy = await widths()
+    await application.evaluate(({ BaseWindow }, clientId) => {
+      (BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow())?.setBounds({ x: 90, y: 90, width: 640, height: 700 })
+    }, client.id)
+    await expect(list).toHaveAttribute('data-compressed', 'true')
+    await expect.poll(async () => {
+      let sizes = await widths()
+      return Math.max(...sizes.slice(0, 3)) - Math.min(...sizes.slice(0, 3))
+    }).toBeLessThan(1)
+    let compact = await widths()
+    expect(compact[3]).toBeGreaterThan(compact[0])
+    expect(compact[3]).toBeLessThan(roomy[3])
+    await chrome.screenshot({ path: 'artifacts/status-equal-widths.png' })
+    await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: true\nkeyboard: {}\n')
+    await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(true)
+    for (let index = 0; index < 8; index++) await cli('new-window', { session: session.id, client: client.id })
+    await cli('select-window', { client: client.id, window: windows[0].id })
+    let first = list.locator(`[data-window-id="${windows[0].id}"]`)
+    await expect.poll(() => first.locator('span').last().evaluate(element => element.clientWidth)).toBe(0)
+    let close = first.getByRole('button', { name: 'Close A', exact: true })
+    await expect.poll(async () => {
+      let button = (await close.boundingBox())!, tab = (await first.boundingBox())!, bounds = (await list.boundingBox())!
+      return button.width === 14 && button.x >= bounds.x && button.x + button.width <= Math.min(tab.x + tab.width, bounds.x + bounds.width)
+    }).toBe(true)
+    await close.click()
+    await expect(first).toHaveCount(0)
+  } finally {
+    await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: false\nkeyboard: {}\n')
+    await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(false)
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('status windows can be dragged into a new order without switching the active window', async () => {
   let session = await cli('new-session', { name: 'drag-windows' })
   let first = session.windows[0]
