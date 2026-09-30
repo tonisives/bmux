@@ -27,7 +27,13 @@ let openProfilePanel = async (profile: string) => {
   let details = panel.getByRole('region', { name: `${profile} profile details`, exact: true })
   if (!await details.isVisible()) {
     if (await panel.isVisible()) await panel.getByRole('button', { name: 'Close', exact: true }).click()
-    await chrome.getByRole('button', { name: `Profile: ${profile}`, exact: true }).click()
+    let pane = chrome.locator(`[data-pane-id="${client.paneId}"]`)
+    let button = pane.getByRole('button', { name: `Profile: ${profile}`, exact: true })
+    if (await button.count()) await button.click()
+    else {
+      await pane.getByRole('button', { name: `Choose pane profile: ${profile}`, exact: true }).click()
+      await pane.getByRole('button', { name: 'Profile settings', exact: true }).click()
+    }
   }
   await expect(details).toBeVisible()
   return panel
@@ -238,14 +244,15 @@ test('profile icon has no visible label and opens details for the selected pane'
   await expect(panel).toContainText(`Pane${pane.id}`)
 })
 
-test('pane profile route uses icons only for a profile that differs from the session default', async () => {
+test('pane address shows profile controls for both default and custom profiles', async () => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
   let defaultProfile = current.model.profiles.find((item: { id: string }) => item.id === session.defaultProfileId)!
-  await expect(chrome.getByRole('button', { name: `Profile ${defaultProfile.name}, desktop`, exact: true })).toHaveCount(0)
+  await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`).getByRole('button', { name: `Profile: ${defaultProfile.name}`, exact: true })).toBeVisible()
+  await expect(chrome.getByRole('contentinfo', { name: 'Browser status' }).getByRole('button', { name: /^Profile:/ })).toHaveCount(0)
   let customProfile = current.model.profiles.find((item: { id: string }) => item.id !== session.defaultProfileId)!
-  let pane = await rpc('split-window', { pane: client.paneId, profile: customProfile.id, client: client.id })
-  let route = chrome.getByRole('button', { name: `Profile ${customProfile.name}, desktop`, exact: true })
+  let pane = await rpc('split-window', { pane: client.paneId, profile: customProfile.id, client: client.id, url })
+  let route = chrome.getByRole('button', { name: `Profile: ${customProfile.name}`, exact: true })
   try {
     await expect(route).toBeVisible()
     await expect(route.locator(':scope > svg')).toHaveCount(2)
@@ -290,7 +297,7 @@ test('saved proxy settings and credentials are shared across panes and profiles'
     await panel.getByRole('button', { name: 'Close', exact: true }).click()
     await rpc('pane.profile.set', { pane: pane.id, profile: other.id })
     await rpc('navigate', { pane: pane.id, url })
-    await chrome.getByRole('button', { name: `Profile ${other.name}, desktop`, exact: true }).click()
+    await chrome.getByRole('button', { name: `Profile: ${other.name}`, exact: true }).click()
     await expect(panel.getByRole('region', { name: `${other.name} profile details`, exact: true })).toBeVisible()
     await panel.getByRole('tab', { name: 'Connection' }).click()
     await panel.getByLabel('Saved proxies', { exact: true }).selectOption((await state()).model.profiles.find((item: { id: string }) => item.id === profile.id).connectionId)
@@ -454,10 +461,10 @@ test('profile proxy settings route, test, and restore the selected profile conne
   let verificationSession = await rpc('new-session', { name: 'proxy route verification', profile: otherProfile.id, client: current.clientId }) as { id: string }
   let verificationState = await state(), verificationClient = verificationState.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let verificationPane = verificationState.model.sessions.find((item: { id: string }) => item.id === verificationSession.id)!.windows[0].panes[0]
-  let customPane = await rpc('split-window', { pane: verificationPane.id, profile: profile.id, client: verificationClient.id }) as { id: string }
-  let route = chrome.getByRole('button', { name: `Profile ${profile.name}, desktop`, exact: true })
+  let customPane = await rpc('split-window', { pane: verificationPane.id, profile: profile.id, client: verificationClient.id, url }) as { id: string }
+  let route = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
   await expect(route).toBeVisible()
-  let paneProxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}, verified`, exact: true })
+  let paneProxyButton = chrome.getByRole('button', { name: `Proxy for ${profile.name}`, exact: true })
   await expect(paneProxyButton.locator('[data-proxy-verified="true"]')).toBeVisible()
   await expect(paneProxyButton).toHaveAttribute('title', /Exit IP: 203\.0\.113\.9/)
   await paneProxyButton.click()
@@ -477,7 +484,7 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await expect(proxyButton).toBeVisible()
   await rpc('kill-window', { window: proxyWindow.id, confirm: true })
   await expect(proxyButton).toHaveCount(0)
-  await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, desktop`, exact: true })).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })).toBeVisible()
   panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Connection' }).click()
   await rpc('plugin.enable', { id: 'bmux.nordvpn', enabled: false })
