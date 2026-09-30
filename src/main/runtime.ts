@@ -935,6 +935,10 @@ export let createRuntime = (dataDirectory: string) => {
     })
     contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
     contents.on('did-navigate-in-page', () => update())
+    contents.on('did-finish-load', () => {
+      // Navigation can replace Chromium's emulated native surface. Reapply its fit.
+      if (pane.device && live.deviceScale !== undefined) void applyDeviceMetrics(contents, pane.device, live.deviceScale).catch(reportError)
+    })
     contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
