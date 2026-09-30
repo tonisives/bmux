@@ -38,6 +38,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect.poll(async()=>(await command('remote','status')).connected).toBe(true)
     let other = await command('new-session','-s','uncontrolled')
     let otherPane = other.windows[0].panes[0].id
+    // Establish the desktop before remote control; automation cannot take over a lease.
+    let localClient = await command('attach-session','-t',status.model.sessions[0].id)
+    let localWindowId = (await command('rpc','diagnostics','{}')).windows.find((window: { id: string }) => window.id === localClient.id).nativeId
+    await application.evaluate(({BaseWindow},id)=>BaseWindow.fromId(id)!.hide(),localWindowId)
     await application.evaluate(async({BrowserWindow,session},{origin,cookie})=>{
       await session.defaultSession.cookies.set({url:origin,name:'bmux_session',value:cookie,httpOnly:true})
       session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('http://127.0.0.1:') && !details.url.startsWith('ws://127.0.0.1:') && !details.url.startsWith('file://')}))
@@ -119,8 +123,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.setViewportSize({width:700,height:800})
     await viewer.getByRole('button',{name:'Fit viewport'}).click()
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(700)
-    let localClient = await command('attach-session','-t',status.model.sessions[0].id)
-    await command('rpc','activate-client',JSON.stringify({client:localClient.id}))
+    await expect(command('attach-session','-t',status.model.sessions[0].id)).rejects.toThrow('CONTROL_HELD')
+    await expect(command('rpc','activate-client',JSON.stringify({client:localClient.id}))).rejects.toThrow('CONTROL_HELD')
+    // A human focusing the native desktop window reclaims control without an RPC.
+    await application.evaluate(({BaseWindow},id)=>{let window=BaseWindow.fromId(id)!;window.show();window.focus()},localWindowId)
     await expect.poll(async () => (await command('status')).focusedClientId).toBe(localClient.id)
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(700)
     await expect.poll(() => viewer.getByRole('button',{name:'Take control',exact:true}).isVisible()).toBe(true)

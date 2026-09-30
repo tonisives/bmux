@@ -3,6 +3,7 @@ on:
   push:
     branches: [main, feat/portable-bmux]
   pull_request:
+  workflow_dispatch:
 jobs:
   linux:
     strategy:
