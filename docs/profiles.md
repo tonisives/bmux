@@ -57,8 +57,9 @@ VPN or proxy. HTTP/HTTPS describes the proxy protocol, not the destination's sec
 
 ## Verify and troubleshoot
 
-Choose **Test connection** after saving a working endpoint. Success shows the
-reported exit IP. Open the **Proxy** panel from the proxy icon to inspect the
+Choose **Test connection** to check the settings currently shown, including
+unsaved changes. Testing does not replace the saved connection. Success shows the
+reported exit IP. Authentication failures require the provider’s service credentials. Open the **Proxy** panel from the proxy icon to inspect the
 connection and reported region when available.
 
 Verification is a point-in-time result, not a guarantee about all traffic or

@@ -63,7 +63,7 @@ export let App = () => {
   }, [])
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args }) }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return undefined }
+    catch (error) { setMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); return undefined }
   }, [])
   let show = useCallback(async (control: Control, paneId?: string) => {
     setHistoryPopup(null)
@@ -1310,14 +1310,14 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
   let [busy, setBusy] = useState(false)
-  let [credentialProfile, setCredentialProfile] = useState(profile.id)
+  let [credentialProfile, setCredentialProfile] = useState(profile.id), [savedUsername, setSavedUsername] = useState('')
   let [pickerOpen, setPickerOpen] = useState(false)
   let savedProfiles = state.model.profiles.filter(item => item.proxy)
   useEffect(() => {
     if (!credentialProfile) return
     let cancelled = false
     void run('profile.proxy.username', { profile: credentialProfile }).then(result => {
-      if (!cancelled && result) setUsername((result as { username: string }).username)
+      if (!cancelled && result) { let value = (result as { username: string }).username; setUsername(value); setSavedUsername(value) }
     })
     return () => { cancelled = true }
   }, [credentialProfile, run])
@@ -1337,7 +1337,10 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
     setProtocol(source.proxy.protocol); setHost(source.proxy.host); setPort(String(source.proxy.port)); setAuthenticated(source.proxy.authenticated)
     reuseCredentials(source)
   }
-  let proxyTest = state.profileProxyTests[profile.id]
+  let [tested, setTested] = useState<{ ip: string; region?: string }>(), testRevision = useRef(0)
+  useEffect(() => { testRevision.current++; setTested(undefined) }, [protocol, host, port, authenticated, username, password, credentialProfile])
+  let savedEndpoint = protocol === profile.proxy?.protocol && host === profile.proxy?.host && Number(port) === profile.proxy?.port && authenticated === profile.proxy?.authenticated && !password && username === savedUsername && credentialProfile === profile.id
+  let proxyTest = tested ?? (savedEndpoint ? state.profileProxyTests[profile.id] : undefined)
   let providerEntry = providers.find(entry => entry.key === providerKey)
   let provider = providerEntry?.provider
   let changeProvider = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -1373,8 +1376,10 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let useSystem = async () => { if (busy) return; setBusy(true); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
   let testProxy = async () => {
     if (busy) return
-    setBusy(true)
-    await run('profile.proxy.test', { profile: profile.id })
+    setBusy(true); let revision = testRevision.current
+    setTested(undefined)
+    let result = await run('profile.proxy.test', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile })
+    if (result && revision === testRevision.current) setTested(result as { ip: string; region?: string })
     setBusy(false)
   }
   return <form className={css.profileProxy} onSubmit={saveProxy}>
@@ -1389,7 +1394,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={state.model.profiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={state.model.profiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
       </div>
-      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
+      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Save proxy</button><button type="button" onClick={testProxy} disabled={busy || !host}>Test connection</button>{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
     </form>
 }
 

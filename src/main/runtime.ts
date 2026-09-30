@@ -32,7 +32,7 @@ import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
 import type { SearchApp } from '../shared/search-app'
 import { normalizeUrl } from './url'
-import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
+import { createProfileProxyRelays, testProxyRelay, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
@@ -403,6 +403,17 @@ export let createRuntime = (dataDirectory: string) => {
     profileCaches = { ...profileCaches, [profileId]: { bytes, limit, checkedAt: Date.now() } }
     publish()
   }
+  let proxySettings = (args: Record<string, unknown>, profile: Model['profiles'][number]) => {
+    let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
+    let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
+    let credentialProfile = args.credentialProfile === '' ? undefined : args.credentialProfile ? resolve(model.profiles, args.credentialProfile, 'Profile') : profile
+    let savedCredentials = proxy.authenticated && credentialProfile?.proxy?.authenticated ? proxyCredentials.get(credentialProfile.id) : undefined
+    if (proxy.authenticated && password && !username) throw new Error('Enter both proxy username and password')
+    if (proxy.authenticated && username && !password && username !== savedCredentials?.username) throw new Error('Enter a password for this username')
+    let replacement = username && password ? { username, password } : savedCredentials
+    if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
+    return { proxy, replacement }
+  }
   let applyProfileNetwork = async (profileId: string, override?: ReturnType<typeof parseProfileProxy> | null, replacement?: ProxyCredentials) => {
     let proxy = hostProxy ?? (override === undefined ? resolve(model.profiles, profileId, 'Profile').proxy : override ?? undefined)
     let browser = electronSession.fromPartition(`persist:${profileId}`)
@@ -419,31 +430,11 @@ export let createRuntime = (dataDirectory: string) => {
     await browser.closeAllConnections()
   }
   let testProfileProxy = async (profileId: string) => {
-    let browser = electronSession.fromPartition(`persist:${profileId}`)
-    let response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-      let request = net.request({ url: process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', session: browser, credentials: 'include' })
-      let timer = setTimeout(() => { request.abort(); reject(new Error('Proxy test timed out')) }, 10000)
-      request.on('login', (auth, callback) => {
-        let relay = proxyRelays.authentication(auth.host, auth.port)
-        if (relay) callback(relay.username, relay.password)
-        else callback()
-      })
-      request.on('response', incoming => {
-        let chunks: Buffer[] = []
-        incoming.on('data', chunk => chunks.push(Buffer.from(chunk)))
-        incoming.on('end', () => { clearTimeout(timer); resolve({ status: incoming.statusCode, body: Buffer.concat(chunks).toString('utf8') }) })
-        incoming.on('error', error => { clearTimeout(timer); reject(error) })
-      })
-      request.on('error', error => { clearTimeout(timer); reject(error) })
-      request.end()
-    })
-    if (response.status < 200 || response.status >= 300) throw new Error(`Proxy test failed with HTTP ${response.status}`)
-    let value = JSON.parse(response.body) as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
-    if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
-    let locations = [value.city, value.region, value.country].filter((item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 120)
-    let region = [...new Set(locations.map(item => item.trim()))].join(', ')
-    return { ip: value.ip, ...(region ? { region } : {}), checkedAt: Date.now() }
+    let relay = proxyRelays.get(profileId)
+    if (!relay) throw new Error('Profile proxy is unavailable')
+    return testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/')
   }
+
   let releaseProfileNetwork = (profileId: string) => {
     let blocked = blockedProfileNetworks.get(profileId)
     blockedProfileNetworks.delete(profileId)
@@ -1846,14 +1837,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
-      let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
-      let credentialProfile = args.credentialProfile === '' ? undefined : args.credentialProfile ? resolve(model.profiles, args.credentialProfile, 'Profile') : profile
-      let savedCredentials = proxy.authenticated && credentialProfile?.proxy?.authenticated ? proxyCredentials.get(credentialProfile.id) : undefined
-      if (proxy.authenticated && password && !username) throw new Error('Enter both proxy username and password')
-      if (proxy.authenticated && username && !password && username !== savedCredentials?.username) throw new Error('Enter a password for this username')
-      let replacement = username && password ? { username, password } : savedCredentials
-      if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
+      let { proxy, replacement } = proxySettings(args, profile)
       let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
       let recovering = blockedProfileNetworks.has(profile.id)
       try {
@@ -1885,6 +1869,18 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'profile.proxy.test') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
+      if (args.host !== undefined && !hostProxy) {
+        let { proxy, replacement } = proxySettings(args, profile)
+        let savedCredentials = profile.proxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
+        let unchanged = JSON.stringify(proxy) === JSON.stringify(profile.proxy) && (!proxy.authenticated || replacement?.username === savedCredentials?.username && replacement?.password === savedCredentials?.password)
+        if (!unchanged) {
+          let probeId = id('profile')
+          try {
+            let relay = await proxyRelays.create(probeId, proxy, replacement)
+            return await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/')
+          } finally { await proxyRelays.close(probeId) }
+        }
+      }
       if (!profile.proxy) throw new Error('Configure a proxy first')
       delete profileProxyTests[profile.id]
       publish()

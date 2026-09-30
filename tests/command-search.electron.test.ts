@@ -320,6 +320,9 @@ test('profile proxy settings route, test, and restore the selected profile conne
   await panel.getByLabel('Port', { exact: true }).fill(String(proxy.port))
   await panel.getByLabel('Username', { exact: true }).fill('fixture-user')
   await panel.getByLabel('Password', { exact: true }).fill('fixture-password')
+  await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
+  await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
+  expect((await state()).model.profiles[0].proxy).toBeUndefined()
   let before = proxyRequests
   await panel.getByRole('button', { name: 'Save proxy', exact: true }).click()
   await expect.poll(async () => (await state()).model.profiles[0].proxy?.host).toBe('127.0.0.1')
