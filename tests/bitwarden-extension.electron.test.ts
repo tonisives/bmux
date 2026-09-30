@@ -11,7 +11,7 @@ test('official Bitwarden keeps login ports working across profiles and idle time
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
-    let rpc = (method: string, args: Record<string, unknown>) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let rpc = (method: string, args: Record<string, unknown>) => test.step(`${method} ${args.profile ?? ''}`, () => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args }), { timeout: method === 'extension.install-bitwarden' ? 60000 : 20000 })
     let installed = await test.step('Install the pinned official extension', () => rpc('extension.install-bitwarden', { profile: 'profile_default' })) as { name: string; path: string }
     expect(installed.name).toBe('Bitwarden Password Manager')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
@@ -43,7 +43,7 @@ test('official Bitwarden keeps login ports working across profiles and idle time
         await popup.getByRole('button', { name: 'Continue', exact: true }).click()
         await expect(popup.getByRole('textbox', { name: /master password/i })).toBeVisible({ timeout: 20000 })
         await expect(popup.getByText('Attempting to use a disconnected port object', { exact: true })).toHaveCount(0)
-        await popup.close()
+        await test.step(`Close popup in ${profile}`, () => popup.close(), { timeout: 10000 })
       })
     }
   } finally {

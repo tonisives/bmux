@@ -10,6 +10,11 @@ on:
         description: Run matching Electron tests; leave empty for the full suite
         required: false
         type: string
+      repeat_each:
+        description: Repeat each matching test (1-32); use with test_pattern
+        required: false
+        default: 1
+        type: number
 
 permissions:
   contents: read
@@ -37,9 +42,14 @@ jobs:
         timeout-minutes: 12
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
+          REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
         run: |
           if [ -n "$TEST_PATTERN" ]; then
-            pnpm test:electron --grep "$TEST_PATTERN"
+            case "$REPEAT_EACH" in
+              [1-9]|[12][0-9]|3[0-2]) ;;
+              *) echo "repeat_each must be between 1 and 32"; exit 1 ;;
+            esac
+            pnpm test:electron --grep "$TEST_PATTERN" --repeat-each "$REPEAT_EACH"
           else
             pnpm test:electron
           fi
