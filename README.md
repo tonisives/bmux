@@ -1,6 +1,6 @@
 # bmux
 
-<img src="https://cdn.digthree.tonis.dev/bmux/website-bcda9b21c29d/icon-128.png" alt="bmux Little lantern icon" width="100" />
+<img src="https://cdn.digthree.tonis.dev/bmux/website-393d5cd162d9/icon-128.png" alt="bmux Little lantern icon" width="100" />
 
 ### A browser for people and agents
 
@@ -16,7 +16,7 @@ bmux is an early preview, free under the [GNU GPL version 3](LICENSE). The [orig
 
 Split pages horizontally or vertically, keep references in floating panes, and save layouts to use again. Each pane has its own address bar and a fixed profile. Browse with a tmux-style prefix, scroll mode, and native click hints. Page content sits above one status bar; controls appear when needed.
 
-[![A Google Cloud page with its documentation open in a floating bmux pane](https://cdn.digthree.tonis.dev/bmux/website-bcda9b21c29d/gallery/browser-multiplexer.png)](https://bmux.cc/features/browser-multiplexer/)
+[![Two split browser panes with Google Cloud pages and a floating documentation reference above them](https://cdn.digthree.tonis.dev/bmux/website-393d5cd162d9/gallery/browser-multiplexer.png)](https://bmux.cc/features/browser-multiplexer/)
 
 [Watch the walkthrough](https://bmux.cc/features/browser-multiplexer/) · [Keyboard shortcuts](docs/keyboard.md) · [Floating panes](docs/floating-panes.md)
 
@@ -28,7 +28,7 @@ Keep a named workspace for each project, research task, or agent workflow. Switc
 
 Control a specific pane from the shell: navigate, inspect the DOM, run JavaScript, click, type, and capture screenshots. Commands return JSON and run without taking your focus. Watch several agents in split panes, with separate profiles for their logins and a background profile to keep each worker's pages running.
 
-[![Four independent browser panes with the commands controlling them visible below](https://cdn.digthree.tonis.dev/bmux/website-bcda9b21c29d/gallery/agentic-browsing.png)](https://bmux.cc/features/agentic-browsing/)
+[![Four independent browser panes with the commands controlling them visible below](https://cdn.digthree.tonis.dev/bmux/website-393d5cd162d9/gallery/agentic-browsing.png)](https://bmux.cc/features/agentic-browsing/)
 
 [Watch the walkthrough](https://bmux.cc/features/agentic-browsing/) · [CLI and agent guide](docs/agent.md)
 
@@ -36,7 +36,7 @@ Control a specific pane from the shell: navigate, inspect the DOM, run JavaScrip
 
 Choose a Pixel, Galaxy, or iPhone preset for a pane and browse its mobile layout. Presets apply viewport dimensions, device pixel ratio, touch input, and browser identity settings. Switch orientation or customize the size, locale, timezone, and optional geolocation. The engine remains Chromium, including with an iPhone preset.
 
-[![MDN documentation displayed inside a simulated phone in bmux](https://cdn.digthree.tonis.dev/bmux/website-bcda9b21c29d/gallery/simulate-mobile-devices.png)](https://bmux.cc/features/simulate-mobile-devices/)
+[![MDN documentation displayed inside a simulated phone in bmux](https://cdn.digthree.tonis.dev/bmux/website-393d5cd162d9/gallery/simulate-mobile-devices.png)](https://bmux.cc/features/simulate-mobile-devices/)
 
 [Watch the walkthrough](https://bmux.cc/features/simulate-mobile-devices/) · [Device presets and profiles](docs/profiles.md#mobile-device-personas)
 
@@ -44,7 +44,7 @@ Choose a Pixel, Galaxy, or iPhone preset for a pane and browse its mobile layout
 
 Give each worker its own background profile, HTTP/HTTPS or SOCKS5 proxy, and optional device preset. Use the CLI to scroll, read pages, and follow links while monitoring workers together. Connection settings and device presentation are independent. Run browser hosts on Linux and connect through the web viewer or desktop Remote sessions picker.
 
-[![Four simulated mobile devices browsing separate pages, with worker commands underneath](https://cdn.digthree.tonis.dev/bmux/website-bcda9b21c29d/gallery/automated-scraping.png)](https://bmux.cc/features/automated-scraping/)
+[![Four simulated mobile devices browsing separate pages, with worker commands underneath](https://cdn.digthree.tonis.dev/bmux/website-393d5cd162d9/gallery/automated-scraping.png)](https://bmux.cc/features/automated-scraping/)
 
 [Watch the walkthrough](https://bmux.cc/features/automated-scraping/) · [Configure a proxy](docs/profiles.md#configure-a-proxy) · [Remote hosting](docs/remote-host.md)
 
