@@ -332,12 +332,28 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let label = `${index}:${name}${active ? '*' : ''}`
   let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
   let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
-  let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
+  let tooltipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  let hideTooltip = () => {
+    clearTimeout(tooltipTimer.current)
+    tooltipTimer.current = undefined
+    void run('client.tooltip', { visible: false })
+  }
+  let showTooltip = (event: MouseEvent<HTMLButtonElement>) => {
+    clearTimeout(tooltipTimer.current)
+    let button = event.currentTarget, bounds = button.getBoundingClientRect()
+    let canvas = document.createElement('canvas'), context = canvas.getContext('2d')!
+    context.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace'
+    let width = Math.ceil(context.measureText(name).width) + 18
+    let y = state.statusBar === 'bottom' ? bounds.top - 30 : bounds.bottom + 2
+    tooltipTimer.current = setTimeout(() => { void run('client.tooltip', { visible: true, window: window.id, x: bounds.left, y, width }) }, 250)
+  }
+  useEffect(() => () => { clearTimeout(tooltipTimer.current); void run('client.tooltip', { visible: false }) }, [run])
+  let select = () => { hideTooltip(); void run('select-window', { client: state.clientId, window: window.id }) }
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-automatic={window.automaticName === true} data-selected={active} data-drop-position={dropPosition} title={name} onContextMenu={menu}>
-    <button onClick={select} className={css.windowSelect} data-active={active} aria-pressed={active} title={name} draggable>
+    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} title={name} draggable>
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>)}
       <span className={css.windowLabel}>{label}</span>
     </button>

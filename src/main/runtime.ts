@@ -59,7 +59,7 @@ import { localMediaResponse } from './local-media'
 import { createFaviconCache } from './favicon-cache'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
 let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
@@ -1431,6 +1431,7 @@ export let createRuntime = (dataDirectory: string) => {
           if (page.camera) ordered.push(page.camera)
         }
       }
+      if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
     }
@@ -1492,8 +1493,11 @@ export let createRuntime = (dataDirectory: string) => {
     let linkPreview = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     linkPreview.setVisible(false)
     window.contentView.addChildView(linkPreview)
-    let resizeChrome = () => { clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let tabTooltip = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+    tabTooltip.setVisible(false)
+    window.contentView.addChildView(tabTooltip)
+    let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
+    let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
@@ -1516,7 +1520,7 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('hide', () => { void scheduleVisuals() })
     window.on('minimize', () => { void scheduleVisuals() })
     window.on('restore', () => { void scheduleVisuals() })
-    window.on('blur', () => { clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; permissionFocusTarget = undefined; void scheduleVisuals() } })
+    window.on('blur', () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; permissionFocusTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
@@ -1526,6 +1530,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!permissionPopup.webContents.isDestroyed()) permissionPopup.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
+      if (!tabTooltip.webContents.isDestroyed()) tabTooltip.webContents.close()
       for (let frame of owner.floats.values()) if (!frame.webContents.isDestroyed()) frame.webContents.close()
       if (focusedClientId === client.id) focusedClientId = null
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
@@ -1536,10 +1541,12 @@ export let createRuntime = (dataDirectory: string) => {
     permissionPopup.webContents.on('will-navigate', event => event.preventDefault())
     linkPreview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     linkPreview.webContents.on('will-navigate', event => event.preventDefault())
+    tabTooltip.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    tabTooltip.webContents.on('will-navigate', event => event.preventDefault())
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
-    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview')])
-    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' })])
+    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview'), tabTooltip.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#tab-tooltip')])
+    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' }), tabTooltip.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'tab-tooltip' })])
     if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
     else window.showInactive()
     save()
@@ -1904,9 +1911,29 @@ export let createRuntime = (dataDirectory: string) => {
       return { active: await activateClickMode(clientId) }
     }
     if (method === 'state' || method === 'status') return state()
+    if (method === 'client.tooltip') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let live = clients.get(sourceClientId)
+      if (!live) return null
+      if (!args.visible) { live.tabTooltip.setVisible(false); return null }
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let window = resolve(session.windows, args.window, 'Window')
+      let characters = Array.from(window.name)
+      let text = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
+      let bounds = live.window.getContentBounds()
+      let width = Math.min(bounds.width, Math.max(32, Number(args.width) || 32))
+      let x = Math.max(0, Math.min(bounds.width - width, Number(args.x) || 0))
+      let y = Math.max(0, Math.min(bounds.height - 28, Number(args.y) || 0))
+      live.tabTooltip.setBounds({ x: Math.round(x), y: Math.round(y), width: Math.ceil(width), height: 28 })
+      live.tabTooltip.webContents.send('link-preview', text)
+      live.window.contentView.addChildView(live.tabTooltip)
+      live.tabTooltip.setVisible(true)
+      return null
+    }
     if (method === 'client.overlay') {
       let client = resolve(model.clients, args.client, 'Client')
-      if (args.visible) { overlays.add(client.id) }
+      if (args.visible) { overlays.add(client.id); clients.get(client.id)?.tabTooltip.setVisible(false) }
       else overlays.delete(client.id)
       await scheduleVisuals(); return { visible: !!args.visible }
     }

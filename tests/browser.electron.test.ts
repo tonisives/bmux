@@ -2251,6 +2251,54 @@ test('status shares constrained space equally between automatic tabs and proport
   }
 })
 
+test('status title tooltips are visible above native pages at the top and bottom', async ({}, info) => {
+  let previousConfig = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
+  let session = await cli('new-session', { name: 'tooltip' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  let pane = session.windows[0].panes[0].id
+  let title = 'A longer website title for compact tabs'
+  let expected = `${title.slice(0, 17)}…`
+  let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
+  let tooltipState = () => application.evaluate(async ({ BaseWindow }, nativeId) => {
+    let window = BaseWindow.fromId(nativeId)!
+    let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#tab-tooltip'))! as Electron.WebContentsView
+    return { visible: view.getVisible(), topmost: window.contentView.children.at(-1) === view, text: await view.webContents.executeJavaScript('document.querySelector("[role=tooltip]")?.textContent'), bounds: view.getBounds() }
+  }, nativeId)
+  try {
+    await cli('navigate', { pane, url })
+    await cli('wait', { pane, selector: '#text' })
+    await cli('eval', { pane, expression: `document.title = ${JSON.stringify(title)}` })
+    for (let index = 0; index < 5; index++) await cli('new-window', { session: session.id, client: client.id, name: `Another descriptive tab ${index}`, url })
+    await cli('activate-client', { client: client.id })
+    await application.evaluate(({ BaseWindow }, nativeId) => BaseWindow.fromId(nativeId)!.setBounds({ x: 90, y: 90, width: 640, height: 700 }), nativeId)
+    let tab = chrome.locator(`[data-window-id="${session.windows[0].id}"] button[data-active]`)
+    for (let position of ['top', 'bottom']) {
+      await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nshowTabCloseButtons: true\nkeyboard: {}\n`)
+      await expect(chrome.locator('[data-status-bar]')).toHaveAttribute('data-status-bar', position)
+      await tab.hover()
+      await expect.poll(async () => {
+        let state = await tooltipState()
+        return { visible: state.visible, topmost: state.topmost, text: state.text }
+      }).toEqual({ visible: true, topmost: true, text: expected })
+      let state = await tooltipState(), bounds = (await tab.boundingBox())!
+      expect(state.bounds.x).toBeGreaterThanOrEqual(0)
+      expect(state.bounds.x + state.bounds.width).toBeLessThanOrEqual(640)
+      if (position === 'top') expect(state.bounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height)
+      else expect(state.bounds.y + state.bounds.height).toBeLessThanOrEqual(bounds.y)
+      let windowInfo = JSON.parse((await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
+      await exec('/usr/sbin/screencapture', ['-x', '-o', '-l', String(windowInfo.kCGWindowNumber), info.outputPath(`tab-tooltip-${position}.png`)])
+      await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
+      await expect.poll(async () => (await tooltipState()).visible).toBe(false)
+      await cli('select-window', { client: client.id, window: session.windows[0].id })
+      await cli('wait', { pane, selector: '#text' })
+    }
+  } finally {
+    await fs.writeFile(path.join(directory, 'config.yaml'), previousConfig)
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('status windows can be dragged into a new order without switching the active window', async () => {
   let session = await cli('new-session', { name: 'drag-windows' })
   let first = session.windows[0]

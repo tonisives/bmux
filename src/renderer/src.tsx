@@ -6,4 +6,4 @@ import { LinkPreview } from './LinkPreview'
 import { FloatingPane } from './FloatingPane'
 import './global.css'
 
-createRoot(document.getElementById('root')!).render(<React.StrictMode>{location.hash.startsWith('#float=') ? <FloatingPane /> : location.hash === '#permissions' ? <PermissionPopup /> : location.hash === '#link-preview' ? <LinkPreview /> : <App />}</React.StrictMode>)
+createRoot(document.getElementById('root')!).render(<React.StrictMode>{location.hash.startsWith('#float=') ? <FloatingPane /> : location.hash === '#permissions' ? <PermissionPopup /> : location.hash === '#tab-tooltip' ? <LinkPreview tooltip /> : location.hash === '#link-preview' ? <LinkPreview /> : <App />}</React.StrictMode>)
