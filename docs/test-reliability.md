@@ -134,3 +134,6 @@ frame-subscription teardown and concurrent per-viewer capture loops. Unit tests
 cover bounded concurrency, shared viewers, cleanup, failed captures, and stale
 frames arriving after a reconnect. The Linux GUI repetitions continue to exercise
 reload, signaling, native window handoff, and actual decoded frames.
+Wait for decoded video dimensions after browser history navigation too: controls
+can be ready while the video dimensions are still zero, making click coordinates
+invalid. Assert finite coordinates before sending native pointer input.

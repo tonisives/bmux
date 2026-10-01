@@ -105,6 +105,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByLabel('Remote browser')).toHaveCount(0)
     await viewer.goForward()
     await expect(viewer.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
+    // Controls can be ready before decoded video metadata after history navigation.
+    await viewer.waitForFunction(()=>{
+      let video = document.querySelector('video')!
+      return video.videoWidth>0 && video.videoHeight>0 && video.getVideoPlaybackQuality().totalVideoFrames>5 && Number(video.dataset.viewportWidth)>0 && Number(video.dataset.viewportHeight)>0
+    },undefined,{timeout:15000})
     let sessionRow = viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})
     let rowBounds = await sessionRow.boundingBox(), videoBounds = await viewer.getByLabel('Remote browser').boundingBox()
     expect(rowBounds).not.toBeNull(); expect(videoBounds).not.toBeNull()
@@ -125,6 +130,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let video = element as HTMLVideoElement, rect = video.getBoundingClientRect(), scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight)
       return { x: (rect.width - video.videoWidth * scale) / 2 + 80 * video.videoWidth / Number(video.dataset.viewportWidth) * scale, y: (rect.height - video.videoHeight * scale) / 2 + 60 * video.videoHeight / Number(video.dataset.viewportHeight) * scale }
     })
+    expect(Number.isFinite(linkPosition.x) && Number.isFinite(linkPosition.y)).toBe(true)
     await video.click({ position: linkPosition })
     await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).toContain('?linked=1')
     await viewer.getByRole('button',{name:'Back',exact:true}).click()
