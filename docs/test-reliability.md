@@ -171,9 +171,9 @@ Verify this timing change with repeated Portable hosts runs on both architecture
 
 The first sixteen-repeat verification then found two x64 watch timeouts, before
 the native handoff. Host capture could emit its offer while its promise was still
-pending; an immediate answer looked up a stream that had not yet been registered
-and was discarded. The host now holds that initial offer until registration, and
-discards it if opening is canceled. Unit tests reproduce the premature offer on
+pending; an immediate answer could look up a stream that had not yet been
+registered and be discarded. The host now holds that initial offer until
+registration, and discards it if opening is canceled. Unit tests reproduce the premature offer on
 the original implementation and check answer delivery and canceled opening.
 
 ## Bundled plugin completion

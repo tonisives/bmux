@@ -57,7 +57,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
         // Capture can produce an offer before its promise returns the stream.
         // Publish only after answer routing can find that stream.
         if (opening.get(id) === attempt) offer = sdp
-        else if (streams.get(id)?.peer === peer) signal(id, { type: 'offer', sdp })
+        else if (peer && streams.get(id)?.peer === peer) signal(id, { type: 'offer', sdp })
       },
       data: raw => {
         incoming = incoming.then(async () => {

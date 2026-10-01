@@ -34,8 +34,10 @@ let setup = () => {
   let resolveCapture!: (value: typeof peer) => void
   let pending = new Promise<typeof peer>(resolve => { resolveCapture = resolve })
   let offer = { type: 'offer' as const, sdp: 'fixture' }
+  let signalOffer!: () => void
   let capture = vi.fn((_pane: string, options: { signal: (sdp: RTCSessionDescriptionInit) => void }) => {
-    options.signal(offer)
+    signalOffer = () => options.signal(offer)
+    signalOffer()
     return pending
   })
   let runtime = { model: { sessions: [{ id: 'session', name: 'main', windows: [{ panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn() } }
@@ -46,7 +48,7 @@ let setup = () => {
   let deliver = (payload: unknown) => socket.emit('message', JSON.stringify({ type: 'signal', from: viewer.id, envelope: viewer.seal(host!.status().hostId, host!.status().generation, payload) }))
   let offers = () => socket.sent.filter(message => message.type === 'signal').map(message => JSON.parse(message.envelope!.payload))
   deliver({ type: 'open', session: 'session', pane: 'pane' })
-  return { peer, resolveCapture, capture, deliver, offers, offer }
+  return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer }
 }
 
 it('registers an opening stream before publishing its offer so a fast answer reaches it', async () => {
@@ -61,8 +63,9 @@ it('registers an opening stream before publishing its offer so a fast answer rea
 })
 
 it('does not publish an opening stream offer after the viewer disconnects', async () => {
-  let { peer, resolveCapture, deliver, offers } = setup()
+  let { peer, resolveCapture, deliver, offers, signalOffer } = setup()
   deliver({ type: 'close' })
+  signalOffer()
   resolveCapture(peer)
   await vi.waitFor(() => expect(peer.close).toHaveBeenCalledOnce(), { interval: 1 })
   expect(offers()).toEqual([])
