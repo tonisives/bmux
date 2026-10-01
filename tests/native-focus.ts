@@ -37,6 +37,7 @@ export let observeNativeFocus = async (application: ElectronApplication) => {
       contents.on('blur', () => record('blur', contents.id))
       // Record delivery and routing, never text or typed credentials.
       contents.on('before-input-event', (_event, input) => record(input.type, contents.id))
+      contents.on('before-mouse-event', (_event, mouse) => record(mouse.type, contents.id))
     }
     for (let contents of webContents.getAllWebContents()) observe(contents)
     app.on('web-contents-created', (_event, contents) => observe(contents))

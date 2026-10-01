@@ -27,12 +27,18 @@ let openProfilePanel = async (profile: string) => {
   let panel = chrome.getByRole('dialog', { name: 'Profile', exact: true })
   let details = panel.getByRole('region', { name: `${profile} profile details`, exact: true })
   if (!await details.isVisible()) {
-    if (await panel.isVisible()) await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    if (await panel.isVisible()) {
+      await panel.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(panel).toHaveCount(0)
+    }
     let pane = chrome.locator(`[data-pane-id="${client.paneId}"]`)
     let button = pane.getByRole('button', { name: `Profile: ${profile}`, exact: true })
     if (await button.count()) await button.click()
     else {
       await pane.getByRole('button', { name: `Choose pane profile: ${profile}`, exact: true }).click()
+      // The picker autofocuses its select after mounting. Let that focus change
+      // finish before sending the next mouse gesture to a different control.
+      await expect(pane.getByRole('combobox', { name: 'Pane profile', exact: true })).toBeFocused()
       await pane.getByRole('button', { name: 'Profile settings', exact: true }).click()
     }
   }
@@ -101,12 +107,13 @@ test.beforeAll(async () => {
   await fs.mkdir(path.resolve('artifacts'), { recursive: true })
 })
 test.beforeEach(async () => {
-  await application.context().tracing.start({ screenshots: true, snapshots: true })
+  if (process.env.BMUX_TEST_TRACE === '1') await application.context().tracing.start({ screenshots: true, snapshots: true })
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
   let current = await state(); await rpc('select-window', { client: current.clientId, window: current.model.sessions[0].windows[0].id }); await activate()
 })
 test.afterEach(async ({}, info) => {
   await recordNativeFocus(application, info)
+  if (process.env.BMUX_TEST_TRACE !== '1') return
   let trace = info.status === info.expectedStatus ? undefined : info.outputPath('trace.zip')
   await application.context().tracing.stop({ path: trace })
   if (trace) await info.attach('trace', { path: trace, contentType: 'application/zip' })

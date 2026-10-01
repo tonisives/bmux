@@ -15,6 +15,11 @@ on:
         required: false
         default: 1
         type: number
+      trace:
+        description: Capture profile test traces to investigate input or timing failures
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +48,7 @@ jobs:
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
+          BMUX_TEST_TRACE: ${{ inputs.trace && '1' || '0' }}
         run: |
           if [ -n "$TEST_PATTERN" ]; then
             case "$REPEAT_EACH" in

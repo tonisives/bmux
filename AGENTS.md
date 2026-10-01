@@ -6,8 +6,9 @@
 - Keep browser pages sandboxed and without privileged preload code.
 - Profile IDs, session IDs, window IDs, pane IDs, and tab IDs are separate identities. A profile is fixed per pane.
 - Browser operations must not activate the app or change a client's selection unless the command explicitly requests that behavior.
-- Use `pnpm check`, `pnpm test:electron`, and `pnpm package`. Limit worker concurrency to four.
+- Limit worker concurrency to four. Keep full test suites in CI; package when the change needs build or installation verification.
 - Keep local feedback light: typecheck, lint, and relevant unit tests. Run affected Electron tests in GitHub Actions via `workflow_dispatch` and `test_pattern`, or in Tart, before merging browser behavior or UI changes. Include existing tests that exercise the changed behavior; search test assertions when changing labels or selection rules. The full suite runs on main in CI.
+- Before merging, record the passing run URL, tested commit SHA, and selected tests. Verify the exact implementation commit after incorporating main; a queued run or a green run on an older commit is not verification. For a changed shared test helper, include its existing callers. Use `repeat_each` for a reproduced timing or focus failure, without enabling test retries.
 - GUI tests must establish their own window/pane selection and wait for completed scrolling, renderer updates, and native view attachment. Poll observable results instead of relying on fixed sleeps before native screenshots.
 - Use `closeTestApplication` from `tests/electron-fixture.ts` for disposable Electron shutdown and restarts. It bounds graceful shutdown and waits for process exit before profile cleanup, so renderer teardown cannot mask failed assertions or stall CI.
 - Changes to remote control, Linux hosts, or container packaging must also pass the `Portable hosts` workflow on the implementation branch via `workflow_dispatch` before merging.
