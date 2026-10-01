@@ -15,7 +15,9 @@ let encodeFrame = (frame: Electron.NativeImage) => {
 let subscribe = createFrameCapture(encodeFrame)
 
 export let createRemoteCapture = async (options: CaptureOptions) => {
-  let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, offscreen: true, partition: 'bmux-trusted-transport' } })
+  // A hidden native window supports focus enumeration on Linux; an offscreen
+  // transport has no native view for Electron's global focus lookup.
+  let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'bmux-trusted-transport' } })
   window.webContents.setWebRTCIPHandlingPolicy('default')
   let framePending = false, disposed = false
   let unsubscribe: (() => void) | undefined

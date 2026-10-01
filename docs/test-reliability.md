@@ -137,3 +137,20 @@ reload, signaling, native window handoff, and actual decoded frames.
 Wait for decoded video dimensions after browser history navigation too: controls
 can be ready while the video dimensions are still zero, making click coordinates
 invalid. Assert finite coordinates before sending native pointer input.
+
+For a native Linux crash, dispatch `portable.yml` with `-f native_crashes=true`.
+The disposable runner enables core dumps and retains only GDB stack frames in
+the failure artifact; core files are removed inside the container. This is off
+by default and adds no debugger or GUI workload to the local machine. A passing
+repetition followed by a crash on the same source needs a native stack, rather
+than another unchanged run or a larger timeout.
+
+Decoded Linux stacks identified `WebContents::IsFocused()` calling
+`aura::Window::GetToplevelWindow()` on a missing native view. Electron 44.3.0's
+global focus lookup enumerates the hidden offscreen transport too. Focus events
+and even fixture shutdown could therefore crash the host. The transport now uses
+a normal hidden window with background throttling disabled; its canvas streaming
+does not require offscreen window rendering. The capture test queries global
+native focus while the transport is active to exercise this regression directly.
+Fixture shutdown also reports native crash signals instead of accepting them as
+a successful close after the body assertions pass.

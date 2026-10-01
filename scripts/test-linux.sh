@@ -6,6 +6,8 @@ database="bmux-test-db-${suffix}"
 turn="bmux-test-turn-${suffix}"
 browser="bmux-test-browser-${suffix}"
 results="${BMUX_TEST_RESULTS:-test-results/linux}"
+core_limit=0
+if [ "${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" = 1 ]; then core_limit=-1; fi
 mkdir -p "$results"
 cleanup() {
   docker cp "$browser:/tmp/results/." "$results/" >/dev/null 2>&1 || true
@@ -21,7 +23,7 @@ docker run -d --name "$turn" --network "container:${database}" coturn/coturn:4.6
   --no-cli --no-tls --no-dtls --fingerprint --use-auth-secret --static-auth-secret=fixture \
   --realm=bmux-fixture --allow-loopback-peers --no-multicast-peers >/dev/null
 docker run --name "$browser" --network "container:${database}" --shm-size=1g \
-  --ulimit core=-1 \
+  --ulimit core="$core_limit" \
   --security-opt seccomp=containers/chromium-seccomp.json \
   -e BMUX_NATIVE_CRASH_DIAGNOSTICS="${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \

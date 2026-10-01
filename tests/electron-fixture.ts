@@ -17,4 +17,7 @@ export let closeTestApplication = async (application?: ElectronApplication, proc
     ])
     await exited
   } finally { clearTimeout(timer) }
+  if (['SIGSEGV', 'SIGABRT', 'SIGILL', 'SIGBUS'].includes(child.signalCode ?? '') || [132, 134, 135, 139].includes(child.exitCode ?? 0)) {
+    throw new Error(`Electron main process crashed: ${child.signalCode ?? child.exitCode}`)
+  }
 }
