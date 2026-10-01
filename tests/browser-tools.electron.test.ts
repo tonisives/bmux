@@ -101,7 +101,11 @@ test('address bar toggles blocking independently for panes sharing a profile and
     await Promise.all([page.waitForEvent('domcontentloaded'), rpc('reload', { tab: tabId })])
     await expect.poll(() => page.evaluate(() => (window as any).adLoaded)).toBe(true)
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/other-pane`)).toBe(true)
     let otherPage = application.context().pages().find(page => page.url() === `${url}/other-pane`)!
+    await otherPage.waitForLoadState('load', { timeout: 5000 })
+    await expect(otherPage.locator('h1')).toHaveText('Browser tools fixture')
+    await expect(otherPage.locator('.bmux-ad')).toHaveCount(1)
     await expect(otherPage.locator('.bmux-ad')).toBeHidden()
     expect(await otherPage.evaluate(() => (window as any).adLoaded)).toBeUndefined()
     await toggle.click()
