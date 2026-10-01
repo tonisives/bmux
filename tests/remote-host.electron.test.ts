@@ -36,6 +36,18 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     application.context().setDefaultTimeout(10000)
     application.context().setDefaultNavigationTimeout(10000)
     await observeNativeFocus(application)
+    let focusWindow = (id: number, name: string) => test.step(`Focus the ${name} native window`, async () => {
+      await expect.poll(() => application!.evaluate(({ BaseWindow }, id) => {
+        let window = BaseWindow.fromId(id)!
+        if (window.isFocused()) return true
+        if (!window.isVisible()) window.show()
+        // Window-manager activation can race the preceding view reattachment.
+        // Request it while unfocused, then observe acknowledgement on a later poll.
+        window.moveTop()
+        window.focus()
+        return false
+      }, id), { intervals: [50, 100, 200] }).toBe(true)
+    }, { timeout: 10000 })
     let command = async (...args:string[]) => {
       try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
       catch (error) {
@@ -153,13 +165,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(command('attach-session','-t',status.model.sessions[0].id)).rejects.toThrow('CONTROL_HELD')
     await expect(command('rpc','activate-client',JSON.stringify({client:localClient.id}))).rejects.toThrow('CONTROL_HELD')
     // A human focusing the native desktop window reclaims control without an RPC.
-    await application.evaluate(({BaseWindow},id)=>{let window=BaseWindow.fromId(id)!;window.show();window.focus()},localWindowId)
+    await focusWindow(localWindowId, 'desktop')
     await expect.poll(async () => (await command('status')).focusedClientId).toBe(localClient.id)
     await expect.poll(async () => (await command('status')).remoteControl[status.model.sessions[0].id]).toBeUndefined()
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(700)
     // Return native focus to the viewer before sending its next mouse input.
-    await application.evaluate(({BrowserWindow},id)=>BrowserWindow.fromId(id)!.focus(),viewerWindowId)
-    await expect.poll(()=>application!.evaluate(({BrowserWindow},id)=>BrowserWindow.fromId(id)!.isFocused(),viewerWindowId)).toBe(true)
+    await focusWindow(viewerWindowId, 'viewer')
     // Regaining focus requests current ownership, rather than waiting for a broadcast.
     await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeVisible({timeout:10000})
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()

@@ -155,6 +155,20 @@ native focus while the transport is active to exercise this regression directly.
 Fixture shutdown also reports native crash signals instead of accepting them as
 a successful close after the body assertions pass.
 
+## Native window handoff
+
+The October 1 x64 Portable hosts failure reached desktop takeover and lease
+release, then failed waiting for the viewer's native window to regain focus.
+The fixture requested focus once and only observed it afterward. The retained
+diagnostic timed out, so it does not establish why that activation was lost.
+
+The fixture now raises and requests focus for the intended window while it is
+unfocused, and observes native acknowledgement on a later poll. Both handoffs
+use the existing five-second assertion deadline. Desktop client selection,
+lease release, page resizing, and viewer reacquisition remain separate assertions;
+requesting fixture focus does not retry application input or ownership operations.
+Verify this timing change with repeated Portable hosts runs on both architectures.
+
 ## Bundled plugin completion
 
 A later full main run found the bundled Python heading action still `running`
