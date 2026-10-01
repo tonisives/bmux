@@ -49,7 +49,7 @@ Other:    permission list | permission respond ID [--allow]
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
-Automation: automation status | automation acquire -t PANE --url URL | automation release
+Automation: automation status | automation safety | automation acquire -t PANE --url URL | automation release
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE

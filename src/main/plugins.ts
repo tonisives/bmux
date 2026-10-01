@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
+import { isAutomationSafetyError } from './automation-safety'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
@@ -137,7 +138,10 @@ export let createPlugins = (options: Options) => {
     let url = method === 'navigate' ? String(args.url) : run.context.url
     if (url && run.context.profileId && run.context.paneId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
     try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context }, run.controller.signal) }
-    catch { throw new Error('Browser operation failed or target document changed') }
+    catch (error) {
+      if (isAutomationSafetyError(error)) { run.policyError = error.message; finish(run, 'failed'); throw error }
+      throw new Error('Browser operation failed or target document changed')
+    }
   }
   let server = net.createServer(connection => {
     connections.add(connection); connection.on('close', () => connections.delete(connection)); connection.on('error', () => undefined)

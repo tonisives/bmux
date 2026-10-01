@@ -51,13 +51,12 @@ try {
     await expect(page.locator(selector).first()).toBeVisible({ timeout: 45000 })
   }
   await activate()
-  await chrome.waitForTimeout(100)
-  let visible = await application.evaluate(({ BaseWindow }, target) => {
-    let window = BaseWindow.getAllWindows().find(window => window.isVisible())
-    let view = window?.contentView.children.find(view => 'webContents' in view && view.webContents.getURL().startsWith(target))
+  let visiblePage = () => application.evaluate(({ BaseWindow }, target) => {
+    let view = BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && view.webContents.getURL().startsWith(target))
     return view ? { bounds: view.getBounds(), url: view.webContents.getURL(), title: view.webContents.getTitle() } : null
   }, target)
-  if (!visible || visible.bounds.width < 600 || visible.bounds.height < 300) throw new Error('The URL loaded without attaching a visible page')
+  await expect.poll(async () => { let page = await visiblePage(); return !!page && page.bounds.width >= 600 && page.bounds.height >= 300 }).toBe(true)
+  let visible = await visiblePage()
   if (!process.env.BMUX_TEST_URL && !process.env.BROWMUX_TEST_URL) await expect(firstWindow).toHaveAttribute('title', 'bmux URL fixture')
   await fs.mkdir(path.join(root, 'artifacts'), { recursive: true })
   // Park the view briefly to capture its actual rendered preview together with the status bar.
