@@ -104,7 +104,6 @@
 .clickModeAction text { fill: currentColor; stroke: none; font-size: 15px; font-weight: 700; }
 .clickModeFill { fill: currentColor; stroke: none; opacity: .3; }
 .clickModeDivider { width: 1px; height: 18px; background: rgba(255,255,255,.24); }
-.loading { flex-shrink: 0; color: #7d8590; }
 .profileRouteControls { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
 .paneProfilePicker { position: absolute; z-index: 20; top: 27px; right: 0; display: grid; gap: 6px; min-width: 180px; padding: 10px; border: 1px solid #444b59; background: #191d23; box-shadow: 0 8px 22px #0008; color: #d6dcd2; }
 .paneProfilePicker select { height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }

@@ -472,14 +472,59 @@ let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: nu
   }, [focusVersion, ref, takeSelection])
 }
 
-let useDismissAddressOnPageClick = (finish: () => void) => {
+let captureAddressPointer = (event: PointerEvent<HTMLInputElement>) => {
+  if (event.button === 0) event.currentTarget.setPointerCapture(event.pointerId)
+}
+
+let useAddressSelectionFocus = () => {
+  let { run } = useUI()
+  let source = useRef<HTMLInputElement | undefined>(undefined)
+  let original = useRef<AddressSelection | undefined>(undefined)
+  let dragging = useRef(false)
+  let start = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button !== 0) return
+    let input = event.currentTarget
+    source.current = input
+    dragging.current = false
+    original.current = { start: input.selectionStart ?? 0, end: input.selectionEnd ?? 0, direction: input.selectionDirection ?? 'none' }
+    captureAddressPointer(event)
+  }
+  let drag = (event: DragEvent<HTMLInputElement>) => {
+    // Dragging selected URL text must leave it editable instead of starting a native drop.
+    event.preventDefault()
+    dragging.current = true
+  }
+  useEffect(() => {
+    let finish = (event: globalThis.MouseEvent) => {
+      let input = source.current
+      if (event.button !== 0 || !input) return
+      let selection = dragging.current ? original.current : undefined
+      source.current = undefined; dragging.current = false
+      let bounds = input.getBoundingClientRect()
+      if (!selection && event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) return
+      void run('focus-ui').then(() => {
+        if (!input.isConnected) return
+        let { start, end, direction } = selection ?? { start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection }
+        input.blur(); input.focus(); input.setSelectionRange(start, end, direction ?? undefined)
+      })
+    }
+    // Restore after mouse-up, once native text dragging has finished changing the selection.
+    document.addEventListener('mouseup', finish, true)
+    return () => document.removeEventListener('mouseup', finish, true)
+  }, [run])
+  return { start, drag }
+}
+
+let useDismissAddressOnOutsideClick = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, dismiss: () => void, finish: () => void) => {
   useEffect(() => {
     let outside = (event: globalThis.PointerEvent) => {
-      if (event.target instanceof Element && event.target.closest('[data-browser-content]')) finish()
+      if (!(event.target instanceof Element) || form.current?.contains(event.target) || list.current?.contains(event.target)) return
+      if (event.target.closest('[data-pane-content]')) finish()
+      else dismiss()
     }
     document.addEventListener('pointerdown', outside)
     return () => document.removeEventListener('pointerdown', outside)
-  }, [finish])
+  }, [form, list, dismiss, finish])
 }
 
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
@@ -492,9 +537,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
   let [expandedHistory, setExpandedHistory] = useState(false)
   let [busy, setBusy] = useState(false)
-  let ref = useRef<HTMLInputElement>(null)
-  let form = useRef<HTMLFormElement>(null)
-  let suggestionList = useRef<HTMLDivElement>(null)
+  let ref = useRef<HTMLInputElement>(null), form = useRef<HTMLFormElement>(null), suggestionList = useRef<HTMLDivElement>(null)
+  let selectionFocus = useAddressSelectionFocus()
   let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -515,16 +559,16 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   ]
   let selectedResult = results[index]
   let selectedCompletion = selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
-  let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text
+  let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || !!selectedResult?.value
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useEffect(() => { if (index >= 0) suggestionList.current?.children[index]?.scrollIntoView({ block: 'nearest' }) }, [index])
   useLayoutEffect(() => {
-    if (!ref.current || (!inlineUrl && !selectedResult)) return
+    if (!ref.current || !completing) return
     let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
     ref.current.setSelectionRange(start, previewText.length)
-  }, [inlineUrl, selectedResult, previewText, query])
+  }, [completing, previewText, query])
   let change = (event: ChangeEvent<HTMLInputElement>) => {
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
@@ -533,7 +577,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     setQuery(value); setIndex(-1); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
-  useDismissAddressOnPageClick(finish)
+  useDismissAddressOnOutsideClick(form, suggestionList, dismiss, finish)
   let navigate = async (url: string) => {
     if (!url.trim() || busy) return
     setBusy(true)
@@ -578,7 +622,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
@@ -719,18 +763,19 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [])
   let open = () => show('address', paneId)
   let rememberSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
-    let input = event.currentTarget, bounds = input.getBoundingClientRect()
-    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return
+    let input = event.currentTarget
     let start = input.selectionStart ?? 0, end = input.selectionEnd ?? 0
     if (start !== end) addressSelection.current = { start, end, direction: input.selectionDirection ?? 'none' }
   }
   let beginSelection = (event: PointerEvent<HTMLInputElement>) => {
-    if (event.button === 0) { addressSelection.current = undefined; event.currentTarget.setPointerCapture(event.pointerId) }
+    if (event.button === 0) { addressSelection.current = undefined; captureAddressPointer(event) }
   }
-  let editSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
+  let editSelection = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button !== 0) return
     rememberSelection(event)
     void open()
   }
+  let editFromClick = (event: MouseEvent<HTMLInputElement>) => { if (event.detail === 0) void open() }
   let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault(); void open()
@@ -792,8 +837,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
       </div>}
     </div>}
     {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
-    {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
+    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
   </div>
@@ -869,7 +913,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>
+  let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
   return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
     {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>

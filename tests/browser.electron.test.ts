@@ -685,7 +685,7 @@ test('address controls navigate, refresh, and open the per-tab history on hold',
   }
 })
 
-test('refresh shows loading before Chromium begins the reload', async () => {
+test('refresh shows the tab spinner before Chromium begins the reload', async () => {
   let session = await cli('new-session', { name: 'immediate-refresh' })
   let tab = session.windows[0].panes[0], client = await cli('attach-session', { session: session.id })
   let chrome = await rendererForClient(client.id, client)
@@ -703,7 +703,7 @@ test('refresh shows loading before Chromium begins the reload', async () => {
       contents.reload = () => undefined
     }, `${url}/immediate-refresh`)
     await chrome.getByRole('button', { name: 'Refresh', exact: true }).click()
-    await expect(chrome.getByRole('group', { name: 'Pane address' }).getByText('loading…', { exact: true })).toBeVisible()
+    await expect(chrome.getByRole('group', { name: 'Pane address' }).getByText('loading…', { exact: true })).toHaveCount(0)
     await expect(chrome.locator(`[data-window-id="${session.windows[0].id}"] [data-tab-loading]`)).toBeVisible()
     await application.evaluate(() => { (globalThis as any).bmuxTestReleaseReload(); delete (globalThis as any).bmuxTestReleaseReload })
     await expect.poll(async () => {
@@ -1971,35 +1971,119 @@ test('address suggestions reveal older matching history', async () => {
   await cli('detach-client', { client: client.id })
 })
 
-test('dragging over the displayed URL preserves focus when released over the page', async () => {
-  let session = await cli('new-session', { name: 'Address selection' })
+for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable' : 'displayed'} URL preserves native focus when released over the page`, async () => {
+  let session = await cli('new-session', { name: `Address selection ${editing}` })
   let first = session.windows[0].panes[0]
   let pane = await cli('split-window', { pane: first.id, url: `${url}/select-the-right-side-of-this-url` })
   let client = await cli('attach-session', { session: session.id })
-  let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
   let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
-  let bounds = (await displayed.boundingBox())!
-  await chrome.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)
-  await chrome.mouse.down()
-  await chrome.mouse.move(bounds.x + 210, bounds.y + bounds.height / 2, { steps: 5 })
-  let selected = await displayed.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
-  expect(selected.start).toBeGreaterThan(0)
-  expect(selected.end).toBeGreaterThan(selected.start!)
-  await chrome.mouse.move(bounds.x + 210, bounds.y + bounds.height + 40, { steps: 2 })
-  await chrome.mouse.up()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  if (editing) {
+    let left = (await displayed.boundingBox())!.x
+    await displayed.click(); await expect(address).toBeFocused()
+    expect((await address.boundingBox())!.x).toBe(left)
+  }
+  let input = editing ? address : displayed
+  let originalSelection = editing ? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd })) : undefined
+  let bounds = (await input.boundingBox())!
+  let origin = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isFocused())!.getContentBounds())
+  let mouse = async (events: { type: number; x: number; y: number }[]) => {
+    // Hold mouse-down long enough for macOS to begin dragging already-selected text.
+    let script = `ObjC.import('CoreGraphics'); let events = ${JSON.stringify(events)}; events.forEach(e => { let mouse = $.CGEventCreateMouseEvent(null, e.type, $.CGPointMake(e.x, e.y), 0); $.CGEventSetIntegerValueField(mouse, 1, 1); $.CGEventPost(0, mouse); delay(e.type === 1 ? 0.3 : 0.08); });`
+    await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script])
+  }
+  let x = origin.x + bounds.x, y = origin.y + bounds.y + bounds.height / 2
+  let released = false
+  let selected: { start: number | null; end: number | null }
+  try {
+    await mouse([{ type: 5, x: x + 70, y }, { type: 1, x: x + 70, y }, { type: 6, x: x + 210, y }])
+    if (!editing) await expect.poll(() => input.evaluate(input => (input as HTMLInputElement).selectionEnd! - (input as HTMLInputElement).selectionStart!)).toBeGreaterThan(0)
+    await mouse([{ type: 6, x: x + 210, y: y + 60 }])
+    selected = originalSelection ?? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
+    await mouse([{ type: 2, x: x + 210, y: y + 60 }])
+    released = true
+  } finally {
+    if (!released) await mouse([{ type: 2, x: x + 210, y: y + 60 }])
+  }
   await expect(address).toBeFocused()
-  let finalSelection = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
-  expect(finalSelection.end).toBeGreaterThan(finalSelection.start!)
+  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(selected!)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
   await application.evaluate(({ webContents }) => {
     let focused = webContents.getFocusedWebContents()!
     focused.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' })
     focused.sendInputEvent({ type: 'keyUp', keyCode: 'Delete' })
   })
-  await expect(address).not.toHaveValue(`${url}/select-the-right-side-of-this-url`)
+  let target = `${url}/select-the-right-side-of-this-url`
+  await expect(address).toHaveValue(target.slice(0, selected!.start!) + target.slice(selected!.end!))
   await address.press('Escape')
   await cli('detach-client', { client: client.id })
+})
+
+test('address suggestions preserve a mouse selection across browser state updates', async () => {
+  let session = await cli('new-session', { name: 'Completion mouse selection' })
+  let pane = session.windows[0].panes[0]
+  let target = `${url}/completion-mouse-selection`
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  try {
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await address.fill(target); await address.press('Enter')
+    await cli('wait', { tab: pane.id, selector: '#text' })
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await address.fill('completion-mouse-selection'); await address.press('ArrowDown')
+    await expect(address).toHaveValue(target)
+    await address.press('ArrowRight')
+    let bounds = (await address.boundingBox())!
+    await chrome.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)
+    await chrome.mouse.down()
+    await chrome.mouse.move(bounds.x + 140, bounds.y + bounds.height / 2, { steps: 5 })
+    await chrome.mouse.up()
+    let selected = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
+    expect(selected.start).toBeGreaterThan(0)
+    expect(selected.end).toBeGreaterThan(selected.start!)
+    await cli('rename-window', { window: session.windows[0].id, name: 'Selection update' })
+    await expect(chrome.getByRole('button', { name: '1:Selection update*', exact: true })).toBeVisible()
+    expect(await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(selected)
+    await expect(address).toBeFocused()
+    await sendNativeKeys(application, [{ keyCode: 'Delete' }])
+    await expect(address).toHaveValue(target.slice(0, selected.start!) + target.slice(selected.end!))
+  } finally {
+    await cli('detach-client', { client: client.id })
+  }
+})
+
+for (let mobile of [false, true]) test(`address suggestions dismiss when clicking outside the ${mobile ? 'mobile device' : 'desktop page'}`, async () => {
+  let session = await cli('new-session', { name: `Dismiss address suggestions ${mobile}` })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let suggestions = chrome.getByRole('listbox', { name: 'Address suggestions' })
+  try {
+    if (mobile) await chrome.evaluate(args => (window as any).bmux.command({ method: 'profile.device.set', args }), { pane: pane.id, profile: pane.profileId, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+    await displayed.click()
+    await address.fill(`${url}/dismiss-suggestions`); await address.press('Enter')
+    await cli('wait', { tab: pane.id, selector: '#text' })
+    await displayed.click(); await address.fill('dismiss-suggestions')
+    await expect(suggestions).toBeVisible()
+    await chrome.locator('[data-pane-content]').click({ position: { x: 8, y: 200 } })
+    await expect(suggestions).toHaveCount(0)
+    await expect(address).toHaveCount(0)
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/dismiss-suggestions`)
+    await displayed.click(); await address.fill('dismiss-suggestions')
+    await expect(suggestions).toBeVisible()
+    await chrome.getByRole('contentinfo', { name: 'Browser status' }).getByRole('button', { name: 'Help', exact: true }).click()
+    await expect(suggestions).toHaveCount(0)
+    await expect(chrome.getByRole('dialog', { name: 'Help', exact: true })).toBeVisible()
+  } finally {
+    await cli('detach-client', { client: client.id })
+  }
 })
 
 test('dragging over a floating pane URL keeps its address input focused', async () => {

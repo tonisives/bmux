@@ -68,7 +68,7 @@ export let FloatingPane = () => {
       <CloseButton label="Close floating pane" onClick={close} />
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
-      {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : <span>{tab?.url === 'about:blank' ? 'Enter a URL above' : 'Loading…'}</span>}
+      {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
     </div>
     {edges.map(edge => <div key={edge} className={css.edge} data-edge={edge} onPointerDown={drag} role="separator" aria-label={`Resize floating pane ${edge}`} />)}
   </section>
