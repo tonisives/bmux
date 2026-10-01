@@ -33,7 +33,7 @@ export let configPath = (dataDirectory: string) => {
   }
   return current
 }
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status windows.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, searchApps: DEFAULT_SEARCH_APPS, memory: DEFAULT_MEMORY, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status windows.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, searchApps: DEFAULT_SEARCH_APPS, memory: DEFAULT_MEMORY, automation: DEFAULT_AUTOMATION, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
 let parseSearchApps = (value: unknown): SearchApps => {
   if (value === undefined) return { ...DEFAULT_SEARCH_APPS }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('searchApps must be a mapping')

@@ -51,7 +51,9 @@ import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
-import { matchingAutomationGroup } from '../shared/automation'
+import { DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { automationWarningScript, createAutomationSafety } from './automation-safety'
+import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
 import { createFaviconCache } from './favicon-cache'
@@ -287,6 +289,7 @@ export let createRuntime = (dataDirectory: string) => {
   } : undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
+  let automationSafety: ReturnType<typeof createAutomationSafety> | undefined
   let tabAutomation = new Map<string, string>()
   let documents = new Map<string, number>()
   let pluginContext = (target: PluginContext): PluginContext => {
@@ -314,7 +317,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ automationSafety: automationSafety?.status(), remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -862,7 +865,7 @@ export let createRuntime = (dataDirectory: string) => {
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
     let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
     contents.on('will-navigate', (event, url) => {
-      if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? { groups: {} }, pane.profileId, url)) return
+      if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, pane.profileId, url)) return
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation', record: false }) }
       catch { event.preventDefault() }
     })
@@ -1542,6 +1545,16 @@ export let createRuntime = (dataDirectory: string) => {
     return client
   }
   let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.permissionPopup.webContents.id === contentsId || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
+  let inspectAutomationPage = async (tabId: string) => {
+    let live = await ensureLiveTab(tabId)
+    let result = await cdp(tabId, 'Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 }, undefined, true)
+    if (result.exceptionDetails) throw new Error('Could not inspect page for automation warnings')
+    return { url: live.contents.getURL(), warning: result.result.value as AutomationWarning | undefined }
+  }
+  let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true) => {
+    if (!context.profileId || !context.paneId) return
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!), targetUrl, pace)
+  }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
     if (!clientId || !Array.isArray(bounds)) return
@@ -1555,6 +1568,23 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
+    if (method === 'automation.safety') return automationSafety?.status()
+    if (method === 'profile.anti-bot.set') {
+      if (!sourceClientId) throw new Error('Change anti-bot protection in the profile view')
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
+      configuration?.update(['automation', 'safety', 'profiles', profile.id], args.enabled)
+      return { enabled: args.enabled }
+    }
+    if (method === 'automation.resume') {
+      if (!sourceClientId) throw new Error('Resume automation from the bmux command prompt')
+      let client = resolve(model.clients, sourceClientId, 'Client'), tabId = required(args, 'tab')
+      let { pane } = tabById(model, tabId)
+      if (client.paneId !== pane.id) throw new Error('Select the affected pane before resuming automation')
+      let page = await inspectAutomationPage(tabId)
+      if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
+      return automationSafety?.resume(pane.profileId, page)
+    }
     if (method === 'automation.acquire') {
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
       if (!automation) throw new Error('Automation policy unavailable')
@@ -1581,7 +1611,11 @@ export let createRuntime = (dataDirectory: string) => {
       if (args.history !== undefined && typeof args.history !== 'boolean') throw new Error('history must be a boolean')
       return memory.report(args.history === true)
     }
-    let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
+    let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
+    if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
+      let { pane, session } = tabById(model, args.tab)
+      await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, method === 'navigate' ? normalizeUrl(required(args, 'url'), searchAppForSession(session)) : undefined, paceAutomationCommand(method, args))
+    }
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab, session } = tabById(model, args.tab)
       let url = method === 'navigate' ? normalizeUrl(required(args, 'url'), searchAppForSession(session)) : tabs.get(args.tab)?.contents.getURL() || tab.url
@@ -1592,7 +1626,12 @@ export let createRuntime = (dataDirectory: string) => {
     if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
       let searchApp = method === 'new-window' ? searchAppForSession(resolve(model.sessions, args.session, 'Session')) : typeof args.pane === 'string' ? searchAppForSession(paneById(model, args.pane).session) : undefined
-      if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+      if (matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+    }
+    if (!sourceClientId && !remoteActor.getStore() && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
+      let session = method === 'new-window' ? resolve(model.sessions, args.session, 'Session') : paneById(model, args.pane).session
+      let profileId = resolve(model.profiles, args.profile ?? (method === 'new-window' ? session.defaultProfileId : paneById(model, args.pane).pane.profileId), 'Profile').id
+      await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)))
     }
     if (method === 'window.audio.toggle') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -2566,6 +2605,7 @@ export let createRuntime = (dataDirectory: string) => {
     await visualQueue
     return serializeTab(tabId, async () => {
       checkControl(method, args)
+      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane, session } = tabById(model, tabId)
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
@@ -2679,7 +2719,8 @@ export let createRuntime = (dataDirectory: string) => {
     }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, undefined, paceAutomationCommand(method, args)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()

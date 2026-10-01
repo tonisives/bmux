@@ -16,6 +16,12 @@ it('parses quoted names and URL arguments without shell interpretation', () => {
   expect(parseCommandLine('new-session -s secret --private', current)).toMatchObject({ method: 'new-session', args: { name: 'secret', client: 'client', private: true } })
   expect(() => tokenize('open "unfinished')).toThrow('Unfinished quote')
 })
+
+it('routes manual automation resume to the selected pane', () => {
+  let current = state()
+  expect(parseCommandLine('automation resume', current)).toEqual({ method: 'automation.resume', args: { pane: current.model.clients[0].paneId } })
+  expect(parseCommandLine('automation safety', current)).toEqual({ method: 'automation.safety' })
+})
 it('resolves current targets, numeric indices, and confirmation flags', () => {
   let current = state(), session = current.model.sessions[0], window = session.windows[0]
   let secondWindow = newSession('second', session.defaultProfileId).windows[0]

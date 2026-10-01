@@ -3,6 +3,7 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
+import { automationSafetyEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -1557,10 +1558,41 @@ let ProxyInfo = () => {
   </section>
 }
 
+let ProfileAntiBotSettings = () => {
+  let { state, run } = useUI()
+  let { profile, pane } = selection(state)
+  let [busy, setBusy] = useState(false)
+  let safety = state.automationSafety, limits = safety?.limits ?? DEFAULT_AUTOMATION.safety
+  let savedEnabled = profile ? automationSafetyEnabled(limits, profile.id) : true
+  let [enabled, setEnabled] = useState(savedEnabled)
+  useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
+  if (!profile) return null
+  let usage = safety?.profiles.find(item => item.profileId === profile.id)
+  let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
+  let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning ? labels[usage.warning] : usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? `Cooldown until ${new Date(usage.retryAfter).toLocaleTimeString()}` : 'Ready'
+  let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
+    let next = event.target.checked
+    setEnabled(next); setBusy(true)
+    try { if (!await run('profile.anti-bot.set', { profile: profile.id, enabled: next })) setEnabled(savedEnabled) } finally { setBusy(false) }
+  }
+  let resume = async () => {
+    if (!pane) return
+    setBusy(true)
+    try { await run('automation.resume', { pane: pane.id }) } finally { setBusy(false) }
+  }
+  return <div className={css.deviceSettings} role="tabpanel" aria-label="Anti-bot settings">
+    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Enable anti-bot protection</label>
+    <p>Pauses automation on account warnings and limits session length.</p>
+    <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
+    {enabled && safety?.error && <p>{safety.error}</p>}
+    {enabled && usage?.warning && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button></>}
+  </div>
+}
+
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
-  let [tab, setTab] = useState<'overview' | 'device' | 'connection'>('overview')
+  let [tab, setTab] = useState<'overview' | 'device' | 'connection' | 'anti-bot'>('overview')
   let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
@@ -1575,10 +1607,10 @@ let ProfileInfo = () => {
     await run('session.profile.set', { session: session.id, profile: event.target.value })
     setBusy(false)
   }
-  let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection')
+  let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
-    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button></div>
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}>Anti-bot</button></div>
     {tab === 'overview' && <div role="tabpanel" aria-label="Profile overview"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
@@ -1592,6 +1624,7 @@ let ProfileInfo = () => {
     </section></div>}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'anti-bot' && <ProfileAntiBotSettings />}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }

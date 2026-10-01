@@ -108,6 +108,12 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     if (['list', 'runs', 'reload'].includes(action ?? '')) return { method: `plugin.${action}` }
     throw new Error('Use plugin list, run ID/ACTION, runs, cancel ID, or reload')
   }
+  if (name === 'automation') {
+    let action = positional[0]
+    if (action === 'resume') return { method: 'automation.resume', args: { pane: paneTarget } }
+    if (['status', 'safety'].includes(action ?? '')) return { method: `automation.${action}` }
+    throw new Error('Use automation status, safety, or resume')
+  }
   if (/^(https?:\/\/|localhost[:/])/.test(name) || name.includes('.')) return { method: 'navigate', args: { pane: pane?.id, url: [name, ...positional].join(' ') } }
   if (name === 'session') name = 'switch-client'
   if (name === 'new-client') name = 'attach-session'
