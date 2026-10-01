@@ -1548,15 +1548,17 @@ export let createRuntime = (dataDirectory: string) => {
   let inspectAutomationPage = async (tabId: string, recover = false) => {
     // Inspect the current document without awaiting a navigation that this command
     // may need to interrupt. A crashed renderer has no document to inspect.
-    let live = await ensureLiveTab(tabId, false)
+    let previous = tabs.get(tabId)
+    if (previous && !previous.contents.isDestroyed() && previous.contents.isCrashed()) {
+      if (recover) return { url: previous.contents.getURL() || tabById(model, tabId).tab.url }
+      throw new Error('Page process crashed; reload to recover before automating')
+    }
+    let live = await ensureLiveTab(tabId, !recover)
     let url = live.contents.getURL() || tabById(model, tabId).tab.url
     if (live.contents.isCrashed()) {
       if (recover) return { url }
       throw new Error('Page process crashed; reload to recover before automating')
     }
-    // Input and reads still inspect the loaded page, including warnings that
-    // arrive during navigation. Only interruption/recovery commands skip it.
-    if (!recover) await ensureLiveTab(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     let result = await debuggerApi.sendCommand('Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 })

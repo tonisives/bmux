@@ -103,6 +103,8 @@ the full Check after the focused profile cases passed.
 
 Reload and navigation inspect the current document without waiting for navigation.
 Input and read commands still wait to inspect the loaded page for warnings.
+Their first access must create unloaded panes with normal navigation enabled;
+creating a blank renderer first can prevent restored pages from waking correctly.
 Reload and navigation can recover a crashed renderer with no document to inspect;
 the policy still checks persisted warnings, session limits, cooldowns, and pacing.
 The warning test also checks that reload cannot bypass a latched warning.
