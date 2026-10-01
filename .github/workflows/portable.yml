@@ -5,6 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      native_crashes:
+        description: Collect native crash stacks in the disposable Linux runner
+        required: false
+        default: false
+        type: boolean
       repeat_each:
         description: Repeat each Linux test (1-32)
         required: false
@@ -25,9 +30,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build --target test -t bmux-test:local .
+      - name: Enable native crash diagnostics
+        if: inputs.native_crashes
+        run: sudo sysctl -w kernel.core_pattern=/tmp/bmux-core.%p
       - name: Linux tests
         env:
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
+          BMUX_NATIVE_CRASH_DIAGNOSTICS: ${{ inputs.native_crashes && '1' || '0' }}
         run: |
           case "$REPEAT_EACH" in
             [1-9]|[12][0-9]|3[0-2]) ;;

@@ -17,7 +17,7 @@ WORKDIR /opt/bmux
 ENV BMUX_DATA_DIR=/data
 
 FROM base AS test
-RUN apt-get update && apt-get install -y --no-install-recommends openbox x11-utils \
+RUN apt-get update && apt-get install -y --no-install-recommends openbox x11-utils gdb \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /opt/bmux /opt/bmux
 RUN chown root:root node_modules/electron/dist/chrome-sandbox && chmod 4755 node_modules/electron/dist/chrome-sandbox

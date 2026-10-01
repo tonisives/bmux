@@ -17,4 +17,18 @@ while :; do
   fi
   sleep 0.1
 done
-exec "$@"
+if [ "${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" != 1 ]; then
+  exec "$@"
+fi
+status=0
+"$@" || status=$?
+mkdir -p /tmp/results
+for core in /tmp/bmux-core.*; do
+  [ -f "$core" ] || continue
+  # Only stack frames are retained; profile memory stays inside this container.
+  timeout 30 gdb --batch -ex 'set print frame-arguments none' \
+    -ex 'thread apply all bt' node_modules/electron/dist/electron "$core" \
+    >"/tmp/results/native-crash-${core##*.}.txt" 2>&1 || true
+  rm -f "$core"
+done
+exit "$status"
