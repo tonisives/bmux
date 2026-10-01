@@ -209,3 +209,13 @@ selected tab in view. The fixture now explicitly selects each target and observe
 its selection before hovering. Failures retain a bounded pointer/scroll timeline
 before detaching the native window, so future failures can distinguish lost hover
 from tooltip rendering or stacking.
+
+## Split-pane navigation readiness
+
+The full Check on `70bfa2d` then found the ad-blocking case calling `locator` on
+an undefined page. Its split RPC returns before the new pane's navigation appears
+in Playwright's page list; address controls can mount before that navigation.
+The fixture now waits for the intended URL and completed document load before
+reading it. It checks the fixture heading and the advertisement's presence too,
+so a missing or incomplete document cannot satisfy a hidden-ad assertion. The
+existing independent blocking and reload assertions remain in place.
