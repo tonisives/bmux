@@ -46,14 +46,21 @@ export let observeNativeFocus = async (application: ElectronApplication) => {
 
 export let recordNativeFocus = async (application: ElectronApplication, info: TestInfo, failed = info.status !== info.expectedStatus) => {
   if (!failed) return
-  let state = await application.evaluate(({ BaseWindow, webContents }) => ({
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let capture = application.evaluate(({ BaseWindow, webContents }) => ({
     events: (globalThis as any).bmuxTestFocusEvents,
     focused: webContents.getFocusedWebContents()?.id,
     windows: BaseWindow.getAllWindows().map(window => ({
       id: window.id, focused: window.isFocused(), visible: window.isVisible(),
       views: window.contentView.children.flatMap(view => 'webContents' in view ? [{ id: (view as Electron.WebContentsView).webContents.id, bounds: view.getBounds() }] : []),
     })),
-  })).catch(error => ({ error: String(error) }))
+  }))
+  let state
+  try {
+    state = await Promise.race([capture, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Native focus capture timed out')), 5000)
+    })]).catch(error => ({ error: String(error) }))
+  } finally { clearTimeout(timer) }
   let output = info.outputPath('native-focus.json')
   await fs.writeFile(output, JSON.stringify(state, null, 2))
   await info.attach('native-focus', { path: output, contentType: 'application/json' })

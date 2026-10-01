@@ -1545,15 +1545,24 @@ export let createRuntime = (dataDirectory: string) => {
     return client
   }
   let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.permissionPopup.webContents.id === contentsId || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
-  let inspectAutomationPage = async (tabId: string) => {
-    let live = await ensureLiveTab(tabId)
-    let result = await cdp(tabId, 'Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 }, undefined, true)
+  let inspectAutomationPage = async (tabId: string, recover = false) => {
+    // Inspect the current document without awaiting a navigation that this command
+    // may need to interrupt. A crashed renderer has no document to inspect.
+    let live = await ensureLiveTab(tabId, false)
+    let url = live.contents.getURL() || tabById(model, tabId).tab.url
+    if (live.contents.isCrashed()) {
+      if (recover) return { url }
+      throw new Error('Page process crashed; reload to recover before automating')
+    }
+    let debuggerApi = live.contents.debugger
+    if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+    let result = await debuggerApi.sendCommand('Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 })
     if (result.exceptionDetails) throw new Error('Could not inspect page for automation warnings')
-    return { url: live.contents.getURL(), warning: result.result.value as AutomationWarning | undefined }
+    return { url: live.contents.getURL() || url, warning: result.result.value as AutomationWarning | undefined }
   }
-  let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true) => {
+  let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
     if (!context.profileId || !context.paneId) return
-    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!), targetUrl, pace)
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), targetUrl, pace)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
@@ -1615,7 +1624,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, session } = tabById(model, args.tab)
       let targetUrl = automationTargetUrl(method, args)
-      await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined, paceAutomationCommand(method, args))
+      await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined, paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
     }
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab, session } = tabById(model, args.tab)

@@ -28,7 +28,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
-    let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let rpc = (method: string, args: Record<string, unknown> = {}) => test.step(`Pointer fixture command: ${method}`, () => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args }), { timeout: 15000 })
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let client = state.model.clients[0], left = state.model.sessions[0].windows[0].panes[0]
     await rpc('navigate', { tab: left.id, url: `${url}/left` })
@@ -85,7 +85,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await rpc('select-pane', { client: client.id, pane: lower.id, movePointer: true })
     expect(await cursor()).toEqual(before)
   } catch (error) {
-    console.log('POINTER_DIAGNOSTICS', await application.evaluate(({ BaseWindow, screen, webContents }) => ({ pointer: screen.getCursorScreenPoint(), focused: webContents.getFocusedWebContents()?.getURL(), windows: BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), bounds: window.getContentBounds() })) })))
+    console.log('POINTER_DIAGNOSTICS', await test.step('Capture pointer failure diagnostics', () => application.evaluate(({ BaseWindow, screen, webContents }) => ({ pointer: screen.getCursorScreenPoint(), focused: webContents.getFocusedWebContents()?.getURL(), windows: BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), bounds: window.getContentBounds() })) })), { timeout: 5000 }).catch(error => ({ error: String(error) })))
     throw error
   } finally {
     await promisify(execFile)(process.execPath, ['-e', 'require(process.argv[1]).move(Number(process.argv[2]), Number(process.argv[3]))', path.join(process.cwd(), 'out/native/pointer.node'), String(originalPointer.x), String(originalPointer.y)])

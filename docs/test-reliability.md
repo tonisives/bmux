@@ -91,3 +91,21 @@ finished: its video element already existed, but its state and controls did not.
 That case now waits for the pane selector within the existing signaling deadline
 and verifies a decoded video frame before checking control availability. Remote
 test failures also retain native focus and input delivery diagnostics.
+
+## Guarded reload and crash recovery
+
+`662ac1a` enabled automation safety by default; `8697a7f` extended its accounting
+to blank panes. The guard used the normal automation helper, which waits for an
+initial navigation to finish. Consequently, CLI reload could not interrupt a
+fixture with an unfinished load. Inspecting a crashed renderer also prevented
+reload from reaching its recovery code. Both existing browser cases failed in
+the full Check after the focused profile cases passed.
+
+Warning inspection now reads the current document without waiting for navigation.
+Reload and navigation can recover a crashed renderer with no document to inspect;
+the policy still checks persisted warnings, session limits, cooldowns, and pacing.
+The warning test also checks that reload cannot bypass a latched warning.
+
+Bound fixture CLI calls and diagnostic capture, and label steps that can wait on
+renderer IPC. A dead renderer must produce a useful failure instead of consuming
+the whole workflow deadline or hiding the original assertion during teardown.

@@ -42,6 +42,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await navigate(`${base}/warning`)
     expect(cli(['click', '-t', pane.id, '--selector', '#continue'])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
     expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1"}']).ok).toBe(false)
+    expect(cli(['reload', '-t', pane.id])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
     expect(cli(['automation', 'resume', '-t', pane.id]).ok).toBe(false)
     expect(cli(['profile', 'anti-bot.set', '--profile', pane.profileId, '--enabled', 'false']).ok).toBe(false)
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()

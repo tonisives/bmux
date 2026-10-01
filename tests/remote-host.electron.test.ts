@@ -32,7 +32,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
     await observeNativeFocus(application)
     let command = async (...args:string[]) => {
-      try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory}})).stdout).result }
+      try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
       catch (error) { throw new Error(JSON.parse((error as { stdout?: string }).stdout ?? '{}').error ?? String(error)) }
     }
     let status = await command('status'), pane = status.model.sessions[0].windows[0].panes[0].id
@@ -146,10 +146,18 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
     await viewer.getByRole('button',{name:'Release control',exact:true}).click()
     await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
-    let attachedClient = await command('attach-session','-t',status.model.sessions[0].id)
-    let localPages = await Promise.all(application.context().pages().filter(page=>page.url().endsWith('/index.html')).map(async page=>({page,clientId:(await page.evaluate(()=>(window as any).bmux.state())).clientId})))
+    let attachedClient = await test.step('Attach and focus the desktop session',async()=>{
+      let client = await command('attach-session','-t',status.model.sessions[0].id)
+      await command('rpc','activate-client',JSON.stringify({client:client.id}))
+      await expect.poll(async()=>(await command('status')).focusedClientId).toBe(client.id)
+      return client
+    },{timeout:25000})
+    let localPages = await test.step('Find the attached desktop renderer',()=>Promise.all(application!.context().pages().filter(page=>page.url().endsWith('/index.html')).map(async page=>({page,clientId:(await page.evaluate(()=>(window as any).bmux.state())).clientId}))),{timeout:10000})
     let local = localPages.find(item=>item.clientId===attachedClient.id)!.page
-    await local.getByRole('button',{name:'Sessions',exact:true}).click()
+    await test.step('Open the attached desktop session picker',async()=>{
+      await expect(local.locator(`[data-pane-id="${pane}"]`)).toHaveAttribute('data-focused-pane','true')
+      await local.getByRole('button',{name:'Sessions',exact:true}).click()
+    },{timeout:15000})
     let remotePicker = local.getByRole('dialog',{name:'Sessions'})
     await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
     await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
@@ -182,7 +190,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await closeTestApplication(application)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
-    await new Promise<void>(resolve=>fixture.close(()=>resolve()))
+    await new Promise<void>(resolve=>{fixture.close(()=>resolve());fixture.closeAllConnections()})
     await pool.query('DELETE FROM bmux_usage WHERE service=$1',[service]); await pool.query('DELETE FROM bmux_services WHERE id=$1',[service]); await pool.query('DELETE FROM bmux_devices WHERE owner=$1',[owner]); await pool.query('DELETE FROM bmux_logins WHERE owner=$1',[owner]); await pool.end()
     await fs.rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100})
   }
