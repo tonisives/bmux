@@ -233,6 +233,7 @@ test('pane move command popup completes sessions and windows before moving the p
     await expect.poll(nativeVisible).toBe(true)
   } finally {
     await chrome.keyboard.press('Escape')
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
     await rpc('select-window', { client: client.id, window: originalWindowId })
     await rpc('kill-session', { session: target.id, confirm: true })
     if ((await state()).model.sessions.some((session: any) => session.windows.some((window: any) => window.id === source.id))) await rpc('kill-window', { window: source.id, confirm: true })
