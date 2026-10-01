@@ -63,7 +63,6 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       if (!automationSafetyEnabled(options.settings(), profileId)) return
       assertAvailable(profileId)
       let page = await inspect()
-      if (!/^https?:\/\//.test(page.url) && !/^https?:\/\//.test(targetUrl ?? '')) return
       let value = usage[profileId], current = now()
       if (!value || current >= retryAt(value) || current - value.lastUsed >= options.settings().cooldownMinutes * 60_000) value = { startedAt: current, lastUsed: current }
       let delay = pace && usage[profileId] && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, value.lastUsed + options.settings().socialDelayMs - current) : 0

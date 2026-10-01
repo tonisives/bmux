@@ -51,7 +51,7 @@ import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
-import { DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
 import { automationWarningScript, createAutomationSafety } from './automation-safety'
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
@@ -1614,7 +1614,8 @@ export let createRuntime = (dataDirectory: string) => {
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
     if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, session } = tabById(model, args.tab)
-      await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, method === 'navigate' ? normalizeUrl(required(args, 'url'), searchAppForSession(session)) : undefined, paceAutomationCommand(method, args))
+      let targetUrl = automationTargetUrl(method, args)
+      await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined, paceAutomationCommand(method, args))
     }
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab, session } = tabById(model, args.tab)
@@ -2418,7 +2419,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'tab.create') {
       let { session, pane } = paneById(model, args.pane)
       let client = args.client === true ? focusedClientId : args.client
-      let window = await execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: args.url, ...(client ? { client } : {}) } }) as InternalWindow
+      let window = await execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: args.url, ...(client ? { client } : {}) } }, sourceClientId) as InternalWindow
       return window.panes[0]
     }
     if (method === 'tab.select') {
@@ -2720,7 +2721,7 @@ export let createRuntime = (dataDirectory: string) => {
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, undefined, paceAutomationCommand(method, args)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()

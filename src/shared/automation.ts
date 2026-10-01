@@ -23,6 +23,10 @@ export let paceAutomationCommand = (method: string, args: Record<string, unknown
   let params = args.params as Record<string, unknown> | undefined
   return !(args.method === 'Input.dispatchMouseEvent' && params?.type === 'mouseReleased' || args.method === 'Input.dispatchKeyEvent' && params?.type === 'keyUp')
 }
+export let automationTargetUrl = (method: string, args: Record<string, unknown>) => {
+  let url = method === 'navigate' ? args.url : method === 'cdp' && args.method === 'Page.navigate' ? (args.params as Record<string, unknown> | undefined)?.url : undefined
+  return typeof url === 'string' ? url : undefined
+}
 
 let mapping = (value: unknown, name: string): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} must be a mapping`)

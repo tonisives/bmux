@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -88,6 +88,17 @@ test('navigation from a blank pane to social sites counts toward the same sessio
   await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://instagram.com/')
   advance(10 * 60_000)
   await expect(policy.before('bot', async () => ({ url: 'about:blank' }), 'https://youtube.com/')).rejects.toThrow('session limit')
+})
+
+test('blank panes and raw CDP navigation cannot avoid session accounting or social pacing', async () => {
+  let { policy, advance, sleeps } = fixture()
+  let target = automationTargetUrl('cdp', { method: 'Page.navigate', params: { url: 'https://instagram.com/' } })
+  expect(target).toBe('https://instagram.com/')
+  await policy.before('bot', async () => ({ url: 'about:blank' }))
+  await policy.before('bot', async () => ({ url: 'about:blank' }), target)
+  expect(sleeps).toEqual([2000])
+  advance(10 * 60_000)
+  await expect(policy.before('bot', async () => ({ url: 'about:blank' }))).rejects.toThrow('session limit')
 })
 
 test('profile opt-outs skip the guard without changing other profiles or deleting paused usage', async () => {

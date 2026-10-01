@@ -37,6 +37,8 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
       await address.fill(url); await address.press('Enter')
       await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
     }
+    expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1","returnByValue":true}']).ok).toBe(true)
+    expect(cli(['automation', 'safety']).result.profiles[0].profileId).toBe(pane.profileId)
     await navigate(`${base}/warning`)
     expect(cli(['click', '-t', pane.id, '--selector', '#continue'])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
     expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1"}']).ok).toBe(false)

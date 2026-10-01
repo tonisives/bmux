@@ -81,9 +81,10 @@ The CLI and plugin browser API share the guard; site-specific plugins are not
 needed for these defaults:
 
 - At most 10 minutes per automation session, followed by a 20-minute break.
-- At least 2 seconds between commands on social sites, shared across a profile's
+- At least 2 seconds between actions on social sites, shared across a profile's
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
+  Mouse and key releases are immediate to avoid holding inputs down.
 - Known account warnings, visible verification challenges, and rate-limit pages
   stop further automation. Detection runs before each browser operation.
 
