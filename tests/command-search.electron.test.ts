@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { closeTestApplication } from './electron-fixture'
+import { observeNativeFocus, recordNativeFocus } from './native-focus'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -89,6 +90,7 @@ test.beforeAll(async () => {
   proxy.on('requestFailed', () => undefined); await proxy.listen()
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
   application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_PROXY_TEST_URL: `http://127.0.0.1:${(server.address() as any).port}/ip` } })
+  await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await activate(); await chrome.getByRole('button', { name: 'Address', exact: true }).click()
@@ -99,8 +101,15 @@ test.beforeAll(async () => {
   await fs.mkdir(path.resolve('artifacts'), { recursive: true })
 })
 test.beforeEach(async () => {
+  await application.context().tracing.start({ screenshots: true, snapshots: true })
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
   let current = await state(); await rpc('select-window', { client: current.clientId, window: current.model.sessions[0].windows[0].id }); await activate()
+})
+test.afterEach(async ({}, info) => {
+  await recordNativeFocus(application, info)
+  let trace = info.status === info.expectedStatus ? undefined : info.outputPath('trace.zip')
+  await application.context().tracing.stop({ path: trace })
+  if (trace) await info.attach('trace', { path: trace, contentType: 'application/zip' })
 })
 test.afterAll(async () => { await closeTestApplication(application); await proxy?.close(true); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
 
