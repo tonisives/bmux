@@ -44,8 +44,8 @@ export let observeNativeFocus = async (application: ElectronApplication) => {
   })
 }
 
-export let recordNativeFocus = async (application: ElectronApplication, info: TestInfo) => {
-  if (info.status === info.expectedStatus) return
+export let recordNativeFocus = async (application: ElectronApplication, info: TestInfo, failed = info.status !== info.expectedStatus) => {
+  if (!failed) return
   let state = await application.evaluate(({ BaseWindow, webContents }) => ({
     events: (globalThis as any).bmuxTestFocusEvents,
     focused: webContents.getFocusedWebContents()?.id,

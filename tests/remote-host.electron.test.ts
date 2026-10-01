@@ -26,6 +26,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   await fs.writeFile(path.join(directory,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
   let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let failed = true
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
     application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
@@ -174,8 +175,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByRole('button',{name:'Sign in with Google'})).toBeVisible()
     await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
     await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
+    failed = false
   } finally {
-    if (application) await recordNativeFocus(application,test.info())
+    // TestInfo's final status is assigned after this callback returns.
+    if (application) await recordNativeFocus(application,test.info(),failed)
     await closeTestApplication(application)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
