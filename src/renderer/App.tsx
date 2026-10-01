@@ -335,8 +335,8 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-automatic={window.automaticName === true} data-selected={active} data-drop-position={dropPosition} onContextMenu={menu}>
-    <button onClick={select} className={css.windowSelect} data-active={active} aria-pressed={active} title={window.name} draggable>
+  return <span className={css.windowTab} data-window-id={window.id} data-automatic={window.automaticName === true} data-selected={active} data-drop-position={dropPosition} title={name} onContextMenu={menu}>
+    <button onClick={select} className={css.windowSelect} data-active={active} aria-pressed={active} title={name} draggable>
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>)}
       <span className={css.windowLabel}>{label}</span>
     </button>

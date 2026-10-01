@@ -2130,7 +2130,7 @@ test('status keeps full session and manual names while shortening website titles
     await cli('wait', { pane: pane.id, selector: '#text' })
     await cli('eval', { pane: pane.id, expression: `document.title = ${JSON.stringify(longTitle)}` })
     await expect(windowButton).toHaveText(`1:${longTitle.slice(0, 17)}…*`)
-    await expect(windowButton).toHaveAttribute('title', longTitle)
+    await expect(windowButton).toHaveAttribute('title', `${longTitle.slice(0, 17)}…`)
     expect((await cli('list-windows', { session: session.id }))[0].name).toBe(longTitle)
     await cli('rename-window', { window: window.id, name: manualName })
     for (let index = 0; index < 5; index++) await cli('new-window', { session: session.id, name: `Another long manual window name ${index}` })
@@ -2158,9 +2158,8 @@ test('status window list uses available room and hides its native scrollbar', as
     let window = BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow()
     window?.setBounds({ x: 90, y: 90, width: 480, height: 700 })
   }, client.id)
-  await expect.poll(() => list.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   let tab = list.locator('[data-window-id]').last()
-  await expect.poll(() => tab.locator('span').last().evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  await expect.poll(() => tab.locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   let profile = status.getByRole('button', { name: 'Extensions', exact: true })
   let help = status.getByRole('button', { name: 'Help', exact: true })
   await expect.poll(async () => {
@@ -2169,7 +2168,7 @@ test('status window list uses available room and hides its native scrollbar', as
   }).toEqual({ gap: 10, helpFits: true })
   for (let index = 4; index <= 12; index++) await cli('new-window', { session: session.id, client: client.id, name: `descriptive-window-${index}` })
   await expect.poll(() => list.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
-  await expect.poll(() => list.locator('[data-window-id]').last().locator('span').last().evaluate(element => element.clientWidth)).toBe(0)
+  await expect.poll(() => list.locator('[data-window-id]').last().locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   await expect.poll(async () => {
     let question = (await help.boundingBox())!, bar = (await status.boundingBox())!
     return question.width > 0 && question.x + question.width <= bar.x + bar.width - 8
@@ -2194,11 +2193,11 @@ test('status shares constrained space equally between automatic tabs and proport
       await cli('wait', { pane: window.panes[0].id, selector: '#text' })
       await cli('eval', { pane: window.panes[0].id, expression: `document.title = ${JSON.stringify(['A', 'Medium title', 'A much longer website title', 'Manual'][index])}` })
     }
-    await cli('rename-window', { window: windows[3].id, name: 'A manually renamed tab with a much longer descriptive title' })
+    await cli('rename-window', { window: windows[3].id, name: 'A manually renamed tab with a longer title' })
     let list = chrome.locator('[data-window-list]')
     await expect(list.locator('[data-automatic="true"]')).toHaveCount(3)
     let widths = () => list.locator('[data-window-id]').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width))
-    await expect(list.locator('[data-window-id]').last().locator('button[data-active]')).toHaveAttribute('title', 'A manually renamed tab with a much longer descriptive title')
+    await expect(list.locator('[data-window-id]').last().locator('button[data-active]')).toHaveAttribute('title', 'A manually renamed tab with a longer title')
     let roomy = await widths()
     await application.evaluate(({ BaseWindow }, clientId) => {
       (BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow())?.setBounds({ x: 90, y: 90, width: 640, height: 700 })
@@ -2210,7 +2209,21 @@ test('status shares constrained space equally between automatic tabs and proport
     }).toBeLessThan(1)
     let compact = await widths()
     expect(compact[3]).toBeGreaterThan(compact[0])
-    expect(compact[3]).toBeLessThan(roomy[3])
+    expect(compact[3]).toBeCloseTo(roomy[3], 0)
+    let selected = list.locator(`[data-window-id="${windows[3].id}"]`)
+    await expect.poll(() => selected.locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await cli('select-window', { client: client.id, window: windows[2].id })
+    selected = list.locator(`[data-window-id="${windows[2].id}"]`)
+    await expect.poll(() => selected.locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await expect.poll(async () => {
+      let sizes = await widths()
+      return Math.abs(sizes[0] - sizes[1])
+    }).toBeLessThan(1)
+    let short = list.locator(`[data-window-id="${windows[1].id}"]`)
+    await short.locator('button[data-active]').hover()
+    await expect(short).toHaveAttribute('title', 'Medium title')
+    await expect(short.locator('button[data-active]')).toHaveAttribute('title', 'Medium title')
+    await expect(selected).toHaveAttribute('title', 'A much longer web…')
     await chrome.screenshot({ path: 'artifacts/status-equal-widths.png' })
     await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: true\nkeyboard: {}\n')
     await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(true)
@@ -2222,7 +2235,7 @@ test('status shares constrained space equally between automatic tabs and proport
     }).toBe(true)
     await cli('select-window', { client: client.id, window: windows[0].id })
     let first = list.locator(`[data-window-id="${windows[0].id}"]`)
-    await expect.poll(() => first.locator('span').last().evaluate(element => element.clientWidth)).toBe(0)
+    await expect.poll(() => first.locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     let close = first.getByRole('button', { name: 'Close A', exact: true })
     await expect.poll(async () => {
       let button = (await close.boundingBox())!, tab = (await first.boundingBox())!, bounds = (await list.boundingBox())!
