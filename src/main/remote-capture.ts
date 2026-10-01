@@ -1,8 +1,8 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
+import { createFrameCapture } from './frame-capture'
 
 type CaptureOptions = { contents: Electron.WebContents; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; data: (message: string) => void; closed: () => void }
-let captures = new Map<number, { listeners: Set<(data: string) => void>; throttled: boolean }>()
 let frameSize = (frame: Electron.NativeImage) => {
   let size = frame.getSize(), scale = Math.min(1, 1920 / size.width, 1080 / size.height)
   return { width: Math.round(size.width * scale), height: Math.round(size.height * scale) }
@@ -12,55 +12,24 @@ let encodeFrame = (frame: Electron.NativeImage) => {
   if (size.width !== frame.getSize().width || size.height !== frame.getSize().height) frame = frame.resize(size)
   return `data:image/jpeg;base64,${frame.toJPEG(80).toString('base64')}`
 }
-let subscribe = (contents: Electron.WebContents, listener: (data: string) => void) => {
-  let capture = captures.get(contents.id)
-  if (!capture) {
-    capture = { listeners: new Set(), throttled: contents.getBackgroundThrottling() }
-    captures.set(contents.id, capture)
-    contents.setBackgroundThrottling(false)
-    let last = 0
-    contents.beginFrameSubscription(true, frame => {
-      if (Date.now() - last < 33) return
-      last = Date.now()
-      let data = encodeFrame(frame)
-      for (let notify of capture!.listeners) notify(data)
-    })
-  }
-  capture.listeners.add(listener)
-  void contents.capturePage().then(frame => { if (capture!.listeners.has(listener)) listener(encodeFrame(frame)) }).catch(() => undefined)
-  return () => {
-    capture!.listeners.delete(listener)
-    if (capture!.listeners.size) return
-    captures.delete(contents.id)
-    if (!contents.isDestroyed()) { contents.endFrameSubscription(); contents.setBackgroundThrottling(capture!.throttled) }
-  }
-}
+let subscribe = createFrameCapture(encodeFrame)
 
 export let createRemoteCapture = async (options: CaptureOptions) => {
   let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, offscreen: true, partition: 'bmux-trusted-transport' } })
   window.webContents.setWebRTCIPHandlingPolicy('default')
-  let framePending = false, captureInFlight = false, disposed = false
+  let framePending = false, disposed = false
   let unsubscribe: (() => void) | undefined
-  let captureTimer: ReturnType<typeof setInterval> | undefined
   let send = (message: unknown) => { if (!disposed && !window.isDestroyed()) window.webContents.send('remote-message', message) }
   let sendFrame = (data: string) => {
     if (framePending) return
     framePending = true
     send({ type: 'frame', data })
   }
-  let startPolling = () => {
-    captureTimer = setInterval(() => {
-      if (disposed || framePending || captureInFlight) return
-      captureInFlight = true
-      void options.contents.capturePage().then(frame => { if (!disposed) sendFrame(encodeFrame(frame)) }).catch(() => undefined).finally(() => { captureInFlight = false })
-    }, 200)
-  }
   let close = () => {
     if (disposed) return
     disposed = true
     ipcMain.off('remote-message', receive)
     options.contents.off('destroyed', close)
-    clearInterval(captureTimer)
     unsubscribe?.()
     if (!window.isDestroyed()) window.destroy()
     options.closed()
@@ -72,13 +41,11 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
         if (disposed) return
         send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, ...frameSize(frame) })
         unsubscribe = subscribe(options.contents, sendFrame)
-        startPolling()
         sendFrame(encodeFrame(frame))
       }).catch(() => {
         if (disposed) return
         send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly })
         unsubscribe = subscribe(options.contents, sendFrame)
-        startPolling()
       })
     } else if (message.type === 'frame-ack') framePending = false
     else if (message.type === 'connection' && message.state === 'connected') {

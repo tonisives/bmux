@@ -126,3 +126,11 @@ image starts Openbox and waits for its readiness property before Playwright.
 The browser test container permits up to 1 GiB of shared memory for Chromium's
 multiple windows and live video surfaces; this is a limit, not reserved memory.
 These resources are confined to CI test containers.
+
+Exit diagnostics confirmed that viewer reloads could also terminate Electron with
+`SIGSEGV`. Remote capture now uses one shared `capturePage` poller per pane at ten
+frames per second, matching the transport's capture cadence. It avoids native
+frame-subscription teardown and concurrent per-viewer capture loops. Unit tests
+cover bounded concurrency, shared viewers, cleanup, failed captures, and stale
+frames arriving after a reconnect. The Linux GUI repetitions continue to exercise
+reload, signaling, native window handoff, and actual decoded frames.
