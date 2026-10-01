@@ -14,7 +14,7 @@ import { observeNativeFocus, recordNativeFocus } from './native-focus'
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-test-'))
-  let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2 })
+  let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2, connectionTimeoutMillis: 5000, query_timeout: 5000 })
   let origin = 'http://127.0.0.1:18889', owner = randomBytes(12).toString('hex'), service = `test-${owner}`, token = randomBytes(32).toString('hex'), cookie = randomBytes(32).toString('hex')
   let digest = (value: string) => createHash('sha256').update(value).digest('hex')
   let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><a href="?linked=1" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Open link</a><input autofocus aria-label="Fixture input" style="position:absolute;top:120px"><div id="tick"></div><script>window.memory="retained";document.addEventListener("keydown",event=>document.body.dataset.key=event.key);document.addEventListener("pointerdown",event=>document.body.dataset.pointer=event.clientX+","+event.clientY);setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
@@ -33,6 +33,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
     application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
     applicationProcess = application.process()
+    application.context().setDefaultTimeout(10000)
+    application.context().setDefaultNavigationTimeout(10000)
     await observeNativeFocus(application)
     let command = async (...args:string[]) => {
       try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
@@ -170,30 +172,36 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(local.locator(`[data-pane-id="${pane}"]`)).toHaveAttribute('data-focused-pane','true')
       await local.getByRole('button',{name:'Sessions',exact:true}).click()
     },{timeout:15000})
-    let remotePicker = local.getByRole('dialog',{name:'Sessions'})
-    await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
-    await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
-    await remotePicker.getByRole('button',{name:/main.*remote/}).click()
-    await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
-    let attached = application.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
-    // The video element mounts before the attached viewer finishes signaling.
-    await expect(attached.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
-    await expect(attached.getByLabel('Remote browser')).toBeVisible()
-    await expect.poll(()=>attached.evaluate(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames),{timeout:15000}).toBeGreaterThan(0)
-    await expect(attached.getByRole('button',{name:'Take control'})).toBeVisible()
-    await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))
-    await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
-    await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
-    await expect.poll(async()=>(await pool.query('SELECT succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
-    let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:viewerDevice})})
-    expect(response.ok).toBe(true)
-    await expect(viewer.getByText('Sign in to continue')).toBeVisible()
-    await application.evaluate(async ({session},origin)=>session.defaultSession.cookies.remove(origin,'bmux_session'),origin)
-    await viewer.reload()
-    await expect(viewer.getByText('Sign in to see your sessions.')).toBeVisible()
-    await expect(viewer.getByRole('button',{name:'Sign in with Google'})).toBeVisible()
-    await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
-    await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
+    await test.step('Open a remote session from the desktop and decode video',async()=>{
+      let remotePicker = local.getByRole('dialog',{name:'Sessions'})
+      await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
+      await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
+      await remotePicker.getByRole('button',{name:/main.*remote/}).click()
+      await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
+      let attached = application!.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
+      // The video element mounts before the attached viewer finishes signaling.
+      await expect(attached.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
+      await expect(attached.getByLabel('Remote browser')).toBeVisible()
+      await attached.waitForFunction(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames>0,undefined,{timeout:15000})
+      await expect(attached.getByRole('button',{name:'Take control'})).toBeVisible()
+    },{timeout:40000})
+    await test.step('Record successful remote usage once',async()=>{
+      await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))
+      await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
+      await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
+      await expect.poll(async()=>(await pool.query('SELECT succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
+    },{timeout:30000})
+    await test.step('Revoke the original viewer and verify signed-out controls',async()=>{
+      let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:viewerDevice}),signal:AbortSignal.timeout(10000)})
+      expect(response.ok).toBe(true)
+      await expect(viewer.getByText('Sign in to continue')).toBeVisible()
+      await application!.evaluate(async ({session},origin)=>session.defaultSession.cookies.remove(origin,'bmux_session'),origin)
+      await viewer.reload()
+      await expect(viewer.getByText('Sign in to see your sessions.')).toBeVisible()
+      await expect(viewer.getByRole('button',{name:'Sign in with Google'})).toBeVisible()
+      await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
+      await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
+    },{timeout:30000})
     failed = false
   } finally {
     // TestInfo's final status is assigned after this callback returns.
