@@ -154,3 +154,15 @@ does not require offscreen window rendering. The capture test queries global
 native focus while the transport is active to exercise this regression directly.
 Fixture shutdown also reports native crash signals instead of accepting them as
 a successful close after the body assertions pass.
+
+## Bundled plugin completion
+
+A later full main run found the bundled Python heading action still `running`
+at the test's five-second completion deadline. Its fixture allowed unrelated
+live filter downloads and compilation. Plugin fixtures now disable those updates,
+like the other isolated GUI fixtures. The heading case records the prompt's run
+ID, verifies that submission removes the picker, and checks that exact run and
+its `scrolled` result. Post-prompt Python/CLI work has a separate fifteen-second
+deadline; other plugin waits keep their existing deadlines. A missing submission
+still fails at the picker assertion. Repeated verification includes the preceding
+hide/reactivate and password prompt case, as well as heading completion.
