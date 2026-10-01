@@ -82,6 +82,10 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 
 ## Model
 
+A session holds internal windows; each window contains split and floating panes. Desktop windows are clients attached to a session, each with its own selected internal window.
+
+<img src="https://cdn.digthree.tonis.dev/bmux/docs-model-80daae29051b/workspace-model.svg" alt="Two clients select different windows in one session; panes using work share logins while bot has separate storage" width="800" />
+
 | Term    | Meaning                                                         |
 | ------- | --------------------------------------------------------------- |
 | Profile | Persistent cookies, site storage, cache, and permission choices |
@@ -90,13 +94,13 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 | Pane    | One browser page with a fixed profile                           |
 | Client  | A desktop window attached to a session                          |
 
-Clients choose their current internal window independently. Visible clients keep their live browser views when the app loses focus. If multiple clients display the same page, focusing one transfers that page to it; the others show captured previews. Clients displaying different pages can render them simultaneously. Moving a view between clients preserves the actual page, form state, and JavaScript state. Detaching the last client leaves the server and pages running. **Quit** stops the browser.
+Profiles are independent of layouts. Panes using the same profile share logins; a pane's profile stays fixed.
 
-Panes can mix profiles within a layout. Panes with the same profile share logins; different profiles have separate site storage. A pane's profile is fixed for its lifetime. Create a new pane to use another profile.
+<img src="https://cdn.digthree.tonis.dev/bmux/docs-model-80daae29051b/pane-lifecycle.svg" alt="Pane 2 floats above its split layout and docks again, keeping the same ID, work profile, and live page" width="800" />
 
-Floating panes stay inside their internal bmux window, above its split panes. Right-click a link and choose **Open Link in Floating Pane**, or right-click a pane's page or address bar and choose **Float Pane**. JavaScript-driven X posts resolve to their detail pages too. Drag the floating header to move it and drag an edge or corner to resize it. Selecting a float brings it forward. Positions, sizes, and stacking survive a restart.
+Detach leaves pages running. **Quit** stops the browser. Restarting reopens saved URLs, but does not restore unsaved forms or JavaScript state.
 
-Right-click a floating pane's header to **Return to Split** or **Move to Window**. Returning restores its former split position when available. Floating and docking keep the same pane, profile, and live page. From the command prompt, use `new-pane`, `break-pane`, `break-pane -W`, or `join-pane`. The CLI accepts explicit targets, for example `bmux move-pane -t PANE --window WINDOW`; `-t` remains the source pane in bmux's long-form command. The tmux aliases use tmux's source and destination flags: `movep -s PANE -t SESSION` and `joinp -s PANE -t DESTINATION`. Omit `-s` to move the selected pane. `movep` creates a new window for a session target; `joinp` joins an existing window or pane. Moving the last pane removes its empty source window. An unqualified destination is resolved as a pane, then a window in the current session, then a session. Explicit `SESSION:WINDOW`, `SESSION:`, `:SESSION`, and `:{SESSION}` forms are also accepted. Use `move-pane -t PANE --x 100 --y 80` to position a float and `resize-pane -t PANE --width 640 --height 480` to resize it. Coordinates are pixels within the workspace, excluding the status bar.
+See [session and client behavior](docs/architecture.md#sessions-own-pages-independently-of-desktop-windows), [profiles](docs/profiles.md), and [floating pane commands](docs/floating-panes.md).
 
 ## Development
 

@@ -37,6 +37,8 @@ The screenshot below shows the visible result: three real Chromium page views ar
 
 The original idea allowed several desktop windows to attach to the same session. We did not need every attachment to render and interact with the same page simultaneously. The focused attachment could own the live views while another showed captured images.
 
+Clients choose their current internal window independently and keep their live views when the app loses focus. Clients displaying different pages can render them simultaneously. When clients display the same page, focusing one transfers that page's live view to it; the others show captured previews. Moving a view preserves the page, form state, and JavaScript state.
+
 That distinction matters because a single Electron `WebContents` can appear in only one `WebContentsView` at a time. Snapshots avoid introducing continuous streaming or duplicate page instances just to display the same session elsewhere. [Electron WebContentsView documentation](https://www.electronjs.org/docs/latest/api/web-contents-view)
 
 The handoff model is:
