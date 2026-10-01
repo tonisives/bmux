@@ -61,8 +61,10 @@ export let FloatingPane = () => {
       <button type="button" onClick={back} aria-label="Back" disabled={!navigation || navigation.activeIndex <= 0}>←</button>
       <button type="button" onClick={forward} aria-label="Forward" disabled={!navigation || navigation.activeIndex >= navigation.entries.length - 1}>→</button>
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
-      {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-      <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+      <div className={css.urlBar}>
+        {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
+        <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+      </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
       <div className={css.dragAbove} onPointerDown={drag} data-drag-above aria-hidden="true" />
       <CloseButton label="Close floating pane" onClick={close} />

@@ -24,6 +24,8 @@
 .windows::-webkit-scrollbar { display: none; }
 .windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 37px; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
 .windows[data-compressed="true"] .windowTab[data-automatic="true"] { flex-basis: var(--automatic-tab-width); }
+.windows .windowTab[data-selected="true"] { flex: 0 0 auto; max-width: 100%; }
+.windows[data-compressed="true"] .windowTab[data-selected="true"] { flex-basis: auto; }
 .windowTab:has(.windowClose) { min-width: 53px; }
 .windowTab:has(.windowAudio) { min-width: 55px; }
 .windowTab:has(.windowClose):has(.windowAudio) { min-width: 71px; }
@@ -93,7 +95,9 @@
 .navigationMenu strong, .navigationMenu span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .navigationMenu strong { font-weight: 500; }
 .navigationMenu span { color: #8e98a4; }
-.location { flex: 1; min-width: 0; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: text; }
+.urlBar { display: flex; align-items: center; flex: 1; min-width: 0; height: 24px; gap: 4px; padding: 0 4px; border-radius: 4px; background: #262c35; }
+.urlBar:focus-within { background: #2d3540; outline: 1px solid #627766; outline-offset: -1px; }
+.location { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .location:hover { background: transparent; color: #f0f2f5; }
 .clickModeActions { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 3px; overflow: hidden; color: #f4f5f6; white-space: nowrap; }
 .clickModeInput { flex: 0 0 auto; padding: 0 5px; font-size: 12px; }
@@ -266,11 +270,13 @@
 .newBookmarkFolder { padding-top: 10px; border-top: 1px solid #363c45; }
 .newBookmarkFolder > div { display: flex; gap: 12px; margin-top: 8px; }
 
-.addressEditor { width: 100%; min-width: 0; }
-.addressEditor .prompt { min-height: 28px; }
+.addressEditor { flex: 1; min-width: 0; }
+.addressEditor .prompt { min-height: 24px; gap: 6px; }
+.addressEditor .prompt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addressEditor .prompt > button[type="button"] { width: 24px; height: 24px; flex: 0 0 24px; }
 .addressInput { display: grid; flex: 1; min-width: 0; }
 .addressInput input { grid-area: 1 / 1; min-width: 0; }
-.addressInput input { width: 100%; z-index: 1; }
+.addressInput input { width: 100%; height: 24px; z-index: 1; }
 .urlHistory { position: fixed; z-index: 100; top: 29px; left: 0; right: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; padding: 4px 8px; border: 1px solid #444b59; background: #191d23e6; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .addressSuggestionRow { display: flex; align-items: stretch; min-width: 0; }
 .addressSuggestionRow:hover, .addressSuggestionRow:has([aria-selected="true"]) { background: #303844; }

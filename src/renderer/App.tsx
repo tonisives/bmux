@@ -336,8 +336,8 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-automatic={window.automaticName === true} data-selected={active} data-drop-position={dropPosition} onContextMenu={menu}>
-    <button onClick={select} className={css.windowSelect} data-active={active} aria-pressed={active} title={window.name} draggable>
+  return <span className={css.windowTab} data-window-id={window.id} data-automatic={window.automaticName === true} data-selected={active} data-drop-position={dropPosition} title={name} onContextMenu={menu}>
+    <button onClick={select} className={css.windowSelect} data-active={active} aria-pressed={active} title={name} draggable>
       {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>)}
       <span className={css.windowLabel}>{label}</span>
     </button>
@@ -837,8 +837,10 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
         {(popup.direction === 'back' ? back : forward).map(entry => <NavigationMenuItem key={entry.index} entry={entry} select={selectHistory} />)}
       </div>}
     </div>}
-    {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+    <div className={css.urlBar}>
+      {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
+      {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+    </div>
     {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
   </div>
