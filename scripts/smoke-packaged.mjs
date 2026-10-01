@@ -28,14 +28,13 @@ try {
   let before = await frontmost()
   let session = await command('new-session', '-s', 'packaged', '--profile', 'bot')
   let pane = session.windows[0].panes[0]
-  let tab = pane.tabs[0]
-  await command('navigate', '-t', tab.id, `http://127.0.0.1:${server.address().port}`)
-  await command('type', '-t', tab.id, '--selector', '#text', '--text', 'Packaged input')
-  await command('key', '-t', tab.id, 'Meta+A')
-  await command('type', '-t', tab.id, '--text', 'Replaced')
-  assert.equal(await command('eval', '-t', tab.id, 'document.querySelector("#text").value'), 'Replaced')
-  assert.match((await command('dom', '-t', tab.id)).content, /Full document bottom/)
-  let plugin = await command('plugin', 'run', 'local.page-tools/title', '-t', tab.id)
+  await command('navigate', '-t', pane.id, `http://127.0.0.1:${server.address().port}`)
+  await command('type', '-t', pane.id, '--selector', '#text', '--text', 'Packaged input')
+  await command('key', '-t', pane.id, 'Meta+A')
+  await command('type', '-t', pane.id, '--text', 'Replaced')
+  assert.equal(await command('eval', '-t', pane.id, 'document.querySelector("#text").value'), 'Replaced')
+  assert.match((await command('dom', '-t', pane.id)).content, /Full document bottom/)
+  let plugin = await command('plugin', 'run', 'local.page-tools/title', '-t', pane.id)
   let pluginRun
   for (let attempt = 0; attempt < 50; attempt++) {
     pluginRun = (await command('plugin', 'runs')).find(run => run.id === plugin.id)
@@ -45,14 +44,14 @@ try {
   assert.equal(pluginRun.status, 'completed')
   assert.equal(pluginRun.result.result, 'Packaged bmux')
   let imagePath = path.join(data, 'page.png')
-  await command('screenshot', '-t', tab.id, '--output', imagePath)
+  await command('screenshot', '-t', pane.id, '--output', imagePath)
   let png = await fs.readFile(imagePath)
   assert.ok(png.readUInt32BE(20) > 1800)
   assert.equal(await frontmost(), before, 'Packaged background startup or automation stole focus')
   let client = await command('attach-session', '-t', 'packaged')
   assert.equal((await command('list-clients')).length, 1)
   await command('detach-client', '-c', client.id)
-  assert.equal(await command('eval', '-t', tab.id, 'document.title'), 'Packaged bmux')
+  assert.equal(await command('eval', '-t', pane.id, 'document.title'), 'Packaged bmux')
   console.log(JSON.stringify({ packagedApp: appPath, passed: ['silent CLI startup', 'CLI argument parsing', 'packaged plugin host and example', 'typing and modifier keys', 'DOM extraction', 'full-page PNG', 'unchanged macOS focus', 'client attach/detach', 'detached page lifetime'] }))
 } finally {
   await command('quit').catch(() => undefined)
