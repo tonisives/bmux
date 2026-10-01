@@ -1919,11 +1919,10 @@ export let createRuntime = (dataDirectory: string) => {
       let client = resolve(model.clients, sourceClientId, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let window = resolve(session.windows, args.window, 'Window')
-      let characters = Array.from(window.name)
-      let text = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
+      let text = window.name
       let bounds = live.window.getContentBounds()
-      let width = Math.min(bounds.width, Math.max(32, Number(args.width) || 32))
-      let x = Math.max(0, Math.min(bounds.width - width, Number(args.x) || 0))
+      let width = Math.min(800, bounds.width - 16, Math.max(32, Math.ceil(Number(args.width) || 32)))
+      let x = Math.max(8, Math.min(bounds.width - width - 8, Math.round(Number(args.x) || 0)))
       let y = Math.max(0, Math.min(bounds.height - 28, Number(args.y) || 0))
       live.tabTooltip.setBounds({ x: Math.round(x), y: Math.round(y), width: Math.ceil(width), height: 28 })
       live.tabTooltip.webContents.send('link-preview', text)

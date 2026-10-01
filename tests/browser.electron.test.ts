@@ -2131,7 +2131,7 @@ test('status keeps full session and manual names while shortening website titles
     await cli('wait', { pane: pane.id, selector: '#text' })
     await cli('eval', { pane: pane.id, expression: `document.title = ${JSON.stringify(longTitle)}` })
     await expect(windowButton).toHaveText(`1:${longTitle.slice(0, 17)}…*`)
-    await expect(windowButton).toHaveAttribute('title', `${longTitle.slice(0, 17)}…`)
+    await expect(windowButton).toHaveAttribute('title', longTitle)
     expect((await cli('list-windows', { session: session.id }))[0].name).toBe(longTitle)
     await cli('rename-window', { window: window.id, name: manualName })
     for (let index = 0; index < 5; index++) await cli('new-window', { session: session.id, name: `Another long manual window name ${index}` })
@@ -2224,7 +2224,7 @@ test('status shares constrained space equally between automatic tabs and proport
     await short.locator('button[data-active]').hover()
     await expect(short).toHaveAttribute('title', 'Medium title')
     await expect(short.locator('button[data-active]')).toHaveAttribute('title', 'Medium title')
-    await expect(selected).toHaveAttribute('title', 'A much longer web…')
+    await expect(selected).toHaveAttribute('title', 'A much longer website title')
     await chrome.screenshot({ path: 'artifacts/status-equal-widths.png' })
     await fs.writeFile(path.join(directory, 'config.yaml'), 'showTabCloseButtons: true\nkeyboard: {}\n')
     await expect.poll(async () => (await cli('state')).showTabCloseButtons).toBe(true)
@@ -2258,7 +2258,7 @@ test('status title tooltips are visible above native pages at the top and bottom
   let chrome = await rendererForClient(client.id)
   let pane = session.windows[0].panes[0].id
   let title = 'A longer website title for compact tabs'
-  let expected = `${title.slice(0, 17)}…`
+  let expected = title
   let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
   let tooltipState = () => application.evaluate(async ({ BaseWindow }, nativeId) => {
     let window = BaseWindow.fromId(nativeId)!
@@ -2282,8 +2282,8 @@ test('status title tooltips are visible above native pages at the top and bottom
         return { visible: state.visible, topmost: state.topmost, text: state.text }
       }).toEqual({ visible: true, topmost: true, text: expected })
       let state = await tooltipState(), bounds = (await tab.boundingBox())!
-      expect(state.bounds.x).toBeGreaterThanOrEqual(0)
-      expect(state.bounds.x + state.bounds.width).toBeLessThanOrEqual(640)
+      expect(state.bounds.x).toBeGreaterThanOrEqual(8)
+      expect(state.bounds.x + state.bounds.width).toBeLessThanOrEqual(632)
       if (position === 'top') expect(state.bounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height)
       else expect(state.bounds.y + state.bounds.height).toBeLessThanOrEqual(bounds.y)
       let windowInfo = JSON.parse((await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
@@ -2292,6 +2292,22 @@ test('status title tooltips are visible above native pages at the top and bottom
       await expect.poll(async () => (await tooltipState()).visible).toBe(false)
       await cli('select-window', { client: client.id, window: session.windows[0].id })
       await cli('wait', { pane, selector: '#text' })
+    }
+    let last = (await cli('list-windows', { session: session.id })).at(-1)
+    let longTitle = 'A long descriptive website title '.repeat(12)
+    await cli('rename-window', { window: last.id, name: longTitle })
+    let lastTab = chrome.locator(`[data-window-id="${last.id}"] button[data-active]`)
+    for (let windowWidth of [1100, 640]) {
+      await application.evaluate(({ BaseWindow }, { nativeId, width }) => BaseWindow.fromId(nativeId)!.setBounds({ x: 90, y: 90, width, height: 700 }), { nativeId, width: windowWidth })
+      await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
+      await lastTab.hover()
+      await expect.poll(async () => {
+        let state = await tooltipState()
+        return { visible: state.visible, text: state.text, width: state.bounds.width }
+      }).toEqual({ visible: true, text: longTitle, width: Math.min(800, windowWidth - 16) })
+      let state = await tooltipState()
+      expect(state.bounds.x).toBeGreaterThanOrEqual(8)
+      expect(state.bounds.x + state.bounds.width).toBeLessThanOrEqual(windowWidth - 8)
     }
   } finally {
     await fs.writeFile(path.join(directory, 'config.yaml'), previousConfig)
