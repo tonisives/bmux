@@ -187,3 +187,25 @@ its `scrolled` result. Post-prompt Python/CLI work has a separate fifteen-second
 deadline; other plugin waits keep their existing deadlines. A missing submission
 still fails at the picker assertion. Repeated verification includes the preceding
 hide/reactivate and password prompt case, as well as heading completion.
+
+## Tooltip fixture readiness
+
+The subsequent Check on `7747eaa` found the tooltip hidden with no text after
+hovering the first tab. The fixture launched five pages without waiting for them,
+resized the native window, and changed status bar placement immediately before
+hovering. The renderer's status attribute alone does not establish native page
+bounds or a fresh mouseenter after those layout changes.
+
+The fixture now waits for those pages and for native page bounds to match the
+renderer at the requested window width. It moves the pointer to Help before
+entering the tab, and observes tooltip dismissal before the next hover. The
+existing text, native stacking, top/bottom placement, and long-title boundary
+assertions keep their deadlines. Repeated CI includes the preceding constrained
+tab-width case to exercise its retained pointer and window state.
+
+Those repetitions still exposed disappearing or missing tooltips. The hovered
+target was not the selected tab, while the strip's layout effect keeps the
+selected tab in view. The fixture now explicitly selects each target and observes
+its selection before hovering. Failures retain a bounded pointer/scroll timeline
+before detaching the native window, so future failures can distinguish lost hover
+from tooltip rendering or stacking.
