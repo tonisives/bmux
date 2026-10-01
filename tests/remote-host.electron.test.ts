@@ -132,11 +132,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     // A human focusing the native desktop window reclaims control without an RPC.
     await application.evaluate(({BaseWindow},id)=>{let window=BaseWindow.fromId(id)!;window.show();window.focus()},localWindowId)
     await expect.poll(async () => (await command('status')).focusedClientId).toBe(localClient.id)
+    await expect.poll(async () => (await command('status')).remoteControl[status.model.sessions[0].id]).toBeUndefined()
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeGreaterThan(700)
     // Return native focus to the viewer before sending its next mouse input.
     await application.evaluate(({BrowserWindow},id)=>BrowserWindow.fromId(id)!.focus(),viewerWindowId)
     await expect.poll(()=>application!.evaluate(({BrowserWindow},id)=>BrowserWindow.fromId(id)!.isFocused(),viewerWindowId)).toBe(true)
-    // The host broadcasts external control changes every five seconds.
+    // Regaining focus requests current ownership, rather than waiting for a broadcast.
     await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeVisible({timeout:10000})
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()
     await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()

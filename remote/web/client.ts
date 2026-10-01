@@ -1,5 +1,6 @@
 import { envelopeText, validEnvelope } from '../../src/shared/remote'
 import type { RemoteEnvelope } from '../../src/shared/remote'
+import { observeViewerFocus, receiveViewerMessage } from './viewer-updates'
 export type Host = { id: string; service: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; sessions: { id: string; name: string; panes: { id: string; title: string }[] }[] }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string }[] }[] }
 export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }> }
@@ -36,6 +37,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
     socket.send(JSON.stringify({ type: 'signal', to: host.id, envelope: { ...envelope, signature } }))
   }
   let send = (message: unknown) => { if (channel?.readyState === 'open' && channel.bufferedAmount < 65536) channel.send(JSON.stringify(message)) }
+  let refresh = () => send({ type: 'state' }), stopRefresh = () => {}
   socket.onmessage = event => {
     void (async () => {
       let message = JSON.parse(event.data)
@@ -60,8 +62,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
         channel.onopen = () => send({ type: 'state' })
         channel.onmessage = event => {
           let message = JSON.parse(event.data)
-          if (message.type === 'state') { events.state(message); finish() }
-          else if (message.type === 'error') events.error(message.error)
+          receiveViewerMessage(message, { ...events, ready: finish, refresh })
         }
       }
       await peer.setRemoteDescription(payload.sdp)
@@ -70,10 +71,11 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       await signal({ type: 'answer', sdp: peer.localDescription!.toJSON() })
     })().catch(error => { let failure = error instanceof Error ? error : new Error('Connection failed'); finish(failure); events.error(failure.message) })
   }
-  socket.onclose = () => { peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
+  socket.onclose = () => { stopRefresh(); peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
   socket.onerror = () => { finish(new Error('Connection unavailable')); events.error('Connection unavailable') }
   let ready = new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); setTimeout(() => { if (socket.readyState !== WebSocket.OPEN) reject(new Error('Connection timed out')) }, 15000) })
   await ready
+  stopRefresh = observeViewerFocus(refresh, window, document)
   return {
     id, publicKey, send,
     watch: async (selected: Host, session: string, pane: string) => {
@@ -86,6 +88,6 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       await ready
     },
     stop: () => { if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('Watch stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined },
-    close: () => { closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
+    close: () => { stopRefresh(); closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
   }
 }

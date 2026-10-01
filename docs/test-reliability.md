@@ -74,3 +74,14 @@ Earlier failures had different causes: shared recovery profile state, unbounded
 Electron shutdown, and native window focus or remote signaling deadlines. Fixing
 one case did not validate later changes to a different UI route. Keep verification
 bound to the changed behavior and the exact commit.
+
+## Remote ownership refresh
+
+The subsequent Linux arm64 run found a viewer still displaying `Controlling`
+after the host reported `CONTROL_EXPIRED` following a desktop takeover. A
+periodic broadcast alone did not update the controls within the test deadline.
+Viewers now request current state when they regain focus or become visible, and
+after ownership errors. These are read-only refreshes; rejected input is not
+retried. Local unit tests cover refresh, hidden views, listener cleanup, and
+ownership errors. The existing Linux GUI case verifies the desktop takeover and
+viewer reacquisition through the actual windows and data channel.
