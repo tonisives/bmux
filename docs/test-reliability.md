@@ -120,3 +120,9 @@ directory independently. When multiple devices are enrolled, revoke the intended
 viewer by its fingerprint; database row order does not identify it. Retain the
 Electron child process at launch for fixtures that exercise disconnections, so
 cleanup can still wait for or kill it after Playwright disposes its dispatcher.
+
+Linux native window tests need a desktop window manager as well as Xvfb. The test
+image starts Openbox and waits for its readiness property before Playwright.
+The browser test container permits up to 1 GiB of shared memory for Chromium's
+multiple windows and live video surfaces; this is a limit, not reserved memory.
+These resources are confined to CI test containers.

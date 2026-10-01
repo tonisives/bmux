@@ -20,7 +20,7 @@ done
 docker run -d --name "$turn" --network "container:${database}" coturn/coturn:4.6.3 \
   --no-cli --no-tls --no-dtls --fingerprint --use-auth-secret --static-auth-secret=fixture \
   --realm=bmux-fixture --allow-loopback-peers --no-multicast-peers >/dev/null
-docker run --name "$browser" --network "container:${database}" --shm-size=256m \
+docker run --name "$browser" --network "container:${database}" --shm-size=1g \
   --security-opt seccomp=containers/chromium-seccomp.json \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/host-proxy.electron.test.ts --output=/tmp/results "$@"
