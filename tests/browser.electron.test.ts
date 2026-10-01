@@ -2294,7 +2294,7 @@ test('status title tooltips are visible above native pages at the top and bottom
       await cli('wait', { pane, selector: '#text' })
     }
     let last = (await cli('list-windows', { session: session.id })).at(-1)
-    let longTitle = 'A long descriptive website title '.repeat(12)
+    let longTitle = 'A long descriptive website title '.repeat(12).trim()
     await cli('rename-window', { window: last.id, name: longTitle })
     let lastTab = chrome.locator(`[data-window-id="${last.id}"] button[data-active]`)
     for (let windowWidth of [1100, 640]) {
