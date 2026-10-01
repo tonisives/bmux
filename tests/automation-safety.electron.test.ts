@@ -39,7 +39,9 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     }
     expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1","returnByValue":true}']).ok).toBe(true)
     expect(cli(['automation', 'safety']).result.profiles[0].profileId).toBe(pane.profileId)
-    await navigate(`${base}/warning`)
+    // Navigation returns before load completes; the next input must inspect the
+    // loaded document and catch its warning before dispatching the click.
+    expect(cli(['navigate', '-t', pane.id, `${base}/warning`]).ok).toBe(true)
     expect(cli(['click', '-t', pane.id, '--selector', '#continue'])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
     expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1"}']).ok).toBe(false)
     expect(cli(['reload', '-t', pane.id])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
