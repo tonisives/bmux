@@ -101,7 +101,8 @@ fixture with an unfinished load. Inspecting a crashed renderer also prevented
 reload from reaching its recovery code. Both existing browser cases failed in
 the full Check after the focused profile cases passed.
 
-Warning inspection now reads the current document without waiting for navigation.
+Reload and navigation inspect the current document without waiting for navigation.
+Input and read commands still wait to inspect the loaded page for warnings.
 Reload and navigation can recover a crashed renderer with no document to inspect;
 the policy still checks persisted warnings, session limits, cooldowns, and pacing.
 The warning test also checks that reload cannot bypass a latched warning.

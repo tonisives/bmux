@@ -1554,6 +1554,9 @@ export let createRuntime = (dataDirectory: string) => {
       if (recover) return { url }
       throw new Error('Page process crashed; reload to recover before automating')
     }
+    // Input and reads still inspect the loaded page, including warnings that
+    // arrive during navigation. Only interruption/recovery commands skip it.
+    if (!recover) await ensureLiveTab(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     let result = await debuggerApi.sendCommand('Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 })
@@ -2730,7 +2733,7 @@ export let createRuntime = (dataDirectory: string) => {
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
