@@ -144,7 +144,7 @@ export let createRuntime = (dataDirectory: string) => {
   if (startupNotice) writeModel(dataDirectory, model, bookmarkFile)
   let navigationCrashMarker = crashRecovery.marker
   let queueRestoredNavigation = createSerialNavigationQueue()
-  let restoringTabs = crashRecovery.serializeRestores
+  let recoveryTabs = new Set(crashRecovery.serializeRestores ? walkPanes(model).map(({ pane }) => pane.id) : [])
   let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'pane'; windowId: string; index: number; pane: Pane; layout: InternalWindow['layout']; floating: InternalWindow['floating']; remainingPaneIds: string[] })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
@@ -833,7 +833,8 @@ export let createRuntime = (dataDirectory: string) => {
       if (choice === 1) event.preventDefault()
       else live.cancelClose?.()
     })
-    let serializedRestore = restoringTabs
+    // Lazy pages may first load after client restoration or a later selection.
+    let serializedRestore = recoveryTabs.delete(tabId)
     tabs.set(tabId, live)
     audio[tabId] = { playing: contents.isCurrentlyAudible(), muted: contents.isAudioMuted() }
     lastTabUse.set(tabId, Date.now())
@@ -2739,7 +2740,6 @@ export let createRuntime = (dataDirectory: string) => {
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
-    restoringTabs = false
     let recordMemory = () => { try { memory.record() } catch (error) { reportError(error) } }
     recordMemory()
     memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)

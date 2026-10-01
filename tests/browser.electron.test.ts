@@ -873,7 +873,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await cli('select-pane', { client: client.id, pane: crashed.id })
   await closeTestApplication(application)
   await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.id, url: 'https://chromewebstore.google.com/detail/example' }))
-  await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: true }))
+  await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')

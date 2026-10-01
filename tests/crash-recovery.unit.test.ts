@@ -61,7 +61,7 @@ it('serializes restored navigations so the crash marker cannot be overwritten', 
   expect(order).toEqual(['first:start', 'first:end', 'second:start'])
 })
 
-it('uses serialized restoration only after an unclean normal run', () => {
+it('removes interrupted navigation on the first restart after an unclean normal run', () => {
   let dataDirectory = directory(), model = initialModel(), session = model.sessions[0], window = session.windows[0]
   let safe = window.panes[0], crashed = newPane(session.defaultProfileId, 'https://example.com/crashed')
   window.panes.push(crashed)
@@ -69,18 +69,38 @@ it('uses serialized restoration only after an unclean normal run', () => {
 
   let normal = startNavigationCrashRecovery(dataDirectory, model)
   expect(normal.serializeRestores).toBe(false)
-  normal.marker.mark(safe.id, safe.id, 'https://example.com/safe')
+  normal.marker.mark(crashed.id, crashed.id, crashed.url)
 
   let recovery = startNavigationCrashRecovery(dataDirectory, model)
   expect(recovery.serializeRestores).toBe(true)
+  expect(recovery.startupNotice).toBe('Removed a pane after example.com crashed bmux during navigation.')
+  expect(window.panes.map(pane => pane.id)).toEqual([safe.id])
+  recovery.close()
+
+  expect(startNavigationCrashRecovery(dataDirectory, model).serializeRestores).toBe(false)
+})
+
+it('keeps recovery enabled across repeated unclean restarts without a navigation marker', () => {
+  let dataDirectory = directory(), model = initialModel()
+  expect(startNavigationCrashRecovery(dataDirectory, model).serializeRestores).toBe(false)
+  let recovery = startNavigationCrashRecovery(dataDirectory, model)
+  expect(recovery.serializeRestores).toBe(true)
   expect(recovery.startupNotice).toBeUndefined()
-  recovery.marker.mark(crashed.id, crashed.id, crashed.url)
 
   let recovered = startNavigationCrashRecovery(dataDirectory, model)
-  expect(recovered.serializeRestores).toBe(false)
-  expect(recovered.startupNotice).toBe('Removed a pane after example.com crashed bmux during navigation.')
-  expect(window.panes.map(pane => pane.id)).toEqual([safe.id])
+  expect(recovered.serializeRestores).toBe(true)
+  expect(recovered.startupNotice).toBeUndefined()
   recovered.close()
 
   expect(startNavigationCrashRecovery(dataDirectory, model).serializeRestores).toBe(false)
+})
+
+it('ignores leftover navigation markers after a clean shutdown', () => {
+  let dataDirectory = directory(), model = initialModel(), pane = model.sessions[0].windows[0].panes[0]
+  createNavigationCrashMarker(dataDirectory).mark(pane.id, pane.id, 'https://example.com/stale')
+  let normal = startNavigationCrashRecovery(dataDirectory, model)
+  expect(normal.serializeRestores).toBe(false)
+  expect(normal.startupNotice).toBeUndefined()
+  expect(model.sessions[0].windows[0].panes[0].id).toBe(pane.id)
+  normal.close()
 })
