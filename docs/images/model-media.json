@@ -1,0 +1,13 @@
+{
+  "bucket": "digthree-cdn",
+  "prefix": "bmux/docs-model-80daae29051b",
+  "baseUrl": "https://cdn.digthree.tonis.dev/bmux/docs-model-80daae29051b",
+  "files": [
+    "pane-lifecycle.svg",
+    "workspace-model.svg"
+  ],
+  "sha256": {
+    "pane-lifecycle.svg": "bba48e07200e957b49237609d4551f71698ff1a2636ec9f365fc09d6c759914e",
+    "workspace-model.svg": "eae1bc9e10017afdc15fd72b96e497deec91bc76ff79494b66f5c4c8f0f70902"
+  }
+}
