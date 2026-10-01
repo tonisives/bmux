@@ -4,6 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
 import { spawn, execFile } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
@@ -26,14 +27,19 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   await fs.writeFile(path.join(directory,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
   let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let applicationProcess: ChildProcess | undefined
   let failed = true
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
     application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
+    applicationProcess = application.process()
     await observeNativeFocus(application)
     let command = async (...args:string[]) => {
       try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
-      catch (error) { throw new Error(JSON.parse((error as { stdout?: string }).stdout ?? '{}').error ?? String(error)) }
+      catch (error) {
+        let output = (error as { stdout?: string }).stdout
+        throw new Error(`${args[0]}: ${output ? JSON.parse(output).error : String(error)}`)
+      }
     }
     let status = await command('status'), pane = status.model.sessions[0].windows[0].panes[0].id
     await command('navigate','-t',pane,fixtureUrl)
@@ -69,6 +75,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await routedCheck
     await viewer.unroute('**/api/me')
     await expect(viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})).toBeVisible()
+    // The host listing confirms enrollment. Identify this viewer before another
+    // origin enrolls its own device, rather than selecting an arbitrary DB row.
+    let viewerDevice = await viewer.evaluate(async()=>{
+      let key = JSON.parse(localStorage.getItem('bmux-device-key')!)
+      return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(key.x)))].map(value=>value.toString(16).padStart(2,'0')).join('')
+    })
     await expect(viewer.getByRole('button',{name:'Reconnect'})).toHaveCount(0)
     await expect(viewer.getByRole('heading',{name:'Account'})).toHaveCount(0)
     await viewer.getByRole('button',{name:'Account'}).click()
@@ -173,7 +185,6 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
     await expect.poll(async()=>(await pool.query('SELECT succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
-    let viewerDevice = (await pool.query('SELECT id FROM bmux_devices WHERE owner=$1',[owner])).rows[0].id
     let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:viewerDevice})})
     expect(response.ok).toBe(true)
     await expect(viewer.getByText('Sign in to continue')).toBeVisible()
@@ -187,7 +198,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   } finally {
     // TestInfo's final status is assigned after this callback returns.
     if (application) await recordNativeFocus(application,test.info(),failed)
-    await closeTestApplication(application)
+    if (failed && applicationProcess) console.log('REMOTE_PROCESS_DIAGNOSTICS', { pid:applicationProcess.pid,exitCode:applicationProcess.exitCode,signalCode:applicationProcess.signalCode })
+    await closeTestApplication(application,applicationProcess)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
     await new Promise<void>(resolve=>{fixture.close(()=>resolve());fixture.closeAllConnections()})

@@ -860,6 +860,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   await new Promise(resolve => setTimeout(resolve, 2000))
   let metrics = await cli('diagnostics')
   let totalWorkingSetKB = metrics.processes.reduce((sum: number, process: { memory: { workingSetSize: number } }) => sum + process.memory.workingSetSize, 0)
+  await fs.mkdir(path.join(root, 'artifacts'), { recursive: true })
   await fs.writeFile(path.join(root, 'artifacts/resource-sample.json'), JSON.stringify({ livePanes: metrics.panes, clients: metrics.visibleClients, workingSetMB: Math.round(totalWorkingSetKB / 1024), processes: metrics.processes }, null, 2))
 })
 

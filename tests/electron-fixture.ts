@@ -1,10 +1,13 @@
 import type { ElectronApplication } from '@playwright/test'
+import type { ChildProcess } from 'node:child_process'
 
 // Dispose only the test-owned process when extension ports or remote streams
 // prevent graceful shutdown. Keep teardown from masking an assertion failure.
-export let closeTestApplication = async (application?: ElectronApplication) => {
+export let closeTestApplication = async (application?: ElectronApplication, process?: ChildProcess) => {
   if (!application) return
-  let child = application.process()
+  // Playwright can dispose its application dispatcher after a disconnection.
+  // Callers exercising crashes can retain the process immediately after launch.
+  let child = process ?? application.process()
   let exited = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise<void>(resolve => child.once('exit', () => resolve()))
   let timer: ReturnType<typeof setTimeout> | undefined
   try {

@@ -4,7 +4,8 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { spawnSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { stringify } from 'yaml'
 
 test('default anti-bot protection blocks warnings across CLI and plugins, with a persistent profile toggle', async () => {
@@ -30,23 +31,29 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     let chrome = await launch()
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state()), pane = state.model.sessions[0].windows[0].panes[0]
-    let cli = (args: string[]) => JSON.parse(spawnSync(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, encoding: 'utf8' }).stdout)
+    let cli = async (args: string[]) => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+        if (error.stdout) return { stdout: error.stdout }
+        throw error
+      })
+      return JSON.parse(result.stdout)
+    }
     let navigate = async (url: string) => {
       await chrome.getByRole('button', { name: 'Address', exact: true }).click()
       let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
       await address.fill(url); await address.press('Enter')
       await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
     }
-    expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1","returnByValue":true}']).ok).toBe(true)
-    expect(cli(['automation', 'safety']).result.profiles[0].profileId).toBe(pane.profileId)
+    expect((await cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1","returnByValue":true}'])).ok).toBe(true)
+    expect((await cli(['automation', 'safety'])).result.profiles[0].profileId).toBe(pane.profileId)
     // Navigation returns before load completes; the next input must inspect the
     // loaded document and catch its warning before dispatching the click.
-    expect(cli(['navigate', '-t', pane.id, `${base}/warning`]).ok).toBe(true)
-    expect(cli(['click', '-t', pane.id, '--selector', '#continue'])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
-    expect(cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1"}']).ok).toBe(false)
-    expect(cli(['reload', '-t', pane.id])).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
-    expect(cli(['automation', 'resume', '-t', pane.id]).ok).toBe(false)
-    expect(cli(['profile', 'anti-bot.set', '--profile', pane.profileId, '--enabled', 'false']).ok).toBe(false)
+    expect((await cli(['navigate', '-t', pane.id, `${base}/warning`])).ok).toBe(true)
+    expect((await cli(['click', '-t', pane.id, '--selector', '#continue']))).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
+    expect((await cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1"}'])).ok).toBe(false)
+    expect((await cli(['reload', '-t', pane.id]))).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
+    expect((await cli(['automation', 'resume', '-t', pane.id])).ok).toBe(false)
+    expect((await cli(['profile', 'anti-bot.set', '--profile', pane.profileId, '--enabled', 'false'])).ok).toBe(false)
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     let panel = chrome.getByRole('dialog', { name: 'Profile' })
     await panel.getByRole('tab', { name: 'Anti-bot', exact: true }).click()
@@ -57,10 +64,10 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect(antiBot).toContainText('20 minutes')
     await chrome.screenshot({ path: path.resolve('artifacts/anti-bot-profile.png') })
     await toggle.uncheck()
-    await expect.poll(() => cli(['dom', '-t', pane.id]).ok).toBe(true)
-    expect(cli(['automation', 'safety']).result.limits.profiles[pane.profileId]).toBe(false)
+    await expect.poll(async () => (await cli(['dom', '-t', pane.id])).ok).toBe(true)
+    expect((await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
     await toggle.check()
-    await expect.poll(() => cli(['dom', '-t', pane.id]).ok).toBe(false)
+    await expect.poll(async () => (await cli(['dom', '-t', pane.id])).ok).toBe(false)
     await panel.getByRole('button', { name: 'Close', exact: true }).click()
     await navigate(`${base}/safe`)
     let run = await command('plugin.run', { action: 'test/browse', pane: pane.id })
@@ -69,12 +76,12 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     await panel.getByRole('tab', { name: 'Anti-bot', exact: true }).click()
     await antiBot.getByRole('button', { name: 'Resume automation' }).click()
-    await expect.poll(() => cli(['dom', '-t', pane.id]).ok).toBe(true)
+    await expect.poll(async () => (await cli(['dom', '-t', pane.id])).ok).toBe(true)
     await toggle.uncheck()
-    await expect.poll(() => cli(['automation', 'safety']).result.limits.profiles[pane.profileId]).toBe(false)
+    await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
     await closeTestApplication(application); application = undefined
     chrome = await launch()
-    expect(cli(['automation', 'safety']).result.limits.profiles[pane.profileId]).toBe(false)
+    expect((await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('tab', { name: 'Anti-bot', exact: true }).click()
     await expect(chrome.getByRole('switch', { name: 'Enable anti-bot protection' })).not.toBeChecked()

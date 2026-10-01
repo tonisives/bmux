@@ -110,3 +110,11 @@ The warning test also checks that reload cannot bypass a latched warning.
 Bound fixture CLI calls and diagnostic capture, and label steps that can wait on
 renderer IPC. A dead renderer must produce a useful failure instead of consuming
 the whole workflow deadline or hiding the original assertion during teardown.
+
+Use asynchronous CLI calls when fixture HTTP servers run in the test worker.
+Synchronous child processes block that server while commands wait for its page,
+turning a valid navigation check into a deadlock. Create each test's artifact
+directory independently. When multiple devices are enrolled, revoke the intended
+viewer by its fingerprint; database row order does not identify it. Retain the
+Electron child process at launch for fixtures that exercise disconnections, so
+cleanup can still wait for or kill it after Playwright disposes its dispatcher.
