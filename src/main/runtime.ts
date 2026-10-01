@@ -240,6 +240,7 @@ export let createRuntime = (dataDirectory: string) => {
   let lastFocusedClientId: string | null = null
   let preferredClient = () => model.clients.find(client => client.id === (focusedClientId ?? lastFocusedClientId)) ?? model.clients[0]
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
+  let permissionFocusTarget: { clientId: string; paneId: string } | undefined
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
@@ -1446,6 +1447,14 @@ export let createRuntime = (dataDirectory: string) => {
         }
       }
     }
+    if (permissionFocusTarget) {
+      // A split pane's bounds arrive after the permission UI selects its window.
+      if (!client || client.id !== permissionFocusTarget.clientId || client.paneId !== permissionFocusTarget.paneId || !clients.get(client.id)?.window.isFocused()) permissionFocusTarget = undefined
+      else if (owner) {
+        let page = tabs.get(permissionFocusTarget.paneId)
+        if (page?.parent === owner.window) { permissionFocusTarget = undefined; page.contents.focus() }
+      }
+    }
     publish()
   }
   let scheduleVisuals = () => {
@@ -1503,7 +1512,7 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('hide', () => { void scheduleVisuals() })
     window.on('minimize', () => { void scheduleVisuals() })
     window.on('restore', () => { void scheduleVisuals() })
-    window.on('blur', () => { clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
+    window.on('blur', () => { clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; permissionFocusTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
@@ -1817,6 +1826,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
+      if (permissionFocusTarget?.clientId === sourceClientId) permissionFocusTarget = undefined
       let owner = clients.get(sourceClientId)
       let chrome = typeof args.pane === 'string' ? owner?.floats.get(args.pane) ?? owner?.chrome : owner?.chrome
       if (sourceClientId === focusedClientId && owner?.window.isFocused()) chrome?.webContents.focus()
@@ -2386,6 +2396,20 @@ export let createRuntime = (dataDirectory: string) => {
       if (!Array.isArray(args.ids)) throw new Error('Permission IDs required')
       for (let requestId of args.ids) if (typeof requestId === 'string' && permissions.has(requestId)) owner.dismissedPermissions.add(requestId)
       publish(); return null
+    }
+    if (method === 'permission.visit') {
+      if (!sourceClientId) throw new Error('Trusted permission UI required')
+      let request = permissions.get(required(args, 'id'))
+      if (!request) throw new Error('Permission request no longer exists')
+      checkControl(method, { pane: request.paneId })
+      let { session, window, pane } = paneById(model, request.paneId)
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      client.sessionId = session.id; client.windowId = window.id; client.paneId = pane.id; client.zoomedPaneId = null
+      raisePane(window, pane.id)
+      if (pointerTarget?.clientId === client.id) pointerTarget = undefined
+      if (client.id === focusedClientId) permissionFocusTarget = { clientId: client.id, paneId: pane.id }
+      changed(); await visualQueue
+      return { sessionId: session.id, windowId: window.id, paneId: pane.id }
     }
     if (method === 'permission.list') return state().permissions
     if (method === 'permission.respond') {

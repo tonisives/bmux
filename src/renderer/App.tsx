@@ -1,5 +1,6 @@
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
+import { permissionPaneLabel } from '../shared/permission-source'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -1700,10 +1701,12 @@ let HistoryRow = ({ entry }: { entry: HistoryEntry }) => {
   return <div className={css.historyEntry}><button className={`${css.listRow} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button><button type="button" data-picker-action className={css.historyRemove} aria-label={`Remove ${entry.title || entry.url} from history`} title="Remove from history" onClick={remove}>×</button></div>
 }
 let PermissionRow = ({ permission }: { permission: Permission }) => {
-  let { run } = useUI()
+  let { state, run, dismiss } = useUI()
+  let paneLabel = permissionPaneLabel(state.model, permission.paneId)
+  let visit = async () => { if (await run('permission.visit', { id: permission.id, pane: permission.paneId }) !== undefined) dismiss() }
   let deny = () => { void run('permission.respond', { id: permission.id, allow: false }) }
   let allow = () => { void run('permission.respond', { id: permission.id, allow: true }) }
-  return <div className={css.row}>{permission.origin}: {permission.permission}<div><button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
+  return <div className={css.row}>{permission.origin}: {permission.permission}<div><button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button><button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
 }
 let downloadSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 let DownloadManager = () => {
