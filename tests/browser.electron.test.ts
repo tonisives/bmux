@@ -2265,17 +2265,32 @@ test('status title tooltips are visible above native pages at the top and bottom
     let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#tab-tooltip'))! as Electron.WebContentsView
     return { visible: view.getVisible(), topmost: window.contentView.children.at(-1) === view, text: await view.webContents.executeJavaScript('document.querySelector("[role=tooltip]")?.textContent'), bounds: view.getBounds() }
   }, nativeId)
+  let waitForPageBounds = async (width: number) => {
+    await expect.poll(async () => {
+      if (await chrome.evaluate(() => innerWidth) !== width) return false
+      let bounds = await chrome.locator('[data-browser-content]').boundingBox()
+      let native = await application.evaluate(({ BaseWindow }, { nativeId, url }) => BaseWindow.fromId(nativeId)!.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)?.getBounds(), { nativeId, url: `${url}/` })
+      return !!bounds && !!native && (['x', 'y', 'width', 'height'] as const).every(key => Math.abs(bounds[key] - native[key]) <= 1)
+    }).toBe(true)
+  }
   try {
     await cli('navigate', { pane, url })
     await cli('wait', { pane, selector: '#text' })
     await cli('eval', { pane, expression: `document.title = ${JSON.stringify(title)}` })
-    for (let index = 0; index < 5; index++) await cli('new-window', { session: session.id, client: client.id, name: `Another descriptive tab ${index}`, url })
+    for (let index = 0; index < 5; index++) {
+      let window = await cli('new-window', { session: session.id, client: client.id, name: `Another descriptive tab ${index}`, url })
+      await cli('wait', { pane: window.panes[0].id, selector: '#text' })
+    }
     await cli('activate-client', { client: client.id })
     await application.evaluate(({ BaseWindow }, nativeId) => BaseWindow.fromId(nativeId)!.setBounds({ x: 90, y: 90, width: 640, height: 700 }), nativeId)
     let tab = chrome.locator(`[data-window-id="${session.windows[0].id}"] button[data-active]`)
     for (let position of ['top', 'bottom']) {
       await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nshowTabCloseButtons: true\nkeyboard: {}\n`)
       await expect(chrome.locator('[data-status-bar]')).toHaveAttribute('data-status-bar', position)
+      await waitForPageBounds(640)
+      // A retained pointer position is not a new mouseenter after layout changes.
+      await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
+      await expect.poll(async () => (await tooltipState()).visible).toBe(false)
       await tab.hover()
       await expect.poll(async () => {
         let state = await tooltipState()
@@ -2299,7 +2314,9 @@ test('status title tooltips are visible above native pages at the top and bottom
     let lastTab = chrome.locator(`[data-window-id="${last.id}"] button[data-active]`)
     for (let windowWidth of [1100, 640]) {
       await application.evaluate(({ BaseWindow }, { nativeId, width }) => BaseWindow.fromId(nativeId)!.setBounds({ x: 90, y: 90, width, height: 700 }), { nativeId, width: windowWidth })
+      await waitForPageBounds(windowWidth)
       await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
+      await expect.poll(async () => (await tooltipState()).visible).toBe(false)
       await lastTab.hover()
       await expect.poll(async () => {
         let state = await tooltipState()
