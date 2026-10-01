@@ -69,12 +69,58 @@ bmux kill-pane -t <pane-id>
 bmux kill-window -t <window-id>
 ```
 
-Panes are persistent by default. Automation policies may require a lease before
-agent commands can access selected websites.
+Panes are persistent by default. Global anti-bot protection is enabled for every
+profile, including existing profiles. Additional automation policies may require
+a lease before agent commands can access selected websites.
+
+## Anti-bot protection
+
+Open the profile view's **Anti-bot** tab to check protection, limits, and pauses,
+or disable it for that profile. Changes are saved and take effect immediately.
+The CLI and plugin browser API share the guard; site-specific plugins are not
+needed for these defaults:
+
+- At most 10 minutes per automation session, followed by a 20-minute break.
+- At least 2 seconds between actions on social sites, shared across a profile's
+  panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
+  TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
+  Mouse and key releases are immediate to avoid holding inputs down.
+- Known account warnings, visible verification challenges, and rate-limit pages
+  stop further automation. Detection runs before each browser operation.
+
+Human browser controls remain available. Session usage and warning pauses survive
+restarts. A pause applies to the profile across websites. Resolve the warning on
+the affected website manually, then use **Resume automation** in the Anti-bot
+tab, or `automation resume` in bmux's command prompt. The CLI cannot resume a
+warning pause or change the profile toggle. Resuming does not clear session usage
+or bypass a cooldown.
+
+```sh
+bmux automation safety
+```
+
+Optional config overrides preserve existing automation groups:
+
+```yaml
+automation:
+  safety:
+    enabled: true
+    maxSessionMinutes: 10
+    cooldownMinutes: 20
+    socialDelayMs: 2000
+    profiles:
+      profile_default: false
+```
+
+These are conservative local limits, not platform-approved quotas. Warning
+detection is best effort and currently recognizes common English warning text
+and challenge URLs. It does not solve challenges or guarantee that an account
+will avoid restrictions. Trusted page scripts and external programs are not
+sandboxed by this guard; it bounds subsequent bmux browser commands.
 
 ## Automation policies
 
-Policies are optional and apply to the profile IDs and website hosts listed in
+Additional policies are optional and apply to the profile IDs and website hosts listed in
 `automation.groups` in `config.yaml`. A group may contain several websites; they
 share its concurrency and rolling hourly and daily budgets. Human commands from
 the bmux window are exempt. Automation through the CLI and plugins needs an

@@ -180,6 +180,13 @@ the user has set a positive `likesPerDay` cap. These calls work only when an
 automation group covers the profile and site. If `requiredPlugins` names a
 plugin for the site, only that plugin ID may acquire its lease.
 
+All plugin browser operations also use the default global [anti-bot guard](agent.md#anti-bot-protection),
+including direct evaluation and raw CDP. It spaces social-site commands, bounds
+automation sessions, and pauses a profile on known account warnings or challenges.
+A safety failure terminates the plugin invocation and reports the pause reason.
+The profile view's Anti-bot tab controls the guard for that profile. Configured
+group leases and budgets remain separate and continue to apply when it is disabled.
+
 `browser.manage` allows `profile.list`, `list-sessions/windows/panes`,
 `new-window`, `split-window`, `select-pane/window`,
 and `activate-client`, with the normal CLI RPC argument names and explicit IDs.
