@@ -436,12 +436,12 @@ test('automatic window names follow the selected pane and stop after an explicit
 
 test('session pane moves create windows, remove empty sources, and break panes into windows', async () => {
   let source = await cli('new-session', { name: 'move-source' })
-  let target = await cli('new-session', { name: 'move-target' })
+  let target = await cli('new-session', { name: 'bmux-marketing' })
   let sourceWindow = source.windows[0], movedPane = sourceWindow.panes[0]
   let targetWindow = target.windows[0]
   let client = await cli('attach-session', { session: source.id })
 
-  await cli('command-line', { client: client.id, line: 'movep -t move-target' })
+  await cli('command-line', { client: client.id, line: 'movep -t bmux-marketing:' })
   await expect.poll(async () => (await cli('list-sessions')).some((session: { id: string }) => session.id === source.id)).toBe(false)
   let targetWindows = await cli('list-windows', { session: target.id })
   expect(targetWindows).toHaveLength(2)

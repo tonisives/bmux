@@ -18,6 +18,7 @@ import { SearchInput } from './SearchInput'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
+import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { inlineUrlCompletion, prioritizeInlineHistory } from '../shared/address-suggestions'
@@ -389,8 +390,9 @@ let CommandPrompt = () => {
   let historyIndex = useRef(commandHistory.length), draft = useRef('')
   let entries = commandEntries(state.keyboard ?? DEFAULT_KEYBOARD, state.plugins)
   let literal = literalCommand(text), argumentsStarted = literal && /\S\s/.test(text.trimStart())
-  let query = argumentsStarted ? text.trim().split(/\s+/)[0] : text
-  let results = searchCommands(entries, query, commandHistory).slice(0, 80)
+  let targets = commandTargetSuggestions(text, state)
+  let query = targets?.query ?? (argumentsStarted ? text.trim().split(/\s+/)[0] : text)
+  let results = (targets?.entries ?? searchCommands(entries, query, commandHistory)).slice(0, 80)
   let active = results[Math.min(index, Math.max(0, results.length - 1))]
   useEffect(() => { input.current?.focus(); mounted.current = true; return () => { mounted.current = false; rememberCommand(currentText.current) } }, [])
   useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [index, text])
@@ -453,8 +455,8 @@ let CommandPrompt = () => {
   }
   return <><form className={css.prompt} onSubmit={submit}><label htmlFor="command">:</label><input id="command" ref={input} aria-label="Command" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={active ? `command-result-${results.indexOf(active)}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'running…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     <section className={css.commandFinder} aria-label="Command finder"><div className={css.finderHint}>Type to find · ↑/↓ or Ctrl+P/N select · Tab complete · Enter {argumentsStarted && !selected ? 'run typed command' : 'open / run'} · Ctrl+R history</div>
-      <div ref={list} id="command-results" role="listbox" aria-label="Commands" className={css.commandResults}>{results.map((entry, position) => <CommandOption key={entry.command} entry={entry} position={position} active={entry === active} query={query} busy={busy} choose={choose} />)}</div>
-      {!results.length && <p className={css.finderHint}>No matching commands. Enter runs the text you typed.</p>}
+      <div ref={list} id="command-results" role="listbox" aria-label={targets ? 'Targets' : 'Commands'} className={css.commandResults}>{results.map((entry, position) => <CommandOption key={entry.command} entry={entry} position={position} active={entry === active} query={query} busy={busy} choose={choose} />)}</div>
+      {!results.length && <p className={css.finderHint}>No matching {targets ? 'targets' : 'commands'}. Enter runs the text you typed.</p>}
     </section></>
 }
 

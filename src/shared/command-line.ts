@@ -1,28 +1,42 @@
 import { normalizeKeyAction } from './keyboard'
 import type { Command, PublicState } from './types'
 
-export let tokenize = (line: string): string[] => {
-  let words: string[] = [], word = '', quote = '', escaped = false, started = false
-  for (let char of line.trim().replace(/^:/, '')) {
+export let commandTokens = (line: string, partial = false): { value: string; start: number; end: number }[] => {
+  let words: { value: string; start: number; end: number }[] = [], word = '', quote = '', escaped = false, start = -1
+  let offset = line.search(/\S/)
+  if (offset < 0) return words
+  if (line[offset] === ':') offset++
+  for (let index = offset; index < line.length; index++) {
+    let char = line[index]
     if (escaped) { word += char; escaped = false; continue }
-    if (char === '\\' && quote !== "'") { escaped = true; started = true; continue }
+    if (/\s/.test(char) && !quote) { if (start >= 0) words.push({ value: word, start, end: index }); word = ''; start = -1; continue }
+    if (start < 0) start = index
+    if (char === '\\' && quote !== "'") { escaped = true; continue }
     if (quote) { if (char === quote) quote = ''; else word += char; continue }
-    if (char === '"' || char === "'") { quote = char; started = true; continue }
-    if (/\s/.test(char)) { if (started) words.push(word); word = ''; started = false; continue }
-    word += char; started = true
+    if (char === '"' || char === "'") { quote = char; continue }
+    word += char
   }
-  if (quote || escaped) throw new Error('Unfinished quote or escape')
-  if (started) words.push(word)
+  if (!partial && (quote || escaped)) throw new Error('Unfinished quote or escape')
+  if (start >= 0) words.push({ value: word, start, end: line.length })
   return words
 }
+
+export let tokenize = (line: string): string[] => commandTokens(line).map(word => word.value)
 
 export let COMMAND_ALIASES: Record<string, string> = {
   attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapw: 'swap-window',
 }
 
-let indexed = <T extends { id: string; name?: string }>(items: T[], value: string) => {
-  let exact = items.find(item => item.id === value || item.name === value)
-  return exact ?? (/^[1-9]\d*$/.test(value) ? items[Number(value) - 1] : undefined)
+let indexed = <T extends { id: string; name?: string }>(items: T[], value: string, kind: string) => {
+  let id = items.find(item => item.id === value)
+  if (id) return id
+  let exact = items.filter(item => item.name === value)
+  if (exact.length > 1) throw new Error(`${kind} '${value}' is ambiguous; use an ID or index`)
+  if (exact.length) return exact[0]
+  if (/^[1-9]\d*$/.test(value)) return items[Number(value) - 1]
+  let matches = value ? items.filter(item => item.name?.startsWith(value)) : []
+  if (matches.length > 1) throw new Error(`${kind} '${value}' is ambiguous; use its full name or ID`)
+  return matches[0]
 }
 
 let moveDestination = (state: PublicState, currentSessionId: string, target: unknown, newWindowForSession = false) => {
@@ -33,26 +47,31 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
   let currentSession = sessions.find(session => session.id === currentSessionId)!
   if (value.startsWith(':')) {
     let selector = value.slice(1).replace(/^\{(.+)\}$/, '$1')
-    let session = indexed(sessions, selector)
+    let session = indexed(sessions, selector, 'Session')
     if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
-    let window = indexed(currentSession.windows, selector)
+    let window = indexed(currentSession.windows, selector, 'Window')
     if (window) return { window: window.id }
+    throw new Error(`Session or window '${selector}' not found`)
   }
   if (value.endsWith(':')) {
-    let session = indexed(sessions, value.slice(0, -1))
+    let session = indexed(sessions, value.slice(0, -1), 'Session')
     if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
+    throw new Error(`Session '${value.slice(0, -1)}' not found`)
   }
   if (value.includes(':')) {
     let [sessionSelector, windowSelector] = value.split(':', 2)
-    let session = indexed(sessions, sessionSelector)
-    let window = session && indexed(session.windows, windowSelector)
+    let session = indexed(sessions, sessionSelector, 'Session')
+    if (!session) throw new Error(`Session '${sessionSelector}' not found`)
+    let window = indexed(session.windows, windowSelector, 'Window')
     if (window) return { window: window.id }
+    throw new Error(`Window '${value}' not found`)
   }
-  let window = indexed(currentSession.windows, value)
+  let window = indexed(currentSession.windows, value, 'Window')
     ?? sessions.flatMap(session => session.windows).find(window => window.id === value)
   if (window) return { window: window.id }
-  let session = indexed(sessions, value)
-  return session ? newWindowForSession ? { session: session.id } : { window: session.windows[0].id } : { destination: value }
+  let session = indexed(sessions, value, 'Session')
+  if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
+  throw new Error(`Pane, window, or session '${value}' not found`)
 }
 
 export let parseCommandLine = (line: string, state: PublicState): Command => {
@@ -60,7 +79,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let name = words.shift()
   if (!name) throw new Error('Enter a command')
   name = normalizeKeyAction(name)
-  let tmuxPaneMove = name === 'movep' || name === 'joinp'
+  let tmuxPaneMove = name === 'movep' || name === 'joinp' || (['move-pane', 'join-pane'].includes(name) && !words.some(word => /^--(pane|window|destination|x|y)(=|$)/.test(word)))
   name = COMMAND_ALIASES[name] ?? name
   let client = state.model.clients.find(client => client.id === state.clientId)
   if (!client) throw new Error('Client is detached')

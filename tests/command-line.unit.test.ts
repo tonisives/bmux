@@ -73,14 +73,34 @@ it('parses tmux pane command aliases and session targets', () => {
   let destination = newSession('work', current.model.sessions[0].defaultProfileId)
   current.model.sessions.push(destination)
   expect(parseCommandLine('movep -t work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
+  expect(parseCommandLine('movep -t work:', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
   expect(parseCommandLine('movep -t :work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
   expect(parseCommandLine('movep -s pane_source -t :{work}', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: 'pane_source', session: destination.id } })
   expect(parseCommandLine(`movep -t ${destination.name}:${destination.windows[0].name}`, current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, window: destination.windows[0].id } })
   expect(parseCommandLine('joinp -s pane_source -t work -v', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', window: destination.windows[0].id, axis: 'vertical' } })
-  expect(parseCommandLine('joinp -s pane_source -t pane_destination -v', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', destination: 'pane_destination', axis: 'vertical' } })
+  expect(parseCommandLine(`joinp -s pane_source -t ${destination.windows[0].panes[0].id} -v`, current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', destination: destination.windows[0].panes[0].id, axis: 'vertical' } })
   expect(parseCommandLine('splitw -h', current)).toMatchObject({ method: 'split-window', args: { pane: source.id, axis: 'horizontal' } })
   expect(parseCommandLine('selectw -t 1', current)).toMatchObject({ method: 'select-window', args: { window: current.model.sessions[0].windows[0].id } })
   expect(parseCommandLine('next', current)).toEqual({ method: 'cycle-window', args: { client: 'client', direction: 1 } })
+})
+
+it('resolves explicit session targets and unique prefixes without treating missing sessions as panes', () => {
+  let current = state(), source = current.model.clients[0].paneId
+  let destination = newSession('bmux-marketing', current.model.sessions[0].defaultProfileId)
+  current.model.sessions.push(destination)
+  for (let command of ['movep', 'move-pane']) {
+    for (let target of ['bmux-marketing:', 'bmux-mar:', `${destination.id}:`, '2:']) {
+      expect(parseCommandLine(`${command} -t ${target}`, current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source, session: destination.id } })
+    }
+  }
+  destination.windows[0].name = 'research'
+  expect(parseCommandLine('movep -t bmux-mar:res', current)).toMatchObject({ args: { window: destination.windows[0].id } })
+  expect(() => parseCommandLine('movep -t missing:', current)).toThrow("Session 'missing' not found")
+  expect(() => parseCommandLine('movep -t bmux-marketing:missing', current)).toThrow("Window 'bmux-marketing:missing' not found")
+  expect(() => parseCommandLine('movep -t missing', current)).toThrow("Pane, window, or session 'missing' not found")
+  current.model.sessions.push(newSession('bmux-marketplace', destination.defaultProfileId))
+  expect(() => parseCommandLine('movep -t bmux-mar:', current)).toThrow("Session 'bmux-mar' is ambiguous")
+  expect(parseCommandLine('movep -t bmux-marketing:', current)).toMatchObject({ args: { session: destination.id } })
 })
 
 it('parses Bitwarden fill, lock, and tab-scoped cancellation', () => {

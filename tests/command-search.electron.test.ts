@@ -195,6 +195,50 @@ test('enabled plugin actions appear in fuzzy command results and execute', async
   await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.pluginId === 'fixture')?.status).toBe('completed')
 })
 
+test('pane move command popup completes sessions and windows before moving the pane', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let originalWindowId = client.windowId
+  let source = await rpc('new-window', { session: client.sessionId, url })
+  let target = await rpc('new-session', { name: 'bmux-marketing' })
+  try {
+    await rpc('select-window', { client: client.id, window: source.id })
+    await expect(chrome.locator(`[data-pane-id="${source.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await open(); await prompt().fill('movep -t bmux-mar')
+    let targets = chrome.getByRole('listbox', { name: 'Targets', exact: true })
+    await expect(targets).toBeVisible()
+    let session = targets.getByRole('option').filter({ hasText: 'New window in session' })
+    await expect(session).toHaveCount(1); await expect(session).toContainText('bmux-marketing:')
+    await expect(targets.getByRole('option').filter({ hasText: 'Join window' })).toHaveCount(1)
+    await chrome.screenshot({ path: path.resolve('artifacts/pane-move-targets.png') })
+    await session.click()
+    await expect(prompt()).toHaveValue('movep -t bmux-marketing:')
+    expect((await state()).model.sessions.find((item: { id: string }) => item.id === target.id).windows).toHaveLength(1)
+    await prompt().press('Enter'); await expect(prompt()).toHaveCount(0)
+    await expect.poll(async () => (await state()).model.clients.find((item: { id: string }) => item.id === client.id).sessionId).toBe(target.id)
+    let moved = (await state()).model.sessions.find((item: { id: string }) => item.id === target.id)
+    expect(moved.windows).toHaveLength(2)
+    expect(moved.windows[0].panes).toHaveLength(1)
+    expect(moved.windows[1].panes[0]).toMatchObject({ id: source.panes[0].id, profileId: source.panes[0].profileId })
+    await expect.poll(nativeVisible).toBe(true)
+
+    await open(); await prompt().fill('movep -t bmux-marketing:1')
+    await expect(targets.getByRole('option')).toHaveCount(1)
+    await prompt().press('Control+n'); await prompt().press('Enter')
+    await expect(prompt()).toHaveValue('movep -t bmux-marketing:1')
+    expect((await state()).model.sessions.find((item: { id: string }) => item.id === target.id).windows).toHaveLength(2)
+    await prompt().press('Tab'); await prompt().press('Enter'); await expect(prompt()).toHaveCount(0)
+    let joined = (await state()).model.sessions.find((item: { id: string }) => item.id === target.id)
+    expect(joined.windows).toHaveLength(1)
+    expect(joined.windows[0].panes.map((pane: { id: string }) => pane.id)).toContain(source.panes[0].id)
+    await expect.poll(nativeVisible).toBe(true)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('select-window', { client: client.id, window: originalWindowId })
+    await rpc('kill-session', { session: target.id, confirm: true })
+    if ((await state()).model.sessions.some((session: any) => session.windows.some((window: any) => window.id === source.id))) await rpc('kill-window', { window: source.id, confirm: true })
+  }
+})
+
 test('close-pane shortcut immediately removes the selected pane', async () => {
   let current = await state(), window = current.model.sessions[0].windows[0], original = window.panes[0]
   let pane = await rpc('split-window', { pane: original.id, client: current.clientId })
