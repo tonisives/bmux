@@ -49,10 +49,16 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let selected = pane ?? runtime.model.sessions[0]?.windows[0]?.panes[0]?.id
     if (!selected) { opening.delete(id); throw new Error('No pane available') }
     let peer: Stream | undefined
+    let offer: RTCSessionDescriptionInit | undefined
     let incoming = Promise.resolve()
     try { peer = await runtime.remote.capture(selected, {
       iceServers,
-      signal: sdp => { if (opening.get(id) === attempt || streams.get(id)?.peer === peer) signal(id, { type: 'offer', sdp }) },
+      signal: sdp => {
+        // Capture can produce an offer before its promise returns the stream.
+        // Publish only after answer routing can find that stream.
+        if (opening.get(id) === attempt) offer = sdp
+        else if (streams.get(id)?.peer === peer) signal(id, { type: 'offer', sdp })
+      },
       data: raw => {
         incoming = incoming.then(async () => {
           if (streams.get(id)?.peer !== peer) return
@@ -89,6 +95,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     if (opening.get(id) !== attempt || !allowed(id) || stopped || socket?.readyState !== WebSocket.OPEN) { peer.close(); return }
     opening.delete(id)
     streams.set(id, { peer, pane: selected })
+    if (offer) signal(id, { type: 'offer', sdp: offer })
   }
   let connect = () => {
     if (stopped) return
