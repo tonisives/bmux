@@ -19,7 +19,7 @@ let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let prompt = () => chrome.getByRole('combobox', { name: 'Command', exact: true })
 let open = async () => { await activate(); await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click(); await expect(prompt()).toBeFocused() }
-let openProfilePanel = async (profile: string) => {
+let openProfilePanel = async (profile: string) => test.step(`Open ${profile} profile details`, async () => {
   await activate()
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   // A command can finish before React accepts the restored window/pane selection.
@@ -32,19 +32,23 @@ let openProfilePanel = async (profile: string) => {
       await expect(panel).toHaveCount(0)
     }
     let pane = chrome.locator(`[data-pane-id="${client.paneId}"]`)
+    // A blank pane can finish initializing between locating and clicking the
+    // button. Match either label and follow the UI that the click actually opens.
     let button = pane.getByRole('button', { name: `Profile: ${profile}`, exact: true })
-    if (await button.count()) await button.click()
-    else {
-      await pane.getByRole('button', { name: `Choose pane profile: ${profile}`, exact: true }).click()
+      .or(pane.getByRole('button', { name: `Choose pane profile: ${profile}`, exact: true }))
+    await button.click()
+    let picker = pane.getByRole('combobox', { name: 'Pane profile', exact: true })
+    await expect(details.or(picker).first()).toBeVisible()
+    if (!await details.isVisible()) {
       // The picker autofocuses its select after mounting. Let that focus change
       // finish before sending the next mouse gesture to a different control.
-      await expect(pane.getByRole('combobox', { name: 'Pane profile', exact: true })).toBeFocused()
+      await expect(picker).toBeFocused()
       await pane.getByRole('button', { name: 'Profile settings', exact: true }).click()
     }
   }
   await expect(details).toBeVisible()
   return panel
-}
+})
 let nativeVisible = () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as any).webContents.getURL() === url && view.getBounds().height > 300)), url)
 let closeShortcut = async (key: string) => {
   await activate()
