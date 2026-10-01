@@ -85,3 +85,9 @@ after ownership errors. These are read-only refreshes; rejected input is not
 retried. Local unit tests cover refresh, hidden views, listener cleanup, and
 ownership errors. The existing Linux GUI case verifies the desktop takeover and
 viewer reacquisition through the actual windows and data channel.
+
+Repetition also exposed an attached viewer assertion running before signaling
+finished: its video element already existed, but its state and controls did not.
+That case now waits for the pane selector within the existing signaling deadline
+and verifies a decoded video frame before checking control availability. Remote
+test failures also retain native focus and input delivery diagnostics.

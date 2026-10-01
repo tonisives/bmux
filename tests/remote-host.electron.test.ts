@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { createHash, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
 import { closeTestApplication } from './electron-fixture'
+import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
@@ -28,6 +29,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
     application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
+    await observeNativeFocus(application)
     let command = async (...args:string[]) => {
       try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory}})).stdout).result }
       catch (error) { throw new Error(JSON.parse((error as { stdout?: string }).stdout ?? '{}').error ?? String(error)) }
@@ -153,7 +155,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await remotePicker.getByRole('button',{name:/main.*remote/}).click()
     await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
     let attached = application.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
+    // The video element mounts before the attached viewer finishes signaling.
+    await expect(attached.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
     await expect(attached.getByLabel('Remote browser')).toBeVisible()
+    await expect.poll(()=>attached.evaluate(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames),{timeout:15000}).toBeGreaterThan(0)
     await expect(attached.getByRole('button',{name:'Take control'})).toBeVisible()
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))
     await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
@@ -170,6 +175,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
     await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
   } finally {
+    if (application) await recordNativeFocus(application,test.info())
     await closeTestApplication(application)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
