@@ -2259,6 +2259,22 @@ test('status title tooltips are visible above native pages at the top and bottom
   let pane = session.windows[0].panes[0].id
   let title = 'A longer website title for compact tabs'
   let expected = title
+  let failed = true
+  await chrome.evaluate(() => {
+    let events: unknown[] = []
+    let record = (event: Event) => {
+      let element = event.target instanceof Element ? event.target : undefined
+      if (!element?.closest('[data-window-list]')) return
+      let list = document.querySelector('[data-window-list]')!
+      events.push({ type: event.type, at: performance.now(), tab: element.closest('[data-window-id]')?.getAttribute('data-window-id'), scroll: list.scrollLeft, active: list.querySelector('[data-selected="true"]')?.getAttribute('data-window-id') })
+      if (events.length > 100) events.shift()
+    }
+    for (let type of ['mouseover', 'mouseout', 'scroll']) document.addEventListener(type, record, true)
+    ;(window as any).tooltipDiagnostics = () => {
+      for (let type of ['mouseover', 'mouseout', 'scroll']) document.removeEventListener(type, record, true)
+      return { events, hovered: document.querySelector('[data-window-id]:hover')?.getAttribute('data-window-id') }
+    }
+  })
   let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
   let tooltipState = () => application.evaluate(async ({ BaseWindow }, nativeId) => {
     let window = BaseWindow.fromId(nativeId)!
@@ -2281,6 +2297,7 @@ test('status title tooltips are visible above native pages at the top and bottom
       let window = await cli('new-window', { session: session.id, client: client.id, name: `Another descriptive tab ${index}`, url })
       await cli('wait', { pane: window.panes[0].id, selector: '#text' })
     }
+    await cli('select-window', { client: client.id, window: session.windows[0].id })
     await cli('activate-client', { client: client.id })
     await application.evaluate(({ BaseWindow }, nativeId) => BaseWindow.fromId(nativeId)!.setBounds({ x: 90, y: 90, width: 640, height: 700 }), nativeId)
     let tab = chrome.locator(`[data-window-id="${session.windows[0].id}"] button[data-active]`)
@@ -2288,6 +2305,7 @@ test('status title tooltips are visible above native pages at the top and bottom
       await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nshowTabCloseButtons: true\nkeyboard: {}\n`)
       await expect(chrome.locator('[data-status-bar]')).toHaveAttribute('data-status-bar', position)
       await waitForPageBounds(640)
+      await expect(tab).toHaveAttribute('aria-pressed', 'true')
       // A retained pointer position is not a new mouseenter after layout changes.
       await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
       await expect.poll(async () => (await tooltipState()).visible).toBe(false)
@@ -2311,7 +2329,10 @@ test('status title tooltips are visible above native pages at the top and bottom
     let last = (await cli('list-windows', { session: session.id })).at(-1)
     let longTitle = 'A long descriptive website title '.repeat(12).trim()
     await cli('rename-window', { window: last.id, name: longTitle })
+    await cli('select-window', { client: client.id, window: last.id })
+    await cli('wait', { pane: last.panes[0].id, selector: '#text' })
     let lastTab = chrome.locator(`[data-window-id="${last.id}"] button[data-active]`)
+    await expect(lastTab).toHaveAttribute('aria-pressed', 'true')
     for (let windowWidth of [1100, 640]) {
       await application.evaluate(({ BaseWindow }, { nativeId, width }) => BaseWindow.fromId(nativeId)!.setBounds({ x: 90, y: 90, width, height: 700 }), { nativeId, width: windowWidth })
       await waitForPageBounds(windowWidth)
@@ -2326,7 +2347,13 @@ test('status title tooltips are visible above native pages at the top and bottom
       expect(state.bounds.x).toBeGreaterThanOrEqual(8)
       expect(state.bounds.x + state.bounds.width).toBeLessThanOrEqual(windowWidth - 8)
     }
+    failed = false
   } finally {
+    let diagnostics = await Promise.race([
+      chrome.evaluate(() => (window as any).tooltipDiagnostics()),
+      new Promise(resolve => { setTimeout(() => resolve({ error: 'Tooltip pointer capture timed out' }), 3000).unref() }),
+    ]).catch(() => ({ error: 'Tooltip renderer unavailable' }))
+    if (failed) await info.attach('tooltip-pointer', { body: JSON.stringify(diagnostics), contentType: 'application/json' })
     await fs.writeFile(path.join(directory, 'config.yaml'), previousConfig)
     await cli('detach-client', { client: client.id })
   }

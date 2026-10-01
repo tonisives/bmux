@@ -202,3 +202,10 @@ entering the tab, and observes tooltip dismissal before the next hover. The
 existing text, native stacking, top/bottom placement, and long-title boundary
 assertions keep their deadlines. Repeated CI includes the preceding constrained
 tab-width case to exercise its retained pointer and window state.
+
+Those repetitions still exposed disappearing or missing tooltips. The hovered
+target was not the selected tab, while the strip's layout effect keeps the
+selected tab in view. The fixture now explicitly selects each target and observes
+its selection before hovering. Failures retain a bounded pointer/scroll timeline
+before detaching the native window, so future failures can distinguish lost hover
+from tooltip rendering or stacking.
