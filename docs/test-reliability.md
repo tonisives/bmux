@@ -210,6 +210,19 @@ its selection before hovering. Failures retain a bounded pointer/scroll timeline
 before detaching the native window, so future failures can distinguish lost hover
 from tooltip rendering or stacking.
 
+## Bookmark page focus
+
+Closing the bookmark picker can request page focus before the selected native
+view has usable layout bounds. The old focus command fell back to the browser
+controls and discarded the request; attaching the page afterward left Vim
+scrolling disabled. Focus requests now retain the selected client and pane until
+attachment, and a new UI focus request, overlay, or selection cancels them.
+
+The bookmark regression checks mouse and Enter opening with native j/k input.
+Its mobile case holds layout IPC while requesting focus, then verifies focus and
+scrolling after attachment. It also requests UI focus before releasing layout to
+check cancellation. The deferred-focus assertion fails on the original code.
+
 ## Split-pane navigation readiness
 
 The full Check on `70bfa2d` then found the ad-blocking case calling `locator` on

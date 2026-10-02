@@ -243,6 +243,7 @@ export let createRuntime = (dataDirectory: string) => {
   let preferredClient = () => model.clients.find(client => client.id === (focusedClientId ?? lastFocusedClientId)) ?? model.clients[0]
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let permissionFocusTarget: { clientId: string; paneId: string } | undefined
+  let pageFocusTarget: { clientId: string; paneId: string } | undefined
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
@@ -1460,6 +1461,15 @@ export let createRuntime = (dataDirectory: string) => {
         if (page?.parent === owner.window) { permissionFocusTarget = undefined; page.contents.focus() }
       }
     }
+    if (pageFocusTarget) {
+      // Closing a picker can precede the new pane's first usable layout bounds.
+      // Complete that explicit focus request when its native view is attached.
+      if (!client || client.id !== pageFocusTarget.clientId || client.paneId !== pageFocusTarget.paneId || !clients.get(client.id)?.window.isFocused()) pageFocusTarget = undefined
+      else if (owner) {
+        let page = tabs.get(pageFocusTarget.paneId)
+        if (page?.parent === owner.window) { pageFocusTarget = undefined; page.contents.focus() }
+      }
+    }
     publish()
   }
   let scheduleVisuals = () => {
@@ -1889,6 +1899,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       if (permissionFocusTarget?.clientId === sourceClientId) permissionFocusTarget = undefined
+      if (pageFocusTarget?.clientId === sourceClientId) pageFocusTarget = undefined
       let owner = clients.get(sourceClientId)
       let chrome = typeof args.pane === 'string' ? owner?.floats.get(args.pane) ?? owner?.chrome : owner?.chrome
       if (sourceClientId === focusedClientId && owner?.window.isFocused()) chrome?.webContents.focus()
@@ -1900,8 +1911,11 @@ export let createRuntime = (dataDirectory: string) => {
       let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.id) : undefined
       if (client.id === focusedClientId) {
         let owner = clients.get(client.id)!
-        if (live?.parent === owner.window) live.contents.focus()
-        else owner.chrome.webContents.focus()
+        if (live?.parent === owner.window) { pageFocusTarget = undefined; live.contents.focus() }
+        else {
+          pageFocusTarget = client.paneId ? { clientId: client.id, paneId: client.paneId } : undefined
+          owner.chrome.webContents.focus()
+        }
       }
       return null
     }
@@ -1932,7 +1946,10 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'client.overlay') {
       let client = resolve(model.clients, args.client, 'Client')
-      if (args.visible) { overlays.add(client.id); clients.get(client.id)?.tabTooltip.setVisible(false) }
+      if (args.visible) {
+        if (pageFocusTarget?.clientId === client.id) pageFocusTarget = undefined
+        overlays.add(client.id); clients.get(client.id)?.tabTooltip.setVisible(false)
+      }
       else overlays.delete(client.id)
       await scheduleVisuals(); return { visible: !!args.visible }
     }

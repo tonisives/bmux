@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { closeTestApplication } from './electron-fixture'
+import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -40,6 +41,21 @@ let openFind = async () => {
   await expect(chrome.getByRole('textbox', { name: 'Find in page', exact: true })).toBeFocused()
 }
 let flattenBookmarks = (bookmarks: any[]): any[] => bookmarks.flatMap(bookmark => [bookmark, ...flattenBookmarks(bookmark.children ?? [])])
+let holdPageLayout = () => application.evaluate(({ ipcMain }) => {
+  let listener = ipcMain.listeners('bounds')[0] as (...args: unknown[]) => void
+  let pending: unknown[] | undefined
+  let hold = (...args: unknown[]) => {
+    if ((args[1] as unknown[]).length) pending = args
+    else listener(...args)
+  }
+  ipcMain.removeListener('bounds', listener); ipcMain.on('bounds', hold)
+  ;(globalThis as any).bmuxTestReleaseLayout = () => {
+    ipcMain.removeListener('bounds', hold); ipcMain.on('bounds', listener)
+    if (pending) listener(...pending)
+    delete (globalThis as any).bmuxTestReleaseLayout
+  }
+})
+let releasePageLayout = () => application.evaluate(() => (globalThis as any).bmuxTestReleaseLayout?.())
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-search-wait-'))
@@ -75,6 +91,7 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } } } }))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_REMOTE_URL: url, BMUX_BACKGROUND: '0' } })
+  await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   expect((await state()).configError).toBeNull()
@@ -97,6 +114,7 @@ test.beforeEach(async () => {
   await rpc('navigate', { pane: original, url: `${url}/fixture` }); await activate()
   await expect(chrome.locator(`[data-pane-id="${original}"]`)).toHaveAttribute('data-focused-pane', 'true')
 })
+test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.afterAll(async () => {
   await closeTestApplication(application)
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
@@ -317,6 +335,71 @@ test('bookmark arrows wrap across visible selectable rows', async () => {
   await expect(rows.first()).toBeFocused()
   await chrome.keyboard.press('ArrowUp')
   await expect(rows.last()).toBeFocused()
+})
+
+for (let mobile of [false, true]) test(`opening bookmarks restores native page focus and Vim scrolling (${mobile ? 'mobile' : 'desktop'})`, async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  try {
+    await fs.writeFile(config, 'keyboard:\n  shortcuts:\n    j: { action: scroll-down, when: pane-not-editing }\n    k: { action: scroll-up, when: pane-not-editing }\nbrowser:\n  autoUpdateFilters: false\n')
+    await rpc('settings.reload')
+    let client = (await state()).clientId
+    let created = await rpc('new-session', { client, profile: pane.profileId }) as { id: string; windows: { panes: { id: string }[] }[] }
+    let source = created.windows[0].panes[0].id
+    if (mobile) await rpc('profile.device.set', { pane: source, profile: pane.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+    await rpc('navigate', { pane: source, url: `${url}/fixture` })
+    for (let keyboard of [false, true]) {
+      await open('bookmarks')
+      let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+      await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('API reference')
+      let bookmark = group.getByRole('button', { name: 'API reference', exact: true })
+      if (keyboard) {
+        await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).press('ArrowDown')
+        await expect(bookmark).toBeFocused()
+        await chrome.keyboard.press('Enter')
+      } else await bookmark.click()
+      await expect(group).toHaveCount(0)
+      let current = await state(), selected = current.model.clients.find((item: { id: string }) => item.id === client)
+      let opened = current.model.sessions.find((item: { id: string }) => item.id === created.id).windows.find((item: { id: string }) => item.id === selected.windowId).panes[0]
+      expect(opened.url).toBe(`${url}/docs`)
+      await expect.poll(() => application.evaluate(({ BaseWindow, webContents }, tab) => {
+        let contents = webContents.getFocusedWebContents(), window = BaseWindow.getFocusedWindow()
+        return contents?.getURL() === tab.url && window?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents === contents && view.getBounds().height > 0)
+      }, opened)).toBe(true)
+      let scroll = async () => (await rpc('eval', { pane: opened.id, expression: 'scrollY' })) as number
+      await rpc('wait', { pane: opened.id, selector: 'h1' })
+      await sendNativeKeys(application, [{ keyCode: 'j' }])
+      await expect.poll(scroll).toBeGreaterThan(0)
+      await sendNativeKeys(application, [{ keyCode: 'k' }])
+      await expect.poll(scroll).toBe(0)
+      if (mobile) {
+        let bounds = await chrome.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => {
+          let rect = element.getBoundingClientRect()
+          return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        }))
+        // Hold new bounds to exercise an explicit focus request before attachment.
+        await holdPageLayout()
+        await chrome.evaluate(() => (window as any).bmux.bounds([]))
+        await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getFocusedWindow()?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url), opened.url)).toBe(false)
+        await rpc('focus-page', { client })
+        expect(await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
+        if (keyboard) await rpc('focus-ui', { client })
+        await releasePageLayout()
+        await chrome.evaluate(bounds => (window as any).bmux.bounds(bounds), bounds)
+        await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getFocusedWindow()?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url), opened.url)).toBe(true)
+        await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(keyboard ? chrome.url() : opened.url)
+        if (!keyboard) {
+          await sendNativeKeys(application, [{ keyCode: 'j' }])
+          await expect.poll(scroll).toBeGreaterThan(0)
+          await sendNativeKeys(application, [{ keyCode: 'k' }])
+          await expect.poll(scroll).toBe(0)
+        }
+      }
+    }
+  } finally {
+    await releasePageLayout()
+    await fs.writeFile(config, previous)
+    await rpc('settings.reload')
+  }
 })
 
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {
