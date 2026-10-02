@@ -309,6 +309,59 @@ test('profile icon has no visible label and opens details for the selected pane'
   await expect(panel).toContainText(`Pane${pane.id}`)
 })
 
+test('profile popup renames default and custom profiles without changing pane identity', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
+  let window = session.windows.find((item: { id: string }) => item.id === client.windowId)!
+  let pane = window.panes.find((item: { id: string }) => item.id === client.paneId)!
+  let profile = current.model.profiles.find((item: { id: string }) => item.id === pane.profileId)!
+  let other = current.model.profiles.find((item: { id: string }) => item.id !== profile.id)!
+  let customPane: { id: string } | undefined
+  try {
+    for (let [index, selected] of [profile, other].entries()) {
+      if (index) customPane = await rpc('split-window', { pane: pane.id, profile: selected.id, client: client.id, url }) as { id: string }
+      let selectedPane = customPane ?? pane
+      let identity = await rpc('eval', { pane: selectedPane.id, expression: 'window.profileRenameIdentity ??= Math.random()' })
+      let panel = await openProfilePanel(selected.name)
+      let rename = panel.getByRole('button', { name: 'Rename', exact: true })
+      let input = panel.getByRole('textbox', { name: 'Profile name', exact: true })
+      await rename.click(); await expect(input).toBeFocused(); await expect(input).toHaveValue(selected.name)
+      await input.fill('discarded'); await input.press('Escape')
+      await expect(panel).toBeVisible(); await expect(input).toHaveCount(0); await expect(rename).toBeFocused()
+      await rename.click(); await input.fill('also discarded'); await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(input).toHaveCount(0)
+      await rename.click(); await input.fill('   '); await expect(panel.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+      await input.press('Enter'); await expect(input).toBeVisible()
+      await input.fill(index ? profile.name : other.name); await input.press('Enter')
+      await expect(chrome.getByText('Profile name already exists', { exact: true })).toBeVisible()
+      await expect(input).toBeEnabled(); await expect(input).toBeVisible()
+      let name = `Renamed ${selected.name}`
+      await input.fill(`  ${name}  `)
+      await chrome.screenshot({ path: path.resolve(`artifacts/profile-rename-editor-${index}.png`) })
+      if (index) await panel.getByRole('button', { name: 'Save', exact: true }).click()
+      else await input.press('Enter')
+      await expect(input).toHaveCount(0)
+      await expect(panel.getByRole('region', { name: `${name} profile details`, exact: true })).toBeVisible()
+      await expect(panel.getByRole('combobox', { name: 'Default profile for new windows' }).getByRole('option', { name, exact: true })).toHaveAttribute('value', selected.id)
+      await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles.find((item: { id: string }) => item.id === selected.id)?.name).toBe(name)
+      await chrome.screenshot({ path: path.resolve(`artifacts/profile-renamed-${index}.png`) })
+      await panel.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(chrome.locator(`[data-pane-id="${selectedPane.id}"]`).getByRole('button', { name: `Profile: ${name}`, exact: true })).toBeVisible()
+      expect(await rpc('eval', { pane: selectedPane.id, expression: 'window.profileRenameIdentity' })).toBe(identity)
+      await expect.poll(async () => (await rpc('list-panes', { window: window.id }) as { id: string; profileId: string }[]).find(item => item.id === selectedPane.id)?.profileId).toBe(selected.id)
+      panel = await openProfilePanel(name)
+      await rename.click(); await expect(input).toHaveValue(name)
+      await input.press('Escape'); await panel.getByRole('button', { name: 'Close', exact: true }).click()
+      await rpc('profile.rename', { profile: selected.id, name: selected.name })
+    }
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('profile.rename', { profile: profile.id, name: profile.name })
+    await rpc('profile.rename', { profile: other.id, name: other.name })
+    if (customPane) await rpc('kill-pane', { pane: customPane.id, confirm: true })
+  }
+})
+
 test('pane address shows profile controls for both default and custom profiles', async () => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!

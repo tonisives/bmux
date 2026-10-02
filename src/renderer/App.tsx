@@ -1609,6 +1609,38 @@ let ProfileAntiBotSettings = () => {
   </div>
 }
 
+let ProfileNameEditor = () => {
+  let { state, run, onMessage } = useUI()
+  let { profile } = selection(state)
+  let [editing, setEditing] = useState(false), [name, setName] = useState(''), [saving, setSaving] = useState(false)
+  let input = useRef<HTMLInputElement>(null), button = useRef<HTMLButtonElement>(null), wasEditing = useRef(false)
+  useEffect(() => {
+    if (editing) { input.current?.focus(); input.current?.select() }
+    else if (wasEditing.current) button.current?.focus()
+    wasEditing.current = editing
+  }, [editing])
+  if (!profile) return null
+  let edit = () => { setName(profile.name); onMessage(''); setEditing(true) }
+  let cancel = () => { if (!saving) { onMessage(''); setEditing(false) } }
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let escape = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault(); event.stopPropagation(); cancel()
+  }
+  let save = async (event: FormEvent) => {
+    event.preventDefault()
+    if (saving || !name.trim()) return
+    onMessage(''); setSaving(true)
+    try { if (await run('profile.rename', { profile: profile.id, name: name.trim() })) setEditing(false) }
+    finally { setSaving(false) }
+  }
+  if (!editing) return <><strong>{profile.name}</strong><button ref={button} type="button" className={css.profileRename} onClick={edit}>Rename</button></>
+  return <form className={css.profileNameEditor} onSubmit={save} onKeyDown={escape}>
+    <input ref={input} className={css.pluginInput} aria-label="Profile name" value={name} onChange={changeName} disabled={saving} required />
+    <button type="submit" disabled={saving || !name.trim()}>Save</button><button type="button" onClick={cancel} disabled={saving}>Cancel</button>
+  </form>
+}
+
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
@@ -1629,7 +1661,7 @@ let ProfileInfo = () => {
   }
   let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
-    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
+    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
     <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}>Anti-bot</button></div>
     {tab === 'overview' && <div role="tabpanel" aria-label="Profile overview"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>

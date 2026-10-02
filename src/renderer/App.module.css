@@ -154,6 +154,10 @@
 .panel [data-bookmark-picker][data-pointer-mode="false"] .bookmarkRow > .listRow:hover:not(:focus-visible):not([data-search-selected="true"]):not([data-active="true"]) { background: transparent; color: inherit; }
 .profileHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #eceef2; }
 .profileHeading .profileAvatar { width: 28px; height: 28px; flex-basis: 28px; }
+.profileRename, .profileNameEditor button { color: #bdc9b4; }
+.profileNameEditor { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.profileNameEditor input { flex: 1; min-width: 0; }
+.profileNameEditor button:disabled { color: #68717c; }
 .profileInfo dl > div { padding: 5px 0; }
 .deviceSettings { margin-top: 14px; }
 .deviceActive { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; color: #eceef2; }
