@@ -115,7 +115,12 @@ export let createPageTools = (options: Options) => {
     let appearance = appearanceSource(target.profileId), users = scriptSource(target.profileId)
     await send(target, 'Page.enable')
     await target.frames?.start()
-    for (let identifier of target.registrations.splice(0)) await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier })
+    // Keep ownership until Chromium acknowledges removal. A failed refresh must
+    // not leave an old userscript installed but absent from our next cleanup.
+    while (target.registrations.length) {
+      await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: target.registrations[0] })
+      target.registrations.shift()
+    }
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: target.focus.source, worldName: 'bmux:keyboard-focus' })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: appearance, worldName: world })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: users })).identifier)

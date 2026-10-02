@@ -263,6 +263,12 @@ test('request exceptions are profile scoped; userscript changes and exclusions r
   await rpc('browser.script', { id: 'early', enabled: false })
   await rpc('navigate', { tab: tabId, url: `${url}/fixture` })
   await expect.poll(() => page.evaluate(() => (window as any).startObserved)).toBe('missing')
+  for (let enabled of [true, false]) {
+    await rpc('browser.script', { id: 'early', enabled })
+    await rpc('navigate', { tab: tabId, url: `${url}/fixture?enabled=${enabled}` })
+    expect(await page.evaluate(() => (window as any).startObserved)).toBe(enabled ? 'changed' : 'missing')
+    expect(await page.evaluate(() => (window as any).earlyFlag)).toBe(enabled ? 'changed' : undefined)
+  }
   await rpc('select-pane', { client: current.clientId, pane: pane.id })
 })
 

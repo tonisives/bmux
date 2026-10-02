@@ -219,3 +219,21 @@ The fixture now waits for the intended URL and completed document load before
 reading it. It checks the fixture heading and the advertisement's presence too,
 so a missing or incomplete document cannot satisfy a hidden-ad assertion. The
 existing independent blocking and reload assertions remain in place.
+
+## Interrupted userscript refresh
+
+The October 2 Check on `863db90` reported the early script disabled with no
+current page-tools error, but the next document still observed its original
+`before-inline` value. A registration refresh discarded every installed script
+identifier before sending Chromium the first removal command. If any removal
+failed, remaining registrations became untracked; a successful later refresh
+could clear the error while leaving those old scripts active.
+
+Registration cleanup now removes each identifier from its list only after
+Chromium acknowledges removal. A targeted unit test interrupts cleanup, disables
+the script, refreshes again, and executes the installed main-world registrations
+in a fresh document. It reproduces the stale value on the original implementation.
+The GUI case also reenables and disables the modified script on distinct document
+URLs, checking both the page's early observation and the script's global value.
+Repeat the browser-tools file in CI to include settings, CSS, CSP, and profile
+changes without running GUI tests on the local desktop or enabling retries.

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
 import type { WebContents } from 'electron'
 import { parseBrowserSettings } from '../src/main/browser-config'
 import { createPageTools } from '../src/main/page-tools'
@@ -12,7 +13,7 @@ let fixture = async (adblock?: () => boolean | undefined) => {
   let css = '.custom { color: red !important }', ads = '.ad { display: none !important }'
   fs.writeFileSync(path.join(directory, 'style.css'), css)
   let settings = parseBrowserSettings({ userscripts: [{ id: 'style', file: 'style.css', enabled: true, matches: ['https://page.test/*'] }] })
-  let url = 'https://page.test/first', sheets = new Map<string, string>(), sequence = 0
+  let url = 'https://page.test/first', sheets = new Map<string, string>(), registrations = new Map<string, Record<string, any>>(), sequence = 0
   let sendCommand = vi.fn(async (method: string, params: Record<string, any> = {}): Promise<any> => {
     if (method === 'CSS.createStyleSheet') return { styleSheetId: String(++sequence) }
     if (method === 'CSS.setStyleSheetText') { if (params.text) sheets.set(params.styleSheetId, params.text); else sheets.delete(params.styleSheetId); return {} }
@@ -21,7 +22,8 @@ let fixture = async (adblock?: () => boolean | undefined) => {
     if (method === 'Target.getTargets') return { targetInfos: [] }
     if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 }
     if (method === 'Runtime.evaluate') return { result: { value: { ids: [], classes: ['ad'] } } }
-    if (method === 'Page.addScriptToEvaluateOnNewDocument') return { identifier: String(++sequence) }
+    if (method === 'Page.addScriptToEvaluateOnNewDocument') { let identifier = String(++sequence); registrations.set(identifier, params); return { identifier } }
+    if (method === 'Page.removeScriptToEvaluateOnNewDocument') { registrations.delete(params.identifier); return {} }
     return {}
   })
   let contents = Object.assign(new EventEmitter(), {
@@ -34,12 +36,36 @@ let fixture = async (adblock?: () => boolean | undefined) => {
   await tools.attach('tab', 'profile_default', contents, false)
   await tools.reload()
   return {
-    contents, tools, sheets, css, ads,
+    contents, tools, sheets, css, ads, directory, settings, registrations, sendCommand,
     start: (sameDocument = false) => contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: sameDocument }, 'https://page.test/next', sameDocument, true),
     commit: () => { url = 'https://page.test/next'; sheets.clear(); contents.emit('did-navigate', {}, url, 200, 'OK'); contents.emit('dom-ready') },
     close: () => { tools.close(); fs.rmSync(directory, { recursive: true, force: true }) },
   }
 }
+
+test('removes old userscripts after an interrupted registration refresh', async () => {
+  let { tools, directory, settings, registrations, sendCommand, close } = await fixture()
+  try {
+    fs.writeFileSync(path.join(directory, 'early.js'), "globalThis.earlyFlag = 'before-inline'")
+    settings.userscripts.push(...parseBrowserSettings({ userscripts: [{ id: 'early', file: 'early.js', enabled: true, runAt: 'document-start', matches: ['https://page.test/*'] }] }).userscripts)
+    await tools.reload()
+    let original = sendCommand.getMockImplementation()!, interrupted = false
+    sendCommand.mockImplementation(async (method, params = {}) => {
+      if (method === 'Page.removeScriptToEvaluateOnNewDocument' && !interrupted) { interrupted = true; throw new Error('Renderer changed during refresh') }
+      return original(method, params)
+    })
+    await tools.reload()
+    expect(tools.error('tab')).toContain('could not refresh')
+    settings.userscripts.find(script => script.id === 'early')!.enabled = false
+    await tools.reload()
+    expect(tools.error('tab')).toBeUndefined()
+    let document = vm.createContext({ location: { protocol: 'https:', href: 'https://page.test/next' } })
+    document.window = document; document.top = document
+    for (let registration of registrations.values()) if (!registration.worldName) vm.runInContext(registration.source, document)
+    expect(document.earlyFlag).toBeUndefined()
+    expect(registrations.size).toBe(3)
+  } finally { close() }
+})
 
 test('reapplies styles when a settings refresh finishes in the outgoing document', async () => {
   let { tools, sheets, css, ads, start, commit, close } = await fixture()
