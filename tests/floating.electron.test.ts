@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 
 let application: ElectronApplication, chrome: Page, directory: string, server: http.Server, url: string
+let imagePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let frame = async (paneId: string) => {
@@ -71,7 +72,16 @@ test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-floating-'))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+W: close-pane-or-window\nbrowser:\n  autoUpdateFilters: false\n')
   server = http.createServer((request, response) => {
+    if (request.url === '/context-image.png') {
+      response.setHeader('Content-Type', 'image/png')
+      response.end(imagePng)
+      return
+    }
     response.setHeader('Content-Type', 'text/html')
+    if (request.url === '/context-images') {
+      response.end('<!doctype html><title>Image menu</title><style>img{width:80px;height:80px}a{display:block}</style><img id="plain-image" src="/context-image.png"><a href="/linked"><img id="linked-image" src="/context-image.png"></a><p id="plain-text">Plain text</p>')
+      return
+    }
     response.end(`<!doctype html><title>${request.url}</title><style>body{margin:0;height:2000px;background:#d9e7ee;font:20px sans-serif}button,a{display:block;margin:20px;padding:15px}</style><button id="counter" onclick="this.textContent=++window.count">0</button><a href="/linked">Open linked page</a><p id="lookup-text">dictionary text</p><textarea id="spelling" spellcheck="true"></textarea><article><div id="script-link">JavaScript-driven post</div></article><script>window.count=0;window.identity=Math.random();document.addEventListener('mousedown',()=>window.clicked=(window.clicked||0)+1);document.addEventListener('bmux:resolve-context-link',event=>{if(event.detail.target.closest('#script-link'))event.detail.url='/resolved-post'})</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -268,6 +278,59 @@ test('page context menu opens links in a float using the source profile', async 
     await rpc('wait', { tab: added.id, selector: '#counter' })
     expect((await state()).model.sessions[0].windows[0].panes.at(-1).url).toBe(`${url}/linked`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }
+})
+
+test('page context menu copies and saves plain and linked images', async () => {
+  let current = await state(), client = current.model.clients[0], pane = current.model.sessions[0].windows[0].panes[0]
+  await rpc('select-pane', { client: client.id, pane: pane.id })
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.fill(`${url}/context-images`); await address.press('Enter')
+  await rpc('wait', { tab: pane.id, selector: '#plain-image' })
+  let page = application.context().pages().find(page => page.url() === `${url}/context-images`)!
+  await expect.poll(() => page.locator('img').evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth === 1))).toBe(true)
+  await application.evaluate(({ Menu, app }, directory) => {
+    let build = Menu.buildFromTemplate, downloads = app.getPath('downloads')
+    app.setPath('downloads', directory)
+    ;(globalThis as any).restoreImageMenu = () => { Menu.buildFromTemplate = build; app.setPath('downloads', downloads) }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      ;(globalThis as any).imageMenu = menu
+      menu.popup = () => undefined
+      return menu
+    }
+  }, directory)
+  try {
+    for (let selector of ['#plain-image', '#linked-image']) {
+      await application.evaluate(({ clipboard }) => { clipboard.clear(); (globalThis as any).imageMenu = undefined })
+      await page.locator(selector).click({ button: 'right' })
+      await expect.poll(() => application.evaluate(() => (globalThis as any).imageMenu?.items.some((item: any) => item.label === 'Copy image'))).toBe(true)
+      let items = await application.evaluate(() => (globalThis as any).imageMenu.items.map((item: any) => ({ label: item.label, type: item.type, enabled: item.enabled })))
+      let copyIndex = items.findIndex((item: any) => item.label === 'Copy image')
+      expect(items[copyIndex - 1].type).toBe('separator')
+      expect(items.slice(copyIndex)).toEqual([
+        { label: 'Copy image', type: 'normal', enabled: true },
+        { label: 'Save image', type: 'normal', enabled: true },
+      ])
+      expect(items.some((item: any) => item.label === 'Open link')).toBe(selector === '#linked-image')
+      await application.evaluate(() => (globalThis as any).imageMenu.items.find((item: any) => item.label === 'Copy image').click())
+      await expect.poll(() => application.evaluate(async ({ clipboard, nativeImage }) => {
+        let item = (await clipboard.read()).find(item => item.types.includes('image/png'))
+        if (!item) return undefined
+        let blob = await item.getType('image/png') as Blob
+        return nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer())).getSize()
+      })).toEqual({ width: 1, height: 1 })
+      await application.evaluate(() => (globalThis as any).imageMenu.items.find((item: any) => item.label === 'Save image').click())
+      let name = selector === '#plain-image' ? 'context-image.png' : 'context-image (1).png'
+      await expect.poll(async () => ((await rpc('downloads')) as any[]).find(item => item.name === name)?.state).toBe('completed')
+      expect(await fs.readFile(path.join(directory, name))).toEqual(imagePng)
+      expect(page.url()).toBe(`${url}/context-images`)
+    }
+    await application.evaluate(() => { (globalThis as any).imageMenu = undefined })
+    await page.locator('#plain-text').click({ button: 'right' })
+    await expect.poll(() => application.evaluate(() => !!(globalThis as any).imageMenu)).toBe(true)
+    expect(await application.evaluate(() => (globalThis as any).imageMenu.items.some((item: any) => ['Copy image', 'Save image'].includes(item.label)))).toBe(false)
+  } finally { await application.evaluate(() => (globalThis as any).restoreImageMenu()) }
 })
 
 test('page context menu replaces a misspelled word', async () => {

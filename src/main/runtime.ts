@@ -1069,6 +1069,11 @@ export let createRuntime = (dataDirectory: string) => {
             { role: 'selectAll' },
           )
         }
+        if (params.mediaType === 'image') template.push(
+          { type: 'separator' },
+          { label: 'Copy image', enabled: params.hasImageContents, click: () => contents.copyImageAt(params.x, params.y) },
+          { label: 'Save image', enabled: !!params.srcURL, click: () => contents.downloadURL(params.srcURL) },
+        )
         Menu.buildFromTemplate(template).popup({ window: owner.window, frame: frame.isDestroyed() ? undefined : frame })
       }
       void show().catch(reportError)
