@@ -7,7 +7,7 @@ profiles. A pane keeps its profile after a page is loaded.
 ## Choose a profile
 
 Open profile details from the profile icon beside the pane address. Panes with
-the same profile share settings and logins. Choose **Rename** beside the profile name, enter a new name,
+the same profile share settings and logins. Click the profile name to edit it,
 and press Enter or **Save**. Escape or **Cancel** discards the edit.
 A split inherits its source profile unless another is specified. Create a new
 pane when you need a different profile:

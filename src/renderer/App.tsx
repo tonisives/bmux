@@ -1634,7 +1634,7 @@ let ProfileNameEditor = () => {
     try { if (await run('profile.rename', { profile: profile.id, name: name.trim() })) setEditing(false) }
     finally { setSaving(false) }
   }
-  if (!editing) return <><strong>{profile.name}</strong><button ref={button} type="button" className={css.profileRename} onClick={edit}>Rename</button></>
+  if (!editing) return <button ref={button} type="button" className={css.profileName} onClick={edit} aria-label="Edit profile name">{profile.name}</button>
   return <form className={css.profileNameEditor} onSubmit={save} onKeyDown={escape}>
     <input ref={input} className={css.pluginInput} aria-label="Profile name" value={name} onChange={changeName} disabled={saving} required />
     <button type="submit" disabled={saving || !name.trim()}>Save</button><button type="button" onClick={cancel} disabled={saving}>Cancel</button>

@@ -323,8 +323,11 @@ test('profile popup renames default and custom profiles without changing pane id
       let selectedPane = customPane ?? pane
       let identity = await rpc('eval', { pane: selectedPane.id, expression: 'window.profileRenameIdentity ??= Math.random()' })
       let panel = await openProfilePanel(selected.name)
-      let rename = panel.getByRole('button', { name: 'Rename', exact: true })
+      let rename = panel.getByRole('button', { name: 'Edit profile name', exact: true })
       let input = panel.getByRole('textbox', { name: 'Profile name', exact: true })
+      await expect(panel.getByRole('button', { name: 'Rename', exact: true })).toHaveCount(0)
+      await expect(rename).toHaveText(selected.name)
+      await rename.hover(); await expect(rename).toHaveCSS('cursor', 'text')
       await rename.click(); await expect(input).toBeFocused(); await expect(input).toHaveValue(selected.name)
       await input.fill('discarded'); await input.press('Escape')
       await expect(panel).toBeVisible(); await expect(input).toHaveCount(0); await expect(rename).toBeFocused()
@@ -350,7 +353,7 @@ test('profile popup renames default and custom profiles without changing pane id
       expect(await rpc('eval', { pane: selectedPane.id, expression: 'window.profileRenameIdentity' })).toBe(identity)
       await expect.poll(async () => (await rpc('list-panes', { window: window.id }) as { id: string; profileId: string }[]).find(item => item.id === selectedPane.id)?.profileId).toBe(selected.id)
       panel = await openProfilePanel(name)
-      await rename.click(); await expect(input).toHaveValue(name)
+      await rename.press('Enter'); await expect(input).toHaveValue(name)
       await input.press('Escape'); await panel.getByRole('button', { name: 'Close', exact: true }).click()
       await rpc('profile.rename', { profile: selected.id, name: selected.name })
     }
