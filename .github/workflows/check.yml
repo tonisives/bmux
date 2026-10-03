@@ -31,7 +31,7 @@ concurrency:
 jobs:
   check:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -44,7 +44,9 @@ jobs:
       - name: Keep crash dialogs from obscuring later GUI tests
         run: defaults write com.apple.CrashReporter DialogType none
       - name: Electron tests
-        timeout-minutes: 12
+        # Keep a bounded suite budget separate from individual test deadlines.
+        # The full suite includes real idle-unload waits and runs serially.
+        timeout-minutes: 20
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}

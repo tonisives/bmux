@@ -250,3 +250,20 @@ The GUI case also reenables and disables the modified script on distinct documen
 URLs, checking both the page's early observation and the script's global value.
 Repeat the browser-tools file in CI to include settings, CSS, CSP, and profile
 changes without running GUI tests on the local desktop or enabling retries.
+
+## Floating address focus and the full-suite budget
+
+The October 3 Check on `b84cd17` entered a second floating-pane URL before the
+first submission finished returning native keyboard focus to the page. The
+history test now clicks the address field before editing and waits for the native
+page-focus handoff after navigation. Both tiled and floating cases passed 12
+repetitions each on `85a587d`, and passed again in its full-suite run.
+
+That full run hit the workflow's 12-minute limit after 139 passing tests and three
+skips, without a failed assertion. The same suite had previously finished in
+9.5 minutes; several tests were slower on this runner, including the real idle
+unload wait. Check now allows 20 minutes for the serial GUI suite and 25 minutes
+for the job. Individual test deadlines, one GUI worker, zero retries, and the
+affected-tests-only local policy are unchanged. A suite timeout remains a failure
+and retains diagnostics; the extra budget lets healthy tests finish on slower
+hosted runners as the suite grows.
