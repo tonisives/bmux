@@ -13,7 +13,7 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-external-links-'))
   let video = await fs.readFile(path.resolve('tests/fixtures/local-media.mp4'))
   let server = http.createServer((_request, response) => {
-    response.writeHead(200, { 'Content-Type': 'video/mp4' })
+    response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': video.length })
     response.end(video)
   })
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
@@ -26,12 +26,13 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
     let ledger = protection === 'cooldown' || protection === 'warning' ? { profile_default: { startedAt, lastUsed: startedAt + 1000, ...(protection === 'warning' ? { warning: 'account-warning', warningHost: '127.0.0.1' } : {}) } } : {}
     let ledgerFile = path.join(directory, 'automation-safety.json')
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
-    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browserTools: { adblock: { enabled: false, autoUpdate: false } }, automation: { groups: protection === 'lease' ? { fixture: { profiles: ['profile_default'], hosts: ['127.0.0.1'], maxConcurrent: 1, hourly: { runs: 1 }, requiredPlugins: { '127.0.0.1': 'test' } } } : {} } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { adblock: false, autoUpdateFilters: false }, automation: { groups: protection === 'lease' ? { fixture: { profiles: ['profile_default'], hosts: ['127.0.0.1'], maxConcurrent: 1, hourly: { runs: 1 }, requiredPlugins: { '127.0.0.1': 'test' } } } : {} } }))
     application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state())
+    expect(state.configError).toBeNull()
     let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
     let original = session.windows[0]
