@@ -62,7 +62,10 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
       expect(created.panes[0].url).toBe(target)
       expect((await command('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(created.id)
       expect(after.find((window: { id: string }) => window.id === original.id)).toEqual(original)
-      await command('wait', { tab: created.panes[0].id, selector: route === 'open-file' ? 'main' : 'video' })
+      await command('wait', { tab: created.panes[0].id, selector: route === 'open-file' ? 'main' : 'video' }).catch(async error => {
+        console.log('EXTERNAL_LINK_FAILURE', await application!.evaluate(async ({ webContents }, target) => Promise.all(webContents.getAllWebContents().filter(contents => contents.getURL() === target).map(async contents => ({ url: contents.getURL(), loading: contents.isLoading(), media: await Promise.race([contents.executeJavaScript('({ type: document.contentType, ready: document.readyState, video: document.querySelector("video") && { width: document.querySelector("video").videoWidth, error: document.querySelector("video").error?.message } })'), new Promise(resolve => setTimeout(() => resolve('inspection timed out'), 2000))]) }))), target))
+        throw error
+      })
       if (route !== 'open-file') await expect.poll(() => command('eval', { tab: created.panes[0].id, expression: 'document.querySelector("video")?.videoWidth' })).toBe(32)
       expect(JSON.parse(await fs.readFile(ledgerFile, 'utf8'))).toEqual(ledger)
       if (protection !== 'unused') expect(await cli()).toMatchObject({ ok: false, error: expect.stringContaining(expectedError) })
