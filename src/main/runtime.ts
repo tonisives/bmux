@@ -1340,6 +1340,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (shuttingDown) return
     let liveIds = new Set(walkPanes(model).map(({ pane }) => pane.id))
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
+    for (let tabId of Object.keys(favicons)) if (!liveIds.has(tabId)) delete favicons[tabId]
     for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
     for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
     let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
@@ -2770,7 +2771,12 @@ export let createRuntime = (dataDirectory: string) => {
     await settingsReady
     await fs.rm(privateStorageRoot, { recursive: true, force: true })
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
-    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
+    for (let { session, pane } of walkPanes(model)) {
+      // Inactive restored panes need their icons before they have WebContents.
+      let cachedIcon = faviconCache.get(pane.profileId, pane.url, session.private ? session.id : undefined)
+      if (cachedIcon) favicons[pane.id] = cachedIcon
+      if (configuration.memory.lazyRestore && !resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
+    }
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       if (!entry || entry[1].contents.isDestroyed()) return undefined

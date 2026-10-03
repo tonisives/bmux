@@ -94,6 +94,7 @@ test.beforeAll(async () => {
   server = http.createServer((request, response) => {
     if (request.url === '/pending-tab') { pendingPages.add(response); response.on('close', () => pendingPages.delete(response)); return }
     if (request.url === '/tab-icon.svg') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#588e73"/></svg>'); return }
+    if (request.url?.startsWith('/cached-favicon/')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(fixture.replace('</head>', '<link rel="icon" href="/tab-icon.svg" type="image/svg+xml"></head>')); return }
     if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }); response.end(`<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js?fixture=${++slowFixture}"></script>`); return }
     if (request.url?.startsWith('/held.js?')) { response.writeHead(200, { 'Cache-Control': 'no-store' }); heldRequests++; heldResponses.add(response); response.on('close', () => heldResponses.delete(response)); return }
     if (request.url === '/download') { response.writeHead(200, { 'Content-Disposition': 'attachment; filename="fixture.txt"', 'Content-Type': 'text/plain' }); response.end('download fixture'); return }
@@ -2437,6 +2438,46 @@ test('status tabs show loading and favicon, with optional close control', async 
   await chrome.screenshot({ path: path.join(root, 'artifacts/status-tabs.png') })
   await tab.locator('button[aria-label^="Close "]').click()
   await expect.poll(async () => (await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([keep.id])
+  await cli('detach-client', { client: client.id })
+})
+
+test('restores cached favicons for inactive windows and sessions without loading their pages', async () => {
+  let session = await cli('new-session', { name: 'cached-favicons', profile: 'default' })
+  let active = session.windows[0].panes[0]
+  await cli('navigate', { pane: active.id, url: `${url}/cached-favicon/active` })
+  let inactiveWindow = await cli('new-window', { session: session.id, url: `${url}/cached-favicon/inactive` })
+  let inactive = inactiveWindow.panes[0]
+  let dormantSession = await cli('new-session', { name: 'cached-favicons-dormant', profile: 'default' })
+  let dormant = dormantSession.windows[0].panes[0]
+  await cli('navigate', { pane: dormant.id, url: `${url}/cached-favicon/dormant` })
+  let paneIds = [active.id, inactive.id, dormant.id]
+  await expect.poll(async () => {
+    let state = await cli('state')
+    return paneIds.every(id => /^data:image\/svg\+xml;base64,/.test(state.favicons[id] ?? ''))
+  }).toBe(true)
+  let icon = (await cli('state')).favicons[inactive.id]
+  await closeTestApplication(application)
+  let cached = JSON.parse(await fs.readFile(path.join(directory, 'favicons.json'), 'utf8'))
+  expect(cached).toContainEqual([`${inactive.profileId}\n${url}`, icon])
+  await launch()
+
+  let restored = await cli('state')
+  for (let id of paneIds) expect(restored.favicons[id]).toBe(icon)
+  let memory = (await cli('memory')).current.panes
+  for (let id of paneIds) expect(memory.find((pane: { paneId: string }) => pane.paneId === id).webContentsId).toBeNull()
+
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id, { sessionId: session.id, windowId: session.windows[0].id, paneId: active.id })
+  let tab = chrome.locator(`[data-window-id="${inactiveWindow.id}"]`)
+  await expect(tab).toHaveAttribute('data-selected', 'false')
+  await expect(tab.locator('img')).toHaveAttribute('src', icon)
+  await expect.poll(() => tab.locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  expect((await cli('list-panes', { window: inactiveWindow.id }))[0].runtimeState).toBe('unloaded')
+  expect((await cli('list-panes', { window: dormantSession.windows[0].id }))[0].runtimeState).toBe('unloaded')
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(session.windows[0].id)
+
+  await cli('kill-window', { window: inactiveWindow.id })
+  expect((await cli('state')).favicons[inactive.id]).toBeUndefined()
   await cli('detach-client', { client: client.id })
 })
 
