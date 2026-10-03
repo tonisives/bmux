@@ -2603,6 +2603,13 @@ export let createRuntime = (dataDirectory: string) => {
     if (['stop', 'back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
       let contents = (await ensureLiveTab(tabId)).contents
+      if (method !== 'stop' && args.newWindow === true) {
+        let history = contents.navigationHistory
+        let entry = history.getEntryAtIndex(history.getActiveIndex() + (method === 'back' ? -1 : 1))
+        if (!entry || entry.url === 'about:blank') return { pane: tabId }
+        let { pane, session } = tabById(model, tabId)
+        return execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: entry.url } }, sourceClientId)
+      }
       delete crashes[tabId]
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
       if (method === 'back') {

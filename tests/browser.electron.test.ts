@@ -686,6 +686,67 @@ test('address controls navigate, refresh, and open the per-tab history on hold',
   }
 })
 
+for (let floating of [false, true]) test(`Command-click opens Back and Forward history in background windows from ${floating ? 'floating' : 'tiled'} panes`, async () => {
+  let session = await cli('new-session', { name: `command-navigation-${floating}` })
+  let profile = await cli('profile.create', { name: `history-profile-${floating}` })
+  let pane = await cli('split-window', { pane: session.windows[0].panes[0].id, profile: profile.id, url: `${url}/command-one` })
+  await cli('wait', { tab: pane.id, selector: '#text' })
+  let client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('select-pane', { client: client.id, pane: pane.id })
+    await cli('activate-client', { client: client.id })
+    let chrome = await rendererForClient(client.id)
+    let controls = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('group', { name: 'Pane address' })
+    if (floating) {
+      await cli('break-pane', { pane: pane.id, floating: true, client: client.id })
+      await expect.poll(() => application.context().pages().some(page => page.url().endsWith(`#float=${pane.id}`))).toBe(true)
+      controls = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!.locator('form')
+    }
+    let openHistory = (direction: string) => chrome.evaluate(({ direction, tab }) => (window as any).bmux.command({ method: direction, args: { tab, newWindow: true } }), { direction, tab: pane.id })
+    let initialWindows = await cli('list-windows', { session: session.id })
+    await openHistory('back')
+    expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual(initialWindows.map((window: { id: string }) => window.id))
+    await expect(controls.getByRole('button', { name: 'Back', exact: true })).toBeDisabled()
+    for (let path of ['/command-two', '/command-three']) {
+      if (!floating) await controls.getByRole('button', { name: 'Address', exact: true }).click()
+      let address = controls.getByRole('textbox', { name: floating ? 'Address' : 'URL or search', exact: true })
+      await address.fill(`${url}${path}`); await address.press('Enter')
+      await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe(path)
+    }
+    await openHistory('forward')
+    expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual(initialWindows.map((window: { id: string }) => window.id))
+    await expect(controls.getByRole('button', { name: 'Forward', exact: true })).toBeDisabled()
+    await controls.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe('/command-two')
+    await expect(controls.getByRole('button', { name: 'Forward', exact: true })).toBeEnabled()
+    let identity = await cli('eval', { tab: pane.id, expression: 'window.identity' })
+    let history = (await cli('state')).navigation[pane.id]
+    let selection = (await cli('list-clients')).find((item: { id: string }) => item.id === client.id)
+    for (let [direction, path] of [['Back', '/command-one'], ['Forward', '/command-three']]) {
+      let before = await cli('list-windows', { session: session.id })
+      // A modified hold should open the page, without the history menu swallowing it.
+      await controls.getByRole('button', { name: direction, exact: true }).click({ modifiers: ['Meta'], delay: direction === 'Back' ? 500 : 0 })
+      await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
+      let opened = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((item: { id: string }) => item.id === window.id))
+      expect(opened.panes[0]).toMatchObject({ url: `${url}${path}`, profileId: profile.id })
+      await cli('wait', { tab: opened.panes[0].id, selector: '#text' })
+      expect(await cli('eval', { tab: opened.panes[0].id, expression: 'location.pathname' })).toBe(path)
+      expect((await cli('state')).navigation[pane.id]).toEqual(history)
+      expect(await cli('eval', { tab: pane.id, expression: 'window.identity' })).toBe(identity)
+      expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id)).toEqual(selection)
+      await expect(controls.getByRole('menu')).toHaveCount(0)
+      await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => {
+        let bounds = view.getBounds()
+        return 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target && bounds.width > 250 && bounds.height > 100
+      })), `${url}/command-two`)).toBe(true)
+    }
+    await controls.getByRole('button', { name: 'Forward', exact: true }).click()
+    await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe('/command-three')
+  } finally {
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('refresh shows the tab spinner before Chromium begins the reload', async () => {
   let session = await cli('new-session', { name: 'immediate-refresh' })
   let tab = session.windows[0].panes[0], client = await cli('attach-session', { session: session.id })

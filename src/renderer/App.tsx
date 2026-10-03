@@ -724,11 +724,12 @@ let NavigationButton = ({ direction, tabId, enabled, hasHistory, open }: { direc
   useEffect(() => () => clearTimeout(timer.current), [])
   let cancelHold = () => { clearTimeout(timer.current); timer.current = undefined }
   let press = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || !hasHistory) return
+    if (event.button !== 0) return
     held.current = false
+    if (!hasHistory || event.metaKey) return
     timer.current = setTimeout(() => { held.current = true; open() }, 450)
   }
-  let click = () => { if (held.current) { held.current = false; return }; void run(direction, { tab: tabId }) }
+  let click = (event: MouseEvent<HTMLButtonElement>) => { if (held.current) { held.current = false; return }; void run(direction, { tab: tabId, newWindow: event.metaKey }) }
   let contextMenu = (event: MouseEvent<HTMLButtonElement>) => { if (!hasHistory) return; event.preventDefault(); cancelHold(); held.current = true; open() }
   return <button type="button" className={css.navigationButton} aria-label={direction === 'back' ? 'Back' : 'Forward'} title={direction === 'back' ? 'Back (hold for history)' : 'Forward (hold for history)'} disabled={!enabled} onPointerDown={press} onPointerUp={cancelHold} onPointerCancel={cancelHold} onPointerLeave={cancelHold} onClick={click} onContextMenu={contextMenu}><svg viewBox="0 0 16 16" aria-hidden="true"><path d={direction === 'back' ? 'M10.5 3.5 6 8l4.5 4.5' : 'M5.5 3.5 10 8l-4.5 4.5'} /></svg></button>
 }

@@ -48,8 +48,8 @@ export let FloatingPane = () => {
   let keys = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') { editing.current = false; setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? ''); void run('focus-page') } }
   let menu = (event: MouseEvent) => { event.preventDefault(); void run('pane.menu') }
   let close = () => { void run('pane.close') }
-  let back = () => { if (tab) void run('back', { tab: tab.id }) }
-  let forward = () => { if (tab) void run('forward', { tab: tab.id }) }
+  let back = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('back', { tab: tab.id, newWindow: event.metaKey }) }
+  let forward = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('forward', { tab: tab.id, newWindow: event.metaKey }) }
   let reload = () => { if (tab) void run('reload', { tab: tab.id }) }
   let siteInfo = () => { void run('site-info.open') }
   let focusPage = () => { void run('select-pane') }
