@@ -710,8 +710,12 @@ for (let floating of [false, true]) test(`Command-click opens Back and Forward h
     for (let path of ['/command-two', '/command-three']) {
       if (!floating) await controls.getByRole('button', { name: 'Address', exact: true }).click()
       let address = controls.getByRole('textbox', { name: floating ? 'Address' : 'URL or search', exact: true })
+      if (floating) await address.click()
       await address.fill(`${url}${path}`); await address.press('Enter')
       await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe(path)
+      // The floating form returns focus after navigation completes. Finish that
+      // handoff before starting the next edit, or Enter can reach the page.
+      if (floating) await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}${path}`)
     }
     await openHistory('forward')
     expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual(initialWindows.map((window: { id: string }) => window.id))
