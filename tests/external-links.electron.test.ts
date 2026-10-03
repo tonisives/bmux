@@ -39,6 +39,7 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
     let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
     let original = session.windows[0]
+    let nativeId = (await command('diagnostics')).windows.find((item: { id: string }) => item.id === client.id).nativeId
     let cli = async () => {
       let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'new-window', JSON.stringify({ session: session.id, client: client.id, url })], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
@@ -66,7 +67,16 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
         console.log('EXTERNAL_LINK_FAILURE', await application!.evaluate(async ({ webContents }, target) => Promise.all(webContents.getAllWebContents().filter(contents => contents.getURL() === target).map(async contents => ({ url: contents.getURL(), loading: contents.isLoading(), media: await Promise.race([contents.executeJavaScript('({ type: document.contentType, ready: document.readyState, video: document.querySelector("video") && { width: document.querySelector("video").videoWidth, error: document.querySelector("video").error?.message } })'), new Promise(resolve => setTimeout(() => resolve('inspection timed out'), 2000))]) }))), target))
         throw error
       })
-      if (route !== 'open-file') await expect.poll(() => command('eval', { tab: created.panes[0].id, expression: 'document.querySelector("video")?.videoWidth' })).toBe(32)
+      if (route !== 'open-file') {
+        await expect.poll(() => command('eval', { tab: created.panes[0].id, expression: 'document.querySelector("video")?.videoWidth' })).toBe(32)
+        await command('eval', { tab: created.panes[0].id, expression: 'document.querySelector("video").muted = true; document.querySelector("video").play()' })
+        await expect.poll(() => command('eval', { tab: created.panes[0].id, expression: 'document.querySelector("video").currentTime' })).toBeGreaterThan(0.2)
+      }
+      expect((await chrome.evaluate(() => (window as any).bmux.state())).crashes[created.panes[0].id]).toBeUndefined()
+      await expect.poll(() => application!.evaluate(({ BaseWindow }, { nativeId, target }) => {
+        let window = BaseWindow.fromId(nativeId)
+        return window?.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target && view.getBounds().height > 0)
+      }, { nativeId, target })).toBe(true)
       expect(JSON.parse(await fs.readFile(ledgerFile, 'utf8'))).toEqual(ledger)
       if (protection !== 'unused') expect(await cli()).toMatchObject({ ok: false, error: expect.stringContaining(expectedError) })
     }

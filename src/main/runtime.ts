@@ -56,6 +56,7 @@ import { automationWarningScript, createAutomationSafety } from './automation-sa
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
+import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
@@ -1083,10 +1084,10 @@ export let createRuntime = (dataDirectory: string) => {
         await live.ready
         if (!isLiveTabOpen(live)) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
-        if (savedHistory?.entries.length) await contents.navigationHistory.restore(savedHistory)
-        else await contents.loadURL(initialUrl)
+        if (savedHistory?.entries.length) await settlePageNavigation(contents, contents.navigationHistory.restore(savedHistory))
+        else await loadPage(contents, initialUrl)
       }
-      let result = serializedRestore ? queueRestoredNavigation(navigate) : navigate()
+      let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
       live.initialNavigation = result
       void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
     }
@@ -1105,7 +1106,7 @@ export let createRuntime = (dataDirectory: string) => {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
       live.initialNavigation = undefined
-    } else if (load && !live.pendingNavigation && !live.contents.getURL() && tab.url !== 'about:blank') await live.contents.loadURL(tab.url)
+    } else if (load && !live.pendingNavigation && !live.contents.getURL() && tab.url !== 'about:blank') await loadPage(live.contents, tab.url)
     if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
     return live
   }
@@ -2662,7 +2663,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return loadPage(live.contents, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url) live.pendingUrl = undefined
