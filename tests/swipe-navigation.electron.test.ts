@@ -52,6 +52,9 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await rpc('wait', { tab: other.id, selector: 'h1' })
   await rpc('select-pane', { client: client.id, pane: other.id })
   await rpc('activate-client', { client: client.id })
+  await rpc('focus-page', { client: client.id })
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/other`)
+  await expect.poll(async () => (await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId).toBe(other.id)
   await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isFocused() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url && view.getBounds().width > 250 && view.getBounds().height > 350)), `${origin}/three`)).toBe(true)
   let page = application.context().pages().find(page => page.url() === `${origin}/three`)!
   await expect(page.locator('h1')).toHaveText('Swipe fixture')
@@ -69,7 +72,8 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   }
   await swipe([[-80, 0], [-80, 0], [-80, 0], [-30, 0], [-5, 0]])
   await expect(page).toHaveURL(`${origin}/two`)
-  expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId).toBe(other.id)
+  // Native history navigation can focus the page being navigated. Its sibling
+  // must retain its own URL regardless of the client's resulting selection.
   expect((await state()).model.sessions[0].windows[0].panes.find((item: { id: string }) => item.id === other.id).url).toBe(`${origin}/other`)
   await swipe([[100, 0], [100, 0]])
   await expect(page).toHaveURL(`${origin}/three`)
