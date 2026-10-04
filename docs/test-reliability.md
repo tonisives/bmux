@@ -279,3 +279,12 @@ assertions remain in place; native key delivery is not retried.
 Chromium can reject capture with `UnknownVizError` before that first frame is
 available. The existing five-second readiness poll treats only that error as
 not ready; other capture errors fail immediately.
+
+The full run on `154f960` passed those GUI cases but failed an automation lease
+check with an empty CLI response after 1.8 minutes. That fixture still used
+`spawnSync` for expected-denial commands. A CLI readiness check can wait for the
+page while the synchronous call blocks the Node event loop serving that page.
+The fixture now awaits asynchronous CLI subprocesses with a 20-second process
+deadline, preserves valid JSON denial replies, and reports actual process errors.
+It also disables unrelated external filter updates. `AGENTS.md` records the
+asynchronous-fixture rule; the local affected-tests-only policy is unchanged.
