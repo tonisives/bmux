@@ -48,14 +48,15 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     let manifest = JSON.parse(await fs.readFile(manifestFile, 'utf8'))
     manifest.permissions.push('http://127.0.0.1/*')
     await fs.writeFile(manifestFile, JSON.stringify(manifest))
+    await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
     await launch()
     let installed = await rpc('extension.load', { profile: 'profile_default', path: extensionPath })
     await expect.poll(() => application!.evaluate(async ({ webContents }, id) => {
-      let background = webContents.getAllWebContents().find(contents => contents.getType() === 'backgroundPage' && contents.getURL().startsWith(`chrome-extension://${id}/`))
+      let background = webContents.getAllWebContents().find(contents => contents.getURL() === `chrome-extension://${id}/robots.txt`)
       return background?.executeJavaScript('globalThis.bmuxHanzisizeAutoResize === true')
     }, installed.id)).toBe(true)
     await application!.evaluate(async ({ webContents }, id) => {
-      let background = webContents.getAllWebContents().find(contents => contents.getType() === 'backgroundPage' && contents.getURL().startsWith(`chrome-extension://${id}/`))!
+      let background = webContents.getAllWebContents().find(contents => contents.getURL() === `chrome-extension://${id}/robots.txt`)!
       await background.executeJavaScript("new Promise(resolve => chrome.storage.local.set({ language: 'thai', minFontSize: 18 }, resolve))")
     }, installed.id)
     let page = await openPage(url)
@@ -63,7 +64,7 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     await expect(page.locator('#english')).toHaveCSS('font-size', '13px')
     await page.reload()
     await expect(page.locator('#thai')).toHaveCSS('font-size', '18px')
-    expect(application!.context().pages().some(page => page.url().startsWith(`chrome-extension://${installed.id}/`))).toBe(false)
+    expect(application!.context().pages().some(page => page.url() === `chrome-extension://${installed.id}/index.html`)).toBe(false)
 
     await rpc('new-window', { url: `${url}/second` })
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${url}/second`)).toBe(true)
@@ -86,7 +87,7 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     await launch()
     page = await openPage(`${url}/restored`)
     await expect(page.locator('#thai')).toHaveCSS('font-size', '18px')
-    expect(application!.context().pages().some(page => page.url().startsWith(`chrome-extension://${installed.id}/`))).toBe(false)
+    expect(application!.context().pages().some(page => page.url() === `chrome-extension://${installed.id}/index.html`)).toBe(false)
   } finally {
     await closeTestApplication(application)
     server.closeAllConnections()

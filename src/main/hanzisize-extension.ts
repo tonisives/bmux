@@ -1,5 +1,5 @@
-import { app, webContents } from 'electron'
-import type { Session, WebContents } from 'electron'
+import { WebContentsView } from 'electron'
+import type { Extension, Session } from 'electron'
 
 // Hanzisize 0.2.7 and 1.0.1 only inject from their popup or resize shortcut.
 // Run their own content script in the extension context, retaining Chromium's
@@ -42,28 +42,35 @@ export let hanzisizeAutoResizeSource = `(() => {
 })()`
 
 export let createHanzisizeCompatibility = (session: Session) => {
-  let backgrounds = new Map<WebContents, () => void>()
-  let observe = (contents: WebContents) => {
-    if (contents.session !== session || contents.getType() !== 'backgroundPage' || backgrounds.has(contents)) return
-    let inject = () => {
-      if (contents.isDestroyed()) return
-      let extension = session.extensions.getAllExtensions().find(item => contents.getURL().startsWith(`chrome-extension://${item.id}/`))
-      if (extension?.name !== 'Hanzisize' || !['0.2.7', '1.0.1'].includes(extension.version) || extension.manifest.manifest_version !== 2) return
-      void contents.executeJavaScript(hanzisizeAutoResizeSource).catch(() => {
-        if (!contents.isDestroyed()) console.warn('Hanzisize automatic resizing could not be initialized')
-      })
-    }
-    backgrounds.set(contents, inject)
-    contents.on('dom-ready', inject)
-    contents.once('destroyed', () => backgrounds.delete(contents))
-    if (!contents.isLoadingMainFrame()) inject()
+  let hosts = new Map<string, WebContentsView>()
+  let start = (extension: Extension) => {
+    if (extension.name !== 'Hanzisize' || !['0.2.7', '1.0.1'].includes(extension.version) || extension.manifest.manifest_version !== 2 || hosts.has(extension.id)) return
+    // Its lazy background page does not start until the popup sends a message.
+    // An unattached, sandboxed view of this inert bundled document supplies an
+    // extension context without loading the popup or selecting a browser tab.
+    let view = new WebContentsView({ webPreferences: { session, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    hosts.set(extension.id, view)
+    view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    view.webContents.on('will-navigate', event => event.preventDefault())
+    void view.webContents.loadURL(`chrome-extension://${extension.id}/robots.txt`).then(() => {
+      if (!view.webContents.isDestroyed()) return view.webContents.executeJavaScript(hanzisizeAutoResizeSource)
+    }).catch(() => {
+      if (!view.webContents.isDestroyed()) console.warn('Hanzisize automatic resizing could not be initialized')
+    })
   }
-  let created = (_event: Electron.Event, contents: WebContents) => observe(contents)
-  app.on('web-contents-created', created)
-  for (let contents of webContents.getAllWebContents()) observe(contents)
+  let stop = (id: string) => {
+    let view = hosts.get(id)
+    hosts.delete(id)
+    if (view && !view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
+  }
+  let ready = (_event: Electron.Event, extension: Extension) => start(extension)
+  let unloaded = (_event: Electron.Event, extension: Extension) => stop(extension.id)
+  session.extensions.on('extension-ready', ready)
+  session.extensions.on('extension-unloaded', unloaded)
+  for (let extension of session.extensions.getAllExtensions()) start(extension)
   return () => {
-    app.off('web-contents-created', created)
-    for (let [contents, inject] of backgrounds) if (!contents.isDestroyed()) contents.off('dom-ready', inject)
-    backgrounds.clear()
+    session.extensions.off('extension-ready', ready)
+    session.extensions.off('extension-unloaded', unloaded)
+    for (let id of hosts.keys()) stop(id)
   }
 }

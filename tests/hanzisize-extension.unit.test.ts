@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest'
 import vm from 'node:vm'
 import { hanzisizeAutoResizeSource } from '../src/main/hanzisize-extension'
 
-vi.mock('electron', () => ({ app: {}, webContents: {} }))
+vi.mock('electron', () => ({ WebContentsView: vi.fn() }))
 
 let fixture = (settings: Record<string, unknown> = { language: 'thai', minFontSize: 18 }) => {
   let listeners: Record<string, (...args: any[]) => void> = {}
