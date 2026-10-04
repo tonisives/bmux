@@ -324,6 +324,7 @@
 
 .extensionRow { position: relative; display: flex; align-items: center; gap: 8px; padding-right: 8px; border-bottom: 1px solid #363c45; }
 .extensionRow:is(:hover, :focus-within) { background: #303944; color: #f0f2f5; }
+.panel .extensionName, .panel .extensionInfo { background: transparent; }
 .extensionName { flex: 1; align-self: stretch; min-width: 0; padding: 14px 8px; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .extensionName::after { content: ''; position: absolute; inset: 0; }
 .extensionName:disabled { color: #77818d; cursor: not-allowed; }
