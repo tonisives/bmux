@@ -128,6 +128,7 @@ export let createPageTools = (options: Options) => {
   }
   let reconfigure = (target: Target) => {
     target.ready = target.ready.catch(() => undefined).then(async () => {
+      if (target.closed || target.contents.isDestroyed()) return
       // Current-document CSS does not depend on future-document registration or
       // appearance IPC. One failed subsystem must not prevent the others updating.
       let stages = ['script registration'], work = [register(target)]
@@ -138,7 +139,7 @@ export let createPageTools = (options: Options) => {
       let results = await Promise.allSettled(work)
       let failed = stages.filter((_stage, index) => results[index].status === 'rejected')
       if (!target.closed) target.error = failed.length ? `Page tools could not refresh (${failed.join(', ')}). Reload the page to retry.` : undefined
-    }).finally(options.changed)
+    }).catch(() => { if (!target.closed) target.error = 'Page tools could not refresh. Reload the page to retry.' }).finally(options.changed)
   }
   let reload = () => {
     if (closed) return
