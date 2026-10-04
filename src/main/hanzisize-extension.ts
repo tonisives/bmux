@@ -15,7 +15,9 @@ export let hanzisizeAutoResizeSource = `(() => {
     chrome.storage.local.get(['language', 'minFontSize'], settings => {
       if (chrome.runtime.lastError || !current()) return
       if (typeof settings.language !== 'string' || !(Number(settings.minFontSize) > 0)) return
-      let message = { language: settings.language, minFontSize: Number(settings.minFontSize), mode: 'initial' }
+      // 0.2.7 calls the message field newMinFontSize; 1.0.1 uses minFontSize.
+      let size = Number(settings.minFontSize)
+      let message = { language: settings.language, minFontSize: size, newMinFontSize: size, mode: 'initial' }
       chrome.tabs.sendMessage(id, message, { frameId: 0 }, () => {
         let missing = chrome.runtime.lastError
         if (!missing || !current()) return

@@ -206,7 +206,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect(await restoredPopup.evaluate(() => (window as any).chrome.storage.session.get(null))).toEqual({})
     let beforeEnabling = await chrome.evaluate(() => (window as any).bmux.state())
     await rpc('new-session', { name: 'extension sharing', profile: other.id, client: beforeEnabling.clientId })
-    await expect(chrome.getByRole('button', { name: `Profile: ${other.name}`, exact: true })).toBeVisible()
+    await expect(chrome.getByRole('button', { name: `Choose pane profile: ${other.name}`, exact: true })).toBeVisible()
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
     let sharingPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await expect(sharingPanel).toContainText('Profile: Isolated extension profile')
