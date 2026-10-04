@@ -83,6 +83,16 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
     await expect.poll(() => page.evaluate(() => document.documentElement.getBoundingClientRect().left)).toBe(0)
   }
   let didNotMove = async () => expect(await page.evaluate(() => (window as any).displacements.every((x: number) => x === 0))).toBe(true)
+  // Duplicate delivery must never turn one swipe into two history traversals.
+  await application.evaluate(({ webContents }, url) => {
+    let contents = webContents.getAllWebContents().find(item => item.getURL() === url)!
+    let repeated = new Set<string>()
+    contents.on('console-message', details => {
+      if (!details.message.startsWith('bmux-swipe:') || repeated.has(details.message)) return
+      repeated.add(details.message)
+      contents.emit('console-message', details)
+    })
+  }, page.url())
   await swipe([[-80, 0], [-80, 0], [-80, 0], [-30, 0], [-5, 0]])
   await expect(page).toHaveURL(`${origin}/two`)
   // Native history navigation can focus the page being navigated. Its sibling

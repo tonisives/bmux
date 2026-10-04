@@ -76,7 +76,8 @@ export let observeSwipe = (marker: string, createGesture: typeof createSwipeGest
   let scope = globalThis as typeof globalThis & { bmuxSwipe?: { update: (next: Availability) => void; cancel: () => void } }
   if (scope.bmuxSwipe) { scope.bmuxSwipe.update(availability); return }
   let report = console.debug.bind(console)
-  let gesture = createGesture(direction => report(marker + direction), preview, direction => availability[direction])
+  let sequence = 0
+  let gesture = createGesture(direction => report(marker + JSON.stringify({ direction, id: `${performance.timeOrigin}:${++sequence}` })), preview, direction => availability[direction])
   scope.bmuxSwipe = { cancel: gesture.cancel, update: next => { availability = next; gesture.cancel() } }
   window.addEventListener('wheel', event => {
     if (!event.isTrusted || !event.deltaX && !event.deltaY) return
@@ -121,6 +122,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   let previous: string | undefined
   let pending = Promise.resolve()
   let world: Promise<number> | undefined
+  let committed = new Set<string>()
   let run = async (code: string) => {
     if (contents.isDestroyed()) return
     try {
@@ -149,10 +151,17 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   let cancel = () => { previous = undefined; void run('globalThis.bmuxSwipe?.cancel()') }
   contents.on('console-message', details => {
     if (!details.message.startsWith(marker)) return
-    let direction = details.message.slice(marker.length)
-    if ((direction !== 'back' && direction !== 'forward') || !available(direction)) { cancel(); return }
-    if (direction === 'back') contents.navigationHistory.goBack()
-    else contents.navigationHistory.goForward()
+    try {
+      let { direction, id } = JSON.parse(details.message.slice(marker.length))
+      if ((direction !== 'back' && direction !== 'forward') || typeof id !== 'string' || id.length > 96 || committed.has(id)) return
+      // A commit may only be consumed once, including after its navigation has
+      // replaced the document. Keep a bounded record across history changes.
+      committed.add(id)
+      if (committed.size > 64) committed.delete(committed.values().next().value!)
+      if (!available(direction)) { cancel(); return }
+      if (direction === 'back') contents.navigationHistory.goBack()
+      else contents.navigationHistory.goForward()
+    } catch { /* Ignore unrelated console output. */ }
   })
   contents.on('did-start-navigation', details => {
     if (details.isMainFrame) { cancel(); if (!details.isSameDocument) world = undefined }
