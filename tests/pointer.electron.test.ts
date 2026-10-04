@@ -10,7 +10,7 @@ import { promisify } from 'node:util'
 test('pane shortcuts move the macOS pointer into page content, including zoomed panes', async () => {
   test.skip(process.platform !== 'darwin', 'Native pointer following is supported on macOS')
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-pointer-'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+H: pane-left\n    Cmd+J: pane-down\n    Cmd+K: pane-up\n    Cmd+L: pane-right\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+H: pane-left\n    Cmd+J: pane-down\n    Cmd+K: pane-up\n    Cmd+L: pane-right\nbrowser:\n  autoUpdateFilters: false\n')
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end('<!doctype html><title>Pointer fixture</title><style>body{margin:0;height:3000px;background:#e8eef8}h1{padding:40px}</style><h1>Pointer fixture</h1>')
@@ -38,6 +38,23 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await rpc('activate-client', { client: client.id })
     await rpc('select-pane', { client: client.id, pane: left.id })
     await rpc('focus-page', { client: client.id })
+    let pages: Record<string, string> = { [left.id]: `${url}/left`, [right.id]: `${url}/right`, [lower.id]: `${url}/lower` }
+    let waitForLayout = () => expect.poll(async () => {
+      let bounds = await chrome.locator('[data-browser-content]').evaluateAll(elements => elements.map(element => {
+        let rect = element.getBoundingClientRect()
+        return { paneId: (element as HTMLElement).dataset.contentPaneId!, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+      }))
+      return application.evaluate(({ BaseWindow }, { bounds, pages }) => {
+        let window = BaseWindow.getFocusedWindow()
+        return !!window && bounds.every(({ paneId, ...expected }) => window.contentView.children.some(view => {
+          if (!('webContents' in view) || (view as Electron.WebContentsView).webContents.getURL() !== pages[paneId]) return false
+          let actual = view.getBounds()
+          return Object.entries(expected).every(([key, value]) => actual[key as keyof typeof actual] === value)
+        }))
+      }, { bounds, pages })
+    }).toBe(true)
+    await waitForLayout()
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(pages[left.id])
     let cursor = () => application.evaluate(({ screen }) => screen.getCursorScreenPoint())
     let key = (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => application.evaluate(({ webContents }, { keyCode, modifiers }) => {
       let contents = webContents.getFocusedWebContents()!
@@ -64,6 +81,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     expect(await cursor()).toEqual(before)
     await rpc('toggle-pane-zoom', { client: client.id })
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(1)
+    await waitForLayout()
     await key('j')
     await expectPointer(lower.id)
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/lower`)
@@ -71,6 +89,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await expect.poll(() => rpc('eval', { tab: lower.id, expression: 'scrollY' })).toBeGreaterThan(0)
     await rpc('toggle-pane-zoom', { client: client.id })
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(3)
+    await waitForLayout()
     await key('b', ['control']); await key('o', [])
     await expectPointer(left.id)
     // Clicking the URL bar selects its pane without recentering the real pointer.
