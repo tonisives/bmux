@@ -22,6 +22,12 @@ export let createPageTools = (options: Options) => {
     if (!target.contents.debugger.isAttached()) target.contents.debugger.attach('1.3')
     let timer: ReturnType<typeof setTimeout> | undefined
     try { return await Promise.race([target.contents.debugger.sendCommand(method, params, sessionId), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Page tools timed out')), 3000) })]) }
+    catch (error) {
+      // Retain command/cause diagnostics without exposing URLs or script source.
+      let message = error instanceof Error ? error.message : ''
+      let cause = /script.*not found|no script.*identifier/i.test(message) ? 'missing script' : /timed out/i.test(message) ? 'timeout' : /context|frame/i.test(message) ? 'document changed' : 'command rejected'
+      throw new Error(`${method}: ${cause}`)
+    }
     finally { clearTimeout(timer) }
   }
   let appearanceSource = (profileId: string) => {
@@ -137,7 +143,10 @@ export let createPageTools = (options: Options) => {
         work.push(isolated(target, appearanceSource(target.profileId)).then(() => undefined), userStyles(target), cosmetics(target))
       }
       let results = await Promise.allSettled(work)
-      let failed = stages.filter((_stage, index) => results[index].status === 'rejected')
+      let failed = stages.flatMap((stage, index) => {
+        let result = results[index]
+        return result.status === 'rejected' ? [`${stage}: ${result.reason instanceof Error ? result.reason.message : 'failed'}`] : []
+      })
       if (!target.closed) target.error = failed.length ? `Page tools could not refresh (${failed.join(', ')}). Reload the page to retry.` : undefined
     }).catch(() => { if (!target.closed) target.error = 'Page tools could not refresh. Reload the page to retry.' }).finally(options.changed)
   }
