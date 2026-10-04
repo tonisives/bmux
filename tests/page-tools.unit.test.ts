@@ -88,6 +88,32 @@ test.each(['Page.removeScriptToEvaluateOnNewDocument', 'Page.createIsolatedWorld
   } finally { close() }
 })
 
+test('finishes registration cleanup when Chromium already removed a script', async () => {
+  let { tools, directory, settings, registrations, sendCommand, close } = await fixture()
+  try {
+    fs.writeFileSync(path.join(directory, 'early.js'), "globalThis.earlyFlag = 'before-inline'")
+    settings.userscripts.push(...parseBrowserSettings({ userscripts: [{ id: 'early', file: 'early.js', enabled: true, runAt: 'document-start', matches: ['https://page.test/*'] }] }).userscripts)
+    await tools.reload()
+    let original = sendCommand.getMockImplementation()!, missing = false
+    sendCommand.mockImplementation(async (method, params = {}) => {
+      let response = await original(method, params)
+      if (method === 'Page.removeScriptToEvaluateOnNewDocument' && !missing) {
+        missing = true
+        throw new Error('Script not found')
+      }
+      return response
+    })
+    settings.userscripts.find(script => script.id === 'early')!.enabled = false
+    await tools.reload()
+    expect(tools.error('tab')).toBeUndefined()
+    expect(registrations.size).toBe(3)
+    let document = vm.createContext({ location: { protocol: 'https:', href: 'https://page.test/next' } })
+    document.window = document; document.top = document
+    for (let registration of registrations.values()) if (!registration.worldName) vm.runInContext(registration.source, document)
+    expect(document.earlyFlag).toBeUndefined()
+  } finally { close() }
+})
+
 test('reapplies styles when a settings refresh finishes in the outgoing document', async () => {
   let { tools, sheets, css, ads, start, commit, close } = await fixture()
   try {

@@ -124,7 +124,12 @@ export let createPageTools = (options: Options) => {
     // Keep ownership until Chromium acknowledges removal. A failed refresh must
     // not leave an old userscript installed but absent from our next cleanup.
     while (target.registrations.length) {
-      await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: target.registrations[0] })
+      try { await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: target.registrations[0] }) }
+      catch (error) {
+        // Chromium can remove its browser-side entry before a replaced renderer
+        // reports it missing. Absence is complete cleanup; other failures retain it.
+        if (!(error instanceof Error) || error.message !== 'Page.removeScriptToEvaluateOnNewDocument: missing script') throw error
+      }
       target.registrations.shift()
     }
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: target.focus.source, worldName: 'bmux:keyboard-focus' })).identifier)
@@ -145,7 +150,8 @@ export let createPageTools = (options: Options) => {
       let results = await Promise.allSettled(work)
       let failed = stages.flatMap((stage, index) => {
         let result = results[index]
-        return result.status === 'rejected' ? [`${stage}: ${result.reason instanceof Error ? result.reason.message : 'failed'}`] : []
+        let diagnostic = result.status === 'rejected' && result.reason instanceof Error && /^[A-Za-z.]+: (missing script|timeout|document changed|command rejected)$/.test(result.reason.message) ? result.reason.message : 'failed'
+        return result.status === 'rejected' ? [`${stage}: ${diagnostic}`] : []
       })
       if (!target.closed) target.error = failed.length ? `Page tools could not refresh (${failed.join(', ')}). Reload the page to retry.` : undefined
     }).catch(() => { if (!target.closed) target.error = 'Page tools could not refresh. Reload the page to retry.' }).finally(options.changed)

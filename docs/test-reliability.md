@@ -269,6 +269,17 @@ verify replacement on the new one, and check recovery without duplicate sheets.
 Repeat the existing browser-tools GUI file to exercise automatic file watching,
 script enable/disable, navigation, profile scoping, and strict CSP together.
 
+The first file repetition passed the CSS assertion but exposed failed script
+registration later in the same case. Eight repetitions of that case alone then
+passed, so verification must retain its preceding settings and navigation cases.
+Command diagnostics now report only a method and a fixed cause category, without
+page URLs or script contents. Cleanup also accepts Chromium's specific
+`Script not found` response as completed removal, while retaining ownership for
+timeouts and other failures. Chromium's [browser-side removal](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/content/browser/devtools/protocol/page_handler.cc)
+erases its registration before forwarding to the renderer; the renderer can
+report the entry absent. A unit test models that completed removal followed by
+the missing-entry response and verifies disabled scripts stay absent.
+
 ## Floating address focus and the full-suite budget
 
 The October 3 Check on `b84cd17` entered a second floating-pane URL before the
