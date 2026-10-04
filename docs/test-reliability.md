@@ -276,3 +276,6 @@ same dark-indicator and white-bar thresholds. The bookmark scrolling case waits
 for a complete, scrollable document and the fixture background in a captured
 native frame before sending its first key. Focus, scroll, and mobile reattachment
 assertions remain in place; native key delivery is not retried.
+Chromium can reject capture with `UnknownVizError` before that first frame is
+available. The existing five-second readiness poll treats only that error as
+not ready; other capture errors fail immediately.
