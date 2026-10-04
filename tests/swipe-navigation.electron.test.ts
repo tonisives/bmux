@@ -56,8 +56,12 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(`${origin}/one`); await address.press('Enter')
   await rpc('wait', { tab: pane, selector: 'h1' })
+  // Finish the address submission's native focus handoff before building history.
+  // Its page-ready selector alone can resolve while that submission is pending.
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/one`)
   await rpc('navigate', { tab: pane, url: `${origin}/two` })
   await rpc('navigate', { tab: pane, url: `${origin}/three` })
+  await expect.poll(async () => (await state()).navigation[pane].entries.map((entry: { url: string }) => entry.url)).toEqual([`${origin}/one`, `${origin}/two`, `${origin}/three`])
   let other = await rpc('split-window', { pane, url: `${origin}/other` })
   await rpc('wait', { tab: other.id, selector: 'h1' })
   await rpc('select-pane', { client: client.id, pane: other.id })
