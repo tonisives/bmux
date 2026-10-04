@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  electron-chrome-extensions@4.9.0: 0f23fffcf39e2f2b79650b29928c2e7abc22421c70bf1e62f574e44e0108f3e7
+  electron-chrome-extensions@4.9.0: 998baa62ed9c39df1196fa4d871c75434f107882baa0f7077c4789b93c65aab4
 
 importers:
 
@@ -19,7 +19,7 @@ importers:
         version: 4.9.130
       electron-chrome-extensions:
         specifier: 4.9.0
-        version: 4.9.0(patch_hash=0f23fffcf39e2f2b79650b29928c2e7abc22421c70bf1e62f574e44e0108f3e7)(supports-color@7.2.0)
+        version: 4.9.0(patch_hash=998baa62ed9c39df1196fa4d871c75434f107882baa0f7077c4789b93c65aab4)(supports-color@7.2.0)
       jose:
         specifier: ^6.2.12
         version: 6.2.12
@@ -3665,7 +3665,7 @@ snapshots:
       - electron-builder-squirrel-windows
       - supports-color
 
-  electron-chrome-extensions@4.9.0(patch_hash=0f23fffcf39e2f2b79650b29928c2e7abc22421c70bf1e62f574e44e0108f3e7)(supports-color@7.2.0):
+  electron-chrome-extensions@4.9.0(patch_hash=998baa62ed9c39df1196fa4d871c75434f107882baa0f7077c4789b93c65aab4)(supports-color@7.2.0):
     dependencies:
       debug: 4.4.3(supports-color@7.2.0)
     transitivePeerDependencies:

@@ -64,6 +64,11 @@ CRX files are not supported. To remove an extension, use `extension remove ID`.
 Unloading stops the extension but retains its browser storage; reload open pages
 to remove scripts it has already injected.
 
+Hanzisize applies its saved language and minimum font size when you open its
+popup on a page. Enabling the extension or refreshing a page does not apply it;
+open Hanzisize again after navigation. Set the language and size separately in
+each profile. Its resize keyboard shortcut is not supported in bmux yet.
+
 The CLI exposes the same operations with an explicit profile:
 
 ```sh
