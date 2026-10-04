@@ -7,11 +7,11 @@ receive the bmux API.
 
 Use the extensions button in the status bar to see extensions installed in the
 selected pane's profile. Use each row's toggle to enable or disable an extension.
-Click an extension row to open a separate view with its description, version,
-ID, package location, and declared permissions, including site access and optional
-permissions. Back to extensions returns to the list. Open extension opens its
-popup when one is provided. Removal lives in the details view's Danger zone and affects only the
-selected profile.
+Click an enabled extension row to open its popup when one is provided. The info
+button within each row opens its description, version, ID, package location, and
+declared permissions, including site access and optional permissions. Back to
+extensions returns to the list. Removal lives in the details view's Danger zone
+and affects only the selected profile.
 Disabled extensions stay installed and remain disabled after restarting bmux.
 Options in the details view opens the extension's own settings page when one is provided.
 These controls affect only the selected profile; removing an extension does not

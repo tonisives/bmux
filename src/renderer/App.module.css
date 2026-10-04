@@ -325,14 +325,14 @@
 .extensionRow { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #363c45; }
 .panel .extensionName { flex: 1; align-self: stretch; min-width: 0; padding: 14px 8px; }
 .extensionName > span { display: block; }
-.extensionActions { display: flex; align-items: center; gap: 14px; }
-.extensionActions button { color: #bdc9b4; padding: 5px 3px; }
-.extensionActions button:disabled { color: #68717c; }
+.extensionInfo { display: grid; place-items: center; flex: 0 0 28px; height: 28px; padding: 4px; color: #8e98a4; }
+.extensionInfo:hover { color: #eceef2; background: #303944; }
+.extensionInfo svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .panel .extensionToggle { flex: 0 0 32px; width: 32px; height: 18px; padding: 2px; border: 1px solid #68717c; border-radius: 10px; background: #303640; cursor: pointer; }
 .extensionToggle::after { content: ''; display: block; width: 12px; height: 12px; border-radius: 50%; background: #c0c6ce; }
 .panel .extensionToggle[aria-checked="true"] { background: #a7b69c; border-color: #a7b69c; }
 .extensionToggle[aria-checked="true"]::after { transform: translateX(14px); background: #191d23; }
-.extensionToggle:focus-visible, .extensionDetails button:focus-visible { outline: 2px solid #a7b69c; outline-offset: 3px; }
+.extensionInfo:focus-visible, .extensionToggle:focus-visible, .extensionDetails button:focus-visible { outline: 2px solid #a7b69c; outline-offset: 3px; }
 .extensionDetails h2 { font-size: 16px; color: #eceef2; overflow-wrap: anywhere; }
 .extensionDetails h3 { font-size: 12px; margin: 18px 0 4px; }
 .extensionDetails > button { color: #bdc9b4; }
