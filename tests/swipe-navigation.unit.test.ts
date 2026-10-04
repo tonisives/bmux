@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { createSwipeGesture } from '../src/main/swipe-navigation'
+import { EventEmitter } from 'node:events'
+import type { WebContents } from 'electron'
+import { createSwipeGesture, createSwipeNavigation } from '../src/main/swipe-navigation'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -115,4 +117,40 @@ test('navigation, closing or loss of the target cancels pending work', () => {
   let { wheel, navigate, gesture, finish } = fixture()
   wheel(-240); gesture.cancel(); finish()
   expect(navigate).not.toHaveBeenCalled()
+})
+
+let navigationFixture = async () => {
+  let goBack = vi.fn()
+  let sendCommand = vi.fn(async (method: string, _params?: Record<string, unknown>) => method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'main' } } } : method === 'Page.createIsolatedWorld' ? { executionContextId: 1 } : {})
+  let contents = Object.assign(new EventEmitter(), {
+    isDestroyed: () => false,
+    navigationHistory: { canGoBack: () => true, canGoForward: () => false, goBack },
+    debugger: Object.assign(new EventEmitter(), { isAttached: () => true, sendCommand }),
+  })
+  await createSwipeNavigation(contents as unknown as WebContents, () => true)()
+  let source = String(sendCommand.mock.calls.find(([method]) => method === 'Runtime.evaluate')![1]!.expression)
+  let marker = source.match(/bmux-swipe:[a-f0-9-]+/)![0]
+  let request = () => contents.emit('console-message', { message: marker + JSON.stringify({ id: 'document:1', direction: 'back' }) })
+  return { contents, goBack, request }
+}
+
+test('a swipe commits once outside the console callback, including duplicate delivery', async () => {
+  let { goBack, request } = await navigationFixture()
+  request(); request()
+  expect(goBack).not.toHaveBeenCalled()
+  await vi.runAllTimersAsync()
+  expect(goBack).toHaveBeenCalledTimes(1)
+  request()
+  await vi.runAllTimersAsync()
+  expect(goBack).toHaveBeenCalledTimes(1)
+})
+
+test('blur or another navigation cancels a queued native swipe commit', async () => {
+  for (let event of ['blur', 'did-start-navigation']) {
+    let { contents, goBack, request } = await navigationFixture()
+    request()
+    contents.emit(event, { isMainFrame: true, isSameDocument: false })
+    await vi.runAllTimersAsync()
+    expect(goBack).not.toHaveBeenCalled()
+  }
 })
