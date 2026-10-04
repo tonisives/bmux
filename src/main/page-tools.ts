@@ -9,7 +9,7 @@ import { createKeyboardFocus } from './keyboard-focus'
 import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
 
 type Script = UserScript & { source: string; error?: string }
-type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
+type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
 type Options = { directory: string; settings: () => BrowserSettings; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
@@ -22,6 +22,12 @@ export let createPageTools = (options: Options) => {
     if (!target.contents.debugger.isAttached()) target.contents.debugger.attach('1.3')
     let timer: ReturnType<typeof setTimeout> | undefined
     try { return await Promise.race([target.contents.debugger.sendCommand(method, params, sessionId), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Page tools timed out')), 3000) })]) }
+    catch (error) {
+      // Retain command/cause diagnostics without exposing URLs or script source.
+      let message = error instanceof Error ? error.message : ''
+      let cause = /script.*not found|no script.*identifier/i.test(message) ? 'missing script' : /timed out/i.test(message) ? 'timeout' : /context|frame/i.test(message) ? 'document changed' : 'command rejected'
+      throw new Error(`${method}: ${cause}`)
+    }
     finally { clearTimeout(timer) }
   }
   let appearanceSource = (profileId: string) => {
@@ -111,28 +117,50 @@ export let createPageTools = (options: Options) => {
     let css = enabled ? options.styles(url, value.ids, value.classes) : ''
     await nativeStyle(target, 'ads', css, version)
   }
-  let register = async (target: Target, apply = true) => {
+  let register = async (target: Target) => {
     let appearance = appearanceSource(target.profileId), users = scriptSource(target.profileId)
+    let sources = JSON.stringify([target.focus.source, appearance, users])
+    // Config/file watchers can repeat an explicit refresh after it returns.
+    // Preserve unchanged registrations so navigation never sees a needless gap.
+    if (target.registeredSources === sources) return
+    target.registeredSources = undefined
     await send(target, 'Page.enable')
     await target.frames?.start()
     // Keep ownership until Chromium acknowledges removal. A failed refresh must
     // not leave an old userscript installed but absent from our next cleanup.
     while (target.registrations.length) {
-      await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: target.registrations[0] })
+      try { await send(target, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: target.registrations[0] }) }
+      catch (error) {
+        // Chromium can remove its browser-side entry before a replaced renderer
+        // reports it missing. Absence is complete cleanup; other failures retain it.
+        if (!(error instanceof Error) || error.message !== 'Page.removeScriptToEvaluateOnNewDocument: missing script') throw error
+      }
       target.registrations.shift()
     }
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: target.focus.source, worldName: 'bmux:keyboard-focus' })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: appearance, worldName: world })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: users })).identifier)
+    target.registeredSources = sources
     target.error = undefined
-    if (apply && pageOrigin(target.contents.getURL())) {
-      await isolated(target, appearance)
-      await userStyles(target)
-      await cosmetics(target)
-    }
   }
   let reconfigure = (target: Target) => {
-    target.ready = target.ready.catch(() => undefined).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not refresh. Reload the page to retry.' }).finally(options.changed)
+    target.ready = target.ready.catch(() => undefined).then(async () => {
+      if (target.closed || target.contents.isDestroyed()) return
+      // Current-document CSS does not depend on future-document registration or
+      // appearance IPC. One failed subsystem must not prevent the others updating.
+      let stages = ['script registration'], work = [register(target)]
+      if (pageOrigin(target.contents.getURL())) {
+        stages.push('appearance', 'user styles', 'cosmetics')
+        work.push(isolated(target, appearanceSource(target.profileId)).then(() => undefined), userStyles(target), cosmetics(target))
+      }
+      let results = await Promise.allSettled(work)
+      let failed = stages.flatMap((stage, index) => {
+        let result = results[index]
+        let diagnostic = result.status === 'rejected' && result.reason instanceof Error && /^[A-Za-z.]+: (missing script|timeout|document changed|command rejected)$/.test(result.reason.message) ? result.reason.message : 'failed'
+        return result.status === 'rejected' ? [`${stage}: ${diagnostic}`] : []
+      })
+      if (!target.closed) target.error = failed.length ? `Page tools could not refresh (${failed.join(', ')}). Reload the page to retry.` : undefined
+    }).catch(() => { if (!target.closed) target.error = 'Page tools could not refresh. Reload the page to retry.' }).finally(options.changed)
   }
   let reload = () => {
     if (closed) return
@@ -169,9 +197,10 @@ export let createPageTools = (options: Options) => {
       let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }
       target.frames = createFrameCosmetics({ contents, focusSource: target.focus.source, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
+      contents.debugger.on('detach', () => { target.registeredSources = undefined })
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.
-      target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target, false)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
+      target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
       let resetStyles = () => { target.version++; target.styles = {} }
       contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) resetStyles() })
       // Settings can reapply styles to the outgoing document while navigation waits.

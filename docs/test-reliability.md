@@ -251,6 +251,58 @@ URLs, checking both the page's early observation and the script's global value.
 Repeat the browser-tools file in CI to include settings, CSS, CSP, and profile
 changes without running GUI tests on the local desktop or enabling retries.
 
+## Independent live stylesheet refresh
+
+The October 4 Check on `0227ea9` retained the old user CSS after a file edit.
+Its failure diagnostics showed a page-tools refresh error, with valid script
+files. The error did not identify the failed CDP stage. Refresh previously ran
+registration, appearance, user CSS, and cosmetics in sequence: a failure before
+user CSS prevented the edit from applying, and the unchanged file produced no
+later watcher event to recover it.
+
+These operations now settle independently within the existing per-tab refresh
+queue. A registration or appearance failure still reports an error, including
+the failed stage, while user CSS can update. No command is retried and no watcher
+or test deadline is increased. Unit tests inject failures in registration and
+isolated-world creation; both reproduce stale CSS on the prior implementation,
+verify replacement on the new one, and check recovery without duplicate sheets.
+Repeat the existing browser-tools GUI file to exercise automatic file watching,
+script enable/disable, navigation, profile scoping, and strict CSP together.
+
+The first file repetition passed the CSS assertion but exposed failed script
+registration later in the same case. Eight repetitions of that case alone then
+passed, so verification must retain its preceding settings and navigation cases.
+Command diagnostics now report only a method and a fixed cause category, without
+page URLs or script contents. Cleanup also accepts Chromium's specific
+`Script not found` response as completed removal, while retaining ownership for
+timeouts and other failures. Chromium's [browser-side removal](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/content/browser/devtools/protocol/page_handler.cc)
+erases its registration before forwarding to the renderer; the renderer can
+report the entry absent. A unit test models that completed removal followed by
+the missing-entry response and verifies disabled scripts stay absent.
+
+Further repetition found an enabled script missing with no refresh error or
+pending operation. An explicit refresh can be followed by a config/file watcher
+refresh during the next navigation. Removing and reinstalling identical sources
+creates an unnecessary interval without the document-start script. Each tab now
+remembers successfully installed sources and preserves their registrations when
+unchanged. Failed installation and debugger detachment invalidate that memory.
+The unit coverage verifies no registration changes for CSS-only edits and
+duplicate refreshes, plus registration after a new debugger session. Current
+appearance and CSS still refresh independently. Fixture RPCs have labelled
+15-second steps; opt-in tracing records unfinished operation names and durations
+without their page data.
+
+## Pointer fixture layout readiness
+
+The concurrent October 4 Check on `88bad22` selected the upper-right pane but
+recorded a cursor at the old full-height right pane's center. The pointer fixture
+previously waited for the lower pane's document, then immediately sent shortcuts;
+that did not establish that native view bounds matched the new split layout.
+It now waits for all visible native page bounds to match the renderer after
+splitting and zoom changes, and waits for the initial page focus handoff. Its
+isolated configuration also disables unrelated live filter updates. Shortcut,
+autorepeat, zoom, scroll, and background no-warp assertions remain in place.
+
 ## Floating address focus and the full-suite budget
 
 The October 3 Check on `b84cd17` entered a second floating-pane URL before the

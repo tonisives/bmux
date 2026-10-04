@@ -42,6 +42,10 @@ Common direct shortcuts:
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
 
+On macOS, swipe horizontally with two fingers over a page to go back or forward.
+Navigation happens when scrolling settles. Short or reversed swipes cancel;
+horizontal page scrolling and widgets that handle the gesture keep their input.
+
 ## Click mode
 
 For a reference lookup, activate Click Mode, press `f`, then type its link hint.

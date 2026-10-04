@@ -58,6 +58,7 @@ import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
 import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
+import { createSwipeNavigation } from './swipe-navigation'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -828,6 +829,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
+    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible())) : undefined
     contents.on('will-prevent-unload', event => {
       if (idleClosing.has(tabId)) { live.cancelClose?.(); return }
       let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
@@ -853,7 +855,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // Let Chromium open native pickers. CDP interception aborts the File System
       // Access API, whose requests have no input node to receive selected files.
       (pane.device ? contents.loadURL('about:blank').then(() => { if (isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device!) }) : Promise.resolve()).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents) }),
-    ]).then(() => { if (isLiveTabOpen(live)) return startSecurity() }).finally(() => { bootstrapping = false })
+    ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('audio-state-changed', ({ audible }) => {

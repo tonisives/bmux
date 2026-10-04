@@ -54,6 +54,7 @@ test('removes old userscripts after an interrupted registration refresh', async 
       if (method === 'Page.removeScriptToEvaluateOnNewDocument' && !interrupted) { interrupted = true; throw new Error('Renderer changed during refresh') }
       return original(method, params)
     })
+    fs.writeFileSync(path.join(directory, 'early.js'), "globalThis.earlyFlag = 'changed'")
     await tools.reload()
     expect(tools.error('tab')).toContain('could not refresh')
     settings.userscripts.find(script => script.id === 'early')!.enabled = false
@@ -64,6 +65,76 @@ test('removes old userscripts after an interrupted registration refresh', async 
     for (let registration of registrations.values()) if (!registration.worldName) vm.runInContext(registration.source, document)
     expect(document.earlyFlag).toBeUndefined()
     expect(registrations.size).toBe(3)
+  } finally { close() }
+})
+
+test.each(['Page.removeScriptToEvaluateOnNewDocument', 'Page.createIsolatedWorld'])('updates user CSS even when %s fails during refresh', async method => {
+  let { tools, directory, sheets, css, settings, sendCommand, close } = await fixture()
+  try {
+    let original = sendCommand.getMockImplementation()!
+    sendCommand.mockImplementation(async (command, params = {}) => {
+      if (command === method) throw new Error('Renderer changed during refresh')
+      return original(command, params)
+    })
+    let updated = '.custom { color: green !important }'
+    fs.writeFileSync(path.join(directory, 'style.css'), updated)
+    fs.writeFileSync(path.join(directory, 'early.js'), 'globalThis.changed = true')
+    settings.userscripts.push(...parseBrowserSettings({ userscripts: [{ id: 'early', file: 'early.js', enabled: true, matches: ['https://page.test/*'] }] }).userscripts)
+    await tools.reload()
+    expect([...sheets.values()]).toContain(updated)
+    expect([...sheets.values()]).not.toContain(css)
+    expect(tools.error('tab')).toContain('could not refresh')
+    sendCommand.mockImplementation(original)
+    await tools.reload()
+    expect(tools.error('tab')).toBeUndefined()
+    expect([...sheets.values()].filter(source => source === updated)).toHaveLength(1)
+  } finally { close() }
+})
+
+test('preserves installed scripts across CSS edits and duplicate watcher refreshes', async () => {
+  let { contents, tools, directory, registrations, sendCommand, sheets, close } = await fixture()
+  try {
+    let installed = [...registrations.entries()]
+    sendCommand.mockClear()
+    let updated = '.custom { color: green !important }'
+    fs.writeFileSync(path.join(directory, 'style.css'), updated)
+    await tools.reload()
+    await tools.reload()
+    expect([...sheets.values()]).toContain(updated)
+    expect([...registrations.entries()]).toEqual(installed)
+    expect(sendCommand.mock.calls.some(([method]) => method === 'Page.removeScriptToEvaluateOnNewDocument' || method === 'Page.addScriptToEvaluateOnNewDocument')).toBe(false)
+    // A new debugger session must still install its own registrations.
+    registrations.clear()
+    contents.debugger.emit('detach', {}, 'test session reset')
+    await tools.reload()
+    expect(registrations.size).toBe(3)
+    expect(sendCommand.mock.calls.some(([method]) => method === 'Page.addScriptToEvaluateOnNewDocument')).toBe(true)
+  } finally { close() }
+})
+
+test('finishes registration cleanup when Chromium already removed a script', async () => {
+  let { tools, directory, settings, registrations, sendCommand, close } = await fixture()
+  try {
+    fs.writeFileSync(path.join(directory, 'early.js'), "globalThis.earlyFlag = 'before-inline'")
+    settings.userscripts.push(...parseBrowserSettings({ userscripts: [{ id: 'early', file: 'early.js', enabled: true, runAt: 'document-start', matches: ['https://page.test/*'] }] }).userscripts)
+    await tools.reload()
+    let original = sendCommand.getMockImplementation()!, missing = false
+    sendCommand.mockImplementation(async (method, params = {}) => {
+      let response = await original(method, params)
+      if (method === 'Page.removeScriptToEvaluateOnNewDocument' && !missing) {
+        missing = true
+        throw new Error('Script not found')
+      }
+      return response
+    })
+    settings.userscripts.find(script => script.id === 'early')!.enabled = false
+    await tools.reload()
+    expect(tools.error('tab')).toBeUndefined()
+    expect(registrations.size).toBe(3)
+    let document = vm.createContext({ location: { protocol: 'https:', href: 'https://page.test/next' } })
+    document.window = document; document.top = document
+    for (let registration of registrations.values()) if (!registration.worldName) vm.runInContext(registration.source, document)
+    expect(document.earlyFlag).toBeUndefined()
   } finally { close() }
 })
 
