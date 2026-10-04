@@ -323,8 +323,8 @@
 @container (max-width: 300px) { .clickModeAction { padding: 3px 2px; } .clickModeActionGroup { gap: 2px; } .clickModeActions { gap: 2px; } }
 
 .extensionRow { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #363c45; }
-.extensionName { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 7px 0; }
-.extensionName > strong, .extensionName > span { display: block; padding: 0 8px; }
+.panel .extensionName { flex: 1; align-self: stretch; min-width: 0; padding: 14px 8px; }
+.extensionName > span { display: block; }
 .extensionActions { display: flex; align-items: center; gap: 14px; }
 .extensionActions button { color: #bdc9b4; padding: 5px 3px; }
 .extensionActions button:disabled { color: #68717c; }
@@ -332,7 +332,7 @@
 .extensionToggle::after { content: ''; display: block; width: 12px; height: 12px; border-radius: 50%; background: #c0c6ce; }
 .panel .extensionToggle[aria-checked="true"] { background: #a7b69c; border-color: #a7b69c; }
 .extensionToggle[aria-checked="true"]::after { transform: translateX(14px); background: #191d23; }
-.extensionActions button:focus-visible, .extensionDetails button:focus-visible { outline: 2px solid #a7b69c; outline-offset: 3px; }
+.extensionToggle:focus-visible, .extensionDetails button:focus-visible { outline: 2px solid #a7b69c; outline-offset: 3px; }
 .extensionDetails h2 { font-size: 16px; color: #eceef2; overflow-wrap: anywhere; }
 .extensionDetails h3 { font-size: 12px; margin: 18px 0 4px; }
 .extensionDetails > button { color: #bdc9b4; }

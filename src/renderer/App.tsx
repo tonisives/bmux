@@ -1079,7 +1079,10 @@ let ExtensionManager = () => {
         {!!selected.optionalHostPermissions.length && <div><dt>Optional site access</dt><dd>{selected.optionalHostPermissions.join(', ')} (not granted)</dd></div>}
       </dl>
     </> : <p>Manifest unavailable. Permissions could not be read.</p>}
-    {selected.hasOptions && <button data-id={selected.id} data-action="options" onClick={action} disabled={busy || !selected.enabled}>Options</button>}
+    <div className={css.extensionActions}>
+      {selected.hasPopup && <button data-id={selected.id} data-action="open" onClick={action} disabled={busy || !selected.enabled}>Open extension</button>}
+      {selected.hasOptions && <button data-id={selected.id} data-action="options" onClick={action} disabled={busy || !selected.enabled}>Options</button>}
+    </div>
     <section className={css.extensionDanger} aria-label="Danger zone">
       <h3>Danger zone</h3>
       <p>{session?.private ? 'Disable in this private session. Extension data is discarded when the session closes.' : `Remove from ${profile?.name}. Other profiles, package files, and saved extension data are kept.`}</p>
@@ -1091,11 +1094,8 @@ let ExtensionManager = () => {
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>{session?.private ? 'No extensions enabled in this private session.' : 'No extensions in this profile.'}</p>}
     {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
-      <div className={css.extensionName}>{extension.enabled && extension.hasPopup ? <button className={css.listRow} data-id={extension.id} data-action="open" onClick={action} disabled={busy}><strong>{extension.name}</strong></button> : <strong>{extension.name}</strong>}{extension.error && <span className={css.error}>Failed to load</span>}</div>
-      <div className={css.extensionActions}>
-        <button data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`}>Details</button>
-        <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
-      </div>
+      <button className={`${css.listRow} ${css.extensionName}`} data-details={extension.path} onClick={showDetails}><strong>{extension.name}</strong>{extension.error && <span className={css.error}>Failed to load</span>}</button>
+      <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
     </div>)}
     {!!listing?.available.length && <p>{session?.private ? 'Installed extensions' : 'Available from other profiles'}</p>}
     {listing?.available.map(extension => <button key={extension.path} className={css.listRow} disabled={busy} data-action="load" data-path={extension.path} onClick={action}><strong>Enable {extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
