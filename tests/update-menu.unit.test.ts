@@ -50,9 +50,10 @@ test.runIf(process.platform === 'darwin')('update menu survives config reloads a
   }
   expect(electronUpdater.autoUpdater.channel).toBe(`latest-${process.arch}`)
   expect(items['automatic-updates']).toMatchObject({ visible: true, checked: true })
-  items['automatic-updates'].checked = false
-  items['automatic-updates'].click(items['automatic-updates'], null, {})
+  // Native menu dispatch passes an event, not the item supplied to constructor callbacks.
+  items['automatic-updates'].click({} as MenuItem, null, {})
   expect(setEnabled).toHaveBeenCalledWith(false)
+  expect(items['automatic-updates'].checked).toBe(false)
   items = { 'check-for-updates': {} as MenuItem, 'automatic-updates': {} as MenuItem }
   menu.refresh()
   expect(items['automatic-updates'].checked).toBe(false)
