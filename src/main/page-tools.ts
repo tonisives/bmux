@@ -111,7 +111,7 @@ export let createPageTools = (options: Options) => {
     let css = enabled ? options.styles(url, value.ids, value.classes) : ''
     await nativeStyle(target, 'ads', css, version)
   }
-  let register = async (target: Target, apply = true) => {
+  let register = async (target: Target) => {
     let appearance = appearanceSource(target.profileId), users = scriptSource(target.profileId)
     await send(target, 'Page.enable')
     await target.frames?.start()
@@ -125,14 +125,20 @@ export let createPageTools = (options: Options) => {
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: appearance, worldName: world })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: users })).identifier)
     target.error = undefined
-    if (apply && pageOrigin(target.contents.getURL())) {
-      await isolated(target, appearance)
-      await userStyles(target)
-      await cosmetics(target)
-    }
   }
   let reconfigure = (target: Target) => {
-    target.ready = target.ready.catch(() => undefined).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not refresh. Reload the page to retry.' }).finally(options.changed)
+    target.ready = target.ready.catch(() => undefined).then(async () => {
+      // Current-document CSS does not depend on future-document registration or
+      // appearance IPC. One failed subsystem must not prevent the others updating.
+      let stages = ['script registration'], work = [register(target)]
+      if (pageOrigin(target.contents.getURL())) {
+        stages.push('appearance', 'user styles', 'cosmetics')
+        work.push(isolated(target, appearanceSource(target.profileId)).then(() => undefined), userStyles(target), cosmetics(target))
+      }
+      let results = await Promise.allSettled(work)
+      let failed = stages.filter((_stage, index) => results[index].status === 'rejected')
+      if (!target.closed) target.error = failed.length ? `Page tools could not refresh (${failed.join(', ')}). Reload the page to retry.` : undefined
+    }).finally(options.changed)
   }
   let reload = () => {
     if (closed) return
@@ -171,7 +177,7 @@ export let createPageTools = (options: Options) => {
       targets.set(tabId, target)
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.
-      target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target, false)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
+      target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
       let resetStyles = () => { target.version++; target.styles = {} }
       contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) resetStyles() })
       // Settings can reapply styles to the outgoing document while navigation waits.

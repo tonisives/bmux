@@ -67,6 +67,27 @@ test('removes old userscripts after an interrupted registration refresh', async 
   } finally { close() }
 })
 
+test.each(['Page.removeScriptToEvaluateOnNewDocument', 'Page.createIsolatedWorld'])('updates user CSS even when %s fails during refresh', async method => {
+  let { tools, directory, sheets, css, sendCommand, close } = await fixture()
+  try {
+    let original = sendCommand.getMockImplementation()!
+    sendCommand.mockImplementation(async (command, params = {}) => {
+      if (command === method) throw new Error('Renderer changed during refresh')
+      return original(command, params)
+    })
+    let updated = '.custom { color: green !important }'
+    fs.writeFileSync(path.join(directory, 'style.css'), updated)
+    await tools.reload()
+    expect([...sheets.values()]).toContain(updated)
+    expect([...sheets.values()]).not.toContain(css)
+    expect(tools.error('tab')).toContain('could not refresh')
+    sendCommand.mockImplementation(original)
+    await tools.reload()
+    expect(tools.error('tab')).toBeUndefined()
+    expect([...sheets.values()].filter(source => source === updated)).toHaveLength(1)
+  } finally { close() }
+})
+
 test('reapplies styles when a settings refresh finishes in the outgoing document', async () => {
   let { tools, sheets, css, ads, start, commit, close } = await fixture()
   try {
