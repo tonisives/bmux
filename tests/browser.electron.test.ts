@@ -2038,6 +2038,81 @@ test('address suggestions reveal older matching history', async () => {
   await cli('detach-client', { client: client.id })
 })
 
+for (let editing of [false, true]) test(`URL selection follows horizontal dragging outside the ${editing ? 'editable' : 'displayed'} address field`, async ({}, info) => {
+  let session = await cli('new-session', { name: `Horizontal address selection ${editing}` })
+  let pane = session.windows[0].panes[0]
+  let target = `${url}/select-the-middle-of-this-url-without-jumping-to-either-end`
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  await cli('navigate', { pane: pane.id, url: target })
+  await cli('wait', { pane: pane.id, selector: '#text' })
+  let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let input = editing ? address : displayed
+  let selected = () => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd!, direction: (input as HTMLInputElement).selectionDirection }))
+  try {
+    for (let vertical of [-60, 60]) {
+      if (editing) { await displayed.click(); await expect(address).toBeFocused(); await address.press('ArrowRight') }
+      let bounds = (await input.boundingBox())!
+      let x = bounds.x + 210, y = bounds.y + bounds.height / 2
+      await chrome.mouse.move(x, y)
+      await chrome.mouse.down()
+      try {
+        await expect(input).toHaveCSS('outline-style', 'none')
+        await expect(input.locator('xpath=ancestor::div[contains(@class, "urlBar")]')).toHaveCSS('outline-offset', '-1px')
+        let anchor = (await selected()).start
+        expect(anchor).toBeGreaterThan(0)
+        await chrome.mouse.move(x, y + vertical, { steps: 3 })
+        await expect.poll(selected).toMatchObject({ start: anchor, end: anchor })
+        await chrome.mouse.move(x - 70, y + vertical, { steps: 5 })
+        await expect.poll(async () => (await selected()).start).toBeLessThan(anchor)
+        expect(await selected()).toMatchObject({ end: anchor, direction: 'backward' })
+        expect((await selected()).start).toBeGreaterThan(0)
+        await chrome.mouse.move(x + 70, y + vertical, { steps: 5 })
+        await expect.poll(async () => (await selected()).end).toBeGreaterThan(anchor)
+        expect(await selected()).toMatchObject({ start: anchor, direction: 'forward' })
+        expect((await selected()).end).toBeLessThan(target.length)
+      } finally { await chrome.mouse.up() }
+      await expect(address).toBeFocused()
+      await chrome.getByRole('group', { name: 'Pane address', exact: true }).screenshot({ path: info.outputPath(`address-focus-${vertical}.png`) })
+      await address.press('Escape')
+    }
+  } finally { await cli('detach-client', { client: client.id }) }
+})
+
+test('long URL selection scrolls horizontally and retains native word and shift selection', async () => {
+  let session = await cli('new-session', { name: 'Long address selection' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  try {
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await expect(address).toBeFocused()
+    let target = `${url}/${'long-address-selection/'.repeat(12)}`
+    await address.fill(target)
+    await address.press('Home')
+    let bounds = (await address.boundingBox())!, y = bounds.y + bounds.height / 2
+    await chrome.mouse.move(bounds.x + 210, y)
+    await chrome.mouse.down()
+    let anchor = await address.evaluate(input => (input as HTMLInputElement).selectionStart!)
+    try {
+      await chrome.mouse.move(bounds.x + bounds.width + 80, y + 60, { steps: 5 })
+      await expect.poll(() => address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(target.length)
+      await chrome.mouse.move(bounds.x - 80, y + 60, { steps: 5 })
+      await expect.poll(() => address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(0)
+      expect(await address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(anchor)
+    } finally { await chrome.mouse.up() }
+    await address.fill('alpha bravo charlie delta')
+    await address.dblclick({ position: { x: 65, y: bounds.height / 2 } })
+    expect(await address.evaluate(input => (input as HTMLInputElement).value.slice((input as HTMLInputElement).selectionStart!, (input as HTMLInputElement).selectionEnd!))).toBe('bravo')
+    await address.press('Home')
+    await address.click({ position: { x: 140, y: bounds.height / 2 }, modifiers: ['Shift'] })
+    expect(await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: 19 })
+  } finally { await cli('detach-client', { client: client.id }) }
+})
+
 for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable' : 'displayed'} URL preserves native focus when released over the page`, async () => {
   let session = await cli('new-session', { name: `Address selection ${editing}` })
   let first = session.windows[0].panes[0]
@@ -2067,9 +2142,16 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
   try {
     await mouse([{ type: 5, x: x + 70, y }, { type: 1, x: x + 70, y }, { type: 6, x: x + 210, y }])
     if (!editing) await expect.poll(() => input.evaluate(input => (input as HTMLInputElement).selectionEnd! - (input as HTMLInputElement).selectionStart!)).toBeGreaterThan(0)
+    let inField = await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
     await mouse([{ type: 6, x: x + 210, y: y + 60 }])
+    if (!editing) {
+      expect(await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(inField)
+      await mouse([{ type: 6, x: x + 35, y: y + 60 }])
+      expect(await input.evaluate(input => (input as HTMLInputElement).selectionStart!)).toBeLessThan(inField.start!)
+      expect(await input.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(inField.start)
+    }
     selected = originalSelection ?? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
-    await mouse([{ type: 2, x: x + 210, y: y + 60 }])
+    await mouse([{ type: 2, x: x + (editing ? 210 : 35), y: y + 60 }])
     released = true
   } finally {
     if (!released) await mouse([{ type: 2, x: x + 210, y: y + 60 }])
@@ -2167,6 +2249,12 @@ test('dragging over a floating pane URL keeps its address input focused', async 
   let selected = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
   expect(selected.start).toBeGreaterThan(0)
   expect(selected.end).toBeGreaterThan(selected.start!)
+  await expect(address).toHaveCSS('outline-style', 'none')
+  await floating.mouse.move(bounds.x + 210, bounds.y + bounds.height + 60, { steps: 3 })
+  expect(await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(selected)
+  await floating.mouse.move(bounds.x + 35, bounds.y + bounds.height + 60, { steps: 5 })
+  await expect.poll(() => address.evaluate(input => (input as HTMLInputElement).selectionStart!)).toBeLessThan(selected.start!)
+  expect(await address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(selected.start)
   await floating.mouse.up()
   await expect(address).toBeFocused()
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(floating.url())

@@ -15,6 +15,7 @@ import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
 import galaxyFrame from './device-frames/galaxy-s24.png'
 import { SearchInput } from './SearchInput'
+import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
@@ -491,10 +492,6 @@ let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: nu
   }, [focusVersion, ref, takeSelection])
 }
 
-let captureAddressPointer = (event: PointerEvent<HTMLInputElement>) => {
-  if (event.button === 0) event.currentTarget.setPointerCapture(event.pointerId)
-}
-
 let useAddressSelectionFocus = () => {
   let { run } = useUI()
   let source = useRef<HTMLInputElement | undefined>(undefined)
@@ -558,6 +555,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let [busy, setBusy] = useState(false)
   let ref = useRef<HTMLInputElement>(null), form = useRef<HTMLFormElement>(null), suggestionList = useRef<HTMLDivElement>(null)
   let selectionFocus = useAddressSelectionFocus()
+  let selectAddress = useAddressSelection()
   let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -641,7 +639,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
@@ -775,7 +773,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let security = tab ? state.security?.[tab.id] : undefined
   let url = tab ? state.pendingUrls[tab.id] ?? (security?.status === 'certificate-error' ? security.url : tab.url) : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
-  let addressSelection = useRef<AddressSelection | undefined>(undefined)
+  let addressSelection = useRef<AddressSelection | undefined>(undefined), selectAddress = useAddressSelection()
   let takeAddressSelection = useCallback(() => {
     let selection = addressSelection.current
     addressSelection.current = undefined
@@ -858,7 +856,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     </div>}
     <div className={css.urlBar}>
       {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-      {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+      {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     </div>
     {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}

@@ -5,6 +5,7 @@ import type { Bridge, FloatingPane as Placement, PublicState } from '../shared/t
 import { clampFloat } from '../shared/floating'
 import css from './FloatingPane.module.css'
 import { CloseButton } from './CloseButton'
+import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -12,6 +13,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
+  let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
   let tab = pane
@@ -63,7 +65,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
       <div className={css.urlBar}>
         {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-        <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+        <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
       <div className={css.dragAbove} onPointerDown={drag} data-drag-above aria-hidden="true" />
