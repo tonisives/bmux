@@ -240,7 +240,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     sharingPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await sharingPanel.getByRole('button', { name: 'Fixture extension', exact: true }).click()
     await expect(sharingPanel.getByRole('region', { name: 'Extension details' })).toContainText('storage, tabs')
-    await expect(sharingPanel.getByRole('button', { name: 'Open extension', exact: true })).toBeDisabled()
+    await expect(sharingPanel.getByRole('button', { name: 'Open extension', exact: true })).toHaveCount(0)
     await sharingPanel.getByRole('button', { name: 'Back to extensions' }).click()
     await expect(sharingPanel.getByRole('button', { name: 'Fixture extension', exact: true })).toBeFocused()
     let toggle = sharingPanel.getByRole('switch', { name: 'Enable Fixture extension' })
