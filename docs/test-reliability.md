@@ -280,6 +280,29 @@ erases its registration before forwarding to the renderer; the renderer can
 report the entry absent. A unit test models that completed removal followed by
 the missing-entry response and verifies disabled scripts stay absent.
 
+Further repetition found an enabled script missing with no refresh error or
+pending operation. An explicit refresh can be followed by a config/file watcher
+refresh during the next navigation. Removing and reinstalling identical sources
+creates an unnecessary interval without the document-start script. Each tab now
+remembers successfully installed sources and preserves their registrations when
+unchanged. Failed installation and debugger detachment invalidate that memory.
+The unit coverage verifies no registration changes for CSS-only edits and
+duplicate refreshes, plus registration after a new debugger session. Current
+appearance and CSS still refresh independently. Fixture RPCs have labelled
+15-second steps; opt-in tracing records unfinished operation names and durations
+without their page data.
+
+## Pointer fixture layout readiness
+
+The concurrent October 4 Check on `88bad22` selected the upper-right pane but
+recorded a cursor at the old full-height right pane's center. The pointer fixture
+previously waited for the lower pane's document, then immediately sent shortcuts;
+that did not establish that native view bounds matched the new split layout.
+It now waits for all visible native page bounds to match the renderer after
+splitting and zoom changes, and waits for the initial page focus handoff. Its
+isolated configuration also disables unrelated live filter updates. Shortcut,
+autorepeat, zoom, scroll, and background no-warp assertions remain in place.
+
 ## Floating address focus and the full-suite budget
 
 The October 3 Check on `b84cd17` entered a second floating-pane URL before the

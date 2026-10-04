@@ -9,7 +9,7 @@ import { createKeyboardFocus } from './keyboard-focus'
 import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
 
 type Script = UserScript & { source: string; error?: string }
-type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
+type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
 type Options = { directory: string; settings: () => BrowserSettings; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
@@ -119,6 +119,11 @@ export let createPageTools = (options: Options) => {
   }
   let register = async (target: Target) => {
     let appearance = appearanceSource(target.profileId), users = scriptSource(target.profileId)
+    let sources = JSON.stringify([target.focus.source, appearance, users])
+    // Config/file watchers can repeat an explicit refresh after it returns.
+    // Preserve unchanged registrations so navigation never sees a needless gap.
+    if (target.registeredSources === sources) return
+    target.registeredSources = undefined
     await send(target, 'Page.enable')
     await target.frames?.start()
     // Keep ownership until Chromium acknowledges removal. A failed refresh must
@@ -135,6 +140,7 @@ export let createPageTools = (options: Options) => {
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: target.focus.source, worldName: 'bmux:keyboard-focus' })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: appearance, worldName: world })).identifier)
     target.registrations.push((await send(target, 'Page.addScriptToEvaluateOnNewDocument', { source: users })).identifier)
+    target.registeredSources = sources
     target.error = undefined
   }
   let reconfigure = (target: Target) => {
@@ -191,6 +197,7 @@ export let createPageTools = (options: Options) => {
       let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }
       target.frames = createFrameCosmetics({ contents, focusSource: target.focus.source, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
+      contents.debugger.on('detach', () => { target.registeredSources = undefined })
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.
       target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)

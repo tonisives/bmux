@@ -54,6 +54,7 @@ test('removes old userscripts after an interrupted registration refresh', async 
       if (method === 'Page.removeScriptToEvaluateOnNewDocument' && !interrupted) { interrupted = true; throw new Error('Renderer changed during refresh') }
       return original(method, params)
     })
+    fs.writeFileSync(path.join(directory, 'early.js'), "globalThis.earlyFlag = 'changed'")
     await tools.reload()
     expect(tools.error('tab')).toContain('could not refresh')
     settings.userscripts.find(script => script.id === 'early')!.enabled = false
@@ -68,7 +69,7 @@ test('removes old userscripts after an interrupted registration refresh', async 
 })
 
 test.each(['Page.removeScriptToEvaluateOnNewDocument', 'Page.createIsolatedWorld'])('updates user CSS even when %s fails during refresh', async method => {
-  let { tools, directory, sheets, css, sendCommand, close } = await fixture()
+  let { tools, directory, sheets, css, settings, sendCommand, close } = await fixture()
   try {
     let original = sendCommand.getMockImplementation()!
     sendCommand.mockImplementation(async (command, params = {}) => {
@@ -77,6 +78,8 @@ test.each(['Page.removeScriptToEvaluateOnNewDocument', 'Page.createIsolatedWorld
     })
     let updated = '.custom { color: green !important }'
     fs.writeFileSync(path.join(directory, 'style.css'), updated)
+    fs.writeFileSync(path.join(directory, 'early.js'), 'globalThis.changed = true')
+    settings.userscripts.push(...parseBrowserSettings({ userscripts: [{ id: 'early', file: 'early.js', enabled: true, matches: ['https://page.test/*'] }] }).userscripts)
     await tools.reload()
     expect([...sheets.values()]).toContain(updated)
     expect([...sheets.values()]).not.toContain(css)
@@ -85,6 +88,27 @@ test.each(['Page.removeScriptToEvaluateOnNewDocument', 'Page.createIsolatedWorld
     await tools.reload()
     expect(tools.error('tab')).toBeUndefined()
     expect([...sheets.values()].filter(source => source === updated)).toHaveLength(1)
+  } finally { close() }
+})
+
+test('preserves installed scripts across CSS edits and duplicate watcher refreshes', async () => {
+  let { contents, tools, directory, registrations, sendCommand, sheets, close } = await fixture()
+  try {
+    let installed = [...registrations.entries()]
+    sendCommand.mockClear()
+    let updated = '.custom { color: green !important }'
+    fs.writeFileSync(path.join(directory, 'style.css'), updated)
+    await tools.reload()
+    await tools.reload()
+    expect([...sheets.values()]).toContain(updated)
+    expect([...registrations.entries()]).toEqual(installed)
+    expect(sendCommand.mock.calls.some(([method]) => method === 'Page.removeScriptToEvaluateOnNewDocument' || method === 'Page.addScriptToEvaluateOnNewDocument')).toBe(false)
+    // A new debugger session must still install its own registrations.
+    registrations.clear()
+    contents.debugger.emit('detach', {}, 'test session reset')
+    await tools.reload()
+    expect(registrations.size).toBe(3)
+    expect(sendCommand.mock.calls.some(([method]) => method === 'Page.addScriptToEvaluateOnNewDocument')).toBe(true)
   } finally { close() }
 })
 
