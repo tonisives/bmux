@@ -23,6 +23,7 @@ Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | a
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
+          move-window -c CLIENT -t INDEX (alias: movew)
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           list-panes -t WINDOW | select-pane -c CLIENT -t PANE
           pane keep-alive -t PANE --enabled[=true|false]
@@ -69,6 +70,7 @@ let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${cr
 
 let parse = () => {
   let command = argv.shift()
+  if (command === 'movew') command = 'move-window'
   if (command === 'tab') throw new Error('Unknown command: tab')
   let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'pane'].includes(command) ? argv.shift() : null
   let args = {}
@@ -102,11 +104,12 @@ let parse = () => {
   if (['extension.open', 'extension.options', 'extension.enable', 'extension.disable', 'extension.remove'].includes(method)) args.id = positional[0]
   let targetKeys = {
     'rename-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
-    'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window',
+    'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
     'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
   if (method === 'resize-pane' && !args.split && (args.width !== undefined || args.height !== undefined)) targetKeys[method] = 'pane'
   if (args.target !== undefined) { args[targetKeys[method] ?? 'pane'] = args.target; delete args.target }
+  if (method === 'move-window') args.position ??= positional[0]
   if (method === 'profile.create') args.name = positional[0] ?? args.name
   if (method === 'profile.rename') { args.profile = positional[0]; args.name = positional[1] ?? args.name }
   if (method === 'navigate') args.url = positional[0] ?? args.url

@@ -38,6 +38,8 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('move-window-first', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'first' } })
   expect(parseCommandLine('move-window-last', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'last' } })
   expect(parseCommandLine('move-window -t 2', current)).toEqual({ method: 'move-window', args: { client: 'client', position: '2' } })
+  expect(parseCommandLine('movew -t 2', current)).toEqual({ method: 'move-window', args: { client: 'client', position: '2' } })
+  expect(parseCommandLine(':movew first', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'first' } })
   expect(parseCommandLine('swap-window -t -1', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: -1 } })
   expect(() => parseCommandLine('swap-window -t 2', current)).toThrow('Use swap-window')
   expect(parseCommandLine('close-system-window', current)).toEqual({ method: 'detach-client', args: { client: 'client' } })
