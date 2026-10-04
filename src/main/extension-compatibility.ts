@@ -16,6 +16,14 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
   let { ctx } = api as unknown as Internals
   let storage = createExtensionSessionStorage()
   let handle = ctx.router.apiHandler()
+  // The pinned package ignores currentWindow and can return a parked page first.
+  let queryTabs = ctx.router.getHandler('tabs.query').callback
+  handle('tabs.query', (event, properties: { currentWindow?: boolean } = {}) => {
+    let tabs = queryTabs(event, properties) as { windowId: number }[]
+    return typeof properties.currentWindow === 'boolean'
+      ? tabs.filter(tab => (tab.windowId === ctx.store.lastFocusedWindowId) === properties.currentWindow)
+      : tabs
+  })
   // The pinned package ignores focused on windows.update; Bitwarden uses it to reopen an existing item window.
   let updateWindow = ctx.router.getHandler('windows.update').callback
   handle('windows.update', (event, id: number, properties: { focused?: boolean }) => {
