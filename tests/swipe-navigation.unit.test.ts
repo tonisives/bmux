@@ -145,8 +145,8 @@ test('a swipe commits once outside the console callback, including duplicate del
   expect(goBack).toHaveBeenCalledTimes(1)
 })
 
-test('blur or another navigation cancels a queued native swipe commit', async () => {
-  for (let event of ['blur', 'did-start-navigation']) {
+test('blur, navigation or renderer loss cancels a queued native swipe commit', async () => {
+  for (let event of ['blur', 'did-start-navigation', 'render-process-gone']) {
     let { contents, goBack, request } = await navigationFixture()
     request()
     contents.emit(event, { isMainFrame: true, isSameDocument: false })

@@ -181,7 +181,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   contents.on('before-mouse-event', () => { void refresh() })
   contents.on('focus', () => { void refresh() })
   contents.on('blur', cancel)
-  contents.on('render-process-gone', () => { world = undefined; previous = undefined })
+  contents.on('render-process-gone', () => { commit = undefined; world = undefined; previous = undefined })
   contents.debugger.on('detach', () => { world = undefined; previous = undefined })
   return refresh
 }
