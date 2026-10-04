@@ -64,6 +64,7 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   // Its page-ready selector alone can resolve while that submission is pending.
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/one`)
   await rpc('navigate', { tab: pane, url: `${origin}/two` })
+  await expect.poll(async () => (await state()).navigation[pane].entries.map((entry: { url: string }) => entry.url)).toEqual([`${origin}/one`, `${origin}/two`])
   await rpc('navigate', { tab: pane, url: `${origin}/three` })
   await expect.poll(async () => (await state()).navigation[pane].entries.map((entry: { url: string }) => entry.url)).toEqual([`${origin}/one`, `${origin}/two`, `${origin}/three`])
   let other = await rpc('split-window', { pane, url: `${origin}/other` })
@@ -228,7 +229,13 @@ test('native trackpad holds a scrolled page and fixed header over a private hist
     let bounds = view.getBounds(), origin = window.getContentBounds()
     return { x: origin.x + bounds.x + 100, y: origin.y + bounds.y + 180 }
   }, page.url())
-  let wheel = (phase: 'begin' | 'change' | 'end' | 'cancel', x = 0, y = 0) => exec(executable, [String(phase), String(x), String(y), String(location.x), String(location.y)])
+  let wheel = async (phase: 'begin' | 'change' | 'end' | 'cancel', x = 0, y = 0) => {
+    let before = await page.evaluate(() => (window as any).wheels)
+    await exec(executable, [phase, String(x), String(y), String(location.x), String(location.y)])
+    // Quartz posting is asynchronous. Observe delivery before a following end
+    // event or a hold assertion; an old lastWheel timestamp is not an ACK.
+    if (x || y) await page.waitForFunction(before => (window as any).wheels > before, before)
+  }
   await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); $.CGEventPost(0, $.CGEventCreateMouseEvent(null, 5, $.CGPointMake(${location.x}, ${location.y}), 0));`])
   // A real vertical gesture settles on the first page before following a link.
   await wheel('begin', 0, -5); await wheel('end')
