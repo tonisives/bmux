@@ -65,10 +65,11 @@ CRX files are not supported. To remove an extension, use `extension remove ID`.
 Unloading stops the extension but retains its browser storage; reload open pages
 to remove scripts it has already injected.
 
-Hanzisize applies its saved language and minimum font size when you open its
-popup on a page. Enabling the extension or refreshing a page does not apply it;
-open Hanzisize again after navigation. Set the language and size separately in
-each profile. Its resize keyboard shortcut is not supported in bmux yet.
+Hanzisize 0.2.7 and 1.0.1 automatically apply the profile's saved language and
+minimum font size when permitted pages finish loading, including after a reload
+or browser restart. Open its popup once to choose the language and a nonzero size.
+Enabling it also applies those settings to pages already loaded in that profile.
+Its resize keyboard shortcut is not supported in bmux yet.
 Electron does not currently grant temporary host access for `activeTab`, so
 Hanzisize also needs explicit site patterns in its local manifest's `permissions`
 array (for example, `https://*.facebook.com/*`). Add only the sites you intend to

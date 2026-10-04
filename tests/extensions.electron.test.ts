@@ -91,6 +91,11 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let extensionPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await expect(extensionPanel).toContainText('Profile: default')
     await expect(extensionPanel.getByText('Details', { exact: true })).toHaveCount(0)
+    let row = extensionPanel.getByRole('button', { name: 'Fixture extension', exact: true }).locator('..')
+    for (let control of [row.getByRole('button', { name: 'Fixture extension', exact: true }), row.getByRole('button', { name: 'Details for Fixture extension' }), row.getByRole('switch')]) {
+      await control.hover()
+      await expect(row).toHaveCSS('background-color', 'rgb(48, 57, 68)')
+    }
     await extensionPanel.getByRole('button', { name: 'Fixture extension', exact: true }).click()
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
     let toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!

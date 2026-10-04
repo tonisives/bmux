@@ -164,6 +164,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (session) for (let entry of privateEntries.get(key) ?? []) unload(session, entry)
     privateEntries.delete(key)
     sessions.delete(key)
+    compatibility.get(key)?.dispose()
     compatibility.delete(key)
     for (let [contents, tab] of tracked) if (tab.profile === key) tracked.delete(contents)
   }
@@ -281,6 +282,11 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (activate) { window.show(); window.focus() } else window.showInactive()
     return { opened: extension.id }
   }
-  let close = () => { for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy(); popups.clear() }
+  let close = () => {
+    for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy()
+    popups.clear()
+    for (let host of compatibility.values()) host.dispose()
+    compatibility.clear()
+  }
   return { attach, attachPrivate, list, listPrivate, load, enable, enablePrivate, disable, disablePrivate, remove, open, close, closePrivate, track }
 }

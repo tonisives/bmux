@@ -322,11 +322,17 @@
 @container (max-width: 560px) { .clickModeLabel { display: none; } }
 @container (max-width: 300px) { .clickModeAction { padding: 3px 2px; } .clickModeActionGroup { gap: 2px; } .clickModeActions { gap: 2px; } }
 
-.extensionRow { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #363c45; }
-.panel .extensionName { flex: 1; align-self: stretch; min-width: 0; padding: 14px 8px; }
+.extensionRow { position: relative; display: flex; align-items: center; gap: 8px; padding-right: 8px; border-bottom: 1px solid #363c45; }
+.extensionRow:is(:hover, :focus-within) { background: #303944; color: #f0f2f5; }
+.extensionName { flex: 1; align-self: stretch; min-width: 0; padding: 14px 8px; text-align: left; overflow-wrap: anywhere; white-space: normal; }
+.extensionName::after { content: ''; position: absolute; inset: 0; }
+.extensionName:disabled { color: #77818d; cursor: not-allowed; }
+.extensionName:focus-visible { outline: none; }
+.extensionName:focus-visible::after { outline: 1px solid #83917b; outline-offset: -1px; }
 .extensionName > span { display: block; }
+.extensionInfo, .extensionToggle { position: relative; }
 .extensionInfo { display: grid; place-items: center; flex: 0 0 28px; height: 28px; padding: 4px; color: #8e98a4; }
-.extensionInfo:hover { color: #eceef2; background: #303944; }
+.extensionInfo:hover { color: #eceef2; }
 .extensionInfo svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .panel .extensionToggle { flex: 0 0 32px; width: 32px; height: 18px; padding: 2px; border: 1px solid #68717c; border-radius: 10px; background: #303640; cursor: pointer; }
 .extensionToggle::after { content: ''; display: block; width: 12px; height: 12px; border-radius: 50%; background: #c0c6ce; }

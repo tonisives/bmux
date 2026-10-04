@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest'
 import type { BaseWindow, Session, WebContents } from 'electron'
 import { createExtensionCompatibility } from '../src/main/extension-compatibility'
+vi.mock('../src/main/hanzisize-extension', () => ({ createHanzisizeCompatibility: () => vi.fn() }))
 
 let fixture = vi.hoisted(() => ({ store: {
   tabToWindow: new WeakMap(), windowToActiveTab: new WeakMap(),

@@ -2,6 +2,7 @@ import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import type { ChromeExtensionOptions } from 'electron-chrome-extensions'
 import type { BaseWindow, WebContents, Session, Extension } from 'electron'
 import { createExtensionSessionStorage } from './extension-session-storage'
+import { createHanzisizeCompatibility } from './hanzisize-extension'
 
 type ExtensionEvent = { extension: Extension; sender: { getURL?: () => string; scriptURL?: string } }
 type Internals = { ctx: {
@@ -13,6 +14,7 @@ type Internals = { ctx: {
 export let createExtensionCompatibility = (session: Session, options: Omit<ChromeExtensionOptions, 'license' | 'session'>) => {
   let syncing = false
   let api = new ElectronChromeExtensions({ ...options, selectTab: (tab, window) => { if (!syncing) options.selectTab?.(tab, window) }, session, license: 'GPL-3.0' })
+  let dispose = createHanzisizeCompatibility(session)
   let { ctx } = api as unknown as Internals
   let storage = createExtensionSessionStorage()
   let handle = ctx.router.apiHandler()
@@ -81,5 +83,5 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
       ctx.store.windowDetailsCache.delete(parent.id)
     } finally { syncing = false }
   }
-  return { api, track }
+  return { api, track, dispose }
 }

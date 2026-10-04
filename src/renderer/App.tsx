@@ -1089,7 +1089,7 @@ let ExtensionManager = () => {
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>{session?.private ? 'No extensions enabled in this private session.' : 'No extensions in this profile.'}</p>}
     {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
-      <button className={`${css.listRow} ${css.extensionName}`} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong>{extension.error && <span className={css.error}>Failed to load</span>}</button>
+      <button className={css.extensionName} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong>{extension.error && <span className={css.error}>Failed to load</span>}</button>
       <button className={css.extensionInfo} data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`} title="Extension details"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg></button>
       <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
     </div>)}
