@@ -123,6 +123,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   let pending = Promise.resolve()
   let world: Promise<number> | undefined
   let committed = new Set<string>()
+  let commit: string | undefined
   let run = async (code: string) => {
     if (contents.isDestroyed()) return
     try {
@@ -148,7 +149,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
     pending = run(`(${observeSwipe.toString()})(${JSON.stringify(marker)}, ${createSwipeGesture.toString()}, ${renderSwipePreview.toString()}, ${next})`)
     await pending
   }
-  let cancel = () => { previous = undefined; void run('globalThis.bmuxSwipe?.cancel()') }
+  let cancel = () => { commit = undefined; previous = undefined; void run('globalThis.bmuxSwipe?.cancel()') }
   contents.on('console-message', details => {
     if (!details.message.startsWith(marker)) return
     try {
@@ -158,9 +159,16 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
       // replaced the document. Keep a bounded record across history changes.
       committed.add(id)
       if (committed.size > 64) committed.delete(committed.values().next().value!)
-      if (!available(direction)) { cancel(); return }
-      if (direction === 'back') contents.navigationHistory.goBack()
-      else contents.navigationHistory.goForward()
+      commit = id
+      // Leave Chromium's console notification stack before changing its page.
+      // Navigation, blur or closure can revoke this queued commit in the meantime.
+      setImmediate(() => {
+        if (commit !== id) return
+        commit = undefined
+        if (!available(direction)) { cancel(); return }
+        if (direction === 'back') contents.navigationHistory.goBack()
+        else contents.navigationHistory.goForward()
+      })
     } catch { /* Ignore unrelated console output. */ }
   })
   contents.on('did-start-navigation', details => {
