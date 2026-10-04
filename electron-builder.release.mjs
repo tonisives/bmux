@@ -9,7 +9,7 @@ let { build } = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta
 let config = {
   ...build,
   forceCodeSigning: true,
-  mac: { ...build.mac, identity: process.env.APPLE_SIGNING_IDENTITY, notarize: true, target: ['dmg', 'zip'] },
+  mac: { ...build.mac, identity: process.env.APPLE_SIGNING_IDENTITY.replace(/^Developer ID Application:\s*/, ''), type: 'distribution', notarize: true, target: ['dmg', 'zip'] },
   dmg: { sign: true },
   publish: { provider: 'github', owner: 'tonisives', repo: 'bmux', channel: `latest-${arch}` },
 }
