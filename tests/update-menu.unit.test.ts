@@ -71,6 +71,9 @@ test.runIf(process.platform === 'darwin')('update menu survives config reloads a
 
 test('development and isolated profiles never initialize the updater', () => {
   let options = { enabled: () => true, setEnabled: vi.fn(), beforeRestart: vi.fn() }
-  vi.spyOn(app, 'isPackaged', 'get').mockReturnValue(false)
+  let packaged = vi.spyOn(app, 'isPackaged', 'get').mockReturnValue(false)
+  expect(installUpdateMenu(options)).toBeUndefined()
+  packaged.mockReturnValue(true)
+  vi.stubEnv('BMUX_DATA_DIR', '/fixture/disposable-profile')
   expect(installUpdateMenu(options)).toBeUndefined()
 })

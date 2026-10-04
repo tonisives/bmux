@@ -73,6 +73,7 @@
     "vitest": "^3.2.0"
   },
   "build": {
+    "publish": null,
     "appId": "bmux.tonis.dev",
     "productName": "bmux",
     "directories": {
