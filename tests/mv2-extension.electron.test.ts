@@ -49,9 +49,10 @@ test('a Manifest V2 popup can restore settings and resize the selected page', as
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/thai`
   let application: ElectronApplication | undefined
   try {
-    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
-    let chrome = await application.firstWindow()
-    await chrome.waitForURL('**/renderer/index.html')
+    let packaged = process.env.BMUX_TEST_INSTALLED === '1'
+    application = await electron.launch({ ...(packaged ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: packaged ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let installed = await rpc('extension.load', { profile: 'profile_default', path: extensionPath })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
