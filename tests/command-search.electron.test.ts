@@ -963,7 +963,9 @@ for (let preset of ['iphone-15-pro', 'galaxy-s24']) test(`mobile safe areas ${pr
       let scale = size.width / window.getBounds().width
       let deviceScale = bounds.width / (preset === 'iphone-15-pro' ? 393 : 360)
       let pixel = (x: number, y: number) => {
-        let offset = (Math.floor((bounds.y + y * deviceScale) * scale) * size.width + Math.floor((bounds.x + x * deviceScale) * scale)) * 4
+        // Sample the nearest physical pixel; flooring can hit the antialiased
+        // edge of a five-CSS-pixel indicator after the device is scaled down.
+        let offset = (Math.round((bounds.y + y * deviceScale) * scale) * size.width + Math.round((bounds.x + x * deviceScale) * scale)) * 4
         return [...pixels.subarray(offset, offset + 3)]
       }
       let width = bounds.width / deviceScale, height = bounds.height / deviceScale

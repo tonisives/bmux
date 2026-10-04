@@ -267,3 +267,12 @@ for the job. Individual test deadlines, one GUI worker, zero retries, and the
 affected-tests-only local policy are unchanged. A suite timeout remains a failure
 and retains diagnostics; the extra budget lets healthy tests finish on slower
 hosted runners as the suite grows.
+
+The next full branch run exposed two other fixture assumptions. At the scaled
+iPhone home indicator, flooring the screenshot coordinate selected an
+antialiased RGB 51 edge; the nearest pixel in the retained image was RGB 17.
+Screenshot samples now round to the nearest physical pixel while retaining the
+same dark-indicator and white-bar thresholds. The bookmark scrolling case waits
+for a complete, scrollable document and the fixture background in a captured
+native frame before sending its first key. Focus, scroll, and mobile reattachment
+assertions remain in place; native key delivery is not retried.

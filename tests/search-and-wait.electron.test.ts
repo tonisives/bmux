@@ -367,6 +367,17 @@ for (let mobile of [false, true]) test(`opening bookmarks restores native page f
       }, opened)).toBe(true)
       let scroll = async () => (await rpc('eval', { pane: opened.id, expression: 'scrollY' })) as number
       await rpc('wait', { pane: opened.id, selector: 'h1' })
+      await rpc('wait', { pane: opened.id, expression: "document.readyState === 'complete' && document.documentElement.scrollHeight > innerHeight" })
+      // DOM presence and AppKit focus can precede the first native page frame.
+      // Wait for the fixture background before asking Chromium to route a wheel.
+      await expect.poll(() => application.evaluate(async ({ webContents }, url) => {
+        let contents = webContents.getFocusedWebContents()
+        if (contents?.getURL() !== url) return []
+        let image = await contents.capturePage(), size = image.getSize()
+        if (size.width < 40 || size.height < 100) return []
+        let offset = ((size.height - 50) * size.width + size.width - 20) * 4
+        return [...image.toBitmap().subarray(offset, offset + 3)]
+      }, opened.url)).toEqual([248, 238, 232])
       await sendNativeKeys(application, [{ keyCode: 'j' }])
       await expect.poll(scroll).toBeGreaterThan(0)
       await sendNativeKeys(application, [{ keyCode: 'k' }])
