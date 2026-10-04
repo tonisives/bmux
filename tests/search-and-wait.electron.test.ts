@@ -372,7 +372,7 @@ for (let mobile of [false, true]) test(`opening bookmarks restores native page f
       // Wait for the fixture background before asking Chromium to route a wheel.
       await expect.poll(() => application.evaluate(async ({ webContents }, url) => {
         let contents = webContents.getFocusedWebContents()
-        if (contents?.getURL() !== url) return []
+        if (!contents || contents.getURL() !== url) return []
         let image = await contents.capturePage(), size = image.getSize()
         if (size.width < 40 || size.height < 100) return []
         let offset = ((size.height - 50) * size.width + size.width - 20) * 4
