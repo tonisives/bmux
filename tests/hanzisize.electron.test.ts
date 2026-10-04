@@ -71,6 +71,7 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
             })
           }
         }
+        void 0
       `)
       await background.executeJavaScript("new Promise(resolve => chrome.storage.local.set({ language: 'thai', minFontSize: 18 }, resolve))")
     }, installed.id)
@@ -104,10 +105,10 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     await expect(page.locator('#thai')).toHaveCSS('font-size', '18px')
     expect(application!.context().pages().some(page => page.url() === `chrome-extension://${installed.id}/index.html`)).toBe(false)
   } catch (error) {
-    console.error('HANZISIZE_FIXTURE', await application?.evaluate(async ({ webContents }) => {
+    console.error('HANZISIZE_FIXTURE', JSON.stringify(await application?.evaluate(async ({ webContents }) => {
       let host = webContents.getAllWebContents().find(contents => contents.getURL().endsWith('/robots.txt'))
       return host?.executeJavaScript("Promise.all([new Promise(resolve => chrome.tabs.query({}, resolve)), new Promise(resolve => chrome.storage.local.get(null, resolve))]).then(([tabs, settings]) => ({ tabs, settings, trace: globalThis.fixtureTrace }))")
-    }).catch(() => 'diagnostics unavailable'))
+    }).catch(() => 'diagnostics unavailable')))
     throw error
   } finally {
     await closeTestApplication(application)
