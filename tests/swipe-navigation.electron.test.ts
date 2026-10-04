@@ -17,7 +17,9 @@ let fixture = `<!doctype html><title>Swipe fixture</title><style>
   #cancel { width:240px; height:100px; background:#bb7755; }
   #contain { width:240px; height:100px; overscroll-behavior-x:contain; }
   #fixed { position:fixed; right:20px; top:20px; width:30px; height:30px; background:#557766; }
-</style><h1>Swipe fixture</h1><div id="fixed"></div><div id="scroller"><div></div></div><div id="cancel">Page gesture</div><div id="contain">Contained</div><script>
+  #vertical { position:absolute; left:280px; top:100px; width:200px; height:160px; overflow:auto; }
+  #vertical div { height:1500px; background:#99aabb; }
+</style><h1>Swipe fixture</h1><div id="fixed"></div><div id="scroller"><div></div></div><div id="vertical"><div></div></div><div id="cancel">Page gesture</div><div id="contain">Contained</div><script>
   window.wheels = 0; window.lastWheel = 0;
   window.displacements = [];
   let sample = () => {
@@ -25,7 +27,7 @@ let fixture = `<!doctype html><title>Swipe fixture</title><style>
     requestAnimationFrame(sample);
   };
   requestAnimationFrame(sample);
-  window.addEventListener('wheel', () => { window.wheels++; window.lastWheel = performance.now(); }, { passive:true });
+  window.addEventListener('wheel', () => { window.wheels++; window.lastWheel = performance.now(); }, { capture:true, passive:true });
   document.querySelector('#cancel').addEventListener('wheel', event => event.preventDefault(), { passive:false });
 </script>`
 
@@ -93,7 +95,10 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await expect(page).toHaveURL(`${origin}/three`)
 
   let fixedRight = await page.locator('#fixed').evaluate(element => element.getBoundingClientRect().right)
-  await swipe([[-70, 0]])
+  await page.locator('#vertical').evaluate(element => { element.scrollTop = 100 })
+  // A horizontal start must keep its direction despite later vertical drift,
+  // including over a nested scroll view that is away from either scroll edge.
+  await swipe([[-3, 1], [-9, 4], [-38, 20], [-20, 35]], '#vertical')
   // Continue a sub-threshold gesture while checking native paint. These small
   // wheel events model a held swipe; readiness is established by page geometry.
   let holding = true
@@ -108,6 +113,8 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
     let displacement = await page.evaluate(baseline => ({ heading: document.querySelector('h1')!.getBoundingClientRect().left, fixed: document.querySelector('#fixed')!.getBoundingClientRect().right - baseline }), fixedRight)
     expect(displacement.heading).toBeGreaterThanOrEqual(70)
     expect(displacement.fixed).toBeCloseTo(displacement.heading, 1)
+    expect(await page.locator('#vertical').evaluate(element => element.scrollTop)).toBe(100)
+    expect(await page.evaluate(() => scrollY)).toBe(0)
     let width = await page.evaluate(() => innerWidth)
     await expect(async () => {
       let frame = await application.evaluate(async ({ webContents }, { url, width }) => {
@@ -122,6 +129,16 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   } finally { holding = false; await hold }
   await unchanged(`${origin}/three`)
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
+  await swipe([[-3, 80], [-30, 80]], '#vertical')
+  await unchanged(`${origin}/three`)
+  await didNotMove()
+  await expect.poll(() => page.locator('#vertical').evaluate(element => element.scrollTop)).toBeGreaterThan(100)
+  let scrolled = await page.locator('#vertical').evaluate(element => element.scrollTop)
+  await page.evaluate(() => { (window as any).displacements = [] })
+  await rpc('cdp', { tab: pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x: 380, y: 180, deltaX: -240, deltaY: 60 } })
+  await unchanged(`${origin}/three`)
+  await didNotMove()
+  await expect.poll(() => page.locator('#vertical').evaluate(element => element.scrollTop)).toBeGreaterThan(scrolled)
   await swipe([[-220, 0], [180, 0]])
   await unchanged(`${origin}/three`)
   await swipe([[0, 180], [-240, 0]])
@@ -140,6 +157,16 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await unchanged(`${origin}/three`)
   await didNotMove()
   await swipe([[-250, 0]], '#cancel')
+  await unchanged(`${origin}/three`)
+  await didNotMove()
+  await page.locator('#cancel').evaluate(element => element.addEventListener('wheel', event => event.stopPropagation()))
+  await swipe([[-250, 0]], '#cancel')
+  await unchanged(`${origin}/three`)
+  await didNotMove()
+  await page.evaluate(() => window.addEventListener('wheel', event => {
+    if ((event.target as Element).closest('#vertical')) event.preventDefault()
+  }, { passive: false }))
+  await swipe([[-250, 0]], '#vertical')
   await unchanged(`${origin}/three`)
   await didNotMove()
   await swipe([[-250, 0]], '#contain')

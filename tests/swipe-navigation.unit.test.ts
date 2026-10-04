@@ -39,6 +39,31 @@ test('page gestures cancel the preview and keep ownership until release', () => 
   expect(preview).toHaveBeenLastCalledWith(0)
 })
 
+test('horizontal intent locks early and tracks each event despite vertical drift', () => {
+  let { gesture, preview, navigate, finish } = fixture()
+  expect(gesture.push({ x: -3, y: 1, blocked: false })).toBe(true)
+  expect(preview).toHaveBeenLastCalledWith(0)
+  expect(gesture.push({ x: -9, y: 4, blocked: false })).toBe(true)
+  expect(preview).toHaveBeenLastCalledWith(12)
+  expect(gesture.push({ x: -38, y: 20, blocked: false })).toBe(true)
+  expect(preview).toHaveBeenLastCalledWith(50)
+  expect(gesture.push({ x: -20, y: 35, blocked: false })).toBe(true)
+  expect(preview).toHaveBeenLastCalledWith(70)
+  finish()
+  expect(gesture.active).toBe(false)
+  expect(preview).toHaveBeenLastCalledWith(0)
+  expect(navigate).not.toHaveBeenCalled()
+})
+
+test('vertical intent locks early without swallowing scrolling or later horizontal drift', () => {
+  let { gesture, preview, navigate, finish } = fixture()
+  expect(gesture.push({ x: -3, y: 9, blocked: false })).toBe(false)
+  expect(gesture.push({ x: -240, y: 10, blocked: false })).toBe(false)
+  finish()
+  expect(preview.mock.calls.every(([offset]) => offset === 0)).toBe(true)
+  expect(navigate).not.toHaveBeenCalled()
+})
+
 test('unavailable history or a disabled target cannot preview or commit', () => {
   let allowed = true
   let { wheel, preview, navigate, finish } = fixture(direction => allowed && direction === 'back')
