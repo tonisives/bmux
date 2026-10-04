@@ -99,7 +99,7 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   let holding = true
   let hold = (async () => {
     while (holding) {
-      await page.mouse.wheel(-0.1, 0)
+      await page.mouse.wheel(-1, 0)
       await new Promise(resolve => setTimeout(resolve, 40))
     }
   })()
@@ -108,8 +108,17 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
     let displacement = await page.evaluate(baseline => ({ heading: document.querySelector('h1')!.getBoundingClientRect().left, fixed: document.querySelector('#fixed')!.getBoundingClientRect().right - baseline }), fixedRight)
     expect(displacement.heading).toBeGreaterThanOrEqual(70)
     expect(displacement.fixed).toBeCloseTo(displacement.heading, 1)
-    let previewPng = await application.evaluate(async ({ webContents }, url) => (await webContents.getAllWebContents().find(contents => contents.getURL() === url)!.capturePage()).toPNG(), page.url())
-    await fs.writeFile(info.outputPath('swipe-preview.png'), Buffer.from(previewPng))
+    let width = await page.evaluate(() => innerWidth)
+    await expect(async () => {
+      let frame = await application.evaluate(async ({ webContents }, { url, width }) => {
+        let image = (await webContents.getAllWebContents().find(contents => contents.getURL() === url)!.capturePage()).resize({ width })
+        let pixels = image.toBitmap(), stride = image.getSize().width
+        let colors = [20, 220].map(x => { let index = (120 * stride + x) * 4; return [pixels[index + 2], pixels[index + 1], pixels[index]] })
+        return { png: image.toPNG(), colors }
+      }, { url: page.url(), width })
+      await fs.writeFile(info.outputPath('swipe-preview.png'), Buffer.from(frame.png))
+      expect(frame.colors).toEqual([[0xd9, 0xe7, 0xee], [0x55, 0x77, 0x66]])
+    }).toPass({ timeout: 3000 })
   } finally { holding = false; await hold }
   await unchanged(`${origin}/three`)
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
