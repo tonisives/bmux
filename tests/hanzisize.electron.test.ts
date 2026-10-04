@@ -82,14 +82,16 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     await expect(page.locator('#thai')).toHaveCSS('font-size', '18px')
     expect(application!.context().pages().some(page => page.url() === `chrome-extension://${installed.id}/index.html`)).toBe(false)
 
-    await rpc('new-window', { url: `${url}/second` })
+    let current = await chrome.evaluate(() => (window as any).bmux.state())
+    let client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+    await rpc('new-window', { client: client.id, session: client.sessionId, profile: 'profile_default', url: `${url}/second` })
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${url}/second`)).toBe(true)
     let second = application!.context().pages().find(page => page.url() === `${url}/second`)!
     await expect(second.locator('#thai')).toHaveCSS('font-size', '18px')
-    let selection = (await rpc('state')).focusedClientId
+    let selectedWindow = (await rpc('state')).model.clients.find((item: { id: string }) => item.id === client.id).windowId
     await page.goto(`${url}/background`)
     await expect(page.locator('#thai')).toHaveCSS('font-size', '18px')
-    expect((await rpc('state')).focusedClientId).toBe(selection)
+    expect((await rpc('state')).model.clients.find((item: { id: string }) => item.id === client.id).windowId).toBe(selectedWindow)
     await second.goto(url.replace('127.0.0.1', 'localhost'))
     await expect(second.locator('#thai')).toHaveCSS('font-size', '13px')
 
