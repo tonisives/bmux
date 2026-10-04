@@ -9,12 +9,16 @@ on:
         description: Existing GitHub release tag to build
         required: true
         type: string
+      verify_only:
+        description: Test macOS packages from the selected workflow ref without publishing
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  group: release-${{ inputs.verify_only && github.ref || github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 env:
@@ -27,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ inputs.verify_only && github.sha || env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -39,7 +43,7 @@ jobs:
   build:
     needs: check
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ inputs.verify_only && github.sha || env.RELEASE_TAG }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -68,32 +72,57 @@ jobs:
             pnpm version --no-git-tag-version "$version"
           fi
 
-      - name: Build ${{ matrix.arch }} DMG
+      - name: Import Developer ID certificate
+        uses: Apple-Actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Build signed and notarized ${{ matrix.arch }} packages
         env:
           BMUX_NATIVE_ARCH: ${{ matrix.arch }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           pnpm build
           test "$(lipo -archs out/native/pointer.node)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
-          pnpm exec electron-builder --mac dmg --${{ matrix.arch }} --publish never
+          pnpm exec electron-builder --config electron-builder.release.mjs --mac --${{ matrix.arch }} --publish never
 
-      - name: Verify package architecture
+      - name: Verify signed and notarized release artifacts
+        run: |
+          bash scripts/verify-macos-dmg.sh "release/bmux-${RELEASE_TAG#v}-${{ matrix.arch }}.dmg" "${{ matrix.arch }}"
+          node scripts/verify-update-metadata.mjs "release/latest-${{ matrix.arch }}-mac.yml" "${RELEASE_TAG#v}" "${{ matrix.arch }}"
+
+      - name: Smoke test the native packaged app
         shell: bash
         run: |
-          app="release/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/bmux.app"
-          test -d "$app"
-          lipo "$app/Contents/MacOS/bmux" -verify_arch "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
-          lipo "$app/Contents/Resources/app.asar.unpacked/out/native/pointer.node" -verify_arch "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          if [ "$(node -p process.arch)" = "${{ matrix.arch }}" ]; then
+            BMUX_APP="$PWD/release/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/bmux.app" node scripts/smoke-packaged.mjs
+          fi
 
-      - name: Upload DMG to release
+      - name: Retain verified macOS packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-*-mac.yml
+
+      - name: Upload macOS packages and update feed
+        if: ${{ !inputs.verify_only }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          artifact="release/bmux-${RELEASE_TAG#v}-${{ matrix.arch }}.dmg"
-          test -f "$artifact"
-          gh release upload "$RELEASE_TAG" "$artifact" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" release/*.dmg release/*.zip release/*.blockmap --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" "release/latest-${{ matrix.arch }}-mac.yml" --clobber --repo "$GITHUB_REPOSITORY"
 
   linux:
+    if: ${{ !inputs.verify_only }}
     needs: check
     timeout-minutes: 60
     strategy:
@@ -126,6 +155,7 @@ jobs:
         run: gh release upload "$RELEASE_TAG" "bmux-linux-${{ matrix.arch }}.tar.gz" --clobber --repo "$GITHUB_REPOSITORY"
 
   windows:
+    if: ${{ !inputs.verify_only }}
     needs: check
     runs-on: windows-2022
     timeout-minutes: 40
@@ -153,6 +183,7 @@ jobs:
         run: gh release upload "$RELEASE_TAG" "release/bmux-${RELEASE_TAG#v}-x64.exe" --clobber --repo "$GITHUB_REPOSITORY"
 
   update-homebrew:
+    if: ${{ !inputs.verify_only }}
     needs: build
     runs-on: macos-15
     timeout-minutes: 30

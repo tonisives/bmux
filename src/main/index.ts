@@ -10,6 +10,7 @@ import type { Command } from '../shared/types'
 import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
 import { startRemoteHost } from './remote-host'
 import { createLocalRemote } from './remote-client'
+import { installUpdateMenu } from './update-menu'
 
 let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
 let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
@@ -28,6 +29,8 @@ let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 let remoteHost: ReturnType<typeof startRemoteHost> | undefined
 let localRemote: ReturnType<typeof createLocalRemote> | undefined
+
+let updateMenu: ReturnType<typeof installUpdateMenu>
 
 let readyForLinks = false
 let pendingLinks: { url: string; allowFile: boolean }[] = []
@@ -72,6 +75,7 @@ void app.whenReady().then(async () => {
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   app.on('before-quit', () => {
+    updateMenu?.close()
     remoteHost?.close()
     localRemote?.close()
     runtime?.shutdown()
@@ -80,11 +84,11 @@ void app.whenReady().then(async () => {
   })
   if (background) app.dock?.hide()
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+    { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]))
-  runtime = createRuntime(dataDirectory)
+  runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
   localRemote = createLocalRemote()
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('state', event => {
@@ -119,6 +123,7 @@ void app.whenReady().then(async () => {
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
+  updateMenu = installUpdateMenu({ enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
   if (process.env.BMUX_REMOTE_CONFIG) remoteHost = startRemoteHost(runtime, dataDirectory, process.env.BMUX_REMOTE_CONFIG)
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
