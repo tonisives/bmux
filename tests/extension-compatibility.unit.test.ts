@@ -31,8 +31,11 @@ test('moving the selected page while an extension popup is focused preserves act
   let oldParent = { id: 4, isDestroyed: () => false } as BaseWindow
   let parent = { id: 5, isDestroyed: () => false } as BaseWindow
   let contents = { id: 6 } as WebContents
+  let previous = { id: 7 } as WebContents
   fixture.store.tabToWindow.set(contents, oldParent)
   fixture.store.windowToActiveTab.set(oldParent, contents)
+  fixture.store.windowToActiveTab.set(parent, previous)
+  fixture.store.tabDetailsCache.set(previous.id, { active: true })
   fixture.store.lastFocusedWindowId = oldParent.id
   fixture.selectTab.mockClear()
   let compatibility = createExtensionCompatibility({ extensions: { on: vi.fn() } } as unknown as Session, {})
@@ -40,5 +43,6 @@ test('moving the selected page while an extension popup is focused preserves act
   expect(fixture.store.windowToActiveTab.has(oldParent)).toBe(false)
   expect(fixture.store.windowToActiveTab.get(parent)).toBe(contents)
   expect(fixture.store.lastFocusedWindowId).toBe(parent.id)
+  expect(fixture.store.tabDetailsCache.has(previous.id)).toBe(false)
   expect(fixture.selectTab).not.toHaveBeenCalled()
 })

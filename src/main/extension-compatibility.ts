@@ -58,7 +58,9 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
         ctx.store.addWindow(parent)
         // Opening an extension popup can move its page while browser focus is
         // elsewhere. Keep the selected page available to active-tab queries.
-        if (active) {
+        if (active && !selected) {
+          let previous = ctx.store.windowToActiveTab.get(parent)
+          if (previous) ctx.store.tabDetailsCache.delete(previous.id)
           ctx.store.windowToActiveTab.set(parent, contents)
           if (!oldParent.isDestroyed() && ctx.store.lastFocusedWindowId === oldParent.id) ctx.store.lastFocusedWindowId = parent.id
         }
