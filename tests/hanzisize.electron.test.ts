@@ -57,6 +57,21 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     }, installed.id)).toBe(true)
     await application!.evaluate(async ({ webContents }, id) => {
       let background = webContents.getAllWebContents().find(contents => contents.getURL() === `chrome-extension://${id}/robots.txt`)!
+      await background.executeJavaScript(`
+        globalThis.fixtureTrace = []
+        chrome.tabs.onUpdated.addListener((id, info, tab) => fixtureTrace.push({ event: 'updated', id, info, url: tab.url }))
+        for (let name of ['sendMessage', 'executeScript']) {
+          let original = chrome.tabs[name].bind(chrome.tabs)
+          chrome.tabs[name] = (...args) => {
+            let callback = args.pop()
+            fixtureTrace.push({ api: name, args })
+            original(...args, result => {
+              fixtureTrace.push({ callback: name, error: chrome.runtime.lastError?.message, result })
+              callback(result)
+            })
+          }
+        }
+      `)
       await background.executeJavaScript("new Promise(resolve => chrome.storage.local.set({ language: 'thai', minFontSize: 18 }, resolve))")
     }, installed.id)
     let page = await openPage(url)
@@ -88,6 +103,12 @@ test('Hanzisize automatically resizes permitted pages without opening its popup'
     page = await openPage(`${url}/restored`)
     await expect(page.locator('#thai')).toHaveCSS('font-size', '18px')
     expect(application!.context().pages().some(page => page.url() === `chrome-extension://${installed.id}/index.html`)).toBe(false)
+  } catch (error) {
+    console.error('HANZISIZE_FIXTURE', await application?.evaluate(async ({ webContents }) => {
+      let host = webContents.getAllWebContents().find(contents => contents.getURL().endsWith('/robots.txt'))
+      return host?.executeJavaScript("Promise.all([new Promise(resolve => chrome.tabs.query({}, resolve)), new Promise(resolve => chrome.storage.local.get(null, resolve))]).then(([tabs, settings]) => ({ tabs, settings, trace: globalThis.fixtureTrace }))")
+    }).catch(() => 'diagnostics unavailable'))
+    throw error
   } finally {
     await closeTestApplication(application)
     server.closeAllConnections()
