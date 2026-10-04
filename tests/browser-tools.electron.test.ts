@@ -9,7 +9,7 @@ import { stringify } from 'yaml'
 
 let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server, tabId: string
 let adRequests = 0
-let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+let rpc = (method: string, args: Record<string, unknown> = {}) => test.step(`Browser tools command: ${method}`, () => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args }), { timeout: 15000 })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let command = async (line: string) => {
@@ -35,6 +35,23 @@ test.beforeAll(async () => {
   ] } }))
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
   application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  if (process.env.BMUX_TEST_TRACE === '1') await application.evaluate(({ app, webContents }) => {
+    let pending = new Map<number, { id: number; method: string; started: number }>(), sequence = 0
+    let observe = (contents: Electron.WebContents) => {
+      let wrap = (owner: any, name: string, label = name) => {
+        let original = owner[name].bind(owner)
+        owner[name] = async (...args: any[]) => {
+          let key = ++sequence
+          pending.set(key, { id: contents.id, method: name === 'sendCommand' ? String(args[0]) : label, started: Date.now() })
+          try { return await original(...args) } finally { pending.delete(key) }
+        }
+      }
+      wrap(contents, 'insertCSS'); wrap(contents, 'removeInsertedCSS'); wrap(contents.debugger, 'sendCommand')
+    }
+    for (let contents of webContents.getAllWebContents()) observe(contents)
+    app.on('web-contents-created', (_event, contents) => observe(contents))
+    ;(globalThis as any).bmuxTestPendingPageTools = () => [...pending.values()].slice(-40).map(({ id, method, started }) => ({ id, method, elapsed: Date.now() - started }))
+  })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await activate()
@@ -55,6 +72,7 @@ test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return
   let current = await state().catch(() => undefined)
   console.error('BROWSER_TOOLS_FAILURE', { focusedClientId: current?.focusedClientId, scripts: current?.browserTools?.scripts, tabs: Object.fromEntries(Object.entries(current?.browserTools?.tabs ?? {}).map(([id, tab]: [string, any]) => [id, { error: tab.error, adblock: tab.adblock }])), runs: current?.pluginRuns?.map((run: any) => ({ pluginId: run.pluginId, status: run.status, error: run.error })) })
+  if (process.env.BMUX_TEST_TRACE === '1') console.error('PENDING_PAGE_TOOLS', await test.step('Pending page tools', () => application.evaluate(() => (globalThis as any).bmuxTestPendingPageTools?.()), { timeout: 5000 }).catch(() => 'Unavailable'))
 })
 
 test('blocks requests before they reach the server and runs scripts before page JavaScript', async () => {
