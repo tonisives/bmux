@@ -76,7 +76,7 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
     for (let [x, y] of deltas) await page.mouse.wheel(x, y)
   }
   let unchanged = async (url: string) => {
-    await page.waitForFunction(() => (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 400)
+    await page.waitForFunction(expected => location.href !== expected || (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 400, url)
     expect(page.url()).toBe(url)
     await expect.poll(() => page.evaluate(() => document.documentElement.getBoundingClientRect().left)).toBe(0)
   }
@@ -92,6 +92,7 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await swipe([[100, 0], [100, 0]])
   await expect(page).toHaveURL(`${origin}/three`)
 
+  let fixedRight = await page.locator('#fixed').evaluate(element => element.getBoundingClientRect().right)
   await swipe([[-70, 0]])
   // Continue a sub-threshold gesture while checking native paint. These small
   // wheel events model a held swipe; readiness is established by page geometry.
@@ -104,7 +105,7 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   })()
   try {
     await expect.poll(() => page.evaluate(() => document.documentElement.getBoundingClientRect().left)).toBeGreaterThanOrEqual(70)
-    let displacement = await page.evaluate(() => ({ heading: document.querySelector('h1')!.getBoundingClientRect().left, fixed: document.querySelector('#fixed')!.getBoundingClientRect().right - (innerWidth - 20) }))
+    let displacement = await page.evaluate(baseline => ({ heading: document.querySelector('h1')!.getBoundingClientRect().left, fixed: document.querySelector('#fixed')!.getBoundingClientRect().right - baseline }), fixedRight)
     expect(displacement.heading).toBeGreaterThanOrEqual(70)
     expect(displacement.fixed).toBeCloseTo(displacement.heading, 1)
     let previewPng = await application.evaluate(async ({ webContents }, url) => (await webContents.getAllWebContents().find(contents => contents.getURL() === url)!.capturePage()).toPNG(), page.url())

@@ -81,7 +81,10 @@ export let observeSwipe = (marker: string) => {
     }
     // Run after the page's wheel handlers, including listeners installed later.
     setTimeout(() => report(marker + JSON.stringify({ x: event.deltaX, y: event.deltaY, blocked: blocked || event.defaultPrevented })), 0)
-  }, { capture: true, passive: true })
+  // Inspect scroll boundaries before Chromium applies the default scroll. A
+  // passive listener can observe the new edge and misclassify a widget gesture.
+  // We never preventDefault; the page still decides how to consume the wheel.
+  }, { capture: true, passive: false })
 }
 
 export let createSwipeNavigation = (contents: WebContents, enabled: () => boolean) => {
