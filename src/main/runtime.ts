@@ -60,7 +60,7 @@ import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 
-type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
+type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: () => Promise<void> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
@@ -830,6 +830,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
     let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible())) : undefined
+    live.refreshSwipe = installSwipe
     contents.on('will-prevent-unload', event => {
       if (idleClosing.has(tabId)) { live.cancelClose?.(); return }
       let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
@@ -2692,6 +2693,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
+        // The renderer owns swipe recognition, so disable it before dispatching
+        // automation input rather than waiting for a native mouse notification.
+        if (syntheticInput) await live.refreshSwipe?.()
         if (method === 'navigate') {
           let failures = proxyRelays.get(paneConnectionId(pane))?.failures ?? 0
           let responseCode = 0
@@ -2716,7 +2720,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true }, undefined, true)
           return { pane: tabId, url: contents.getURL(), content: result.result.value }
         }
-        if (method === 'cdp') return cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined)
+        if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined)
         if (method === 'screenshot') {
           let target = path.resolve(required(args, 'output'))
           let params: Record<string, unknown> = { format: 'png', fromSurface: true, captureBeyondViewport: args.fullPage !== false }
@@ -2774,7 +2778,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           for (let type of ['keyDown', 'keyUp']) await cdp(tabId, 'Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(type === 'keyDown' && command ? { commands: [command] } : {}), ...(type === 'keyDown' && key === 'Enter' && !modifiers ? { text: '\r' } : {}) })
           return { pane: tabId }
         }
-      } finally { lastTabUse.set(tabId, Date.now()); if (syntheticInput) automatedContents.delete(contents.id); if (!contents.isDestroyed()) { if (syntheticInput) contents.setIgnoreMenuShortcuts(false); contents.setBackgroundThrottling(!background) } }
+      } finally {
+        lastTabUse.set(tabId, Date.now())
+        if (syntheticInput) automatedContents.delete(contents.id)
+        if (!contents.isDestroyed()) {
+          if (syntheticInput) { contents.setIgnoreMenuShortcuts(false); await live.refreshSwipe?.() }
+          contents.setBackgroundThrottling(!background)
+        }
+      }
       return null
     })
   }

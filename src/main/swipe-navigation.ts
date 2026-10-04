@@ -119,18 +119,32 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   let marker = `bmux-swipe:${randomUUID()}`
   let available = (direction: Direction) => !contents.isDestroyed() && enabled() && (direction === 'back' ? contents.navigationHistory.canGoBack() : contents.navigationHistory.canGoForward())
   let previous: string | undefined
+  let pending = Promise.resolve()
+  let world: Promise<number> | undefined
   let run = async (code: string) => {
     if (contents.isDestroyed()) return
-    // A separate isolated world has no preload or privileged browser API.
-    // Retry eligibility/installation on the next input if navigation replaced
-    // the document before this script could run.
-    await contents.executeJavaScriptInIsolatedWorld(1001, [{ code }]).catch(() => { previous = undefined })
+    try {
+      if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+      // CDP can update the isolated world while a document is still loading.
+      // executeJavaScriptInIsolatedWorld waits for did-stop-loading, which could
+      // otherwise hold automated input behind a stalled network request.
+      world ??= contents.debugger.sendCommand('Page.getFrameTree').then(async ({ frameTree }) => {
+        let context = await contents.debugger.sendCommand('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'bmux:swipe' })
+        return context.executionContextId as number
+      })
+      let result = await contents.debugger.sendCommand('Runtime.evaluate', { expression: code, contextId: await world })
+      if (result.exceptionDetails) previous = undefined
+    } catch {
+      // A navigation can replace the document mid-gesture. Retry on next input.
+      world = undefined; previous = undefined
+    }
   }
   let refresh = async () => {
     let next = JSON.stringify({ back: available('back'), forward: available('forward') })
-    if (next === previous) return
+    if (next === previous) return pending
     previous = next
-    await run(`(${observeSwipe.toString()})(${JSON.stringify(marker)}, ${createSwipeGesture.toString()}, ${renderSwipePreview.toString()}, ${next})`)
+    pending = run(`(${observeSwipe.toString()})(${JSON.stringify(marker)}, ${createSwipeGesture.toString()}, ${renderSwipePreview.toString()}, ${next})`)
+    await pending
   }
   let cancel = () => { previous = undefined; void run('globalThis.bmuxSwipe?.cancel()') }
   contents.on('console-message', details => {
@@ -140,14 +154,17 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
     if (direction === 'back') contents.navigationHistory.goBack()
     else contents.navigationHistory.goForward()
   })
-  contents.on('did-start-navigation', details => { if (details.isMainFrame) cancel() })
-  contents.on('dom-ready', () => { previous = undefined; void refresh() })
+  contents.on('did-start-navigation', details => {
+    if (details.isMainFrame) { cancel(); if (!details.isSameDocument) world = undefined }
+  })
+  contents.on('dom-ready', () => { world = undefined; previous = undefined; void refresh() })
   contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame) void refresh() })
   // Eligibility can change with focus, overlays or automation. Send only state
   // changes; wheel-by-wheel animation never waits for a main-process round trip.
   contents.on('before-mouse-event', () => { void refresh() })
   contents.on('focus', () => { void refresh() })
   contents.on('blur', cancel)
-  contents.on('render-process-gone', () => { previous = undefined })
+  contents.on('render-process-gone', () => { world = undefined; previous = undefined })
+  contents.debugger.on('detach', () => { world = undefined; previous = undefined })
   return refresh
 }
