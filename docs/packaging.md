@@ -93,7 +93,7 @@ Run `pnpm test:package` after packaging.
 To check a release DMG and its adjacent updater ZIP without launching them:
 
 ```sh
-bash scripts/verify-macos-dmg.sh release/bmux-0.1.3-arm64.dmg arm64
+bash scripts/verify-macos-dmg.sh release/bmux-0.1.4-arm64.dmg arm64
 ```
 
 The Release workflow also accepts `verify_only=true` with an existing version tag. This builds and tests both macOS architectures from the selected workflow ref without uploading release assets or changing Homebrew.
