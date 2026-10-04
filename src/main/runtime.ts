@@ -60,7 +60,7 @@ import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 
-type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: () => Promise<void> }
+type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: (() => Promise<void>) & { cancel: () => void } }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
@@ -829,8 +829,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
-    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible())) : undefined
+    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) })) : undefined
     live.refreshSwipe = installSwipe
+    if (installSwipe) view.on('bounds-changed', installSwipe.cancel)
     contents.on('will-prevent-unload', event => {
       if (idleClosing.has(tabId)) { live.cancelClose?.(); return }
       let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
@@ -1301,6 +1302,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let moveView = (live: LiveTab, parent: BaseWindow) => {
     if (live.parent === parent || live.disposed) return
+    live.refreshSwipe?.cancel()
     // Keep the native client's first responder valid when parking its focused page.
     // Reparenting a focused view directly into a hidden host can resign the client.
     keepClientFocus(live)

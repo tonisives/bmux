@@ -17,4 +17,9 @@ if (process.platform === 'darwin') {
     '-Wall', '-Wextra', '-Werror', '-DNAPI_VERSION=8', '-I', headers.include_dir,
     path.join(root, 'native/pointer.c'), '-framework', 'ApplicationServices', '-o', output,
   ], { stdio: 'inherit' })
+  execFileSync('/usr/bin/xcrun', [
+    'clang', '-arch', architecture, '-bundle', '-undefined', 'dynamic_lookup', '-fobjc-arc', '-O2',
+    '-Wall', '-Wextra', '-Werror', '-DNAPI_VERSION=8', '-I', headers.include_dir,
+    path.join(root, 'native/swipe.m'), '-framework', 'Cocoa', '-framework', 'QuartzCore', '-o', path.join(root, 'out/native/swipe.node'),
+  ], { stdio: 'inherit' })
 }
