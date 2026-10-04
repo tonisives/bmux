@@ -173,6 +173,10 @@ keyboard:
 
 Window reordering actions are `move-window`, `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Prefix then `.` prompts for the one-based destination index. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window one position right and `Cmd+ShiftLeft` to move it one position left. Directional movement wraps to the opposite end at the boundary. The shortcuts run when the Shift key is released and are canceled if another key is pressed while it is held.
 
+In the command finder, `movew` is an alias for `move-window`. Enter `movew` to
+open the index prompt, or `movew -t 2` to move the current window to position 2
+within its session. From the shell, use `bmux movew -c CLIENT -t 2`.
+
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
 
 ### Conditional shortcuts

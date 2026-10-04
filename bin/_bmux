@@ -19,6 +19,8 @@ if (( CURRENT == 2 )); then
     'new-window:Create a window'
     'list-windows:List windows in a session'
     'rename-window:Rename a window'
+    'move-window:Move the current window to an index'
+    'movew:Move the current window to an index'
     'kill-window:Close a window'
     'split-window:Split a pane'
     'list-panes:List panes in a window'
