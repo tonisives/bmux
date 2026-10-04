@@ -1,6 +1,6 @@
 {
   "name": "bmux",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A Chromium browser with tmux-style sessions and isolated profiles",
   "author": "bmux contributors",
   "license": "GPL-3.0-only",

@@ -43,7 +43,8 @@ export let installUpdateMenu = (options: { enabled: () => boolean; setEnabled: (
     checkItem.click = check
     automaticItem.visible = true
     automaticItem.checked = options.enabled()
-    automaticItem.click = setEnabled
+    // Replacing MenuItem.click also replaces Electron's checkbox toggle wrapper.
+    automaticItem.click = () => { automaticItem.checked = !automaticItem.checked; setEnabled(automaticItem) }
   }
   refresh()
   nativeUpdater.on('before-quit-for-update', options.beforeRestart)
