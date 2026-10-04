@@ -19,6 +19,8 @@ test('extension tracking moves a surviving page away from a destroyed window', (
   let contents = { id: 3 } as WebContents
   fixture.store.tabToWindow.set(contents, oldParent)
   fixture.store.windowToActiveTab.set(oldParent, contents)
+  let details = { active: true, windowId: 1, status: 'loading', url: 'https://example.com/' }
+  fixture.store.tabDetailsCache.set(contents.id, details)
   let compatibility = createExtensionCompatibility({ extensions: { on: vi.fn() } } as unknown as Session, {})
   compatibility.track(contents, parent, true)
   expect(fixture.store.tabToWindow.get(contents)).toBe(parent)
@@ -26,6 +28,7 @@ test('extension tracking moves a surviving page away from a destroyed window', (
   expect(fixture.store.addWindow).toHaveBeenCalledWith(parent)
   expect(fixture.selectTab).toHaveBeenCalledWith(contents)
   expect(fixture.store.lastFocusedWindowId).toBe(2)
+  expect(fixture.store.tabDetailsCache.get(contents.id)).toEqual({ ...details, windowId: 2, status: 'loading' })
 })
 
 test('current-window queries exclude active pages parked in another native window', () => {
@@ -57,6 +60,6 @@ test('moving the selected page while an extension popup is focused preserves act
   expect(fixture.store.windowToActiveTab.has(oldParent)).toBe(false)
   expect(fixture.store.windowToActiveTab.get(parent)).toBe(contents)
   expect(fixture.store.lastFocusedWindowId).toBe(parent.id)
-  expect(fixture.store.tabDetailsCache.has(previous.id)).toBe(false)
+  expect(fixture.store.tabDetailsCache.get(previous.id)).toEqual({ active: false })
   expect(fixture.selectTab).not.toHaveBeenCalled()
 })

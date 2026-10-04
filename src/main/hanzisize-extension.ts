@@ -1,4 +1,4 @@
-import { WebContentsView } from 'electron'
+import { BrowserWindow } from 'electron'
 import type { Extension, Session } from 'electron'
 
 // Hanzisize 0.2.7 and 1.0.1 only inject from their popup or resize shortcut.
@@ -6,7 +6,6 @@ import type { Extension, Session } from 'electron'
 // host-permission checks and the profile's existing saved settings.
 export let hanzisizeAutoResizeSource = `(() => {
   if (globalThis.bmuxHanzisizeAutoResize) return
-  globalThis.bmuxHanzisizeAutoResize = true
   let pending = new Map()
   let resize = (id, tab) => {
     if (!/^https?:\\/\\//.test(tab.url || '')) return
@@ -39,29 +38,30 @@ export let hanzisizeAutoResizeSource = `(() => {
     if (chrome.runtime.lastError) return
     for (let tab of tabs) if (tab.status === 'complete') resize(tab.id, tab)
   })
+  globalThis.bmuxHanzisizeAutoResize = true
 })()`
 
 export let createHanzisizeCompatibility = (session: Session) => {
-  let hosts = new Map<string, WebContentsView>()
+  let hosts = new Map<string, BrowserWindow>()
   let start = (extension: Extension) => {
     if (extension.name !== 'Hanzisize' || !['0.2.7', '1.0.1'].includes(extension.version) || extension.manifest.manifest_version !== 2 || hosts.has(extension.id)) return
     // Its lazy background page does not start until the popup sends a message.
-    // An unattached, sandboxed view of this inert bundled document supplies an
+    // A hidden, sandboxed view of this inert bundled document supplies an
     // extension context without loading the popup or selecting a browser tab.
-    let view = new WebContentsView({ webPreferences: { session, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    let view = new BrowserWindow({ show: false, focusable: false, skipTaskbar: true, webPreferences: { session, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
     hosts.set(extension.id, view)
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     view.webContents.on('will-navigate', event => event.preventDefault())
     void view.webContents.loadURL(`chrome-extension://${extension.id}/robots.txt`).then(() => {
-      if (!view.webContents.isDestroyed()) return view.webContents.executeJavaScript(hanzisizeAutoResizeSource)
+      if (!view.isDestroyed()) return view.webContents.executeJavaScript(hanzisizeAutoResizeSource)
     }).catch(() => {
-      if (!view.webContents.isDestroyed()) console.warn('Hanzisize automatic resizing could not be initialized')
+      if (!view.isDestroyed()) console.warn('Hanzisize automatic resizing could not be initialized')
     })
   }
   let stop = (id: string) => {
     let view = hosts.get(id)
     hosts.delete(id)
-    if (view && !view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
+    if (view && !view.isDestroyed()) view.destroy()
   }
   let ready = (_event: Electron.Event, extension: Extension) => start(extension)
   let unloaded = (_event: Electron.Event, extension: Extension) => stop(extension.id)

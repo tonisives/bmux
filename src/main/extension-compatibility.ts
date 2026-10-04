@@ -7,7 +7,7 @@ import { createHanzisizeCompatibility } from './hanzisize-extension'
 type ExtensionEvent = { extension: Extension; sender: { getURL?: () => string; scriptURL?: string } }
 type Internals = { ctx: {
   router: { apiHandler: () => (name: string, callback: (event: ExtensionEvent, ...args: any[]) => unknown, options?: { permission: string }) => void; getHandler: (name: string) => { callback: (event: ExtensionEvent, ...args: any[]) => unknown }; sendEvent: (id: string, name: string, ...args: unknown[]) => void }
-  store: { tabs: Set<WebContents>; windows: Set<BaseWindow>; tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; lastFocusedWindowId?: number; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, unknown>; windowDetailsCache: Map<number, unknown> }
+  store: { tabs: Set<WebContents>; windows: Set<BaseWindow>; tabToWindow: WeakMap<WebContents, BaseWindow>; windowToActiveTab: WeakMap<BaseWindow, WebContents>; lastFocusedWindowId?: number; addWindow: (window: BaseWindow) => void; tabDetailsCache: Map<number, { active: boolean; windowId: number }>; windowDetailsCache: Map<number, unknown> }
 } }
 
 // Adapter for the pinned 4.9.0 package. The preload patch registers these API calls.
@@ -70,11 +70,15 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
         // elsewhere. Keep the selected page available to active-tab queries.
         if (active && !selected) {
           let previous = ctx.store.windowToActiveTab.get(parent)
-          if (previous) ctx.store.tabDetailsCache.delete(previous.id)
+          let previousDetails = previous && ctx.store.tabDetailsCache.get(previous.id)
+          if (previousDetails) previousDetails.active = false
           ctx.store.windowToActiveTab.set(parent, contents)
           if (!oldParent.isDestroyed() && ctx.store.lastFocusedWindowId === oldParent.id) ctx.store.lastFocusedWindowId = parent.id
         }
-        ctx.store.tabDetailsCache.delete(contents.id)
+        // The library drops onUpdated events when the previous snapshot is
+        // absent. Keep its URL/loading state across native view reattachment.
+        let details = ctx.store.tabDetailsCache.get(contents.id)
+        if (details) details.windowId = parent.id
       }
       if (selected) {
         ctx.store.lastFocusedWindowId = parent.id
