@@ -102,7 +102,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
       await expect(infoButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
       await expect(rowToggle).toHaveCSS('background-color', 'rgb(167, 182, 156)')
     }
-    await extensionPanel.getByText('Profile: default', { exact: true }).hover()
+    await extensionPanel.getByText(/^Profile: default\./).hover()
     await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await extensionPanel.getByRole('button', { name: 'Fixture extension', exact: true }).click()
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
