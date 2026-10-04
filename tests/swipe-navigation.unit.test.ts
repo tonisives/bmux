@@ -4,11 +4,54 @@ import { createSwipeGesture } from '../src/main/swipe-navigation'
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
-let fixture = () => {
-  let navigate = vi.fn(), gesture = createSwipeGesture(navigate)
+let fixture = (available = (_direction: 'back' | 'forward') => true) => {
+  let navigate = vi.fn(), preview = vi.fn(), gesture = createSwipeGesture(navigate, preview, available)
   let wheel = (x: number, y = 0, blocked = false) => { gesture.push({ x, y, blocked }); vi.advanceTimersByTime(16) }
-  return { navigate, gesture, wheel, finish: () => vi.advanceTimersByTime(220) }
+  return { navigate, preview, gesture, wheel, finish: () => vi.advanceTimersByTime(220) }
 }
+
+test('page follows a partial swipe and its reversal before returning on release', () => {
+  let { wheel, preview, navigate, finish } = fixture()
+  wheel(-3)
+  expect(preview).toHaveBeenLastCalledWith(0)
+  wheel(-67)
+  expect(preview).toHaveBeenLastCalledWith(70)
+  wheel(50)
+  expect(preview).toHaveBeenLastCalledWith(20)
+  expect(navigate).not.toHaveBeenCalled()
+  finish()
+  expect(preview).toHaveBeenLastCalledWith(0)
+  expect(navigate).not.toHaveBeenCalled()
+  wheel(100)
+  expect(preview).toHaveBeenLastCalledWith(-100)
+})
+
+test('page gestures cancel the preview and keep ownership until release', () => {
+  let { wheel, preview, finish } = fixture()
+  wheel(-70)
+  expect(preview).toHaveBeenLastCalledWith(70)
+  wheel(-70, 0, true)
+  expect(preview).toHaveBeenLastCalledWith(0)
+  wheel(-70)
+  expect(preview).toHaveBeenLastCalledWith(0)
+  finish()
+  wheel(0, 100); wheel(-200)
+  expect(preview).toHaveBeenLastCalledWith(0)
+})
+
+test('unavailable history or a disabled target cannot preview or commit', () => {
+  let allowed = true
+  let { wheel, preview, navigate, finish } = fixture(direction => allowed && direction === 'back')
+  wheel(240); finish()
+  expect(preview.mock.calls.every(([offset]) => offset === 0)).toBe(true)
+  expect(navigate).not.toHaveBeenCalled()
+  wheel(-240)
+  expect(preview).toHaveBeenLastCalledWith(240)
+  allowed = false
+  finish()
+  expect(preview).toHaveBeenLastCalledWith(0)
+  expect(navigate).not.toHaveBeenCalled()
+})
 
 test('commits back and forward once after the gesture and its momentum finish', () => {
   let { wheel, navigate, finish } = fixture()

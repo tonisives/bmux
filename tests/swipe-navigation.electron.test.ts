@@ -10,13 +10,21 @@ let application: ElectronApplication, chrome: Page, directory: string, server: h
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let fixture = `<!doctype html><title>Swipe fixture</title><style>
+  html { transform:translateY(0); }
   body { margin:0; height:2500px; background:#d9e7ee; }
   #scroller { width:240px; height:100px; overflow:auto; }
   #scroller div { width:2000px; height:80px; background:#557766; }
   #cancel { width:240px; height:100px; background:#bb7755; }
   #contain { width:240px; height:100px; overscroll-behavior-x:contain; }
-</style><h1>Swipe fixture</h1><div id="scroller"><div></div></div><div id="cancel">Page gesture</div><div id="contain">Contained</div><script>
+  #fixed { position:fixed; right:20px; top:20px; width:30px; height:30px; background:#557766; }
+</style><h1>Swipe fixture</h1><div id="fixed"></div><div id="scroller"><div></div></div><div id="cancel">Page gesture</div><div id="contain">Contained</div><script>
   window.wheels = 0; window.lastWheel = 0;
+  window.displacements = [];
+  let sample = () => {
+    window.displacements.push(document.documentElement.getBoundingClientRect().left);
+    requestAnimationFrame(sample);
+  };
+  requestAnimationFrame(sample);
   window.addEventListener('wheel', () => { window.wheels++; window.lastWheel = performance.now(); }, { passive:true });
   document.querySelector('#cancel').addEventListener('wheel', event => event.preventDefault(), { passive:false });
 </script>`
@@ -62,6 +70,7 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await fs.writeFile(info.outputPath('swipe-page.png'), Buffer.from(png))
 
   let swipe = async (deltas: [number, number][], target?: string) => {
+    await page.evaluate(() => { (window as any).displacements = []; })
     if (target) await page.locator(target).hover()
     else await page.mouse.move(280, 30)
     for (let [x, y] of deltas) await page.mouse.wheel(x, y)
@@ -69,35 +78,63 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   let unchanged = async (url: string) => {
     await page.waitForFunction(() => (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 400)
     expect(page.url()).toBe(url)
+    await expect.poll(() => page.evaluate(() => document.documentElement.getBoundingClientRect().left)).toBe(0)
   }
+  let didNotMove = async () => expect(await page.evaluate(() => (window as any).displacements.every((x: number) => x === 0))).toBe(true)
   await swipe([[-80, 0], [-80, 0], [-80, 0], [-30, 0], [-5, 0]])
   await expect(page).toHaveURL(`${origin}/two`)
   // Native history navigation can focus the page being navigated. Its sibling
   // must retain its own URL regardless of the client's resulting selection.
   expect((await state()).model.sessions[0].windows[0].panes.find((item: { id: string }) => item.id === other.id).url).toBe(`${origin}/other`)
+  await swipe([[70, 0]])
+  await unchanged(`${origin}/two`)
+  expect(await page.evaluate(() => Math.min(...(window as any).displacements))).toBeLessThanOrEqual(-70)
   await swipe([[100, 0], [100, 0]])
   await expect(page).toHaveURL(`${origin}/three`)
 
   await swipe([[-70, 0]])
+  // Continue a sub-threshold gesture while checking native paint. These small
+  // wheel events model a held swipe; readiness is established by page geometry.
+  let holding = true
+  let hold = (async () => {
+    while (holding) {
+      await page.mouse.wheel(-0.1, 0)
+      await new Promise(resolve => setTimeout(resolve, 40))
+    }
+  })()
+  try {
+    await expect.poll(() => page.evaluate(() => document.documentElement.getBoundingClientRect().left)).toBeGreaterThanOrEqual(70)
+    let displacement = await page.evaluate(() => ({ heading: document.querySelector('h1')!.getBoundingClientRect().left, fixed: document.querySelector('#fixed')!.getBoundingClientRect().right - (innerWidth - 20) }))
+    expect(displacement.heading).toBeGreaterThanOrEqual(70)
+    expect(displacement.fixed).toBeCloseTo(displacement.heading, 1)
+    let previewPng = await application.evaluate(async ({ webContents }, url) => (await webContents.getAllWebContents().find(contents => contents.getURL() === url)!.capturePage()).toPNG(), page.url())
+    await fs.writeFile(info.outputPath('swipe-preview.png'), Buffer.from(previewPng))
+  } finally { holding = false; await hold }
   await unchanged(`${origin}/three`)
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).transform)).toBe('matrix(1, 0, 0, 1, 0, 0)')
   await swipe([[-220, 0], [180, 0]])
   await unchanged(`${origin}/three`)
   await swipe([[0, 180], [-240, 0]])
   await unchanged(`${origin}/three`)
+  await didNotMove()
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0)
   await page.evaluate(() => scrollTo(0, 0))
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
 
   await swipe([[250, 0]], '#scroller')
   await unchanged(`${origin}/three`)
+  await didNotMove()
   await expect.poll(() => page.locator('#scroller').evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
   // Reaching a widget's edge during this burst still belongs to the widget.
   await swipe([[-250, 0], [-250, 0]], '#scroller')
   await unchanged(`${origin}/three`)
+  await didNotMove()
   await swipe([[-250, 0]], '#cancel')
   await unchanged(`${origin}/three`)
+  await didNotMove()
   await swipe([[-250, 0]], '#contain')
   await unchanged(`${origin}/three`)
+  await didNotMove()
   await page.evaluate(() => window.dispatchEvent(new WheelEvent('wheel', { deltaX: -250 })))
   await unchanged(`${origin}/three`)
 
@@ -107,4 +144,5 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await expect(page).toHaveURL(`${origin}/one`)
   await swipe([[-250, 0]])
   await unchanged(`${origin}/one`)
+  await didNotMove()
 })
