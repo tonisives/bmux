@@ -69,6 +69,10 @@ Hanzisize applies its saved language and minimum font size when you open its
 popup on a page. Enabling the extension or refreshing a page does not apply it;
 open Hanzisize again after navigation. Set the language and size separately in
 each profile. Its resize keyboard shortcut is not supported in bmux yet.
+Electron does not currently grant temporary host access for `activeTab`, so
+Hanzisize also needs explicit site patterns in its local manifest's `permissions`
+array (for example, `https://*.facebook.com/*`). Add only the sites you intend to
+allow, then disable and re-enable the extension in each profile to reload it.
 
 The CLI exposes the same operations with an explicit profile:
 

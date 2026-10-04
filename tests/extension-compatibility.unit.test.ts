@@ -26,3 +26,19 @@ test('extension tracking moves a surviving page away from a destroyed window', (
   expect(fixture.selectTab).toHaveBeenCalledWith(contents)
   expect(fixture.store.lastFocusedWindowId).toBe(2)
 })
+
+test('moving the selected page while an extension popup is focused preserves active-tab queries', () => {
+  let oldParent = { id: 4, isDestroyed: () => false } as BaseWindow
+  let parent = { id: 5, isDestroyed: () => false } as BaseWindow
+  let contents = { id: 6 } as WebContents
+  fixture.store.tabToWindow.set(contents, oldParent)
+  fixture.store.windowToActiveTab.set(oldParent, contents)
+  fixture.store.lastFocusedWindowId = oldParent.id
+  fixture.selectTab.mockClear()
+  let compatibility = createExtensionCompatibility({ extensions: { on: vi.fn() } } as unknown as Session, {})
+  compatibility.track(contents, parent)
+  expect(fixture.store.windowToActiveTab.has(oldParent)).toBe(false)
+  expect(fixture.store.windowToActiveTab.get(parent)).toBe(contents)
+  expect(fixture.store.lastFocusedWindowId).toBe(parent.id)
+  expect(fixture.selectTab).not.toHaveBeenCalled()
+})

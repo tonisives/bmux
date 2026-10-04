@@ -48,13 +48,20 @@ export let createExtensionCompatibility = (session: Session, options: Omit<Chrom
       let oldParent = ctx.store.tabToWindow.get(contents)
       if (!oldParent) api.addTab(contents, parent)
       else if (oldParent !== parent) {
-        if (ctx.store.windowToActiveTab.get(oldParent) === contents) ctx.store.windowToActiveTab.delete(oldParent)
+        let active = ctx.store.windowToActiveTab.get(oldParent) === contents
+        if (active) ctx.store.windowToActiveTab.delete(oldParent)
         // Closing a client parks its pages before the next reconciliation. The
         // old native window may already be destroyed; its close handler clears
         // the window cache, and reading its id here would abort page layout.
         if (!oldParent.isDestroyed()) ctx.store.windowDetailsCache.delete(oldParent.id)
         ctx.store.tabToWindow.set(contents, parent)
         ctx.store.addWindow(parent)
+        // Opening an extension popup can move its page while browser focus is
+        // elsewhere. Keep the selected page available to active-tab queries.
+        if (active) {
+          ctx.store.windowToActiveTab.set(parent, contents)
+          if (!oldParent.isDestroyed() && ctx.store.lastFocusedWindowId === oldParent.id) ctx.store.lastFocusedWindowId = parent.id
+        }
         ctx.store.tabDetailsCache.delete(contents.id)
       }
       if (selected) {
