@@ -24,7 +24,7 @@ export let commandTokens = (line: string, partial = false): { value: string; sta
 export let tokenize = (line: string): string[] => commandTokens(line).map(word => word.value)
 
 export let COMMAND_ALIASES: Record<string, string> = {
-  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapw: 'swap-window',
+  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', movew: 'move-window', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapw: 'swap-window',
 }
 
 let indexed = <T extends { id: string; name?: string }>(items: T[], value: string, kind: string) => {

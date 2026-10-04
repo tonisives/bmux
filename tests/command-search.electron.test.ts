@@ -187,6 +187,41 @@ test('command arguments, completion, history, and keyboard result selection work
   await prompt().press('Escape'); await expect(prompt()).toHaveCount(0)
 })
 
+test('movew opens the index prompt and reorders windows from the finder and CLI', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let originalWindowId = client.windowId
+  let source = await rpc('new-window', { session: client.sessionId, url, name: 'movew fixture' })
+  let windows = async () => (await state()).model.sessions.find((item: { id: string }) => item.id === client.sessionId).windows
+  let originalOrder = (await windows()).map((window: { id: string }) => window.id)
+  try {
+    await rpc('select-window', { client: client.id, window: source.id })
+    await expect(chrome.locator(`[data-pane-id="${source.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await open(); await prompt().fill('movew')
+    await expect(chrome.getByRole('option', { selected: true })).toContainText('movew -t INDEX')
+    await prompt().press('Enter')
+    let position = chrome.getByRole('textbox', { name: 'Move window to index', exact: true })
+    await expect(position).toBeFocused()
+    await position.fill('1'); await position.press('Enter')
+    await expect(position).toHaveCount(0)
+    await expect.poll(async () => (await windows()).map((window: { id: string }) => window.id)).toEqual([source.id, ...originalOrder.filter((id: string) => id !== source.id)])
+
+    await open(); await prompt().fill('movew -t 2'); await prompt().press('Enter')
+    await expect(prompt()).toHaveCount(0)
+    await expect.poll(async () => (await windows())[1].id).toBe(source.id)
+    for (let [command, index] of [['movew', '1'], ['move-window', '2']]) {
+      let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', command, '-c', client.id, '-t', index], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20_000 })
+      expect(JSON.parse(stdout)).toMatchObject({ ok: true, result: { id: source.id } })
+      await expect.poll(async () => (await windows())[Number(index) - 1].id).toBe(source.id)
+    }
+    expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id)).toMatchObject({ sessionId: client.sessionId, windowId: source.id, paneId: source.panes[0].id })
+    await expect.poll(nativeVisible).toBe(true)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('select-window', { client: client.id, window: originalWindowId })
+    await rpc('kill-window', { window: source.id, confirm: true })
+  }
+})
+
 test('enabled plugin actions appear in fuzzy command results and execute', async () => {
   await open(); await prompt().fill('fixture greeting')
   await expect(chrome.getByRole('option', { selected: true })).toContainText('plugin run fixture/greet')
