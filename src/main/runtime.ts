@@ -79,7 +79,7 @@ let required = (args: Record<string, unknown>, name: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
   return value.trim()
 }
-export let createRuntime = (dataDirectory: string) => {
+export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
@@ -706,7 +706,7 @@ export let createRuntime = (dataDirectory: string) => {
     let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { label: 'Browser', submenu: [...nativeWindowItems, { label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
       // Only unconditional accelerators take precedence over native menu defaults.
       { role: 'editMenu' },
@@ -720,6 +720,7 @@ export let createRuntime = (dataDirectory: string) => {
     pageTools?.reload()
     plugins?.reload()
     refreshMenu()
+    settingsChanged()
     if (configuration && configuration.accessibility !== accessibilityPreference) {
       accessibilityPreference = configuration.accessibility
       app.setAccessibilitySupportEnabled(accessibilityPreference)
@@ -2818,6 +2819,7 @@ export let createRuntime = (dataDirectory: string) => {
     await app.dock?.show(); last?.window.show(); last?.window.focus()
   }
   let shutdown = () => {
+    if (shuttingDown) return
     shuttingDown = true
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
@@ -2887,5 +2889,5 @@ export let createRuntime = (dataDirectory: string) => {
       return remoteViewport(pane)
     },
   }
-  return { execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

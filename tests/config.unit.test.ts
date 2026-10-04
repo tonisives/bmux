@@ -9,6 +9,7 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaultConfig = parseConfig(defaultConfigText())
   let defaults = defaultConfig.keyboard
   expect(defaultConfig.statusBar).toBe('top')
+  expect(defaultConfig.automaticUpdates).toBe(true)
   expect(defaultConfig.showTabCloseButtons).toBe(false)
   expect(defaultConfig.searchApps).toEqual({ normal: 'google', private: 'google' })
   expect(defaultConfig.memory).toEqual({ lazyRestore: true, idleUnloadMinutes: 0 })
@@ -71,6 +72,23 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(() => parseConfig('memory:\n  unknown: true\nkeyboard: {}\n')).toThrow('Unknown memory setting')
   expect(parseConfig('searchApps:\n  normal: duckduckgo\n  private: brave\nkeyboard: {}\n').searchApps).toEqual({ normal: 'duckduckgo', private: 'brave' })
   expect(() => parseConfig('searchApps:\n  private: unknown\nkeyboard: {}\n')).toThrow('Invalid search app')
+})
+
+it('persists the automatic update preference without changing unrelated settings', () => {
+  expect(parseConfig('keyboard: {}\n').automaticUpdates).toBe(true)
+  expect(() => parseConfig('automaticUpdates: yes\nkeyboard: {}\n')).toThrow('automaticUpdates must be true or false')
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-update-config-'))
+  let file = path.join(directory, 'config.yaml')
+  fs.writeFileSync(file, '# keep comment\nkeyboard:\n  prefix: Ctrl+A\n')
+  let config = createConfig(file, () => undefined)
+  try {
+    config.update(['automaticUpdates'], false)
+    expect(config.automaticUpdates).toBe(false)
+    expect(config.keyboard.prefix).toBe('Ctrl+A')
+    expect(fs.readFileSync(file, 'utf8')).toContain('# keep comment')
+    config.reload()
+    expect(config.automaticUpdates).toBe(false)
+  } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })
 
 it('parses and validates click mode settings', () => {

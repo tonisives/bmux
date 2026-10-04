@@ -8,7 +8,7 @@ tmux for your browser. Split your work into panes, keep a workspace for each pro
 
 [Website](https://bmux.cc) · [Download](https://github.com/tonisives/bmux/releases/latest) · [Get started](#get-started) · [Build from source](#development) · [Automation guide](docs/agent.md)
 
-bmux is an early preview, free under the [GNU GPL version 3](LICENSE). The [original MIT notice](LICENSE-MIT) is retained for code previously distributed under MIT. Release builds are unsigned. It does not require tmux.
+bmux is an early preview, free under the [GNU GPL version 3](LICENSE). The [original MIT notice](LICENSE-MIT) is retained for code previously distributed under MIT. macOS releases are Developer ID signed and notarized. It does not require tmux.
 
 ## Features
 
@@ -65,7 +65,7 @@ brew install --cask tonisives/tap/bmux
 
 The [latest GitHub release](https://github.com/tonisives/bmux/releases/latest) also provides macOS Apple Silicon and Intel DMGs, a Windows x64 desktop installer, and Linux x64 and arm64 portable host archives. See [Remote hosting](docs/remote-host.md) for Linux host setup.
 
-Release builds are currently unsigned, so macOS may require you to confirm the first launch in System Settings. The bundled `bmux` CLI requires Node.js 22.12+ (Node 24 recommended).
+macOS releases are Developer ID signed and notarized. Installed release builds check for updates at startup and daily, download them in the background, and apply them when you quit. Use **bmux > Restart to Update** to restart sooner, or turn off **Automatically Check for Updates** in that menu. See [macOS launch troubleshooting](docs/packaging.md#macos-first-launch) for the v0.1.3 damaged-bundle error. The bundled `bmux` CLI requires Node.js 22.12+ (Node 24 recommended).
 
 To run from source, install Node.js 22.12+ and pnpm 11:
 

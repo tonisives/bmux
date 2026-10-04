@@ -42,6 +42,7 @@
     "@ghostery/adblocker": "2.18.2",
     "darkreader": "^4.9.130",
     "electron-chrome-extensions": "4.9.0",
+    "electron-updater": "^6.8.9",
     "jose": "^6.2.12",
     "pg": "^8.23.0",
     "proxy-chain": "^3.0.1",
@@ -108,7 +109,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "identity": null,
+      "identity": "-",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSCameraUsageDescription": "Allow websites you approve to use the camera.",
         "NSMicrophoneUsageDescription": "Allow websites you approve to use the microphone."
