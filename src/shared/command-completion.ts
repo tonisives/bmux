@@ -43,7 +43,7 @@ export let commandTargetSuggestions = (line: string, state: PublicState): { quer
   for (let session of state.model.sessions) {
     if (currentSessionTarget && session.id !== client?.sessionId) continue
     let sessionSelector = session.name.includes(':') || /^\d+$/.test(session.name) || state.model.sessions.filter(item => item.name === session.name).length > 1 ? session.id : session.name
-    if (!source && !paneTarget && flag !== '--window' && !currentSessionTarget && ['move-pane', 'join-pane', 'break-pane', 'move-window'].includes(name)) candidates.push({ value: `${sessionSelector}:`, label: `${session.name}:`, description: ['move-pane', 'break-pane'].includes(name) ? 'New window in session' : name === 'move-window' ? 'Move window to session' : 'Join selected window in session' })
+    if (!source && !paneTarget && flag !== '--window' && !currentSessionTarget && ['move-pane', 'join-pane', 'break-pane', 'move-window'].includes(name)) candidates.push({ value: `${sessionSelector}:`, label: `${session.name}:`, description: name === 'break-pane' ? 'New window in session' : name === 'move-window' ? 'Move window to session' : 'Join selected window in session' })
     for (let [index, window] of session.windows.entries()) {
       if (query.startsWith('.') && window.id !== client?.windowId) continue
       if (coordinateWindow && window !== coordinateWindow) continue

@@ -24,7 +24,8 @@ test('pane move targets include sessions and distinct windows, and every complet
     expect(entries.some(entry => entry.usage === 'bmux-marketing:2 research')).toBe(true)
     for (let entry of entries) expect(() => parseCommandLine(entry.command, current)).not.toThrow()
     let session = entries.find(entry => entry.usage === 'bmux-marketing:')!
-    expect(parseCommandLine(session.command, current).args).toMatchObject(line.includes('joinp') ? { window: target.windows[0].id } : { session: target.id })
+    expect(session.description).toBe('Join selected window in session')
+    expect(parseCommandLine(session.command, current).args).toMatchObject({ window: target.windows[0].id })
   }
   let entries = commandTargetSuggestions('movep -t bmux-mar', current)!.entries
   expect(entries).toHaveLength(3)
@@ -39,12 +40,12 @@ test('target completion preserves source and split flags and quotes names while 
   let line = `movep -s ${source} -v -t "work`
   let entries = commandTargetSuggestions(line, current)!.entries
   expect(entries).toHaveLength(3)
-  let session = entries.find(entry => entry.description === 'New window in session')!
-  expect(parseCommandLine(session.command, current).args).toEqual({ client: 'client', pane: source, session: target.id, axis: 'vertical' })
+  let session = entries.find(entry => entry.description === 'Join selected window in session')!
+  expect(parseCommandLine(session.command, current).args).toEqual({ client: 'client', pane: source, window: target.windows[0].id, axis: 'vertical' })
   expect(commandTargetSuggestions('movep -t :{work', current)!.entries).toHaveLength(0)
   target.name = 'work:notes'
-  let colon = commandTargetSuggestions('movep -t work', current)!.entries.find(entry => entry.description === 'New window in session')!
-  expect(parseCommandLine(colon.command, current).args).toMatchObject({ session: target.id })
+  let colon = commandTargetSuggestions('movep -t work', current)!.entries.find(entry => entry.description === 'Join selected window in session')!
+  expect(parseCommandLine(colon.command, current).args).toMatchObject({ window: target.windows[0].id })
 })
 
 test('omitted session targets complete only windows in the current client session', () => {

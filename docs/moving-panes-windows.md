@@ -9,6 +9,8 @@ client when none is focused. Movement commands do not activate the application.
 | --- | --- |
 | `joinp -s :2.0 -t :1.1 -h` | Join a source pane beside a destination pane |
 | `movep -s :2.0 -t :1.1 -v -b -d` | Join above the destination and retain client selection |
+| `movep -t work:1.0 -h` | Move the current pane beside pane 0 in another session |
+| `movep -t work:` | Join the selected pane in that session's selected window |
 | `breakp -s :1.0 -t work:2 -n notes -d` | Create a window at index 2 in another session |
 | `breakp -s PANE_ID -W` | Float a pane in its existing window |
 | `joinp -s PANE_ID -t PANE_ID` | Return a floating pane to its saved split position |
@@ -41,8 +43,10 @@ names. Relative window targets such as `:+1`, `:-1`, `:{start}`, `:{end}`, and
 `:{current}` work. Pane targets also accept `.{next}`, `.{previous}`, and
 `.{active}`. Missing or ambiguous targets fail before moving anything.
 
-An omitted pane position uses the selected pane in that window. A session-only
-join target uses that session's selected window. bmux uses the command client's
+An omitted pane position uses the selected pane in that window. `movep` and
+`joinp` use the same destination rules, including the current session. A
+session-only target uses that session's selected window. Use `breakp -t work:`
+to create a new window there. bmux uses the command client's
 selection when available, then another client's selection, then the first
 window or pane. bmux keeps selections per client rather than sharing one active
 selection between every client attached to a session.
@@ -63,10 +67,6 @@ bmux keeps windows in a dense one-based order. `movew -t :2` inserts at the
 final position and shifts other windows, rather than requiring an unused tmux
 window index. A session-only `movew -t work:` appends the window. `movew -r`
 is accepted; the ordering is already sequential.
-
-For compatibility with existing bmux commands, `movep -t work:` creates a new
-window in that session. tmux's `movep` joins an existing pane; use `breakp` when
-you want an explicit new-window command in either application.
 
 Window linking, sparse indices, marked panes, mouse targets, glob targets, and
 terminal-cell sizing flags are not implemented. Unsupported movement options

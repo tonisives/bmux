@@ -73,7 +73,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'toggle-pane-zoom', description: 'Expand or restore the selected pane', action: 'toggle-pane-zoom' },
   ...['left', 'down', 'up', 'right'].map(direction => ({ command: `pane-${direction}`, description: `Select the pane to the ${direction}`, action: `pane-${direction}` })),
   { command: 'select-pane -t ', usage: 'select-pane -t PANE_ID', description: 'Select a pane by ID', complete: true },
-  { command: 'movep -t ', usage: 'movep [-s PANE] -t SESSION:|WINDOW[.PANE] [-h|-v] [-b] [-d]', description: 'Move a pane to a new window in a session, or join a specified window or pane', complete: true },
+  { command: 'movep -t ', usage: 'movep [-s PANE] -t [SESSION:]WINDOW[.PANE] [-h|-v] [-b] [-d]', description: 'Move a pane beside another pane in this or another session', complete: true },
   { command: 'move-pane --window ', usage: 'move-pane --window WINDOW_ID', description: 'Move this pane into another window', complete: true },
   { command: 'new-pane', usage: 'new-pane [--url URL]', description: 'Open a floating pane' },
   { command: 'break-pane', usage: 'break-pane [--floating]', description: 'Move this pane to a new window, or float it with --floating', action: 'break-pane' },
