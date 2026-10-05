@@ -20,6 +20,7 @@ test('window insertion handles indices, before/after, session transfer and empty
   let { model, session, first, second, third, work, client } = fixture()
   moveWindow(model, { client: client.id, window: first.id, position: 3 })
   expect(session.windows).toEqual([second, third, first])
+  expect(client.zoomedPaneId).toBe(first.panes[0].id)
   moveWindow(model, { client: client.id, window: first.id, position: 2, before: true })
   expect(session.windows).toEqual([second, first, third])
   moveWindow(model, { client: client.id, window: second.id, position: 2, after: true })
@@ -38,6 +39,7 @@ test('window swapping exchanges nonadjacent slots and background operations pres
   swapWindows(model, { client: client.id, window: first.id, destination: third.id })
   expect(session.windows).toEqual([third, second, first])
   expect(client.windowId).toBe(first.id)
+  expect(client.zoomedPaneId).toBe(first.panes[0].id)
   let selected = { ...client }
   moveWindow(model, { client: client.id, window: second.id, session: work.id, position: 'last', background: true })
   repairClientSelections(model)

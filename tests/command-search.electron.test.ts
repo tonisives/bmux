@@ -352,7 +352,14 @@ test('pane movement commands preserve live pages through same-window joins, swap
     for (let pane of [a, b, c]) expect(await rpc('eval', { pane: pane.id, expression: 'window.bmuxMovement' })).toBe(pane.id)
     expect((await window()).panes.find((pane: any) => pane.id === b.id).profileId).toBe(b.profileId)
     await rpc('select-pane', { client: client.id, pane: a.id })
-    await expect.poll(nativeVisible).toBe(true)
+    await expect.poll(() => application.evaluate(async ({ BaseWindow }, url) => {
+      let panes: string[] = []
+      for (let window of BaseWindow.getAllWindows().filter(window => window.isVisible())) for (let view of window.contentView.children) {
+        let contents = (view as any).webContents, bounds = view.getBounds()
+        if (contents?.getURL() === url && bounds.width > 100 && bounds.height > 100) panes.push(await contents.executeJavaScript('window.bmuxMovement'))
+      }
+      return panes.sort()
+    }, url)).toEqual([a.id, b.id, c.id].sort())
   } finally {
     await chrome.keyboard.press('Escape')
     await rpc('switch-client', { client: client.id, session: client.sessionId })
@@ -375,6 +382,13 @@ test('window movement commands transfer and exchange explicit windows across ses
     await rpc('select-window', { client: client.id, window: a.id })
     await rpc('wait', { pane: c.panes[0].id, selector: 'h1' })
     await rpc('eval', { pane: c.panes[0].id, expression: 'window.bmuxMovement = "window stays live"' })
+    await rpc('select-window', { client: client.id, window: c.id })
+    await rpc('toggle-pane-zoom', { client: client.id })
+    await cli('movew', '-s', ':3', '-t', ':1')
+    expect(await windows(local.id)).toEqual([c.id, a.id, b.id])
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ windowId: c.id, zoomedPaneId: c.panes[0].id })
+    await cli('movew', '-s', ':1', '-t', ':3')
+    await rpc('select-window', { client: client.id, window: a.id })
     await cli('swapw', '-s', ':1', '-t', ':3', '-d')
     expect(await windows(local.id)).toEqual([c.id, b.id, a.id])
     expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: local.id, windowId: c.id, paneId: c.panes[0].id })

@@ -26,7 +26,11 @@ export let moveWindow = (model: Model, args: Record<string, unknown>) => {
   }
   from.windows.splice(index, 1)
   to.windows.splice(destination, 0, window)
-  if (client && args.background !== true) { client.sessionId = to.id; client.windowId = window.id; client.paneId = window.panes.some(pane => pane.id === client.paneId) ? client.paneId : window.panes[0]?.id ?? null; client.zoomedPaneId = null }
+  if (client && args.background !== true) {
+    client.sessionId = to.id; client.windowId = window.id
+    client.paneId = window.panes.some(pane => pane.id === client.paneId) ? client.paneId : window.panes[0]?.id ?? null
+    if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
+  }
   if (!from.windows.length) removeSession(model, from)
   return window
 }
@@ -46,7 +50,7 @@ export let swapWindows = (model: Model, args: Record<string, unknown>) => {
     let session = selected === source ? to : from
     client.sessionId = session.id; client.windowId = selected.id
     if (!selected.panes.some(pane => pane.id === client.paneId)) client.paneId = selected.panes[0]?.id ?? null
-    client.zoomedPaneId = null
+    if (!selected.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
   }
   return source
 }
