@@ -1822,7 +1822,7 @@ let BookmarkPicker = () => {
   let focusSearch = () => input.current?.focus()
   return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
     <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-pressed={reordering} onClick={toggleReordering}>Reorder</button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
-    <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map((bookmark, index) => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" index={index} count={group.bookmarks.length} />)}</div>)}</BookmarkActions>
+    <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
     {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
   </div></BookmarkExpansionContext.Provider>
 }
@@ -1835,7 +1835,7 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
     }
   }
 }
-let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; index: number; count: number }) => {
+let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
   let { state, run, show } = useUI()
   let { canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
   let key = bookmarkKey(profileId, bookmark.id)
@@ -1860,8 +1860,8 @@ let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: 
   let addToFolder = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); show('bookmark', undefined, { profileId, folderId: bookmark.id }) }
   let drag = { id: bookmark.id, parentId, profileId }
   let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.profileId === profileId && dropTarget.id === bookmark.id ? dropTarget.position : undefined }
-  let handle = reordering ? <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} index={index} count={count} /> : null
-  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}><svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} index={childIndex} count={bookmark.children!.length} />)}</div></details>
+  let handle = reordering ? <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} /> : null
+  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}><svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} />)}</div></details>
   return <div className={css.bookmarkItem}>
     <div className={css.bookmarkRow} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}{editing === key ? <BookmarkTitle bookmark={bookmark} profileId={profileId} /> : <button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} aria-disabled={!supported || undefined} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></button>}
       {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
@@ -1879,7 +1879,7 @@ let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: 
     })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
   </div>
 }
-let BookmarkDragHandle = ({ bookmark, profileId, parentId, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; index: number; count: number }) => {
+let BookmarkDragHandle = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
   let { run } = useUI()
   let { startDrag, endDrag } = useContext(BookmarkExpansionContext)!
   let dragStart = (event: DragEvent<HTMLButtonElement>) => {
@@ -1891,8 +1891,7 @@ let BookmarkDragHandle = ({ bookmark, profileId, parentId, index, count }: { boo
   let keys = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
     event.preventDefault(); event.stopPropagation()
-    if (event.key === 'ArrowUp' && index > 0) void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: 'up' })
-    if (event.key === 'ArrowDown' && index < count - 1) void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: 'down' })
+    void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: event.key === 'ArrowUp' ? 'up' : 'down' })
   }
   let click = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation() }
   return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={dragStart} onDragEnd={endDrag} onClick={click} onKeyDown={keys} aria-label={`Drag ${bookmark.title || bookmark.url} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>

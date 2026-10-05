@@ -992,8 +992,13 @@ for (let query of ['', 'Guides']) test(`bookmark reorder toggle and folder chevr
   ;[moved[index], moved[next]] = [moved[next], moved[index]]
   await handle.press(down ? 'Alt+ArrowDown' : 'Alt+ArrowUp')
   await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'docs').children.map((item: { id: string }) => item.id)).toEqual(moved)
+  // Reverse immediately: the renderer may still have the previous row position.
   await handle.press(down ? 'Alt+ArrowUp' : 'Alt+ArrowDown')
   await expect.poll(async () => (await state()).model.profiles[0].bookmarks).toEqual(before)
+  await expect.poll(() => handle.evaluate(button => {
+    let item = button.parentElement!.parentElement!
+    return [...item.parentElement!.children].indexOf(item)
+  })).toBe(index)
   await search.focus(); await search.press('ArrowDown'); await expect(row).toBeFocused()
   await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-reorder-${query ? 'search' : 'tree'}.png`) })
   await reorder.click(); await expect(handles).toHaveCount(0); await expect(reorder).toHaveAttribute('aria-pressed', 'false')
