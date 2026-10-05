@@ -207,6 +207,12 @@
 .folder > summary { display: flex; align-items: center; gap: 2px; padding: 6px 0; cursor: pointer; }
 .folder > summary > span:nth-child(2) { min-width: 0; }
 .folder > div { padding-left: 14px; }
+.bookmarkToolbar { display: flex; align-items: center; gap: 12px; }
+.bookmarkToolbar > input { flex: 1; min-width: 0; }
+.bookmarkToolbar label { flex: 0 0 auto; white-space: nowrap; cursor: pointer; }
+.panel .bookmarkAdd { flex: 0 0 28px; height: 28px; padding: 0; color: #bdc9b4; font-size: 22px; line-height: 28px; cursor: pointer; }
+.panel .bookmarkAdd:hover, .panel .bookmarkAdd:focus-visible { background: #303944; color: #f0f2f5; }
+.bookmarkProfile { margin: 12px 0 4px; color: #8e98a4; font: inherit; }
 .bookmarkRow { display: flex; align-items: stretch; gap: 2px; }
 .bookmarkRow > .listRow { flex: 1; min-width: 0; padding-left: 0; }
 .panel .bookmarkDragHandle { display: grid; place-items: center; flex: 0 0 14px; min-width: 0; height: 18px; align-self: center; padding: 0; border-radius: 0; color: #8e98a4; cursor: grab; }

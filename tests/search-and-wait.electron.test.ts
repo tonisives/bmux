@@ -82,14 +82,19 @@ test.beforeAll(async () => {
   { id: 'parameterized', title: 'Parameterized search', url: `${url}/search?q=original&limit=10&tracking=1` },
   { id: 'x-ideas', title: 'X ideas', url: 'https://x.com/search?q=startup&f=live' },
   { id: 'url-only', title: 'Other page', url: `${url}/sessions/other` }] }]
-  model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
+  model.profiles[1].bookmarks = [{ id: 'work', title: 'Bot work', children: [{ id: 'docs', title: 'Bot guides', children: [
+    { id: 'api', title: 'Bot-only docs', url: `${url}/bot` }, { id: 'unsupported', title: 'Bot next page', url: `${url}/bot-next` },
+  ] }, { id: 'parameterized', title: 'Bot parameterized search', url: `${url}/bot-search?q=bot&limit=20` }] }]
   model.profiles[0].history = [{ title: 'Research notes', url: `${url}/notes`, visitedAt: Date.parse('2026-01-02T03:04:00Z') }]
   model.profiles[1].history = [{ title: 'Bot-only visit', url: `${url}/bot`, visitedAt: Date.parse('2026-01-01T03:04:00Z') }]
   model.sessions.push(newSession('Project planning', model.profiles[1].id))
   for (let index = 0; index < 24; index++) model.sessions.push(newSession(`Scroll fixture ${index + 1}`, model.profiles[0].id))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
-  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } } } }))
+  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: {
+    profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } },
+    [model.profiles[1].id]: { parameterized: { values: { q: 'saved bot query' }, hidden: [] } },
+  } }))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_REMOTE_URL: url, BMUX_BACKGROUND: '0' } })
   await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -416,6 +421,90 @@ for (let mobile of [false, true]) test(`opening bookmarks restores native page f
     await fs.writeFile(config, previous)
     await rpc('settings.reload')
   }
+})
+
+test('bookmarks add button opens the current page menu and hides on a blank page', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('button', { name: 'Bookmark current page', exact: true }).click()
+  let editor = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
+  await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toBeFocused()
+  await expect(editor).toContainText(`${url}/fixture`)
+  await expect(editor.getByRole('group', { name: 'Choose bookmark folder', exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Close', exact: true }).click()
+  await rpc('navigate', { pane: original, url: 'about:blank' })
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].url).toBe('about:blank')
+  await open('bookmarks')
+  await expect(group.getByRole('button', { name: 'Bookmark current page', exact: true })).toHaveCount(0)
+  await expect(group.getByRole('checkbox', { name: 'All profiles', exact: true })).toBeVisible()
+})
+
+test('all-profile bookmarks preserve owning profiles, duplicate IDs, parameters, and reorder boundaries', async () => {
+  let botProfile = model.profiles[1]
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  let scope = group.getByRole('checkbox', { name: 'All profiles', exact: true })
+  await expect(scope).not.toBeChecked()
+  await search.fill('Bot-only')
+  await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
+  await scope.check()
+  await expect(group.getByRole('heading', { name: botProfile.name, exact: true })).toBeVisible()
+  let botBookmark = group.getByRole('button', { name: 'Bot-only docs', exact: true })
+  await expect(botBookmark).toBeVisible()
+  await search.press('Escape')
+  await open('bookmarks')
+  await expect(scope).toBeChecked()
+  await expect(search).toHaveValue('Bot-only')
+  await search.fill('')
+  await expect(group.getByRole('heading')).toHaveText([model.profiles[0].name, botProfile.name])
+  let botNext = group.getByRole('button', { name: 'Drag Bot next page to reorder', exact: true })
+  await chrome.screenshot({ path: path.resolve('artifacts/bookmarks-all-profiles.png') })
+  let beforeMove = (await state()).model.profiles.map((profile: { bookmarks: unknown }) => profile.bookmarks)
+  await botNext.dragTo(group.getByRole('button', { name: 'API reference', exact: true }), { targetPosition: { x: 8, y: 2 } })
+  expect((await state()).model.profiles.map((profile: { bookmarks: unknown }) => profile.bookmarks)).toEqual(beforeMove)
+  await botNext.dragTo(botBookmark, { targetPosition: { x: 8, y: 2 } })
+  await expect.poll(async () => (await state()).model.profiles[1].bookmarks[0].children[0].children[0].id).toBe('unsupported')
+  expect((await state()).model.profiles[0].bookmarks).toEqual(beforeMove[0])
+  await search.fill('parameterized')
+  let defaultCustomize = group.getByRole('button', { name: 'Customize Parameterized search', exact: true })
+  let botCustomize = group.getByRole('button', { name: 'Customize Bot parameterized search', exact: true })
+  await botCustomize.click()
+  await expect(botCustomize).toHaveAttribute('aria-expanded', 'true')
+  await expect(defaultCustomize).toHaveAttribute('aria-expanded', 'false')
+  await expect(group.getByRole('textbox', { name: 'q', exact: true })).toHaveValue('saved bot query')
+  await group.getByRole('textbox', { name: 'q', exact: true }).fill('changed bot query')
+  await group.getByRole('textbox', { name: 'q', exact: true }).press('Tab')
+  await expect.poll(async () => (await state()).bookmarkParameters[botProfile.id].parameterized.values.q).toBe('changed bot query')
+  await defaultCustomize.click()
+  await expect(botCustomize).toHaveAttribute('aria-expanded', 'false')
+  await expect(group.getByRole('textbox', { name: 'q', exact: true })).toHaveValue('original')
+  await search.fill('Bot-only')
+  await search.press('Meta+Enter')
+  await expect(group).toHaveCount(0)
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/bot`)
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  let opened = current.model.sessions[0].windows.find((item: { id: string }) => item.id === client.windowId)
+  expect(opened.panes[0].profileId).toBe(botProfile.id)
+  await rpc('select-window', { client: current.clientId, window: session.windows[0].id })
+  await open('bookmarks')
+  await expect(scope).toBeChecked()
+  await expect(botBookmark).toBeFocused()
+  await search.fill('Bot parameterized')
+  await group.getByRole('button', { name: 'Bot parameterized search', exact: true }).click()
+  await expect(group).toHaveCount(0)
+  current = await state(); client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  opened = current.model.sessions[0].windows.find((item: { id: string }) => item.id === client.windowId)
+  expect(opened.panes[0].profileId).toBe(botProfile.id)
+  expect(new URL(opened.panes[0].url).searchParams.get('q')).toBe('changed bot query')
+  await rpc('select-window', { client: current.clientId, window: session.windows[0].id })
+  await open('bookmarks')
+  await scope.uncheck()
+  await expect(group.getByRole('heading')).toHaveCount(0)
+  await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
+  await search.press('Escape')
+  await open('bookmarks')
+  await expect(scope).not.toBeChecked()
 })
 
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {
