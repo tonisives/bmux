@@ -36,16 +36,17 @@ import type { ExtensionDetails } from '../shared/extension-details'
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'remote-sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
+type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
 type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
-type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
   let [control, setControl] = useState<Control | null>(null)
-  let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null)
+  let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0)
   let [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
@@ -73,7 +74,7 @@ export let App = () => {
     try { return await bridge.command({ method, args }) }
     catch (error) { setMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); return undefined }
   }, [])
-  let show = useCallback(async (control: Control, paneId?: string) => {
+  let show = useCallback(async (control: Control, paneId?: string, destination?: BookmarkDestination) => {
     setHistoryPopup(null)
     if (paneId) {
       let current = await bridge.state()
@@ -84,7 +85,7 @@ export let App = () => {
       accept(current)
     }
     if (control === 'address') { void run('focus-ui', { pane: paneId }); setAddressFocusVersion(version => version + 1) }
-    setMessage(''); setControl(control)
+    setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
     if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
@@ -132,7 +133,7 @@ export let App = () => {
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
     ...proxyFailureNotices(state, window, show),
   ]
-  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
+  let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -1695,10 +1696,11 @@ let bookmarkFolderForUrl = (bookmarks: Bookmark[], url: string, folderId = ''): 
   return undefined
 }
 let BookmarkEditor = () => {
-  let { state, run, dismiss } = useUI()
-  let { tab, profile } = selection(state)
+  let { state, run, dismiss, bookmarkDestination } = useUI()
+  let { tab, profile: pageProfile } = selection(state)
+  let profile = bookmarkDestination ? state.model.profiles.find(item => item.id === bookmarkDestination.profileId) : pageProfile
   let folders = bookmarkFolderOptions(profile?.bookmarks ?? [])
-  let [title, setTitle] = useState(tab?.title && tab.title !== 'about:blank' ? tab.title : ''), [folder, setFolder] = useState(() => bookmarkFolderForUrl(profile?.bookmarks ?? [], tab?.url ?? '') ?? '')
+  let [title, setTitle] = useState(tab?.title && tab.title !== 'about:blank' ? tab.title : ''), [folder, setFolder] = useState(() => bookmarkDestination?.folderId ?? bookmarkFolderForUrl(profile?.bookmarks ?? [], tab?.url ?? '') ?? '')
   let [busy, setBusy] = useState(false), [creatingFolder, setCreatingFolder] = useState(false), [folderName, setFolderName] = useState(''), [folderBusy, setFolderBusy] = useState(false)
   let input = useRef<HTMLInputElement>(null)
   let folderNameInput = useRef<HTMLInputElement>(null)
@@ -1717,7 +1719,7 @@ let BookmarkEditor = () => {
   let createFolder = async () => {
     if (!tab || !folderName.trim() || folderBusy) return
     setFolderBusy(true)
-    let result = await run('bookmark.folder.add', { tab: tab.id, title: folderName, parent: folder }) as { folder: Bookmark } | undefined
+    let result = await run('bookmark.folder.add', { tab: tab.id, profile: profile?.id, title: folderName, parent: folder }) as { folder: Bookmark } | undefined
     setFolderBusy(false)
     if (!result) return
     setFolder(result.folder.id); setFolderQuery(''); setFolderName(''); setCreatingFolder(false)
@@ -1736,13 +1738,14 @@ let BookmarkEditor = () => {
     event.preventDefault()
     if (!tab || !supported || !title.trim() || busy) return
     setBusy(true)
-    let result = await run('bookmark.add', { tab: tab.id, title, folder })
+    let result = await run('bookmark.add', { tab: tab.id, profile: profile?.id, title, folder })
     setBusy(false)
     if (result !== undefined) dismiss()
   }
   if (!profile || !tab) return <p>No page is selected.</p>
   return <form className={css.bookmarkEditor} onSubmit={submit} onKeyDown={editorKeys}>
     <p className={css.bookmarkUrl}>{tab.url}</p>
+    {profile.id !== pageProfile?.id && <p>Profile: {profile.name}</p>}
     <label>Title<input ref={input} value={title} onChange={changeTitle} autoComplete="off" spellCheck={false} required /></label>
     <div ref={folderPicker} className={css.bookmarkFolders} onKeyDown={folderKeys} role="group" aria-label="Choose bookmark folder">
       <label>Folder search<SearchInput ref={folderSearch} aria-label="Search bookmark folders" value={folderQuery} onChange={changeFolderQuery} /></label>
@@ -1757,7 +1760,7 @@ let BookmarkEditor = () => {
 type BookmarkDrag = { id: string; parentId: string; profileId: string }
 type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after' }
 let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
-let BookmarkExpansionContext = createContext<{ activate: (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
+let BookmarkExpansionContext = createContext<{ canAdd: boolean; activate: (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
 let BookmarkPicker = () => {
   let { state, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
@@ -1813,7 +1816,7 @@ let BookmarkPicker = () => {
   let profiles = profile ? [profile, ...(allBookmarkProfiles ? state.model.profiles.filter(item => item.id !== profile.id) : [])] : []
   groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query) })).filter(group => group.bookmarks.length)
   let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
-  return <BookmarkExpansionContext.Provider value={{ activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
+  return <BookmarkExpansionContext.Provider value={{ canAdd, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
     <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
     {groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map((bookmark, index) => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={group.profile.id} parentId="" index={index} count={group.bookmarks.length} />)}</div>)}
     {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
@@ -1829,8 +1832,8 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
   }
 }
 let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; index: number; count: number }) => {
-  let { state, run } = useUI()
-  let { activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
+  let { state, run, show } = useUI()
+  let { canAdd, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
   let key = bookmarkKey(profileId, bookmark.id)
   let expanded = expandedBookmarkId === key
   let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
@@ -1847,10 +1850,11 @@ let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: 
     setSettings(next); void persist(next)
   }
   let save = () => { void persist(settings) }
+  let addToFolder = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); show('bookmark', undefined, { profileId, folderId: bookmark.id }) }
   let drag = { id: bookmark.id, parentId, profileId }
   let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.profileId === profileId && dropTarget.id === bookmark.id ? dropTarget.position : undefined }
   let handle = <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} index={index} count={count} />
-  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps}>{handle}<span>{bookmark.title || 'Untitled folder'}</span></summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} index={childIndex} count={bookmark.children!.length} />)}</div></details>
+  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps}>{handle}<span data-bookmark-folder-title>{bookmark.title || 'Untitled folder'}</span>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} index={childIndex} count={bookmark.children!.length} />)}</div></details>
   return <div className={css.bookmarkItem}>
     <div className={css.bookmarkRow} {...dragProps}>{handle}<button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
       {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}

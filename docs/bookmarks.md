@@ -12,6 +12,8 @@ the running UI session. This is not cross-device synchronization.
 
 Press Command+D or run `bookmark` to save the current page. The + button in the bookmarks view opens the same menu when the current page can be bookmarked. Run `bookmarks` to search saved pages and folders in the selected profile. Enable **All profiles** to include other profiles, grouped by profile name; this choice is remembered when you reopen the view. Each bookmark opens in its owning profile, with that profile's saved URL parameters. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark. Each profile keeps its own bookmarks; reordering stays within its profile and folder.
 
+The + button beside each folder opens the current-page menu with that folder selected, in both search results and the full list. In **All profiles**, it saves to the folder's owning profile without changing the current page's profile.
+
 For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
 For X searches, numeric `min_faves` and `min_replies` operators inside the `q` parameter also appear as separate controls. A post-age slider writes a relative `since:YYYY-MM-DD` operator when the bookmark opens; 0 keeps posts of any age. The `f` URL parameter is labeled Results, with `live` identified as Latest. X does not support a minimum post-view or impression-count search operator.
 

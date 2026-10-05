@@ -205,7 +205,7 @@
 .sessionConfirm span { flex: 1; overflow-wrap: anywhere; }
 .sessionConfirm button { color: inherit; }
 .folder > summary { display: flex; align-items: center; gap: 2px; padding: 6px 0; cursor: pointer; }
-.folder > summary > span:nth-child(2) { min-width: 0; }
+.folder > summary > span:nth-child(2) { flex: 1; min-width: 0; }
 .folder > div { padding-left: 14px; }
 .bookmarkToolbar { display: flex; align-items: center; gap: 12px; }
 .bookmarkToolbar > input { flex: 1; min-width: 0; }

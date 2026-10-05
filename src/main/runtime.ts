@@ -1788,7 +1788,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'browser.status') return toolsState()
     if (method === 'bookmark.add') {
       let { tab, pane } = tabById(model, required(args, 'tab'))
-      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let profile = resolve(model.profiles, args.profile ?? pane.profileId, 'Profile')
       let url = tabs.get(tab.id)?.contents.getURL() || tab.url
       if (!/^(https?:|file:)/i.test(url)) throw new Error('Open a web page before bookmarking it')
       let title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : tabs.get(tab.id)?.contents.getTitle().trim() || tab.title || url
@@ -1798,7 +1798,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'bookmark.folder.add') {
       let { pane } = tabById(model, required(args, 'tab'))
-      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let profile = resolve(model.profiles, args.profile ?? pane.profileId, 'Profile')
       let title = required(args, 'title').trim()
       if (!title || title.length > 200) throw new Error('Folder name must be between 1 and 200 characters')
       let result = createBookmarkFolder(profile, { title, parentId: typeof args.parent === 'string' && args.parent ? args.parent : undefined }, () => id('bookmark-folder'))
