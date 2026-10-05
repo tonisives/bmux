@@ -28,7 +28,7 @@ export let COMMAND_ALIASES: Record<string, string> = {
   attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', movew: 'move-window', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', rotatew: 'rotate-window', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapp: 'swap-pane', swapw: 'swap-window',
 }
 
-let moveDestination = (state: PublicState, currentSessionId: string, target: unknown, newWindowForSession = false) => {
+let moveDestination = (state: PublicState, currentSessionId: string, target: unknown) => {
   if (target === undefined) return {}
   let value = String(target), sessions = state.model.sessions
   let pane = sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === value)
@@ -43,7 +43,7 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
   }
   if (value.endsWith(':')) {
     let session = indexedTarget(sessions, value.slice(0, -1), 'Session')
-    if (session) return newWindowForSession ? { session: session.id } : { window: selectedWindow(state, session).id }
+    if (session) return { window: selectedWindow(state, session).id }
     throw new Error(`Session '${value.slice(0, -1)}' not found`)
   }
   if (value.includes(':')) {
@@ -60,7 +60,7 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
     ?? sessions.flatMap(session => session.windows).find(window => window.id === value)
   if (window) return { window: window.id }
   let session = indexedTarget(sessions, value, 'Session')
-  if (session) return newWindowForSession ? { session: session.id } : { window: selectedWindow(state, session).id }
+  if (session) return { window: selectedWindow(state, session).id }
   throw new Error(`Pane, window, or session '${value}' not found`)
 }
 
@@ -178,7 +178,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
   if (tmuxPaneMove) {
     let source = resolvePaneTarget(state, options.source).pane.id
-    let destination = target === undefined && options.source !== undefined ? { destination: pane?.id } : moveDestination(state, client.sessionId, target, name === 'move-pane')
+    let destination = target === undefined && options.source !== undefined ? { destination: pane?.id } : moveDestination(state, client.sessionId, target)
     delete options.source
     return { method: name, args: { ...current, pane: source, ...destination, ...options } }
   }
