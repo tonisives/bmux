@@ -1,12 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
 import net from 'node:net'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import { isAutomationSafetyError } from './automation-safety'
+import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
@@ -36,9 +36,7 @@ let methods: Record<string, PluginAction['capabilities'][number]> = {
 export let createPlugins = (options: Options) => {
   let definitions = new Map<string, Definition>(), runs = new Map<string, Run>(), settings = options.settings()
   let discoveryErrors: PluginInfo[] = [], active = 0, closed = false, scanning = false
-  let socketDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugins-'))
-  fs.chmodSync(socketDirectory, 0o700)
-  let socketPath = path.join(socketDirectory, 'host.sock')
+  let { socketPath, directory: socketDirectory } = createPluginSocket()
   let connections = new Set<net.Socket>()
   let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error }): PluginInfo => ({ id: manifest.id, name: manifest.name, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, error, actions: manifest.actions.map(({ id, title, description }) => ({ id, title, description })), proxyProviders: manifest.proxyProviders })).concat(discoveryErrors)
   let publicRuns = () => [...runs.values()].reverse().map(run => ({ ...run.public }))
@@ -46,6 +44,11 @@ export let createPlugins = (options: Options) => {
   let kill = (run: Run) => {
     if (!run.child?.pid) return
     let pid = run.child.pid
+    if (process.platform === 'win32') {
+      let killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' })
+      killer.on('error', () => run.child?.kill())
+      return
+    }
     try { process.kill(-pid, 'SIGTERM') } catch { /* Process group has exited. */ }
     let timer = setTimeout(() => { try { process.kill(-pid, 'SIGKILL') } catch { /* Exited. */ } }, 500)
     timer.unref()
@@ -159,7 +162,7 @@ export let createPlugins = (options: Options) => {
       })()
     })
   })
-  let ready = new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600); resolve() }) })
+  let ready = listenSocket(server, socketPath)
   void ready.catch(() => undefined)
   let launch = async (run: Run) => {
     try {
@@ -180,7 +183,7 @@ export let createPlugins = (options: Options) => {
       let [command, ...args] = run.action.command
       let executable = command.startsWith('.') ? path.resolve(run.definition.directory, command) : command
       if (run.definition.bundled && command === 'node') { executable = process.execPath; env.ELECTRON_RUN_AS_NODE = '1' }
-      let child = spawn(executable, args, { cwd: run.definition.directory, env, detached: true, stdio: 'ignore' })
+      let child = spawn(executable, args, { cwd: run.definition.directory, env, detached: process.platform !== 'win32', windowsHide: true, stdio: 'ignore' })
       run.child = child
       await new Promise<void>(resolve => {
         child.once('error', () => { finish(run, 'failed', 'Could not start plugin command'); resolve() })
@@ -267,7 +270,7 @@ export let createPlugins = (options: Options) => {
     closed = true; clearInterval(watcher)
     for (let run of runs.values()) finish(run, 'cancelled')
     for (let connection of connections) connection.destroy()
-    server.close(() => { fs.rmSync(socketDirectory, { recursive: true, force: true }) })
+    server.close(() => { if (socketDirectory) fs.rmSync(socketDirectory, { recursive: true, force: true }) })
   }
   reload()
   return { ready, list, runs: publicRuns, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }

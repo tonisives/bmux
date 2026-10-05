@@ -175,8 +175,20 @@ jobs:
       - name: Build Windows installer
         run: |
           pnpm build
-          pnpm exec electron-builder --win nsis --x64 --publish never
+          pnpm exec electron-builder --win nsis --x64 --publish never -c.nsis.runAfterFinish=false
           test -s "release/bmux-${RELEASE_TAG#v}-x64.exe"
+      - name: Install and test Windows package
+        shell: pwsh
+        run: |
+          ./scripts/install-windows-test.ps1 -Installer "release/bmux-$($env:RELEASE_TAG.TrimStart('v'))-x64.exe"
+      - name: Windows startup and platform tests
+        run: pnpm test:windows
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: windows-release-test-results
+          path: test-results/
+          if-no-files-found: ignore
       - name: Upload Windows installer
         env:
           GH_TOKEN: ${{ github.token }}

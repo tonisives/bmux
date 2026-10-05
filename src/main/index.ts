@@ -3,11 +3,11 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
+import { controlSocketPath, prepareControlSocket, listenSocket, removeSocket } from '../../bin/ipc.mjs'
 import { startRemoteHost } from './remote-host'
 import { createLocalRemote } from './remote-client'
 import { installUpdateMenu } from './update-menu'
@@ -23,8 +23,7 @@ for (let signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
 app.setPath('userData', dataDirectory)
 fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
-let socketDirectory = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`)
-let socketPath = path.join(socketDirectory, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
+let socketPath = controlSocketPath(dataDirectory)
 let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 let remoteHost: ReturnType<typeof startRemoteHost> | undefined
@@ -80,7 +79,7 @@ void app.whenReady().then(async () => {
     localRemote?.close()
     runtime?.shutdown()
     server?.close()
-    try { fs.unlinkSync(socketPath) } catch { /* Already removed. */ }
+    removeSocket(socketPath)
   })
   if (background) app.dock?.hide()
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -128,10 +127,7 @@ void app.whenReady().then(async () => {
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
   if (pendingActivation) activateExistingClient()
-  fs.mkdirSync(socketDirectory, { recursive: true, mode: 0o700 })
-  if (fs.statSync(socketDirectory).uid !== process.getuid?.()) throw new Error('Socket directory belongs to another user')
-  fs.chmodSync(socketDirectory, 0o700)
-  try { fs.unlinkSync(socketPath) } catch { /* First launch. */ }
+  prepareControlSocket(socketPath)
   server = net.createServer(connection => {
     let buffer = ''
     connection.setEncoding('utf8')
@@ -161,6 +157,6 @@ void app.whenReady().then(async () => {
       })()
     })
   })
-  server.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600) })
+  await listenSocket(server, socketPath)
   server.on('error', error => { console.error(`bmux control socket: ${error.message}`); app.quit() })
 }).catch(error => { console.error(`bmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })

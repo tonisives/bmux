@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import net from 'node:net'
-import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { runtimeDataDirectory, developmentExecutable } from './runtime-paths.mjs'
+import { controlSocketPath } from './ipc.mjs'
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 let argv = process.argv.slice(2)
@@ -71,7 +71,7 @@ let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir
 let configuredDataDirectory = process.env.BMUX_DATA_DIR ?? process.env.BROWMUX_DATA_DIR
 if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDataDirectory) fs.renameSync(legacyDataDirectory, defaultDataDirectory)
 let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process.env)
-let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
+let socketPath = controlSocketPath(dataDirectory)
 
 let parse = () => {
   let targetIndex = argv.findIndex(item => ['-t', '--target'].includes(item))
@@ -154,7 +154,8 @@ let request = (command, socket = socketPath, timeout = 90_000) => new Promise((r
 let start = async (foreground = false) => {
   let output = path.resolve(root, process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
   let installed = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
-  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? [output, installed] : [path.join(root, 'bmux'), path.join(root, '..', 'bmux')]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
+  let binary = process.platform === 'win32' ? 'bmux.exe' : 'bmux'
+  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? [output, installed] : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', path.basename(packaged, '.app')) : packaged
