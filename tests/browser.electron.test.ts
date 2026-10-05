@@ -435,7 +435,7 @@ test('automatic window names follow the selected pane and stop after an explicit
   await cli('detach-client', { client: client.id })
 })
 
-test('session pane moves create windows, remove empty sources, and break panes into windows', async () => {
+test('session pane moves join existing windows, remove empty sources, and break panes into windows', async () => {
   let source = await cli('new-session', { name: 'move-source' })
   let target = await cli('new-session', { name: 'bmux-marketing' })
   let sourceWindow = source.windows[0], movedPane = sourceWindow.panes[0]
@@ -445,6 +445,13 @@ test('session pane moves create windows, remove empty sources, and break panes i
   await cli('command-line', { client: client.id, line: 'movep -t bmux-marketing:' })
   await expect.poll(async () => (await cli('list-sessions')).some((session: { id: string }) => session.id === source.id)).toBe(false)
   let targetWindows = await cli('list-windows', { session: target.id })
+  expect(targetWindows).toHaveLength(1)
+  expect(targetWindows[0].id).toBe(targetWindow.id)
+  expect(targetWindows[0].panes.map((pane: { id: string }) => pane.id)).toEqual([targetWindow.panes[0].id, movedPane.id])
+  expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id)).toMatchObject({ sessionId: target.id, windowId: targetWindow.id, paneId: movedPane.id })
+
+  await cli('command-line', { client: client.id, line: `breakp -s ${movedPane.id} -t bmux-marketing:` })
+  targetWindows = await cli('list-windows', { session: target.id })
   expect(targetWindows).toHaveLength(2)
   expect(targetWindows.find((window: { id: string }) => window.id === targetWindow.id).panes).toHaveLength(1)
   let movedWindow = targetWindows.find((window: { panes: { id: string }[] }) => window.panes.some(pane => pane.id === movedPane.id))
