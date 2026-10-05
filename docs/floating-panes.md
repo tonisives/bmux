@@ -54,7 +54,9 @@ the only pane out of a window removes the empty source window. Like tmux, bmux
 resolves an unqualified destination as a pane, then a window in the current
 session, then a session. Session and window IDs, names, and one-based indices
 are accepted. Use `SESSION:WINDOW` to select a specific existing window.
-Explicit targets may also use `SESSION:`, `:SESSION`, or `:{SESSION}`.
+Use `:WINDOW` to target a window in the current session. For example,
+`joinp -t :1` joins window 1 there, even when another session has a window 1
+or a matching session index or name. Use `SESSION:` for a session-only target.
 Unique session and window name prefixes are accepted; ambiguous targets require
 a full name, ID, or index. The command popup suggests sessions and windows while
 you type `movep -t`. Tab or a click fills a target; Enter runs the filled command.

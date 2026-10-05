@@ -275,6 +275,36 @@ test('pane move command popup completes sessions and windows before moving the p
   }
 })
 
+test('pane join commands keep omitted session targets and completions in the current session', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let target = await rpc('new-session', { name: 'join-local' }), destination = target.windows[0]
+  await rpc('rename-window', { window: destination.id, name: 'main' })
+  let otherWindows = async () => (await state()).model.sessions.filter((session: any) => session.id !== target.id).map((session: any) => ({ id: session.id, windows: session.windows.map((window: any) => ({ id: window.id, panes: window.panes.map((pane: any) => pane.id) })) }))
+  let before = await otherWindows()
+  try {
+    for (let command of ['joinp -t :1', 'movep -t :main']) {
+      let source = await rpc('new-window', { session: target.id, name: 'join source', url })
+      await rpc('select-window', { client: client.id, window: source.id })
+      await expect(chrome.locator(`[data-pane-id="${source.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await open(); await prompt().fill(command)
+      let targets = chrome.getByRole('listbox', { name: 'Targets', exact: true })
+      await expect(targets.getByRole('option')).toHaveCount(1)
+      await expect(targets.getByRole('option')).toContainText(':1 main')
+      await prompt().press('Enter'); await expect(prompt()).toHaveCount(0)
+      await expect.poll(async () => (await state()).model.clients.find((item: { id: string }) => item.id === client.id)).toMatchObject({ sessionId: target.id, windowId: destination.id, paneId: source.panes[0].id })
+      let joined = (await state()).model.sessions.find((session: any) => session.id === target.id)
+      expect(joined.windows).toHaveLength(1)
+      expect(joined.windows[0].panes.map((pane: any) => pane.id)).toContain(source.panes[0].id)
+      expect(await otherWindows()).toEqual(before)
+      await expect.poll(nativeVisible).toBe(true)
+    }
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    await rpc('kill-session', { session: target.id, confirm: true })
+  }
+})
+
 test('close-pane shortcut immediately removes the selected pane', async () => {
   let current = await state(), window = current.model.sessions[0].windows[0], original = window.panes[0]
   let pane = await rpc('split-window', { pane: original.id, client: current.clientId })
