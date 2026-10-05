@@ -8,8 +8,8 @@ import { parsePluginManifest, matchesPluginUrl } from '../src/main/plugin-manife
 import { parseConfig } from '../src/main/config'
 import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
-let cleanup: (() => void)[] = []
-afterEach(() => { for (let dispose of cleanup.splice(0)) dispose() })
+let cleanup: (() => Promise<void>)[] = []
+afterEach(async () => { for (let dispose of cleanup.splice(0)) await dispose() })
 let fixture = (script: string, overrides: Record<string, unknown> = {}) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugin-test-'))
   let folder = path.join(directory, 'plugins', 'test')
@@ -20,7 +20,7 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}) => {
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
   let plugins = createPlugins({ directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
-  cleanup.push(() => { plugins.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+  cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
   return { directory, plugins, browser, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
 }

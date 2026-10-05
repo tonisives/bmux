@@ -121,6 +121,9 @@
       "icon": "build/icon.icns"
     },
     "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "win": {
+      "icon": "build/icon.ico"
+    },
     "protocols": [
       {
         "name": "Web links",

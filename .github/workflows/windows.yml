@@ -28,7 +28,7 @@ jobs:
       - name: Build Windows installer
         run: |
           pnpm build
-          pnpm exec electron-builder --win nsis --x64 --publish never --config.nsis.runAfterFinish=false
+          pnpm exec electron-builder --win nsis --x64 --publish never
       - name: Install to a disposable directory
         shell: pwsh
         run: ./scripts/install-windows-test.ps1 -Installer (Get-ChildItem release/bmux-*-x64.exe).FullName
