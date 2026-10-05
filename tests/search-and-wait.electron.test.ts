@@ -987,9 +987,12 @@ for (let query of ['', 'Guides']) test(`bookmark reorder toggle and folder chevr
   await reorder.click(); await expect(reorder).toHaveAttribute('aria-pressed', 'true')
   let handle = group.getByRole('button', { name: 'Drag API reference to reorder', exact: true })
   await expect(handle).toBeVisible(); await expect(group.getByRole('button', { name: 'Drag Guides to reorder', exact: true })).toBeVisible()
-  await handle.press('Alt+ArrowDown')
-  await expect.poll(async () => (await state()).model.profiles[0].bookmarks[0].children[0].children.map((item: { id: string }) => item.id)).toEqual(['unsupported', 'api'])
-  await handle.press('Alt+ArrowUp')
+  let siblings = flattenBookmarks(before).find(item => item.id === 'docs').children.map((item: { id: string }) => item.id)
+  let index = siblings.indexOf('api'), down = index < siblings.length - 1, next = index + (down ? 1 : -1), moved = [...siblings]
+  ;[moved[index], moved[next]] = [moved[next], moved[index]]
+  await handle.press(down ? 'Alt+ArrowDown' : 'Alt+ArrowUp')
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'docs').children.map((item: { id: string }) => item.id)).toEqual(moved)
+  await handle.press(down ? 'Alt+ArrowUp' : 'Alt+ArrowDown')
   await expect.poll(async () => (await state()).model.profiles[0].bookmarks).toEqual(before)
   await search.focus(); await search.press('ArrowDown'); await expect(row).toBeFocused()
   await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-reorder-${query ? 'search' : 'tree'}.png`) })
