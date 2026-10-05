@@ -22,7 +22,9 @@ let fixture = `<!doctype html><title>Swipe fixture</title><style>
   #fixed { position:fixed; left:0; top:0; width:100%; height:40px; background:#557766; z-index:10; }
   #vertical { position:absolute; left:280px; top:100px; width:200px; height:160px; overflow:auto; }
   #vertical div { height:1500px; background:#99aabb; }
-</style><h1>Swipe fixture</h1><div id="fixed"></div><div id="scroller"><div></div></div><div id="vertical"><div></div></div><div id="cancel">Page gesture</div><div id="contain">Contained</div><script>
+  #popup { position:fixed; top:42px; right:10px; }
+</style><h1>Swipe fixture</h1><div id="fixed"></div><a id="popup" href="/preview-two" target="_blank" rel="noopener">Open page</a><div id="scroller"><div></div></div><div id="vertical"><div></div></div><div id="cancel">Page gesture</div><div id="contain">Contained</div><script>
+  window.identity = Math.random();
   window.wheels = 0; window.lastWheel = 0;
   window.displacements = [];
   let sample = () => {
@@ -197,7 +199,41 @@ test('macOS swipe navigation targets its pane, navigates once and preserves page
   await didNotMove()
 })
 
-test('native trackpad holds a scrolled page and fixed header over a private history snapshot until release', async ({}, info) => {
+test('noopener tabs return to their source with Back after their own history', async () => {
+  let current = await state(), client = current.model.clients[0]
+  let source = await rpc('new-window', { session: client.sessionId, url: `${origin}/opener-source` })
+  let pane = source.panes[0].id
+  await rpc('wait', { tab: pane, selector: 'h1' })
+  await rpc('select-window', { client: client.id, window: source.id })
+  await rpc('activate-client', { client: client.id })
+  await rpc('focus-page', { client: client.id })
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/opener-source`)
+  let page = application.context().pages().find(page => page.url() === `${origin}/opener-source`)!
+  let identity = await page.evaluate(() => (window as any).identity)
+  await page.evaluate(() => scrollTo(0, 400))
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
+  await page.locator('#popup').click()
+  await expect.poll(async () => (await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId).not.toBe(pane)
+  let child = (await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId
+  await rpc('wait', { tab: child, selector: 'h1' })
+  let popup = application.context().pages().find(page => page.url() === `${origin}/preview-two`)!
+  expect(await popup.evaluate(() => window.opener === null)).toBe(true)
+  let back = chrome.locator(`[data-pane-id="${child}"]`).getByRole('button', { name: 'Back', exact: true })
+  await expect(back).toBeEnabled()
+  await rpc('navigate', { tab: child, url: `${origin}/child-next` })
+  await back.click()
+  await expect(popup).toHaveURL(`${origin}/preview-two`)
+  await expect.poll(async () => (await state()).navigation[child].activeIndex).toBe(0)
+  await expect(back).toBeEnabled()
+  await back.click()
+  await expect.poll(() => popup.isClosed()).toBe(true)
+  await expect.poll(async () => (await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId).toBe(pane)
+  expect(await page.evaluate(() => (window as any).identity)).toBe(identity)
+  expect(await page.evaluate(() => scrollY)).toBe(400)
+  await rpc('kill-window', { window: source.id })
+})
+
+for (let route of ['history', 'noopener']) test(`native trackpad holds a scrolled page and fixed header over a private history snapshot until release (${route})`, async ({}, info) => {
   test.skip(process.platform !== 'darwin')
   let source = path.join(directory, 'scroll.c'), executable = path.join(directory, 'scroll')
   await fs.writeFile(source, `#include <ApplicationServices/ApplicationServices.h>
@@ -214,8 +250,10 @@ test('native trackpad holds a scrolled page and fixed header over a private hist
       return 0;
     }`)
   await exec('/usr/bin/clang', [source, '-framework', 'ApplicationServices', '-o', executable])
-  let current = await state(), client = current.model.clients[0], pane = client.paneId
-  await rpc('navigate', { tab: pane, url: `${origin}/preview-one` })
+  let current = await state(), client = current.model.clients[0]
+  let sourceWindow = await rpc('new-window', { session: client.sessionId, url: `${origin}/preview-one` }), pane = sourceWindow.panes[0].id
+  await rpc('wait', { tab: pane, selector: 'h1' })
+  await rpc('select-window', { client: client.id, window: sourceWindow.id })
   await rpc('select-pane', { client: client.id, pane })
   await rpc('activate-client', { client: client.id })
   await rpc('focus-page', { client: client.id })
@@ -240,7 +278,22 @@ test('native trackpad holds a scrolled page and fixed header over a private hist
   // A real vertical gesture settles on the first page before following a link.
   await wheel('begin', 0, -5); await wheel('end')
   await page.waitForFunction(() => (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 450)
-  await rpc('navigate', { tab: pane, url: `${origin}/preview-two` })
+  let sourcePage = page
+  if (route === 'history') await rpc('navigate', { tab: pane, url: `${origin}/preview-two` })
+  else {
+    await page.locator('#popup').click()
+    await expect.poll(async () => (await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId).not.toBe(pane)
+    pane = (await state()).model.clients.find((item: { id: string }) => item.id === client.id).paneId
+    await rpc('wait', { tab: pane, selector: 'h1' })
+    page = application.context().pages().find(page => page.url() === `${origin}/preview-two`)!
+    expect(await page.evaluate(() => window.opener === null)).toBe(true)
+    location = await application.evaluate(({ BaseWindow }, url) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isFocused())!
+      let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)!
+      let bounds = view.getBounds(), origin = window.getContentBounds()
+      return { x: origin.x + bounds.x + 100, y: origin.y + bounds.y + 180 }
+    }, page.url())
+  }
   await expect(page).toHaveURL(`${origin}/preview-two`)
   await rpc('focus-page', { client: client.id })
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/preview-two`)
@@ -286,5 +339,11 @@ test('native trackpad holds a scrolled page and fixed header over a private hist
   await page.waitForFunction(() => performance.now() - (window as any).lastWheel > 500)
   expect(page.url()).toBe(`${origin}/preview-two`)
   await wheel('end')
-  await expect(page).toHaveURL(`${origin}/preview-one`)
+  if (route === 'history') await expect(page).toHaveURL(`${origin}/preview-one`)
+  else {
+    await expect.poll(() => page.isClosed()).toBe(true)
+    await expect(sourcePage).toHaveURL(`${origin}/preview-one`)
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/preview-one`)
+  }
+  await rpc('kill-window', { window: sourceWindow.id })
 })

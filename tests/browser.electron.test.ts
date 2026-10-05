@@ -607,6 +607,9 @@ test('middle and Command clicks load links in background bmux windows', async ()
       await expect.poll(async () => (await cli('tab.list')).find((item: { id: string }) => item.id === tab.id)?.url).toBe(`${url}/popup`)
       await cli('wait', { tab: tab.id, selector: '#text' })
       expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(session.windows[0].id)
+      expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(false)
+      await cli('back', { tab: tab.id })
+      expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
     }
   } finally {
     await cli('detach-client', { client: client.id })

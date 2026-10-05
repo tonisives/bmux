@@ -6,6 +6,7 @@ import { swipeSnapshots } from './swipe-snapshots'
 type Wheel = { x: number; y: number; blocked: boolean }
 type Direction = 'back' | 'forward'
 type Availability = Record<Direction, boolean>
+type BackFallback = { available: () => boolean; navigate: () => void; snapshot: (width: number, height: number) => Buffer | undefined }
 
 // Physical trackpads have explicit begin/end phases. Only phase-less wheels
 // use an idle fallback; a held trackpad must never time out halfway through.
@@ -121,9 +122,9 @@ export let observeSwipe = (marker: string, createGesture: typeof createSwipeGest
   window.addEventListener('pagehide', gesture.cancel)
 }
 
-export let createSwipeNavigation = (contents: WebContents, enabled: () => boolean, surface?: () => SwipeSurface | undefined) => {
+export let createSwipeNavigation = (contents: WebContents, enabled: () => boolean, surface?: () => SwipeSurface | undefined, fallback?: BackFallback) => {
   let marker = `bmux-swipe:${randomUUID()}`
-  let available = (direction: Direction) => !contents.isDestroyed() && enabled() && (direction === 'back' ? contents.navigationHistory.canGoBack() : contents.navigationHistory.canGoForward())
+  let available = (direction: Direction) => !contents.isDestroyed() && enabled() && (direction === 'back' ? contents.navigationHistory.canGoBack() || !!fallback?.available() : contents.navigationHistory.canGoForward())
   let previous: string | undefined
   let pending = Promise.resolve()
   let world: Promise<number> | undefined
@@ -179,6 +180,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
     if (showing && displayedDirection === Math.sign(offset)) { native?.move(distance); return }
     let entry = history?.entries[(history?.currentIndex ?? 0) + (offset > 0 ? -1 : 1)]?.id
     let previous = entry === undefined ? undefined : swipeSnapshots.get(contents.id, entry, bounds.width, bounds.height)
+    if (entry === undefined && offset > 0 && fallback?.available()) previous = fallback.snapshot(bounds.width, bounds.height)
     native?.show(captured, previous, distance)
     showing = true; displayedDirection = Math.sign(offset)
   }
@@ -247,13 +249,16 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
         navigating = true
         native?.move((dimensions()?.width ?? 0) * (direction === 'back' ? 1 : -1), 0.18)
         hideTimer = setTimeout(hide, 1500)
-        if (direction === 'back') contents.navigationHistory.goBack()
+        if (direction === 'back') {
+          if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+          else fallback?.navigate()
+        }
         else contents.navigationHistory.goForward()
       })
     } catch { /* Ignore unrelated console output. */ }
   })
   contents.on('did-start-navigation', details => {
-    if (details.isMainFrame) { if (!navigating) cancel(); else { epoch++; previous = undefined }; if (!details.isSameDocument) world = undefined }
+    if (details.isMainFrame) { history = undefined; if (!navigating) cancel(); else { epoch++; previous = undefined }; if (!details.isSameDocument) world = undefined }
   })
   contents.on('dom-ready', () => { world = undefined; previous = undefined; void refresh(); scheduleCapture(); if (navigating) { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 200) } })
   contents.on('did-finish-load', () => { if (enabled()) void capture() })
@@ -266,5 +271,9 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   contents.on('render-process-gone', () => { cancel(); world = undefined; swipeSnapshots.clear(contents.id) })
   contents.once('destroyed', () => { epoch++; clearTimeout(captureTimer); clearTimeout(hideTimer); native?.dispose(); swipeSnapshots.clear(contents.id) })
   contents.debugger.on('detach', () => { world = undefined; previous = undefined })
-  return Object.assign(refresh, { cancel })
+  let snapshot = (width: number, height: number) => {
+    let entry = history?.entries[history.currentIndex]?.id
+    return entry === undefined ? undefined : swipeSnapshots.get(contents.id, entry, width, height)
+  }
+  return Object.assign(refresh, { cancel, snapshot })
 }

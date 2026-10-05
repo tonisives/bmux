@@ -119,15 +119,15 @@ test('navigation, closing or loss of the target cancels pending work', () => {
   expect(navigate).not.toHaveBeenCalled()
 })
 
-let navigationFixture = async () => {
+let navigationFixture = async (fallback?: Parameters<typeof createSwipeNavigation>[3], canGoBack = () => true) => {
   let goBack = vi.fn()
   let sendCommand = vi.fn(async (method: string, _params?: Record<string, unknown>) => method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'main' } } } : method === 'Page.createIsolatedWorld' ? { executionContextId: 1 } : {})
   let contents = Object.assign(new EventEmitter(), {
     isDestroyed: () => false,
-    navigationHistory: { canGoBack: () => true, canGoForward: () => false, goBack },
+    navigationHistory: { canGoBack, canGoForward: () => false, goBack },
     debugger: Object.assign(new EventEmitter(), { isAttached: () => true, sendCommand }),
   })
-  await createSwipeNavigation(contents as unknown as WebContents, () => true)()
+  await createSwipeNavigation(contents as unknown as WebContents, () => true, undefined, fallback)()
   let source = String(sendCommand.mock.calls.find(([method]) => method === 'Runtime.evaluate')![1]!.expression)
   let marker = source.match(/bmux-swipe:[a-f0-9-]+/)![0]
   let request = () => contents.emit('console-message', { message: marker + JSON.stringify({ id: 'document:1', direction: 'back' }) })
@@ -153,6 +153,22 @@ test('blur, navigation or renderer loss cancels a queued native swipe commit', a
     await vi.runAllTimersAsync()
     expect(goBack).not.toHaveBeenCalled()
   }
+})
+
+test('swipe uses opener fallback only after local history and rechecks it before committing', async () => {
+  let available = true, navigate = vi.fn()
+  let fallback = { available: () => available, navigate, snapshot: () => undefined }
+  let history = await navigationFixture(fallback)
+  history.request(); await vi.runAllTimersAsync()
+  expect(history.goBack).toHaveBeenCalledOnce()
+  expect(navigate).not.toHaveBeenCalled()
+  let popup = await navigationFixture(fallback, () => false)
+  popup.request(); popup.request(); await vi.runAllTimersAsync()
+  expect(navigate).toHaveBeenCalledOnce()
+  expect(popup.goBack).not.toHaveBeenCalled()
+  let orphan = await navigationFixture(fallback, () => false)
+  orphan.request(); available = false; await vi.runAllTimersAsync()
+  expect(navigate).toHaveBeenCalledOnce()
 })
 
 

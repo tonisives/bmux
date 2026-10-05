@@ -5,8 +5,25 @@ import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, reassignConflictingPaneIds, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
+import { backOpener } from '../src/shared/opener-navigation'
 
 describe('session layouts and persistence', () => {
+  it('returns to an eligible opener across windows and forgets closed openers before IDs are reused', () => {
+    let model = initialModel(), session = model.sessions[0], source = session.windows[0]
+    let popup = newWindow('popup', session.defaultProfileId, false, model), pane = popup.panes[0]
+    pane.openerPaneId = source.panes[0].id
+    session.windows.push(popup)
+    expect(backOpener(model, pane)).toBeUndefined()
+    pane.backToOpener = true
+    expect(backOpener(validateModel(structuredClone(model)), pane)?.pane.id).toBe(source.panes[0].id)
+    expect(backOpener(model, pane)?.window).toBe(source)
+    session.windows = [popup]
+    repairClientSelections(model)
+    let replacement = newWindow('unrelated', session.defaultProfileId, false, model)
+    session.windows.push(replacement)
+    expect(replacement.panes[0].id).toBe(source.panes[0].id)
+    expect(backOpener(model, pane)).toBeUndefined()
+  })
   it('uses the smallest available numeric pane ID and keeps IDs unique across windows', () => {
     let model = initialModel()
     let first = model.sessions[0].windows[0]

@@ -22,6 +22,7 @@ import type { CommandEntry } from '../shared/command-search'
 import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
+import { backOpener } from '../shared/opener-navigation'
 import { inlineUrlCompletion, prioritizeInlineHistory } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
@@ -804,7 +805,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let back = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index < activeIndex).reverse()
   let forward = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index > activeIndex)
   let backHasPage = back.length > 0 && back[0].url !== 'about:blank'
-  let backEnabled = back.length > 0 ? backHasPage : !!tab?.openerPaneId && !!window?.panes.some(candidate => candidate.id === tab.openerPaneId)
+  let backEnabled = back.length > 0 ? backHasPage : !!backOpener(state.model, tab)
   let popup = historyPopup?.tabId === tab?.id ? historyPopup : null
   let menu = useRef<HTMLDivElement>(null)
   useEffect(() => {

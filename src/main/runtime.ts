@@ -26,6 +26,7 @@ import { waitOptions } from './wait'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
+import { backOpener } from '../shared/opener-navigation'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, moveBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
@@ -60,7 +61,7 @@ import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 
-type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: (() => Promise<void>) & { cancel: () => void } }
+type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
@@ -829,7 +830,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
-    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) })) : undefined
+    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) }), {
+      available: () => !!backOpener(model, pane),
+      navigate: () => { void execute({ method: 'back', args: { tab: tabId } }).catch(reportError).finally(() => installSwipe?.cancel()) },
+      snapshot: (width, height) => { let opener = backOpener(model, pane); return opener ? tabs.get(opener.pane.id)?.refreshSwipe?.snapshot(width, height) : undefined },
+    }) : undefined
     live.refreshSwipe = installSwipe
     if (installSwipe) view.on('bounds-changed', installSwipe.cancel)
     contents.on('will-prevent-unload', event => {
@@ -985,11 +990,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
-    let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
+    let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions, backToOpener = false) => {
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true, model)
       let added = created.panes[0]
       added.device = session.device
       added.openerPaneId = tabId
+      added.backToOpener = backToOpener
       if (!options?.webContents) { added.url = url; added.title = url }
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
@@ -1008,12 +1014,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     contents.setWindowOpenHandler(details => {
       if (pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
-        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }) }, 100)
+        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab') }, 100)
         return { action: 'deny' }
       }
       return {
         action: 'allow', outlivesOpener: true,
-        createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) })!,
+        createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab')!,
       }
     })
     contents.on('update-target-url', (_event, url) => {
@@ -2623,16 +2629,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
         else {
           let { pane, window } = paneById(model, tabId)
-          let opener = pane.openerPaneId ? walkPanes(model).find(item => item.pane.id === pane.openerPaneId) : undefined
+          let opener = backOpener(model, pane)
           if (opener) {
-            let affected = model.clients.filter(client => client.windowId === window.id).map(client => client.id)
+            let affected = model.clients.filter(client => client.windowId === window.id && client.paneId === pane.id).map(client => client.id)
             let result = await execute({ method: 'kill-pane', args: { pane: pane.id } }) as { cancelled?: string }
             if (result.cancelled) return result
+            if (!walkPanes(model).some(item => item.pane === opener.pane)) return { closed: tabId }
             for (let clientId of affected) {
               let client = model.clients.find(client => client.id === clientId)
               if (client) { client.sessionId = opener.session.id; client.windowId = opener.window.id; client.paneId = opener.pane.id }
             }
             changed(); await visualQueue
+            if (focusedClientId && affected.includes(focusedClientId)) await execute({ method: 'focus-page', args: { client: focusedClientId } })
             return { closed: tabId, pane: opener.pane.id }
           }
         }

@@ -271,7 +271,7 @@ export let validateModel = (value: unknown): Model => {
         else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
-        if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
+        if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.backToOpener !== undefined && typeof pane.backToOpener !== 'boolean') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }
     }
   }
@@ -282,6 +282,9 @@ export let validateModel = (value: unknown): Model => {
 }
 
 export let repairClientSelections = (model: Model) => {
+  let panes = walkPanes(model).map(item => item.pane), paneIds = new Set(panes.map(pane => pane.id))
+  // Pane numbers can be reused after closure. Never return to an unrelated page.
+  for (let pane of panes) if (pane.backToOpener && !paneIds.has(pane.openerPaneId!)) pane.backToOpener = false
   let existingSessions = new Set(model.sessions.map(session => session.id))
   let existingWindows = new Set(model.sessions.flatMap(session => session.windows.map(window => window.id)))
   for (let client of model.clients) {
