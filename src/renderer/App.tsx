@@ -30,6 +30,7 @@ import { clampFloat } from '../shared/floating'
 import { DEFAULT_SEARCH_APPS, SEARCH_APPS } from '../shared/search-app'
 import type { ClickAction } from '../shared/click-mode'
 import { CloseButton } from './CloseButton'
+import { BookmarkActions, BookmarkTitle, useBookmarkActions } from './BookmarkActions'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
@@ -1161,7 +1162,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
   useEffect(() => {
     let picker = ref.current
     let updateSelection = () => {
-      let rows = picker?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')
+      let rows = picker?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])')
       rows?.forEach((row, index) => { row.dataset.searchSelected = String(!!query && document.activeElement === input.current && index === 0) })
     }
     picker?.addEventListener('focusin', updateSelection)
@@ -1173,7 +1174,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     if (event.nativeEvent.isComposing || event.altKey) return
     if (event.target instanceof HTMLElement && event.target !== input.current && event.target.closest('input, [data-picker-action]')) return
     let editing = event.target === input.current
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')].filter(row => row.getClientRects().length)
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])')].filter(row => row.getClientRects().length)
     if (event.key === 'Enter' && event.metaKey && onMetaEnter) {
       event.preventDefault()
       let selected = rows.find(row => row === document.activeElement) ?? rows[0]
@@ -1816,9 +1817,10 @@ let BookmarkPicker = () => {
   let profiles = profile ? [profile, ...(allBookmarkProfiles ? state.model.profiles.filter(item => item.id !== profile.id) : [])] : []
   groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query) })).filter(group => group.bookmarks.length)
   let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
+  let focusSearch = () => input.current?.focus()
   return <BookmarkExpansionContext.Provider value={{ canAdd, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
     <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
-    {groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map((bookmark, index) => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={group.profile.id} parentId="" index={index} count={group.bookmarks.length} />)}</div>)}
+    <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map((bookmark, index) => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" index={index} count={group.bookmarks.length} />)}</div>)}</BookmarkActions>
     {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
   </div></BookmarkExpansionContext.Provider>
 }
@@ -1835,6 +1837,9 @@ let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: 
   let { state, run, show } = useUI()
   let { canAdd, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
   let key = bookmarkKey(profileId, bookmark.id)
+  let { editing, menu, menuKeys } = useBookmarkActions()
+  let contextMenu = (event: MouseEvent<HTMLElement>) => menu(event, { bookmark, profileId })
+  let contextKeys = (event: KeyboardEvent<HTMLElement>) => menuKeys(event, { bookmark, profileId })
   let expanded = expandedBookmarkId === key
   let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
@@ -1842,7 +1847,7 @@ let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: 
   let visible = parameters.filter(([key]) => !settings.hidden.includes(key))
   let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
   let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, profileId, settings) }
-  let click = () => { void open() }
+  let click = () => { if (supported) void open() }
   let toggle = () => setExpandedBookmarkId(expanded ? null : key)
   let update = (key: string, value: string) => setSettings(current => ({ ...current, values: { ...current.values, [key]: value } }))
   let hide = (key: string) => {
@@ -1854,9 +1859,9 @@ let BookmarkRow = ({ bookmark, profileId, parentId, index, count }: { bookmark: 
   let drag = { id: bookmark.id, parentId, profileId }
   let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.profileId === profileId && dropTarget.id === bookmark.id ? dropTarget.position : undefined }
   let handle = <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} index={index} count={count} />
-  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps}>{handle}<span data-bookmark-folder-title>{bookmark.title || 'Untitled folder'}</span>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} index={childIndex} count={bookmark.children!.length} />)}</div></details>
+  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} index={childIndex} count={bookmark.children!.length} />)}</div></details>
   return <div className={css.bookmarkItem}>
-    <div className={css.bookmarkRow} {...dragProps}>{handle}<button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+    <div className={css.bookmarkRow} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}{editing === key ? <BookmarkTitle bookmark={bookmark} profileId={profileId} /> : <button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} aria-disabled={!supported || undefined} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></button>}
       {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
     </div>
     {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {

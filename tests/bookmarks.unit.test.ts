@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { createBookmarkFolder, moveBookmark, reorderBookmark, saveBookmark, updateBookmark } from '../src/main/bookmarks'
+import { createBookmarkFolder, moveBookmark, removeBookmark, reorderBookmark, saveBookmark, updateBookmark } from '../src/main/bookmarks'
 import type { Profile } from '../src/shared/types'
 
 let profile = (): Profile => ({ id: 'profile', name: 'Profile', background: false, bookmarks: [
@@ -70,4 +70,18 @@ test('updates saved bookmark URLs and folder titles by ID', () => {
   expect(updateBookmark(current, 'existing', { url: 'https://example.test/updated' }).url).toBe('https://example.test/updated')
   expect(updateBookmark(current, 'work', { title: 'Renamed work' }).title).toBe('Renamed work')
   expect(() => updateBookmark(current, 'work', { url: 'https://example.test/folder' })).toThrow('A folder cannot have a URL')
+})
+
+test('removes nested bookmarks and entire folders without changing siblings or other profiles', () => {
+  let current = profile(), other = profile(), before = structuredClone(other)
+  let docs = current.bookmarks![0].children![0]
+  docs.children!.push({ id: 'nested', title: 'Nested', url: 'https://example.test/nested' })
+  expect(removeBookmark(current, 'nested').id).toBe('nested')
+  expect(docs.children).toEqual([])
+  expect(removeBookmark(current, 'work').children).toEqual([docs])
+  expect(current.bookmarks?.map(bookmark => bookmark.id)).toEqual(['existing'])
+  expect(other).toEqual(before)
+  let remaining = structuredClone(current)
+  expect(() => removeBookmark(current, 'missing')).toThrow('Bookmark not found')
+  expect(current).toEqual(remaining)
 })

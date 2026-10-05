@@ -31,7 +31,7 @@ import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
-import { bookmarkById, createBookmarkFolder, moveBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
+import { bookmarkById, createBookmarkFolder, moveBookmark, removeBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
@@ -1832,6 +1832,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let bookmark = updateBookmark(profile, required(args, 'bookmark'), { title: title === undefined ? undefined : (title as string).trim(), url: url as string | undefined })
       save()
       return bookmark
+    }
+    if (method === 'bookmark.remove') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let bookmarkId = required(args, 'bookmark')
+      let bookmark = bookmarkById(profile.bookmarks ?? [], bookmarkId)
+      if (!bookmark) throw new Error('Bookmark not found')
+      let removedIds = (item: typeof bookmark): string[] => [item.id, ...(item.children ?? []).flatMap(removedIds)]
+      let settings = { ...bookmarkParameters[profile.id] }
+      for (let id of removedIds(bookmark)) delete settings[id]
+      let next = { ...bookmarkParameters, [profile.id]: settings }
+      writeBookmarkParameters(parameterFile, next)
+      removeBookmark(profile, bookmarkId)
+      bookmarkParameters = next
+      save()
+      return { removed: true }
     }
     if (method === 'bookmark.parameters.update') {
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')

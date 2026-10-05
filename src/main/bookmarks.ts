@@ -95,3 +95,17 @@ export let updateBookmark = (profile: Profile, bookmarkId: string, values: { tit
   if (values.url !== undefined) bookmark.url = values.url
   return bookmark
 }
+
+export let removeBookmark = (profile: Profile, bookmarkId: string) => {
+  let remove = (items: Bookmark[]): Bookmark | undefined => {
+    let index = items.findIndex(item => item.id === bookmarkId)
+    if (index >= 0) return items.splice(index, 1)[0]
+    for (let item of items) {
+      let removed = item.children && remove(item.children)
+      if (removed) return removed
+    }
+  }
+  let bookmark = remove(profile.bookmarks ?? [])
+  if (!bookmark) throw new Error('Bookmark not found')
+  return bookmark
+}

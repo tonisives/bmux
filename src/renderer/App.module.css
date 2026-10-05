@@ -146,7 +146,7 @@
 .panel .listRow:is(:hover, :focus-visible, [data-search-selected="true"]) { background: #303944; color: #f0f2f5; }
 .panel .listRow:is([data-active="true"], [aria-pressed="true"], [aria-current="true"]) { background: #344738; color: #e8f4df; font-weight: 600; }
 .panel .listRow:focus-visible { outline: 1px solid #83917b; outline-offset: -1px; }
-.panel .listRow:disabled { color: #77818d; cursor: not-allowed; }
+.panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
 .remoteSession { display: flex !important; align-items: baseline; justify-content: space-between; gap: 12px; }
 .remoteSession span { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .panel [data-bookmark-picker] .bookmarkRow > .listRow:focus-visible { outline: none; }
