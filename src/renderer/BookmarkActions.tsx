@@ -30,10 +30,9 @@ export let BookmarkActions = ({ children, run, focusSearch }: { children: ReactN
 }
 
 export let BookmarkTitle = ({ bookmark, profileId }: Target) => {
-  let { editing, rename } = useBookmarkActions()
-  let click = (event: MouseEvent<HTMLSpanElement>) => { event.preventDefault(); event.stopPropagation(); rename({ bookmark, profileId }) }
+  let { editing } = useBookmarkActions()
   if (editing === targetKey({ bookmark, profileId })) return <BookmarkRename bookmark={bookmark} profileId={profileId} />
-  return <span className={css.title} data-bookmark-folder-title={bookmark.children ? true : undefined} data-bookmark-title title="Click to rename" onClick={click}>{bookmark.title || bookmark.url || 'Untitled folder'}</span>
+  return <span data-bookmark-folder-title={bookmark.children ? true : undefined} data-bookmark-title>{bookmark.title || bookmark.url || 'Untitled folder'}</span>
 }
 
 let Context = createContext<Actions | null>(null)

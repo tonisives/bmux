@@ -14,7 +14,9 @@ Press Command+D or run `bookmark` to save the current page. The + button in the 
 
 The + button beside each folder opens the current-page menu with that folder selected, in both search results and the full list. In **All profiles**, it saves to the folder's owning profile without changing the current page's profile.
 
-Right-click a bookmark or folder for Rename and Delete, in both the full list and search results. You can also click its title (the pointer becomes a text cursor) to rename it inline. Enter or leaving the title saves; Escape cancels. Click the rest of the bookmark row or press Enter to open it. Deleting a folder also deletes its contents. These actions change only the owning profile, including in **All profiles**.
+Click a folder's left chevron or title to collapse or expand it. Enable **Reorder** at the top to show drag handles for bookmarks and folders; turn it off to hide them. The handles also support Option+Up/Down. These controls work in both the full list and search results.
+
+Right-click a bookmark or folder for Rename and Delete, in both the full list and search results. Rename opens an inline title editor: Enter or leaving the title saves; Escape cancels. A single click on a bookmark title opens the page. Deleting a folder also deletes its contents. These actions change only the owning profile, including in **All profiles**.
 
 For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
 For X searches, numeric `min_faves` and `min_replies` operators inside the `q` parameter also appear as separate controls. A post-age slider writes a relative `since:YYYY-MM-DD` operator when the bookmark opens; 0 keeps posts of any age. The `f` URL parameter is labeled Results, with `live` identified as Latest. X does not support a minimum post-view or impression-count search operator.

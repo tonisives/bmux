@@ -1031,6 +1031,8 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).press('Enter')
   await expect(chrome.getByText('Projects', { exact: true })).toBeVisible()
   await expect(chrome.getByRole('button', { name: 'Unsupported bookmarklet', exact: true })).toBeDisabled()
+  await expect(chrome.getByRole('button', { name: 'Drag Imported fixture to reorder' })).toHaveCount(0)
+  await chrome.getByRole('button', { name: 'Reorder', exact: true }).click()
   let handleSize = await chrome.getByRole('button', { name: 'Drag Imported fixture to reorder' }).evaluate(handle => {
     let title = handle.parentElement!.querySelector('[data-bookmark-id]')!
     let handleBounds = handle.getBoundingClientRect()
@@ -1078,6 +1080,7 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).fill('bookmarks')
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).press('Enter')
   await chrome.getByRole('textbox', { name: 'Search bookmarks' }).fill('Imported')
+  await chrome.getByRole('button', { name: 'Reorder', exact: true }).click()
   await chrome.getByRole('button', { name: 'Drag Imported next fixture to reorder' }).dragTo(chrome.getByRole('button', { name: 'Imported fixture', exact: true }), { targetPosition: { x: 8, y: 2 } })
   await expect.poll(async () => (await cli('profile.list')).find((item: { id: string }) => item.id === profileId).bookmarks[0].children[0].children[0].title).toBe('Imported next fixture')
   await chrome.getByRole('textbox', { name: 'Search bookmarks' }).fill('Projects')
