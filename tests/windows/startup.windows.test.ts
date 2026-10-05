@@ -69,7 +69,8 @@ test('installed Windows app opens a window, serves its CLI and restarts', async 
   for (let index = 0; index < 2; index++) {
     application = await electron.launch({ executablePath: executable, args: [], env })
     await ready()
-    let chrome = await application.firstWindow()
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toBeVisible()
     expect((await cli('plugin', 'list')).some((plugin: any) => plugin.id === 'bmux.forms')).toBe(true)
     expect((await rpc('diagnostics')).windows.some((window: any) => window.visible)).toBe(true)

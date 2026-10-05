@@ -5,7 +5,7 @@ if (!process.env.BMUX_WINDOWS_APP) throw new Error('Set BMUX_WINDOWS_APP to the 
 
 for (let [cli, args] of [
   ['node_modules/vitest/vitest.mjs', ['run', '--config', 'vitest.windows.config.ts']],
-  ['node_modules/@playwright/test/cli.js', ['test', '--config', 'playwright.windows.config.ts']],
+  ['node_modules/@playwright/test/cli.js', ['test', '--config', 'playwright.windows.config.ts', ...process.argv.slice(2)]],
 ]) {
   let child = spawn(process.execPath, [cli, ...args], { stdio: 'inherit' })
   let code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => resolve(code)) })

@@ -2,7 +2,8 @@
 
 The [Windows workflow](../.github/workflows/windows.yml) runs on a disposable
 Windows 2022 desktop with Node 24. It builds the x64 NSIS installer, installs it
-silently into a temporary path with spaces, and runs `pnpm test:windows`.
+silently into a temporary path with spaces, and runs `pnpm test:windows` with
+three repetitions of each startup test and no retries.
 Check runs Windows as a separate job beside the normal macOS suite. Release runs the same Windows suite
 against its installer before uploading it.
 
