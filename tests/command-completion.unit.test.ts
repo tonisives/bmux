@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { initialModel, newSession } from '../src/main/model'
+import { initialModel, newSession, newWindow } from '../src/main/model'
 import { commandTargetSuggestions } from '../src/shared/command-completion'
 import { parseCommandLine } from '../src/shared/command-line'
 import type { PublicState } from '../src/shared/types'
@@ -41,10 +41,27 @@ test('target completion preserves source and split flags and quotes names while 
   expect(entries).toHaveLength(3)
   let session = entries.find(entry => entry.description === 'New window in session')!
   expect(parseCommandLine(session.command, current).args).toEqual({ client: 'client', pane: source, session: target.id, axis: 'vertical' })
-  expect(commandTargetSuggestions('movep -t :{work', current)!.entries).toHaveLength(3)
+  expect(commandTargetSuggestions('movep -t :{work', current)!.entries).toHaveLength(0)
   target.name = 'work:notes'
   let colon = commandTargetSuggestions('movep -t work', current)!.entries.find(entry => entry.description === 'New window in session')!
   expect(parseCommandLine(colon.command, current).args).toMatchObject({ session: target.id })
+})
+
+test('omitted session targets complete only windows in the current client session', () => {
+  let current = state(), session = current.model.sessions[1], destination = session.windows[0]
+  let source = newWindow('source', session.defaultProfileId)
+  session.windows.push(source)
+  current.model.sessions[0].windows[0].name = 'research'
+  Object.assign(current.model.clients[0], { sessionId: session.id, windowId: source.id, paneId: source.panes[0].id })
+  for (let command of ['joinp', 'join-pane', 'movep', 'move-pane']) {
+    let entries = commandTargetSuggestions(`${command} -t :`, current)!.entries
+    expect(entries.map(entry => entry.usage)).toEqual([':1 research', ':2 research'])
+    expect(entries.every(entry => entry.description === 'Join window')).toBe(true)
+    expect(parseCommandLine(entries[0].command, current).args).toMatchObject({ pane: source.panes[0].id, window: destination.id })
+    expect(commandTargetSuggestions(`${command} -t :1`, current)!.entries.map(entry => entry.command)).toEqual([`${command} -t :1`])
+    expect(commandTargetSuggestions(`${command} -t :res`, current)!.entries).toHaveLength(2)
+    expect(commandTargetSuggestions(`${command} -t :missing`, current)!.entries).toEqual([])
+  }
 })
 
 test('legacy window targets complete IDs and source arguments complete panes', () => {

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { initialModel, newSession } from '../src/main/model'
+import { initialModel, newSession, newWindow } from '../src/main/model'
 import { parseCommandLine, tokenize } from '../src/shared/command-line'
 import type { PublicState } from '../src/shared/types'
 
@@ -76,14 +76,40 @@ it('parses tmux pane command aliases and session targets', () => {
   current.model.sessions.push(destination)
   expect(parseCommandLine('movep -t work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
   expect(parseCommandLine('movep -t work:', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
-  expect(parseCommandLine('movep -t :work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
-  expect(parseCommandLine('movep -s pane_source -t :{work}', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: 'pane_source', session: destination.id } })
+  expect(parseCommandLine('movep -s pane_source -t work:', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: 'pane_source', session: destination.id } })
   expect(parseCommandLine(`movep -t ${destination.name}:${destination.windows[0].name}`, current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, window: destination.windows[0].id } })
   expect(parseCommandLine('joinp -s pane_source -t work -v', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', window: destination.windows[0].id, axis: 'vertical' } })
   expect(parseCommandLine(`joinp -s pane_source -t ${destination.windows[0].panes[0].id} -v`, current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', destination: destination.windows[0].panes[0].id, axis: 'vertical' } })
   expect(parseCommandLine('splitw -h', current)).toMatchObject({ method: 'split-window', args: { pane: source.id, axis: 'horizontal' } })
   expect(parseCommandLine('selectw -t 1', current)).toMatchObject({ method: 'select-window', args: { window: current.model.sessions[0].windows[0].id } })
   expect(parseCommandLine('next', current)).toEqual({ method: 'cycle-window', args: { client: 'client', direction: 1 } })
+})
+
+it('resolves omitted session targets only within the current client session', () => {
+  let current = state(), other = current.model.sessions[0], session = newSession('current', other.defaultProfileId)
+  let destination = session.windows[0], source = newWindow('source', session.defaultProfileId)
+  destination.name = 'research'
+  other.name = 'research'
+  session.windows.push(source)
+  current.model.sessions.push(session)
+  Object.assign(current.model.clients[0], { sessionId: session.id, windowId: source.id, paneId: source.panes[0].id })
+  for (let command of ['joinp', 'join-pane', 'movep', 'move-pane']) {
+    for (let target of [':1', ':research', ':res', `:${destination.id}`]) {
+      expect(parseCommandLine(`${command} -t ${target}`, current)).toEqual({ method: command.startsWith('join') ? 'join-pane' : 'move-pane', args: { client: 'client', pane: source.panes[0].id, window: destination.id } })
+    }
+    expect(parseCommandLine(`${command} -s ${other.windows[0].panes[0].id} -t :1`, current).args).toMatchObject({ pane: other.windows[0].panes[0].id, window: destination.id })
+  }
+})
+
+it('does not fall back to other sessions for missing or ambiguous current-session windows', () => {
+  let current = state(), session = current.model.sessions[0]
+  current.model.sessions.push(newSession('missing', session.defaultProfileId), newSession('research', session.defaultProfileId), newSession('fourth', session.defaultProfileId))
+  session.windows.push(newWindow('research-one', session.defaultProfileId), newWindow('research-two', session.defaultProfileId))
+  for (let command of ['joinp', 'movep']) {
+    expect(() => parseCommandLine(`${command} -t :missing`, current)).toThrow("Window 'missing' not found")
+    expect(() => parseCommandLine(`${command} -t :4`, current)).toThrow("Window '4' not found")
+    expect(() => parseCommandLine(`${command} -t :res`, current)).toThrow("Window 'res' is ambiguous")
+  }
 })
 
 it('resolves explicit session targets and unique prefixes without treating missing sessions as panes', () => {

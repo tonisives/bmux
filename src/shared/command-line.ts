@@ -47,11 +47,9 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
   let currentSession = sessions.find(session => session.id === currentSessionId)!
   if (value.startsWith(':')) {
     let selector = value.slice(1).replace(/^\{(.+)\}$/, '$1')
-    let session = indexed(sessions, selector, 'Session')
-    if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
     let window = indexed(currentSession.windows, selector, 'Window')
     if (window) return { window: window.id }
-    throw new Error(`Session or window '${selector}' not found`)
+    throw new Error(`Window '${selector}' not found`)
   }
   if (value.endsWith(':')) {
     let session = indexed(sessions, value.slice(0, -1), 'Session')

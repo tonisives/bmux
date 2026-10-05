@@ -27,16 +27,18 @@ export let commandTargetSuggestions = (line: string, state: PublicState): { quer
   let inlineSource = tokens.find(token => /^(?:-s|--source)=/.test(token.value))?.value.split('=').slice(1).join('=')
   let paneId = sourceId >= 0 ? tokens[sourceId + 1]?.value : inlineSource ?? client?.paneId
   let sourceWindow = state.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
+  let currentSessionTarget = !source && flag !== '--window' && query.startsWith(':')
   let candidates: { value: string; label: string; description: string }[] = []
   for (let session of state.model.sessions) {
+    if (currentSessionTarget && session.id !== client?.sessionId) continue
     let sessionSelector = session.name.includes(':') ? session.id : session.name
-    if (!source && flag !== '--window') candidates.push({ value: `${sessionSelector}:`, label: `${session.name}:`, description: ['movep', 'move-pane'].includes(name) ? 'New window in session' : 'Join first window in session' })
+    if (!source && flag !== '--window' && !currentSessionTarget) candidates.push({ value: `${sessionSelector}:`, label: `${session.name}:`, description: ['movep', 'move-pane'].includes(name) ? 'New window in session' : 'Join first window in session' })
     for (let [index, window] of session.windows.entries()) {
       if (source) {
         for (let pane of window.panes) candidates.push({ value: pane.id, label: `${session.name}:${index + 1} ${window.name} · ${pane.id}`, description: 'Source pane' })
       } else if (window !== sourceWindow) {
-        let value = flag === '--window' ? window.id : `${sessionSelector}:${index + 1}`
-        candidates.push({ value, label: `${session.name}:${index + 1} ${window.name}`, description: 'Join window' })
+        let value = flag === '--window' ? window.id : `${currentSessionTarget ? '' : sessionSelector}:${index + 1}`
+        candidates.push({ value, label: `${currentSessionTarget ? '' : session.name}:${index + 1} ${window.name}`, description: 'Join window' })
       }
     }
   }
