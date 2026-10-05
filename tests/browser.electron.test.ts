@@ -590,11 +590,12 @@ test('links show their target, offer browser actions, and open popups in bmux wi
   }
 })
 
-test('middle and Command clicks load links in background bmux windows', async () => {
+test('middle and Command clicks load links in background bmux windows', async ({}, info) => {
   let session = await cli('new-session', { name: 'background-links' })
   let source = session.windows[0].panes[0]
   await cli('navigate', { tab: source.id, url: `${url}/background-links` })
   let client = await cli('attach-session', { session: session.id })
+  let failed = false
   try {
     await cli('activate-client', { client: client.id })
     let website = application.context().pages().find(page => page.url() === `${url}/background-links`)!
@@ -611,8 +612,15 @@ test('middle and Command clicks load links in background bmux windows', async ()
       await cli('back', { tab: tab.id })
       expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
     }
+  } catch (error) {
+    failed = true
+    // If Electron stops answering, retain the first failure and its native stack.
+    // A cleanup RPC would otherwise hide it behind the CLI's longer timeout.
+    let sample = info.outputPath('background-tab-process.txt')
+    await exec('/usr/bin/sample', [String(application.process().pid), '1', '1', '-file', sample], { timeout: 10000 }).then(() => info.attach('background-tab-process', { path: sample, contentType: 'text/plain' })).catch(() => undefined)
+    throw error
   } finally {
-    await cli('detach-client', { client: client.id })
+    if (!failed) await cli('detach-client', { client: client.id })
   }
 })
 
