@@ -282,6 +282,7 @@ test('pane join commands keep omitted session targets and completions in the cur
   let otherWindows = async () => (await state()).model.sessions.filter((session: any) => session.id !== target.id).map((session: any) => ({ id: session.id, windows: session.windows.map((window: any) => ({ id: window.id, panes: window.panes.map((pane: any) => pane.id) })) }))
   let before = await otherWindows()
   try {
+    await rpc('switch-client', { client: client.id, session: target.id })
     for (let command of ['joinp -t :1', 'movep -t :main']) {
       let source = await rpc('new-window', { session: target.id, name: 'join source', url })
       await rpc('select-window', { client: client.id, window: source.id })
@@ -300,6 +301,7 @@ test('pane join commands keep omitted session targets and completions in the cur
     }
   } finally {
     await chrome.keyboard.press('Escape')
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
     await rpc('select-window', { client: client.id, window: client.windowId })
     await rpc('kill-session', { session: target.id, confirm: true })
   }
