@@ -12,6 +12,8 @@ import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
+import { selectedPane } from '../shared/command-target'
+import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
 import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
@@ -1891,7 +1893,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return plugins.run(required(args, 'action'), { clientId: sourceClientId, paneId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
     }
     if (method === 'command-line') {
-      let command = parseCommandLine(required(args, 'line'), state(required(args, 'client')))
+      let clientId = args.client ?? sourceClientId ?? focusedClientId ?? model.clients[0]?.id
+      if (!clientId) throw new Error('Specify a client with -c CLIENT')
+      let command = parseCommandLine(required(args, 'line'), state(String(clientId)))
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
       return execute(command, sourceClientId)
     }
@@ -2264,17 +2268,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'move-window') {
-      let client = resolve(model.clients, args.client, 'Client')
-      let session = resolve(model.sessions, client.sessionId, 'Session')
-      let index = session.windows.findIndex(window => window.id === client.windowId)
-      let position = args.position
-      let destination = position === 'first' ? 0 : position === 'last' ? session.windows.length - 1 : Number(position) - 1
-      if (!Number.isInteger(destination) || destination < 0 || destination >= session.windows.length) throw new Error(`Window index must be between 1 and ${session.windows.length}`)
-      if (index === destination) return session.windows[index]
-      let [window] = session.windows.splice(index, 1)
-      session.windows.splice(destination, 0, window)
+      let window = moveWindow(model, args)
       changed(); await visualQueue; return window
     }
+    if (method === 'renumber-windows') return resolve(model.sessions, args.session, 'Session').windows
     if (method === 'reorder-window') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
@@ -2291,6 +2288,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       changed(); await visualQueue; return window
     }
     if (method === 'swap-window') {
+      if (args.destination !== undefined) {
+        let window = swapWindows(model, args)
+        changed(); await visualQueue; return window
+      }
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let index = session.windows.findIndex(window => window.id === client.windowId)
@@ -2306,16 +2307,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let index = session.windows.findIndex(window => window.id === client.windowId)
-      let window = method === 'select-window' ? resolve(session.windows, args.window, 'Window') : session.windows[(index + Number(args.direction ?? 1) + session.windows.length) % session.windows.length]
+      let window = method === 'select-window' ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : session.windows[(index + Number(args.direction ?? 1) + session.windows.length) % session.windows.length]
+      client.sessionId = model.sessions.find(session => session.windows.includes(window))!.id
       client.windowId = window.id; client.paneId = window.panes[0]?.id ?? null
       changed(); await visualQueue; return client
     }
     if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
       let previousPaneId = client.paneId
-      let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
+      let window = method === 'select-pane' ? paneById(model, args.pane).window : resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
-      if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
+      if (method === 'select-pane') { client.sessionId = model.sessions.find(session => session.windows.includes(window))!.id; client.windowId = window.id; client.paneId = resolve(window.panes, args.pane, 'Pane').id }
       else if (method === 'cycle-pane') client.paneId = window.panes[(index + 1) % window.panes.length]?.id ?? null
       else {
         let direction = required(args, 'direction')
@@ -2346,8 +2348,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'break-pane' && args.floating !== true) {
       let parent = paneById(model, args.pane)
-      if (parent.window.panes.length === 1) throw new Error('Pane is already the only pane in its window')
-      return execute({ method: 'move-pane', args: { ...args, session: parent.session.id } })
+      if (parent.window.panes.length === 1 && args.session === undefined) throw new Error('Pane is already the only pane in its window')
+      return execute({ method: 'move-pane', args: { ...args, session: args.session ?? parent.session.id } })
+    }
+    if (method === 'swap-pane' || method === 'rotate-window') {
+      let result = method === 'swap-pane' ? swapPanes(model, args) : rotatePanes(model, args)
+      changed(); await visualQueue; return result
     }
     if (method === 'new-pane' || method === 'break-pane') {
       let parent = args.pane ? paneById(model, args.pane) : undefined
@@ -2380,7 +2386,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
       window.panes.push(pane)
-      if (args.client) resolve(model.clients, args.client, 'Client').paneId = pane.id
+      if (args.client && args.background !== true) { let selected = resolve(model.clients, args.client, 'Client'); selected.sessionId = session.id; selected.windowId = window.id; selected.paneId = pane.id }
       changed(); await visualQueue; return pane
     }
     if (method === 'resize-pane') {
@@ -2413,24 +2419,28 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true, model)
         : args.destination ? paneById(model, args.destination).window : args.window ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : from
       let destinationSession = targetSession ?? model.sessions.find(session => session.windows.includes(to))!
-      if (destinationSession.id !== fromSession.id && (fromSession.private || destinationSession.private)) throw new Error('Cannot move panes between private and other sessions')
-      if (to === from && !placement) throw new Error('Choose another internal window or a floating pane')
-      if (args.destination && !layoutPaneIds(to.layout).includes(String(args.destination))) throw new Error('Destination must be a tiled pane')
+      checkSessionTransfer(fromSession, destinationSession)
+      let destination = args.destination ? String(args.destination) : args.window ? selectedPane(state(String(args.client ?? focusedClientId ?? model.clients[0]?.id ?? '')), to).id : undefined
+      if (placement && destination === pane.id) destination = undefined
+      if (to === from && !placement && (!destination || destination === pane.id)) throw new Error('Source and destination panes must be different')
+      if (destination && !layoutPaneIds(to.layout).includes(destination)) throw new Error('Destination must be a tiled pane')
+      let position = targetSession ? insertionIndex(targetSession, args.position, args.before === true, args.after === true) : undefined
       forgetPlacement(from, pane.id)
       if (to !== from) {
         from.panes = from.panes.filter(item => item.id !== pane.id)
         if (targetSession) {
           to.panes = [pane]; to.layout = { kind: 'pane', paneId: pane.id }
-          if (to.automaticName) updateAutomaticWindowName(to, pane.id)
-          targetSession.windows.push(to)
+          if (args.name !== undefined) { to.name = String(args.name); to.automaticName = false }
+          else if (to.automaticName) updateAutomaticWindowName(to, pane.id)
+          targetSession.windows.splice(position!, 0, to)
         } else to.panes.push(pane)
       }
-      if (!targetSession) dockPane(to, pane.id, to === from ? placement : undefined, args.destination ? String(args.destination) : undefined, args.axis === 'vertical' ? 'vertical' : args.axis === 'horizontal' ? 'horizontal' : undefined)
+      if (!targetSession) dockPane(to, pane.id, to === from ? placement : undefined, destination, args.axis === 'vertical' ? 'vertical' : args.axis === 'horizontal' ? 'horizontal' : undefined, args.before === undefined ? undefined : args.before === true)
       if (!from.panes.length) {
         fromSession.windows = fromSession.windows.filter(window => window !== from)
         if (!fromSession.windows.length) removeSession(model, fromSession)
       }
-      if (args.client) {
+      if (args.client && args.background !== true) {
         let selected = resolve(model.clients, args.client, 'Client')
         selected.sessionId = model.sessions.find(session => session.windows.includes(to))!.id; selected.windowId = to.id; selected.paneId = pane.id; selected.zoomedPaneId = null
       }

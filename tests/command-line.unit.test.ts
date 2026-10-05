@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { initialModel, newSession, newWindow } from '../src/main/model'
+import { initialModel, newPane, newSession, newWindow, splitLayout } from '../src/main/model'
 import { parseCommandLine, tokenize } from '../src/shared/command-line'
 import type { PublicState } from '../src/shared/types'
 
@@ -37,11 +37,11 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('move-window-right', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: 1 } })
   expect(parseCommandLine('move-window-first', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'first' } })
   expect(parseCommandLine('move-window-last', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'last' } })
-  expect(parseCommandLine('move-window -t 2', current)).toEqual({ method: 'move-window', args: { client: 'client', position: '2' } })
-  expect(parseCommandLine('movew -t 2', current)).toEqual({ method: 'move-window', args: { client: 'client', position: '2' } })
-  expect(parseCommandLine(':movew first', current)).toEqual({ method: 'move-window', args: { client: 'client', position: 'first' } })
-  expect(parseCommandLine('swap-window -t -1', current)).toEqual({ method: 'swap-window', args: { client: 'client', direction: -1 } })
-  expect(() => parseCommandLine('swap-window -t 2', current)).toThrow('Use swap-window')
+  expect(parseCommandLine('move-window -t 2', current)).toEqual({ method: 'move-window', args: { client: 'client', window: window.id, session: session.id, position: '2' } })
+  expect(parseCommandLine('movew -t 2', current)).toEqual({ method: 'move-window', args: { client: 'client', window: window.id, session: session.id, position: '2' } })
+  expect(parseCommandLine(':movew first', current)).toEqual({ method: 'move-window', args: { client: 'client', window: window.id, session: session.id, position: 'first' } })
+  expect(parseCommandLine('swap-window -t -1', current)).toEqual({ method: 'swap-window', args: { client: 'client', window: window.id, destination: secondWindow.id } })
+  expect(parseCommandLine('swap-window -t 2', current).args).toMatchObject({ window: window.id, destination: secondWindow.id })
   expect(parseCommandLine('close-system-window', current)).toEqual({ method: 'detach-client', args: { client: 'client' } })
   expect(parseCommandLine('restore-layout "my layout" --confirm', current)).toMatchObject({ args: { name: 'my layout', confirm: true, window: window.id } })
   expect(() => parseCommandLine('tab select -t 0', current)).toThrow('Unknown command')
@@ -76,10 +76,10 @@ it('parses tmux pane command aliases and session targets', () => {
   current.model.sessions.push(destination)
   expect(parseCommandLine('movep -t work', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
   expect(parseCommandLine('movep -t work:', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
-  expect(parseCommandLine('movep -s pane_source -t work:', current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: 'pane_source', session: destination.id } })
+  expect(parseCommandLine(`movep -s ${source.id} -t work:`, current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, session: destination.id } })
   expect(parseCommandLine(`movep -t ${destination.name}:${destination.windows[0].name}`, current)).toEqual({ method: 'move-pane', args: { client: 'client', pane: source.id, window: destination.windows[0].id } })
-  expect(parseCommandLine('joinp -s pane_source -t work -v', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', window: destination.windows[0].id, axis: 'vertical' } })
-  expect(parseCommandLine(`joinp -s pane_source -t ${destination.windows[0].panes[0].id} -v`, current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: 'pane_source', destination: destination.windows[0].panes[0].id, axis: 'vertical' } })
+  expect(parseCommandLine(`joinp -s ${source.id} -t work -v`, current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: source.id, window: destination.windows[0].id, axis: 'vertical' } })
+  expect(parseCommandLine(`joinp -s ${source.id} -t ${destination.windows[0].panes[0].id} -v`, current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: source.id, destination: destination.windows[0].panes[0].id, axis: 'vertical' } })
   expect(parseCommandLine('splitw -h', current)).toMatchObject({ method: 'split-window', args: { pane: source.id, axis: 'horizontal' } })
   expect(parseCommandLine('selectw -t 1', current)).toMatchObject({ method: 'select-window', args: { window: current.model.sessions[0].windows[0].id } })
   expect(parseCommandLine('next', current)).toEqual({ method: 'cycle-window', args: { client: 'client', direction: 1 } })
@@ -141,4 +141,50 @@ it('parses extension management commands for the selected pane or an explicit pr
     expect(parseCommandLine(`extension ${action} "Fixture extension"`, current)).toMatchObject({ method: `extension.${action}`, args: { pane: pane.id, id: 'Fixture extension' } })
     expect(parseCommandLine(`extension ${action} fixture-id --profile other`, current)).toMatchObject({ method: `extension.${action}`, args: { profile: 'other', id: 'fixture-id' } })
   }
+})
+
+it('resolves pane coordinates, active panes, and relative windows for movement and selection', () => {
+  let current = state(), session = current.model.sessions[0], first = session.windows[0]
+  let second = newWindow('second', session.defaultProfileId, false, current.model)
+  session.windows.push(second)
+  let extra = newPane(session.defaultProfileId, 'about:blank', current.model)
+  first.panes.push(extra); first.layout = splitLayout(first.layout, first.panes[0].id, extra.id, 'vertical')
+  current.model.clients[0].paneId = extra.id
+  expect(parseCommandLine('joinp -bdh -s :2.0 -t :1.1', current)).toEqual({ method: 'join-pane', args: { client: 'client', pane: second.panes[0].id, destination: extra.id, before: true, background: true, axis: 'horizontal' } })
+  expect(parseCommandLine('joinp -s :2', current).args).toMatchObject({ pane: second.panes[0].id, destination: extra.id })
+  expect(parseCommandLine('joinp -s:2.0 -t:1.0', current).args).toMatchObject({ pane: second.panes[0].id, destination: first.panes[0].id })
+  expect(parseCommandLine('selectp -t .0', current).args).toMatchObject({ pane: first.panes[0].id })
+  expect(parseCommandLine('selectw -t :+1', current).args).toMatchObject({ window: second.id })
+  expect(parseCommandLine('selectw -t :{end}', current).args).toMatchObject({ window: second.id })
+  expect(parseCommandLine('swapp -U -t .0', current).args).toMatchObject({ pane: extra.id, destination: first.panes[0].id })
+  expect(parseCommandLine('rotatew -U -t :1', current).args).toMatchObject({ window: first.id, direction: -1 })
+  expect(() => parseCommandLine('joinp -s :1.8 -t :2', current)).toThrow("Pane '8' not found")
+  expect(() => parseCommandLine('joinp -l 50% -t :2', current)).toThrow('Unsupported option')
+  expect(() => parseCommandLine('joinp :2', current)).toThrow('does not accept positional targets')
+  expect(parseCommandLine('joinp --background=false -t :2', current).args).toMatchObject({ background: false })
+})
+
+it('breaks panes into a specified session and index and transfers or swaps explicit windows', () => {
+  let current = state(), session = current.model.sessions[0], source = session.windows[0], work = newSession('work', session.defaultProfileId, false, current.model)
+  current.model.sessions.push(work)
+  expect(parseCommandLine('breakp -s :1.0 -t work:2 -n notes -d', current)).toEqual({ method: 'break-pane', args: { client: 'client', pane: source.panes[0].id, session: work.id, position: '2', name: 'notes', background: true } })
+  expect(parseCommandLine('break-pane -t work: -s :1 -W', current).args).toMatchObject({ pane: source.panes[0].id, floating: true })
+  expect(parseCommandLine('movew -s work:1 -t :1 -b -d', current).args).toEqual({ client: 'client', window: work.windows[0].id, session: session.id, position: '1', before: true, background: true })
+  expect(parseCommandLine('swapw -s :1 -t work:1 -d', current).args).toEqual({ client: 'client', window: source.id, destination: work.windows[0].id, background: true })
+  expect(() => parseCommandLine('movew -b -a -t :1', current)).toThrow('Use either -b or -a')
+  expect(() => parseCommandLine('rotatew -U -D', current)).toThrow('Use either -U or -D')
+  current.model.clients.push({ ...current.model.clients[0], id: 'other', sessionId: work.id, windowId: work.windows[0].id, paneId: work.windows[0].panes[0].id })
+  expect(parseCommandLine('joinp -c other -t :1', current).args).toMatchObject({ client: 'other', pane: work.windows[0].panes[0].id, window: work.windows[0].id })
+})
+
+it('gives numeric window indices priority over numeric names and selects a session current window', () => {
+  let current = state(), session = current.model.sessions[0], first = session.windows[0]
+  let second = newWindow('1', session.defaultProfileId, false, current.model)
+  session.windows.push(second)
+  expect(parseCommandLine('joinp -t :1', current).args).toMatchObject({ window: first.id })
+  expect(parseCommandLine('joinp -t :=1', current).args).toMatchObject({ window: second.id })
+  current.model.clients[0].windowId = second.id; current.model.clients[0].paneId = second.panes[0].id
+  expect(parseCommandLine(`joinp -t ${session.name}:`, current).args).toMatchObject({ window: second.id })
+  expect(parseCommandLine('selectw -t :', current).args).toMatchObject({ window: second.id })
+  expect(() => parseCommandLine('selectw -t :missing', current)).toThrow("Window 'missing' not found")
 })

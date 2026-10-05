@@ -23,7 +23,8 @@ Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | a
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
-          move-window -c CLIENT -t INDEX (alias: movew)
+          movew [-c CLIENT] [-s WINDOW] -t [SESSION:]INDEX [-a|-b] [-d]
+          swapw [-c CLIENT] [-s WINDOW] -t WINDOW [-d]
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           list-panes -t WINDOW | select-pane -c CLIENT -t PANE
           pane keep-alive -t PANE --enabled[=true|false]
@@ -31,6 +32,10 @@ Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           new-pane -t PANE [--url URL] | break-pane -t PANE --floating (or -W)
           join-pane -t PANE [--destination PANE] [-h|-v]
           move-pane -t PANE --x X --y Y | resize-pane -t PANE --width W --height H
+          joinp|movep [-c CLIENT] [-s PANE] -t [SESSION:]WINDOW[.PANE] [-h|-v] [-b] [-d]
+          breakp [-c CLIENT] [-s PANE] [-t SESSION:INDEX] [-n NAME] [-d] [-W]
+          swapp [-c CLIENT] [-s PANE] [-t PANE] [-U|-D] [-d] [-Z]
+          rotatew [-c CLIENT] [-t WINDOW] [-U|-D] [-Z]
 Layouts:  save-layout -t WINDOW -n NAME | list-layouts
           restore-layout -t WINDOW -n NAME --confirm
 Browser:  navigate -t PANE URL | dom -t PANE [--html] | eval -t PANE EXPRESSION [--file FILE]
@@ -69,6 +74,15 @@ let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process
 let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
 
 let parse = () => {
+  let targetIndex = argv.findIndex(item => ['-t', '--target'].includes(item))
+  let target = targetIndex >= 0 ? argv[targetIndex + 1] : argv.find(item => /^(?:-t|--target)=/.test(item))?.split('=').slice(1).join('=')
+  let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window'].includes(argv[0])
+    || ['move-pane', 'join-pane'].includes(argv[0]) && !argv.some(item => /^--(?:pane|window|destination|x|y)(?:=|$)/.test(item)) && (argv.some(item => /^(?:-s|--source)(?:=|$)/.test(item)) || !target || !/^(?:%\d+|pane_.+)$/.test(target))
+  if (movement) {
+    let clientIndex = argv.findIndex(item => ['-c', '--client'].includes(item))
+    let client = clientIndex >= 0 ? argv[clientIndex + 1] : argv.find(item => /^(?:-c|--client)=/.test(item))?.split('=').slice(1).join('=')
+    return { method: 'command-line', args: { line: argv.map(item => JSON.stringify(item)).join(' '), ...(client ? { client } : {}) } }
+  }
   let command = argv.shift()
   if (command === 'movew') command = 'move-window'
   if (command === 'tab') throw new Error('Unknown command: tab')

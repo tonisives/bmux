@@ -307,6 +307,104 @@ test('pane join commands keep omitted session targets and completions in the cur
   }
 })
 
+test('pane movement commands preserve live pages through same-window joins, swaps, rotation and breaks', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
+  let local = await rpc('new-session', { name: 'movement-local' }), other = await rpc('new-session', { name: 'movement-other' })
+  let first = local.windows[0], a = first.panes[0]
+  let cli = async (...args: string[]) => {
+    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args, '-c', client.id], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20_000 })
+    let result = JSON.parse(stdout); expect(result.ok, stdout).toBe(true); return result.result
+  }
+  let window = async () => (await state()).model.sessions.find((session: any) => session.id === local.id).windows.find((window: any) => window.id === first.id)
+  let ids = (node: any): string[] => !node ? [] : node.kind === 'pane' ? [node.paneId] : [...ids(node.first), ...ids(node.second)]
+  try {
+    await rpc('switch-client', { client: client.id, session: local.id })
+    await rpc('select-window', { client: client.id, window: first.id })
+    await rpc('navigate', { pane: a.id, url })
+    let b = await rpc('split-window', { client: client.id, pane: a.id, profile: 'bot', url })
+    let c = await rpc('split-window', { client: client.id, pane: a.id, url, axis: 'vertical' })
+    for (let pane of [a, b, c]) { await rpc('wait', { pane: pane.id, selector: 'h1' }); await rpc('eval', { pane: pane.id, expression: `window.bmuxMovement = ${JSON.stringify(pane.id)}` }) }
+    await expect(chrome.locator(`[data-pane-id="${c.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await cli('joinp', '-s', b.id, '-t', ':1.0', '-bdh')
+    expect(ids((await window()).layout)).toEqual([b.id, a.id, c.id])
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: local.id, windowId: first.id, paneId: c.id })
+
+    await open(); await prompt().fill('swapp -s :1.0 -t :1.1')
+    await expect(chrome.getByRole('listbox', { name: 'Targets', exact: true }).getByRole('option')).toHaveCount(1)
+    await prompt().press('Enter'); await expect(prompt()).toHaveCount(0)
+    expect(ids((await window()).layout)).toEqual([a.id, b.id, c.id])
+    await cli('rotatew', '-U', '-t', ':1')
+    expect(ids((await window()).layout)).toEqual([b.id, c.id, a.id])
+
+    await cli('breakp', '-s', ':1.0', '-t', 'movement-other:2', '-n', 'moved pane', '-d')
+    let broken = (await state()).model.sessions.find((session: any) => session.id === other.id).windows[1]
+    expect(broken).toMatchObject({ name: 'moved pane', automaticName: false, panes: [{ id: b.id, profileId: b.profileId }] })
+    expect(ids((await window()).layout)).toEqual([c.id, a.id])
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: local.id, windowId: first.id })
+    await cli('join-pane', '-s', b.id, '-t', ':1.0', '-v', '-d')
+    expect((await state()).model.sessions.find((session: any) => session.id === other.id).windows).toHaveLength(1)
+    let beforeFloat = ids((await window()).layout)
+    await cli('breakp', '-s', b.id, '-W', '-d')
+    expect((await window()).floating.map((item: any) => item.paneId)).toContain(b.id)
+    await cli('joinp', '-s', b.id, '-t', b.id, '-d')
+    expect(ids((await window()).layout)).toEqual(beforeFloat)
+    expect((await window()).floating).toHaveLength(0)
+    for (let pane of [a, b, c]) expect(await rpc('eval', { pane: pane.id, expression: 'window.bmuxMovement' })).toBe(pane.id)
+    expect((await window()).panes.find((pane: any) => pane.id === b.id).profileId).toBe(b.profileId)
+    await rpc('select-pane', { client: client.id, pane: a.id })
+    await expect.poll(nativeVisible).toBe(true)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    for (let session of [local, other]) if ((await state()).model.sessions.some((item: any) => item.id === session.id)) await rpc('kill-session', { session: session.id, confirm: true })
+  }
+})
+
+test('window movement commands transfer and exchange explicit windows across sessions without losing pages', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
+  let local = await rpc('new-session', { name: 'windows-local' }), other = await rpc('new-session', { name: 'windows-other' })
+  let a = local.windows[0], b = await rpc('new-window', { session: local.id, name: 'b' }), c = await rpc('new-window', { session: local.id, name: 'c', url })
+  let cli = async (...args: string[]) => {
+    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args, '-c', client.id], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20_000 })
+    let result = JSON.parse(stdout); expect(result.ok, stdout).toBe(true); return result.result
+  }
+  let windows = async (session: string) => (await state()).model.sessions.find((item: any) => item.id === session).windows.map((window: any) => window.id)
+  try {
+    await rpc('switch-client', { client: client.id, session: local.id })
+    await rpc('select-window', { client: client.id, window: a.id })
+    await rpc('wait', { pane: c.panes[0].id, selector: 'h1' })
+    await rpc('eval', { pane: c.panes[0].id, expression: 'window.bmuxMovement = "window stays live"' })
+    await cli('swapw', '-s', ':1', '-t', ':3', '-d')
+    expect(await windows(local.id)).toEqual([c.id, b.id, a.id])
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: local.id, windowId: c.id, paneId: c.panes[0].id })
+    await cli('movew', '-s', ':2', '-t', 'windows-other:2', '-d')
+    expect(await windows(local.id)).toEqual([c.id, a.id])
+    expect(await windows(other.id)).toEqual([other.windows[0].id, b.id])
+    expect((await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(c.id)
+    await cli('swapw', '-s', ':2', '-t', 'windows-other:2', '-d')
+    expect(await windows(local.id)).toEqual([c.id, b.id])
+    expect(await windows(other.id)).toEqual([other.windows[0].id, a.id])
+    await cli('movew', '-s', 'windows-other:2', '-t', ':2', '-b')
+    expect(await windows(local.id)).toEqual([c.id, a.id, b.id])
+    expect(await windows(other.id)).toEqual([other.windows[0].id])
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: local.id, windowId: a.id })
+    await cli('movew', '-r', '-t', 'windows-local:')
+    expect(await windows(local.id)).toEqual([c.id, a.id, b.id])
+    await open(); await prompt().fill('selectw -t windows-other:1'); await prompt().press('Enter'); await expect(prompt()).toHaveCount(0)
+    expect((await state()).model.clients.find((item: any) => item.id === client.id).sessionId).toBe(other.id)
+    await open(); await prompt().fill('selectp -t windows-local:1.0'); await prompt().press('Enter'); await expect(prompt()).toHaveCount(0)
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: local.id, windowId: c.id, paneId: c.panes[0].id })
+    expect(await rpc('eval', { pane: c.panes[0].id, expression: 'window.bmuxMovement' })).toBe('window stays live')
+    await expect.poll(nativeVisible).toBe(true)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    for (let session of [local, other]) if ((await state()).model.sessions.some((item: any) => item.id === session.id)) await rpc('kill-session', { session: session.id, confirm: true })
+  }
+})
+
 test('close-pane shortcut immediately removes the selected pane', async () => {
   let current = await state(), window = current.model.sessions[0].windows[0], original = window.panes[0]
   let pane = await rpc('split-window', { pane: original.id, client: current.clientId })
