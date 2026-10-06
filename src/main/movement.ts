@@ -1,9 +1,17 @@
 import type { InternalWindow, Model, WorkspaceSession } from '../shared/types'
-import { mapLayout, paneById, removeSession, resolve } from './model'
+import { mapLayout, orderPinnedWindows, paneById, removeSession, resolve } from './model'
 import { layoutPaneIds } from './floating'
 
 export let checkSessionTransfer = (from: WorkspaceSession, to: WorkspaceSession) => {
   if (from !== to && (from.private || to.private)) throw new Error('Cannot move panes or windows between private and other sessions')
+}
+
+export let toggleWindowPin = (model: Model, windowId: unknown) => {
+  let window = resolve(model.sessions.flatMap(session => session.windows), windowId, 'Window')
+  let session = model.sessions.find(session => session.windows.includes(window))!
+  window.pinned = !window.pinned
+  orderPinnedWindows(session)
+  return window
 }
 
 export let insertionIndex = (session: WorkspaceSession, position: unknown, before = false, after = false) => {
@@ -26,6 +34,7 @@ export let moveWindow = (model: Model, args: Record<string, unknown>) => {
   }
   from.windows.splice(index, 1)
   to.windows.splice(destination, 0, window)
+  orderPinnedWindows(to)
   if (client && args.background !== true) {
     client.sessionId = to.id; client.windowId = window.id
     client.paneId = window.panes.some(pane => pane.id === client.paneId) ? client.paneId : window.panes[0]?.id ?? null
@@ -41,8 +50,10 @@ export let swapWindows = (model: Model, args: Record<string, unknown>) => {
   if (source === destination) return source
   let from = model.sessions.find(session => session.windows.includes(source))!, to = model.sessions.find(session => session.windows.includes(destination))!
   checkSessionTransfer(from, to)
+  if (from === to && !!source.pinned !== !!destination.pinned) return source
   let sourceIndex = from.windows.indexOf(source), destinationIndex = to.windows.indexOf(destination)
   from.windows[sourceIndex] = destination; to.windows[destinationIndex] = source
+  orderPinnedWindows(from); orderPinnedWindows(to)
   for (let client of model.clients) {
     if (![source.id, destination.id].includes(client.windowId)) continue
     let selected = client.windowId === source.id ? source : destination

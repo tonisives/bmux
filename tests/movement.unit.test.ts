@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { initialModel, newPane, newSession, newWindow, repairClientSelections, splitLayout, validateModel } from '../src/main/model'
 import { liftPane, layoutPaneIds } from '../src/main/floating'
-import { moveWindow, rotatePanes, swapPanes, swapWindows } from '../src/main/movement'
+import { moveWindow, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from '../src/main/movement'
 
 let fixture = () => {
   let model = initialModel(), session = model.sessions[0], first = session.windows[0]
@@ -15,6 +15,41 @@ let fixture = () => {
   model.clients.push(client)
   return { model, session, first, second, third, work, client }
 }
+
+test('pinning groups windows on the left without changing clients or pane identities', () => {
+  let { model, session, first, second, third, client } = fixture()
+  let selected = structuredClone(client), pane = third.panes[0]
+  toggleWindowPin(model, third.id)
+  expect(session.windows).toEqual([third, first, second])
+  expect(third.pinned).toBe(true)
+  toggleWindowPin(model, second.id)
+  expect(session.windows).toEqual([third, second, first])
+  toggleWindowPin(model, third.id)
+  expect(session.windows).toEqual([second, third, first])
+  expect(third.pinned).toBe(false)
+  expect(client).toEqual(selected)
+  expect(third.panes[0]).toBe(pane)
+})
+
+test('moving, swapping and restoring windows keep pins ahead of regular windows', () => {
+  let { model, session, first, second, third, work } = fixture()
+  toggleWindowPin(model, second.id)
+  moveWindow(model, { window: first.id, position: 'first' })
+  expect(session.windows).toEqual([second, first, third])
+  moveWindow(model, { window: second.id, position: 'last' })
+  expect(session.windows).toEqual([second, first, third])
+  swapWindows(model, { window: second.id, destination: third.id })
+  expect(session.windows).toEqual([second, first, third])
+  let target = work.windows[0]
+  moveWindow(model, { window: second.id, session: work.id, position: 'last', background: true })
+  expect(work.windows).toEqual([second, target])
+  swapWindows(model, { window: second.id, destination: third.id })
+  expect(session.windows).toEqual([second, first])
+  expect(work.windows).toEqual([third, target])
+  session.windows.reverse()
+  repairClientSelections(model)
+  expect(session.windows).toEqual([second, first])
+})
 
 test('window insertion handles indices, before/after, session transfer and empty source cleanup', () => {
   let { model, session, first, second, third, work, client } = fixture()

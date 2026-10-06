@@ -8,6 +8,22 @@ import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/sto
 import { backOpener } from '../src/shared/opener-navigation'
 
 describe('session layouts and persistence', () => {
+  it('persists pinned windows, accepts older state and rejects invalid pin settings', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-pinned-'))
+    try {
+      let model = initialModel(), session = model.sessions[0], first = session.windows[0]
+      let pinned = newWindow('pinned', session.defaultProfileId, false, model)
+      pinned.pinned = true
+      session.windows.push(pinned)
+      writeModel(directory, model)
+      let restored = readModel(directory).sessions[0].windows
+      expect(restored.map(window => window.id)).toEqual([pinned.id, first.id])
+      expect(restored[0].pinned).toBe(true)
+      expect(restored[1].pinned).toBeUndefined()
+      let invalid = { ...model, sessions: [{ ...session, windows: [{ ...pinned, pinned: 'yes' }] }] }
+      expect(() => validateModel(invalid)).toThrow('Invalid pinned window setting')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('returns to an eligible opener across windows and forgets closed openers before IDs are reused', () => {
     let model = initialModel(), session = model.sessions[0], source = session.windows[0]
     let popup = newWindow('popup', session.defaultProfileId, false, model), pane = popup.panes[0]

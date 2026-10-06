@@ -28,6 +28,8 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   session.windows.push(secondWindow)
   expect(parseCommandLine('select-window -t 1', current)).toMatchObject({ args: { window: window.id } })
   expect(parseCommandLine('select-window -t 2', current)).toMatchObject({ args: { window: secondWindow.id } })
+  expect(parseCommandLine('toggle-window-pin', current)).toMatchObject({ method: 'toggle-window-pin', args: { window: window.id } })
+  expect(parseCommandLine('toggle-window-pin -t 2', current)).toMatchObject({ method: 'toggle-window-pin', args: { window: secondWindow.id } })
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })
   expect(parseCommandLine('pane-left', current)).toEqual({ method: 'select-pane-direction', args: { client: 'client', direction: 'left' } })
   expect(parseCommandLine('toggle-pane-zoom', current)).toEqual({ method: 'toggle-pane-zoom', args: { client: 'client' } })

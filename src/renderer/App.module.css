@@ -40,6 +40,8 @@
 .windowTab[data-drop-position="after"]::after { right: -3px; }
 .status .windowSelect { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 7px; flex: 1 1 auto; min-width: 0; max-width: none; cursor: grab; }
 .status .windowSelect:hover { color: inherit; }
+.windows .windowTab[data-pinned="true"] { flex: 0 0 28px; min-width: 28px; padding-right: 0; }
+.status .windowTab[data-pinned="true"] .windowSelect { justify-content: center; padding: 0; }
 .windowLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabFavicon, .tabSpinner, .tabPlaceholder { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }

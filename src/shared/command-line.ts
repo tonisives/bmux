@@ -174,7 +174,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     delete options.source
     return { method: name, args: { ...current, window: source, destination: resolveWindowTarget(state, target ?? positional[0]).window.id, ...options } }
   }
-  if (['select-window', 'kill-window', 'rename-window', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget(), name: options.name ?? positional[0] } }
+  if (['select-window', 'kill-window', 'rename-window', 'toggle-window-pin', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget(), name: options.name ?? positional[0] } }
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
   if (tmuxPaneMove) {
     let source = resolvePaneTarget(state, options.source).pane.id

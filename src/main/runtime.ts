@@ -13,7 +13,7 @@ import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
 import { selectedPane } from '../shared/command-target'
-import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows } from './movement'
+import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
 import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
@@ -1715,10 +1715,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         { label: 'Open Window', enabled: client.windowId !== window.id, click: () => invoke('select-window', { client: client.id, window: window.id }) },
         { type: 'separator' },
         { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
+        { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
-        { label: 'Move Left', enabled: index > 0, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
-        { label: 'Move Right', enabled: index < session.windows.length - 1, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
+        { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
+        { label: 'Move Right', enabled: index < session.windows.length - 1 && !!session.windows[index + 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
         { type: 'separator' },
         { label: 'Close Window', click: () => invoke('kill-window', { window: window.id, confirm: true }) },
       ]).popup({ window: clients.get(client.id)!.window })
@@ -2281,6 +2282,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       closedTabs.pop()
       changed(); await visualQueue; return closed.pane
     }
+    if (method === 'toggle-window-pin') {
+      let window = toggleWindowPin(model, args.window)
+      changed(); await visualQueue; return window
+    }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'move-window') {
       let window = moveWindow(model, args)
@@ -2312,7 +2317,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let index = session.windows.findIndex(window => window.id === client.windowId)
       let direction = Number(args.direction)
       if (![-1, 1].includes(direction)) throw new Error('Window direction must be -1 or 1')
-      let destination = (index + direction + session.windows.length) % session.windows.length
+      let group = session.windows.filter(window => !!window.pinned === !!session.windows[index].pinned)
+      let groupIndex = group.indexOf(session.windows[index])
+      let destination = session.windows.indexOf(group[(groupIndex + direction + group.length) % group.length])
       if (destination === index) return session.windows[index]
       let [window] = session.windows.splice(index, 1)
       session.windows.splice(destination, 0, window)

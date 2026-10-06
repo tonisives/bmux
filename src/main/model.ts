@@ -26,6 +26,7 @@ export let initialModel = (): Model => {
   return model
 }
 export let walkPanes = (model: Model) => model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => ({ session, window, pane }))))
+export let orderPinnedWindows = (session: WorkspaceSession) => session.windows.sort((first, second) => Number(second.pinned === true) - Number(first.pinned === true))
 let domainName = (url: string) => {
   try { return new URL(url).hostname.replace(/^www\./, '') }
   catch { return '' }
@@ -250,6 +251,7 @@ export let validateModel = (value: unknown): Model => {
     for (let window of session.windows) {
       checkId(window.id)
       if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
+      if (window.pinned !== undefined && typeof window.pinned !== 'boolean') throw new Error('Invalid pinned window setting')
       let leaves: string[] = []
       mapLayout(window.layout, node => {
         if (node.kind === 'pane') leaves.push(node.paneId)
@@ -276,12 +278,14 @@ export let validateModel = (value: unknown): Model => {
     }
   }
   for (let profile of model.profiles) delete profile.device
+  for (let session of model.sessions) orderPinnedWindows(session)
   if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
   if (model.newSessionProfileId !== undefined && !model.profiles.some(profile => profile.id === model.newSessionProfileId)) throw new Error('Invalid new session profile')
   return model
 }
 
 export let repairClientSelections = (model: Model) => {
+  for (let session of model.sessions) orderPinnedWindows(session)
   let panes = walkPanes(model).map(item => item.pane), paneIds = new Set(panes.map(pane => pane.id))
   // Pane numbers can be reused after closure. Never return to an unrelated page.
   for (let pane of panes) if (pane.backToOpener && !paneIds.has(pane.openerPaneId!)) pane.backToOpener = false

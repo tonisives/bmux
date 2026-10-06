@@ -1833,6 +1833,92 @@ test('right clicking a background window tab opens actions for that window', asy
 })
 
 
+test('pinned status windows use icons, stay on the left and toggle from menus and shortcuts', async ({}, info) => {
+  let session = await cli('new-session', { name: 'pinned-windows' })
+  let first = session.windows[0]
+  let client = await cli('attach-session', { session: session.id })
+  let second = await cli('new-window', { session: session.id, client: client.id })
+  let third = await cli('new-window', { session: session.id, name: 'regular' })
+  let chrome = await rendererForClient(client.id)
+  let previousConfig = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
+  let tab = (id: string) => chrome.locator(`[data-window-id="${id}"]`)
+  let button = (id: string) => tab(id).locator('button[data-active]')
+  let order = () => chrome.locator('[data-window-id]').evaluateAll(tabs => tabs.map(tab => tab.getAttribute('data-window-id')))
+  let selected = async () => (await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restorePinMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      if (template.some(item => item.label === 'Duplicate Window')) {
+        ;(globalThis as any).pinMenu = menu
+        menu.popup = () => undefined
+      }
+      return menu
+    }
+  })
+  let menuAction = async (id: string, label: string) => {
+    await application.evaluate(() => { (globalThis as any).pinMenu = undefined })
+    await tab(id).click({ button: 'right' })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).pinMenu?.items.map((item: Electron.MenuItem) => item.label))).toContain(label)
+    await application.evaluate((_, label) => (globalThis as any).pinMenu.items.find((item: Electron.MenuItem) => item.label === label).click(), label)
+  }
+  try {
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.pressSequentially(`${url}/cached-favicon/pinned`)
+    await address.press('Enter')
+    await cli('wait', { pane: second.panes[0].id, selector: '#text' })
+    await expect(tab(second.id).locator('img')).toBeVisible()
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/cached-favicon/pinned`)
+    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
+    await expect(tab(second.id)).toHaveAttribute('data-pinned', 'true')
+    await expect.poll(order).toEqual([second.id, first.id, third.id])
+    await expect(button(second.id)).toHaveText('')
+    await expect(button(second.id)).toHaveAccessibleName('bmux fixture')
+    await expect(tab(second.id).locator('img')).toBeVisible()
+    await menuAction(first.id, 'Pin Window')
+    await expect(tab(first.id)).toHaveAttribute('data-pinned', 'true')
+    await expect(button(first.id).locator('svg')).toBeVisible()
+    expect(await selected()).toBe(second.id)
+    await button(third.id).dragTo(button(second.id), { targetPosition: { x: 2, y: 8 } })
+    await expect.poll(order).toEqual([second.id, first.id, third.id])
+    let bounds = (await button(third.id).boundingBox())!
+    await button(second.id).dragTo(button(third.id), { targetPosition: { x: bounds.width - 2, y: 8 } })
+    await expect.poll(order).toEqual([first.id, second.id, third.id])
+    expect(await selected()).toBe(second.id)
+    for (let position of ['top', 'bottom']) {
+      await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nshowTabCloseButtons: true\nkeyboard: {}\n`)
+      await expect(chrome.locator('[data-status-bar]')).toHaveAttribute('data-status-bar', position)
+      await expect(tab(second.id).locator('button')).toHaveCount(1)
+      await expect.poll(async () => (await tab(second.id).boundingBox())!.width).toBe(28)
+    }
+    await menuAction(first.id, 'Unpin Window')
+    await expect(tab(first.id)).toHaveAttribute('data-pinned', 'false')
+    await expect(button(first.id)).toHaveText(`2:${first.name}`)
+    await cli('focus-ui', { client: client.id })
+    await button(second.id).focus()
+    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
+    await expect(tab(second.id)).toHaveAttribute('data-pinned', 'false')
+    await expect(button(second.id)).toHaveText('1:bmux fixture*')
+    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
+    await expect(tab(second.id)).toHaveAttribute('data-pinned', 'true')
+    await cli('kill-window', { window: second.id, confirm: true })
+    await cli('reopen-closed', { client: client.id })
+    await expect(tab(second.id)).toHaveAttribute('data-pinned', 'true')
+    await expect.poll(order).toEqual([second.id, first.id, third.id])
+    await expect.poll(async () => {
+      let saved = JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8'))
+      return saved.sessions.find((item: { id: string }) => item.id === session.id).windows[0].pinned
+    }).toBe(true)
+    await chrome.screenshot({ path: info.outputPath('pinned-windows.png') })
+  } finally {
+    await application.evaluate(() => (globalThis as any).restorePinMenu())
+    await fs.writeFile(path.join(directory, 'config.yaml'), previousConfig)
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('accessibility preferences and custom window and pane shortcuts reload and survive restart', async () => {
   let config = path.join(directory, 'config.yaml')
   await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  prefix: Ctrl+2\n  shortcuts:\n    "Cmd+[": previous-window\n    "Cmd+]": next-window\n    Cmd+ShiftRight: move-window-right\n    Cmd+ShiftLeft: move-window-left\n    "Cmd+H": pane-left\n    "Cmd+J": pane-down\n    "Cmd+K": pane-up\n    "Cmd+L": pane-right\n    "Cmd+\\\\": split-right\n    "Cmd+Shift+\\\\": split-down\n')

@@ -39,8 +39,11 @@ Common direct shortcuts:
 | Command+Shift+W | Detach the client |
 | Command+D | Bookmark the current page and choose its folder |
 | Command+, | Open settings |
+| Command+. (macOS) / Control+. (Linux and Windows) | Pin or unpin the current window |
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
+
+Right-click a status bar tab and choose **Pin Window** to keep it on the left as an icon. Choose **Unpin Window** to restore its label after the pinned windows. Pins persist with the session, and window movement stays within the pinned or regular group. The shortcut action is `toggle-window-pin`.
 
 On macOS, swipe horizontally with two fingers over a page to go back or forward.
 Navigation happens when scrolling settles. Short or reversed swipes cancel;
