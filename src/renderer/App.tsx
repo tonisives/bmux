@@ -472,10 +472,12 @@ let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, lis
     let bar = form.current.closest('[aria-label="Pane address"]')
     let pane = bar?.parentElement
     let position = () => {
-      if (!bar || !list.current) return
-      let bottom = bar.getBoundingClientRect().bottom
-      let available = window.innerHeight - bottom - (statusBar === 'bottom' ? 28 : 0)
-      list.current.style.top = `${bottom}px`
+      if (!bar || !pane || !list.current) return
+      let bounds = bar.getBoundingClientRect()
+      let available = pane.getBoundingClientRect().bottom - bounds.bottom
+      list.current.style.top = `${bounds.bottom}px`
+      list.current.style.left = `${bounds.left}px`
+      list.current.style.width = `${bounds.width}px`
       list.current.style.maxHeight = `${Math.max(0, available * .9)}px`
     }
     position()
