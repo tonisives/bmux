@@ -3,6 +3,9 @@ import { expect } from '@playwright/test'
 import fs from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import path from 'node:path'
+
+let nativeDialogLogs = new WeakMap<ElectronApplication, string>()
 
 export let sendNativeKeys = async (application: ElectronApplication, events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
   // Inspector evaluation can run inside an AppKit focus transition. Check and send
@@ -20,7 +23,23 @@ export let sendNativeKeys = async (application: ElectronApplication, events: Omi
 }
 
 export let observeNativeFocus = async (application: ElectronApplication) => {
-  await application.evaluate(({ app, BaseWindow, webContents }) => {
+  let logPath = path.join(await application.evaluate(({ app }) => app.getPath('userData')), 'test-native-dialogs.log')
+  nativeDialogLogs.set(application, logPath)
+  await fs.rm(logPath, { force: true })
+  await application.evaluate(({ app, BaseWindow, webContents, dialog }, logPath) => {
+    let log = (title: string, detail: string) => require('node:fs').appendFileSync(logPath, `${title}\n${detail}\n`.replace(/[a-f0-9]{24,}/gi, '[redacted]'), { mode: 0o600 })
+    dialog.showErrorBox = (title, content) => {
+      // Electron's default uncaught-exception dialog blocks headless desktops.
+      // Retain the error and exit this disposable test process instead.
+      log(title, content)
+      app.exit(1)
+    }
+    let messageBox = dialog.showMessageBoxSync
+    dialog.showMessageBoxSync = (...args: any[]) => {
+      let options = args.at(-1) as Electron.MessageBoxSyncOptions
+      log(options.title ?? 'Native message box', [options.message, options.detail].filter(Boolean).join('\n'))
+      return Reflect.apply(messageBox, dialog, args)
+    }
     let events: unknown[] = []
     let windows = new WeakSet<Electron.BaseWindow>()
     ;(globalThis as any).bmuxTestFocusEvents = events
@@ -46,10 +65,16 @@ export let observeNativeFocus = async (application: ElectronApplication) => {
     }
     for (let contents of webContents.getAllWebContents()) observe(contents)
     app.on('web-contents-created', (_event, contents) => observe(contents))
-  })
+  }, logPath)
 }
 
 export let recordNativeFocus = async (application: ElectronApplication, info: TestInfo, failed = info.status !== info.expectedStatus) => {
+  let logPath = nativeDialogLogs.get(application)
+  let dialogs = logPath ? await fs.readFile(logPath, 'utf8').catch(() => undefined) : undefined
+  if (dialogs && failed) {
+    console.error('NATIVE_DIALOG_DIAGNOSTICS', dialogs)
+    await info.attach('native-dialogs', { body: dialogs, contentType: 'text/plain' })
+  }
   if (!failed) return
   let timer: ReturnType<typeof setTimeout> | undefined
   let capture = application.evaluate(({ BaseWindow, webContents }) => ({
