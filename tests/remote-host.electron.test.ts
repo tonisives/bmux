@@ -36,6 +36,21 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     application.context().setDefaultTimeout(10000)
     application.context().setDefaultNavigationTimeout(10000)
     await observeNativeFocus(application)
+    await application.evaluate(({ ipcMain }) => {
+      let messages: unknown[] = []
+      ;(globalThis as any).bmuxTestRemoteMessages = messages
+      ipcMain.on('remote-message', (_event, message) => {
+        if (['ready', 'offer', 'connection', 'error'].includes(message?.type)) messages.push({ type: message.type, state: message.state, at: Date.now() })
+      })
+    })
+    await application.context().addInitScript(() => {
+      let peers: RTCPeerConnection[] = []
+      ;(window as any).bmuxTestRemotePeers = peers
+      let NativePeer = RTCPeerConnection
+      window.RTCPeerConnection = class extends NativePeer {
+        constructor(configuration?: RTCConfiguration) { super(configuration); peers.push(this) }
+      }
+    })
     let focusWindow = (id: number, name: string) => test.step(`Focus the ${name} native window`, async () => {
       await test.step('Request focus outside the Inspector callback', () => application!.evaluate(({ BaseWindow }, id) => {
         // Native activation can enter a nested event loop. Let the Inspector
@@ -247,6 +262,20 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   } finally {
     // TestInfo's final status is assigned after this callback returns.
     if (application) await recordNativeFocus(application,test.info(),failed)
+    if (failed && application) {
+      let state = await Promise.race([
+        Promise.all([
+          application.evaluate(() => (globalThis as any).bmuxTestRemoteMessages),
+          Promise.all(application.context().pages().map(page => page.evaluate(() => ({
+            page: location.pathname.endsWith('/remote-peer.html') ? 'transport' : location.protocol === 'http:' ? 'viewer-or-fixture' : 'chrome',
+            peers: ((window as any).bmuxTestRemotePeers ?? []).map((peer: RTCPeerConnection) => ({ connection: peer.connectionState, ice: peer.iceConnectionState, gathering: peer.iceGatheringState, signaling: peer.signalingState, local: peer.localDescription?.type, remote: peer.remoteDescription?.type })),
+          })).catch(() => ({ error: 'Renderer unavailable' })))),
+        ]),
+        new Promise(resolve => { let timer = setTimeout(() => resolve({ error: 'Remote state capture timed out' }), 5000); timer.unref() }),
+      ]).catch(() => ({ error: 'Remote state unavailable' }))
+      console.log('REMOTE_TRANSPORT_DIAGNOSTICS', JSON.stringify(state))
+      await test.info().attach('remote-transport', { body: JSON.stringify(state, null, 2), contentType: 'application/json' })
+    }
     if (failed && applicationProcess) console.log('REMOTE_PROCESS_DIAGNOSTICS', { pid:applicationProcess.pid,exitCode:applicationProcess.exitCode,signalCode:applicationProcess.signalCode })
     if (failed && process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && applicationProcess?.exitCode === null) {
       // Capture only stack frames, without arguments or profile memory, before
