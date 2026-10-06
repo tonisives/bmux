@@ -29,6 +29,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+
   check:
     runs-on: macos-15
     timeout-minutes: 25
