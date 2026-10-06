@@ -102,6 +102,16 @@ jobs:
             BMUX_APP="$PWD/release/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/bmux.app" node scripts/smoke-packaged.mjs
           fi
 
+      - name: Retain macOS smoke diagnostics
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: macos-smoke-${{ matrix.arch }}
+          path: |
+            test-results/package-smoke/
+            ~/Library/Logs/DiagnosticReports/
+          if-no-files-found: ignore
+
       - name: Retain verified macOS packages
         uses: actions/upload-artifact@v4
         with:

@@ -1509,6 +1509,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return true
   }
   let createClient = async (sessionId: string, restored?: Client, activate = true, windowId?: string) => {
+    let trace = (stage: string) => { if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') console.error(`bmux client startup: ${stage}`) }
+    trace('creating window')
     let session = resolve(model.sessions, sessionId, 'Session')
     let selectedWindow = session.windows.find(window => window.id === windowId) ?? session.windows[0]
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: selectedWindow.id, paneId: selectedWindow.panes[0]?.id ?? null, width: 1280, height: 850 }
@@ -1527,6 +1529,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let tabTooltip = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     tabTooltip.setVisible(false)
     window.contentView.addChildView(tabTooltip)
+    for (let [name, view] of [['chrome', chrome], ['permissions', permissionPopup], ['link preview', linkPreview], ['tab tooltip', tabTooltip]] as const) {
+      view.webContents.on('did-finish-load', () => trace(`${name} loaded`))
+      view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
+    }
     let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
     let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
@@ -1576,10 +1582,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     tabTooltip.webContents.on('will-navigate', event => event.preventDefault())
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
+    trace('loading renderers')
     if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview'), tabTooltip.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#tab-tooltip')])
     else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' }), tabTooltip.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'tab-tooltip' })])
-    if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
+    if (activate) { trace('showing dock'); await app.dock?.show(); trace('showing window'); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
     else window.showInactive()
+    trace('window ready')
     save()
     return client
   }

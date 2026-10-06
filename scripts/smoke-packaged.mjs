@@ -5,14 +5,27 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
+import net from 'node:net'
+import { controlSocketPath } from '../bin/ipc.mjs'
 
 let exec = promisify(execFile)
 let root = process.cwd()
 let data = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-package-'))
-let appPath = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
-let env = { ...process.env, BMUX_DATA_DIR: data }
+let appPath = path.resolve(process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app'))
+let env = { ...process.env, BMUX_APP: appPath, BMUX_DATA_DIR: data, BMUX_CONFIG: path.join(data, 'config.yaml'), BMUX_TRACE_CLIENT_STARTUP: '1' }
+let pid
+let request = method => new Promise((resolve, reject) => {
+  let connection = net.createConnection(controlSocketPath(data)), response = ''
+  connection.setEncoding('utf8')
+  connection.setTimeout(3000, () => connection.destroy(new Error(`${method} timed out`)))
+  connection.on('connect', () => connection.write(JSON.stringify({ method }) + '\n'))
+  connection.on('data', chunk => { response += chunk })
+  connection.on('error', reject)
+  connection.on('end', () => { try { resolve(JSON.parse(response)) } catch (error) { reject(error) } })
+})
 let command = async (...args) => {
-  let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), ...args], { env, maxBuffer: 8 * 1024 * 1024 })
+  console.log(`Package smoke: ${args[0]}`)
+  let result = await exec(process.execPath, [path.join(appPath, 'Contents', 'Resources', 'bin', 'bmux.mjs'), ...args], { env, timeout: 30000, maxBuffer: 8 * 1024 * 1024 })
   let response = JSON.parse(result.stdout)
   assert.equal(response.ok, true)
   return response.result
@@ -24,9 +37,10 @@ try {
   // The host CLI must be executable outside app.asar by arbitrary plugin scripts.
   let pluginDirectory = path.join(data, 'plugins', 'local.page-tools')
   await fs.cp(path.join(appPath, 'Contents', 'Resources', 'plugins', 'local.page-tools'), pluginDirectory, { recursive: true })
-  await fs.writeFile(path.join(data, 'config.yaml'), 'keyboard: {}\nplugins:\n  local.page-tools:\n    enabled: true\n')
+  await fs.writeFile(path.join(data, 'config.yaml'), 'keyboard: {}\nautomaticUpdates: false\nplugins:\n  local.page-tools:\n    enabled: true\n')
   let before = await frontmost()
   let session = await command('new-session', '-s', 'packaged', '--profile', 'bot')
+  pid = (await command('diagnostics')).pid
   let pane = session.windows[0].panes[0]
   await command('navigate', '-t', pane.id, `http://127.0.0.1:${server.address().port}`)
   await command('type', '-t', pane.id, '--selector', '#text', '--text', 'Packaged input')
@@ -53,9 +67,24 @@ try {
   await command('detach-client', '-c', client.id)
   assert.equal(await command('eval', '-t', pane.id, 'document.title'), 'Packaged bmux')
   console.log(JSON.stringify({ packagedApp: appPath, passed: ['silent CLI startup', 'CLI argument parsing', 'packaged plugin host and example', 'typing and modifier keys', 'DOM extraction', 'full-page PNG', 'unchanged macOS focus', 'client attach/detach', 'detached page lifetime'] }))
+} catch (error) {
+  let output = path.join(root, 'test-results', 'package-smoke', path.basename(data))
+  await fs.mkdir(output, { recursive: true })
+  await fs.copyFile(path.join(data, 'server.log'), path.join(output, 'server.log')).catch(() => undefined)
+  if (pid) await exec('/usr/bin/sample', [String(pid), '3', '-file', path.join(output, 'main-process.txt')], { timeout: 10000 }).catch(() => undefined)
+  console.error(`Package smoke diagnostics: ${output}`)
+  throw error
 } finally {
-  await command('quit').catch(() => undefined)
-  await new Promise(resolve => setTimeout(resolve, 500))
+  await request('quit').catch(() => undefined)
+  if (pid) {
+    let deadline = Date.now() + 5000
+    for (;;) {
+      try { process.kill(pid, 0) } catch { break }
+      if (Date.now() >= deadline) { process.kill(pid, 'SIGKILL'); break }
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+  server.closeAllConnections()
   await new Promise(resolve => server.close(resolve))
   await fs.rm(data, { recursive: true, force: true })
 }
