@@ -1823,11 +1823,12 @@ let BookmarkPicker = () => {
   let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
   let focusSearch = () => input.current?.focus()
   return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
-    <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-pressed={reordering} onClick={toggleReordering}>Reorder</button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
+    <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
     <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
     {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
   </div></BookmarkExpansionContext.Provider>
 }
+let BookmarkReorderIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 12V3m-3 3 3-3 3 3M11 4v9m-3-3 3 3 3-3" /></svg>
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
     if (bookmark.id === id) return bookmark

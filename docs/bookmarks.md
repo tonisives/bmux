@@ -14,7 +14,7 @@ Press Command+D or run `bookmark` to save the current page. The + button in the 
 
 The + button beside each folder opens the current-page menu with that folder selected, in both search results and the full list. In **All profiles**, it saves to the folder's owning profile without changing the current page's profile.
 
-Click a folder's left chevron or title to collapse or expand it. Enable **Reorder** at the top to show drag handles for bookmarks and folders; turn it off to hide them. The handles also support Option+Up/Down. These controls work in both the full list and search results.
+Click a folder's left chevron or title to collapse or expand it. Use the **Reorder bookmarks** icon at the top to show or hide drag handles for bookmarks and folders. The handles also support Option+Up/Down. These controls work in both the full list and search results.
 
 Right-click a bookmark or folder for Rename and Delete, in both the full list and search results. Rename opens an inline title editor: Enter or leaving the title saves; Escape cancels. A single click on a bookmark title opens the page. Deleting a folder also deletes its contents. These actions change only the owning profile, including in **All profiles**.
 
