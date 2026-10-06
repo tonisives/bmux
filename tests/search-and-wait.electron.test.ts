@@ -1011,6 +1011,34 @@ for (let query of ['', 'Guides']) test(`bookmark reorder toggle and folder chevr
   await expect(reorder).toHaveAttribute('aria-pressed', 'false'); await expect(handles).toHaveCount(0)
 })
 
+for (let query of ['', 'API reference']) test(`bookmark context menus dim the list and consume outside clicks (${query ? 'search results' : 'full list'})`, async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill(query)
+  let list = group.locator('[data-bookmark-list]'), row = group.getByRole('button', { name: 'API reference', exact: true })
+  let menu = chrome.getByRole('menu', { name: 'Actions for API reference', exact: true })
+  let before = (await state()).model.sessions[0].windows.length, bounds = (await row.boundingBox())!
+  await expect(list).toHaveCSS('opacity', '1')
+  await row.click({ button: 'right', position: { x: bounds.width - 10, y: bounds.height / 2 } })
+  await expect(list).toHaveCSS('opacity', '0.45'); await expect(menu).toHaveCSS('opacity', '1')
+  await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-menu-dim-${query ? 'search' : 'tree'}.png`) })
+  let title = row.locator('[data-bookmark-title]'), titleBounds = (await title.boundingBox())!
+  await chrome.mouse.move(titleBounds.x + titleBounds.width / 2, titleBounds.y + titleBounds.height / 2)
+  await chrome.mouse.down(); await expect(menu).toBeVisible()
+  await chrome.mouse.up()
+  await expect(menu).toHaveCount(0); await expect(list).toHaveCSS('opacity', '1'); await expect(group).toBeVisible()
+  expect((await state()).model.sessions[0].windows).toHaveLength(before)
+  await row.click({ button: 'right', position: { x: bounds.width - 10, y: bounds.height / 2 } })
+  let folder = group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Guides$/ }).locator('..').locator('..')
+  let chevron = folder.locator(':scope > summary > [data-bookmark-chevron]'), chevronBounds = (await chevron.boundingBox())!
+  await chrome.mouse.click(chevronBounds.x + chevronBounds.width / 2, chevronBounds.y + chevronBounds.height / 2)
+  await expect(menu).toHaveCount(0); await expect(list).toHaveCSS('opacity', '1'); await expect(folder).toHaveJSProperty('open', true)
+  await chevron.click(); await expect(folder).toHaveJSProperty('open', false)
+  await chevron.click(); await title.click()
+  await expect(group).toHaveCount(0)
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(before + 1)
+})
+
 for (let query of ['', 'API reference']) test(`bookmark titles open pages and context menus rename (${query ? 'search results' : 'full list'})`, async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
@@ -1048,7 +1076,10 @@ for (let query of ['', 'API reference']) test(`bookmark titles open pages and co
   await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'docs').title).toBe('Guides revised')
   await expect(row).toBeVisible()
   await rpc('bookmark.update', { profile: model.profiles[0].id, bookmark: 'docs', title: 'Guides' })
-  await row.click({ button: 'right' }); await search.click(); await expect(menu).toHaveCount(0)
+  await row.click({ button: 'right' })
+  let searchBounds = (await search.boundingBox())!
+  await chrome.mouse.click(searchBounds.x + searchBounds.width / 2, searchBounds.y + searchBounds.height / 2)
+  await expect(menu).toHaveCount(0)
   await search.fill('bookmarklet')
   let disabled = group.getByRole('button', { name: 'Disabled bookmarklet', exact: true })
   let disabledTitle = await disabled.locator('[data-bookmark-title]').boundingBox()

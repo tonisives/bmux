@@ -26,7 +26,7 @@ export let BookmarkActions = ({ children, run, focusSearch }: { children: ReactN
     setPopup({ ...target, x: bounds.left, y: bounds.bottom, origin })
   }
   let close = (restore = false) => { setPopup(null); if (restore) popup?.origin.focus({ preventScroll: true }) }
-  return <Context.Provider value={{ editing, rename, finish, menu, menuKeys, run, focusSearch }}>{children}{popup && <BookmarkMenu popup={popup} close={close} />}</Context.Provider>
+  return <Context.Provider value={{ editing, rename, finish, menu, menuKeys, run, focusSearch }}><div className={css.list} data-bookmark-list data-menu-open={!!popup}>{children}</div>{popup && <BookmarkMenu popup={popup} close={close} />}</Context.Provider>
 }
 
 export let BookmarkTitle = ({ bookmark, profileId }: Target) => {
@@ -47,13 +47,15 @@ let BookmarkMenu = ({ popup, close }: { popup: Menu; close: (restore?: boolean) 
     menu.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }, [popup])
   useEffect(() => {
-    let outside = (event: globalThis.PointerEvent) => { if (!ref.current?.contains(event.target as Node)) close() }
     let move = () => close()
-    document.addEventListener('pointerdown', outside)
     document.addEventListener('wheel', move, { passive: true })
     window.addEventListener('resize', move)
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('wheel', move); window.removeEventListener('resize', move) }
+    return () => { document.removeEventListener('wheel', move); window.removeEventListener('resize', move) }
   }, [close])
+  let dismiss = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return
+    event.preventDefault(); event.stopPropagation(); close(true)
+  }
   let edit = () => rename(popup)
   let remove = async () => {
     close(); focusSearch()
@@ -68,7 +70,7 @@ let BookmarkMenu = ({ popup, close }: { popup: Menu; close: (restore?: boolean) 
     let next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
     items[next]?.focus()
   }
-  return createPortal(<div ref={ref} className={css.menu} role="menu" aria-label={`Actions for ${popup.bookmark.title || popup.bookmark.url}`} onKeyDown={keys}><button type="button" role="menuitem" onClick={edit}>Rename</button><button type="button" role="menuitem" onClick={remove}>{popup.bookmark.children ? 'Delete folder and bookmarks' : 'Delete'}</button></div>, document.body)
+  return createPortal(<div className={css.backdrop} onClick={dismiss} onContextMenu={dismiss}><div ref={ref} className={css.menu} role="menu" aria-label={`Actions for ${popup.bookmark.title || popup.bookmark.url}`} onKeyDown={keys}><button type="button" role="menuitem" onClick={edit}>Rename</button><button type="button" role="menuitem" onClick={remove}>{popup.bookmark.children ? 'Delete folder and bookmarks' : 'Delete'}</button></div></div>, document.body)
 }
 
 let BookmarkRename = ({ bookmark, profileId }: Target) => {
