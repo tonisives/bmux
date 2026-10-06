@@ -99,7 +99,10 @@ jobs:
         shell: bash
         run: |
           if [ "$(node -p process.arch)" = "${{ matrix.arch }}" ]; then
-            BMUX_APP="$PWD/release/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/bmux.app" node scripts/smoke-packaged.mjs
+            for attempt in 1 2 3; do
+              echo "Packaged smoke run $attempt/3"
+              BMUX_APP="$PWD/release/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/bmux.app" node scripts/smoke-packaged.mjs
+            done
           fi
 
       - name: Retain macOS smoke diagnostics

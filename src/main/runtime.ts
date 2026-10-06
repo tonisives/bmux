@@ -1529,7 +1529,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let tabTooltip = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     tabTooltip.setVisible(false)
     window.contentView.addChildView(tabTooltip)
-    for (let [name, view] of [['chrome', chrome], ['permissions', permissionPopup], ['link preview', linkPreview], ['tab tooltip', tabTooltip]] as const) {
+    if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') for (let [name, view] of [['chrome', chrome], ['permissions', permissionPopup], ['link preview', linkPreview], ['tab tooltip', tabTooltip]] as const) {
       view.webContents.on('did-finish-load', () => trace(`${name} loaded`))
       view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
     }

@@ -97,3 +97,12 @@ bash scripts/verify-macos-dmg.sh release/bmux-0.1.5-arm64.dmg arm64
 ```
 
 The Release workflow also accepts `verify_only=true` with an existing version tag. This builds and tests both macOS architectures from the selected workflow ref without uploading release assets or changing Homebrew.
+
+On the native runner architecture, release CI starts the signed package three
+times with separate disposable profiles. Each smoke run uses the CLI shipped
+inside the bundle and checks background automation, plugins, and client
+attachment/detachment. A failure stops publication without retries. Failed
+runs retain client startup logs, a main-process sample, and macOS crash reports
+in the `macos-smoke-ARCH` artifact. Set `BMUX_TRACE_CLIENT_STARTUP=1` to log
+window creation, renderer loading, and Dock activation when diagnosing a
+startup hang.

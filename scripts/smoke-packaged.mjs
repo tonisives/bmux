@@ -68,6 +68,7 @@ try {
   assert.equal(await command('eval', '-t', pane.id, 'document.title'), 'Packaged bmux')
   console.log(JSON.stringify({ packagedApp: appPath, passed: ['silent CLI startup', 'CLI argument parsing', 'packaged plugin host and example', 'typing and modifier keys', 'DOM extraction', 'full-page PNG', 'unchanged macOS focus', 'client attach/detach', 'detached page lifetime'] }))
 } catch (error) {
+  pid ??= (await request('diagnostics').catch(() => undefined))?.result?.pid
   let output = path.join(root, 'test-results', 'package-smoke', path.basename(data))
   await fs.mkdir(output, { recursive: true })
   await fs.copyFile(path.join(data, 'server.log'), path.join(output, 'server.log')).catch(() => undefined)
@@ -78,9 +79,15 @@ try {
   await request('quit').catch(() => undefined)
   if (pid) {
     let deadline = Date.now() + 5000
+    let killed = false
     for (;;) {
       try { process.kill(pid, 0) } catch { break }
-      if (Date.now() >= deadline) { process.kill(pid, 'SIGKILL'); break }
+      if (Date.now() >= deadline) {
+        if (killed) throw new Error('Packaged test process did not exit after SIGKILL')
+        try { process.kill(pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+        killed = true
+        deadline = Date.now() + 5000
+      }
       await new Promise(resolve => setTimeout(resolve, 100))
     }
   }
