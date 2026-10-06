@@ -1637,6 +1637,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       configuration?.update(['automation', 'safety', 'profiles', profile.id], args.enabled)
       return { enabled: args.enabled }
     }
+    if (method === 'profile.anti-bot.site.set') {
+      if (!sourceClientId) throw new Error('Change site warning checks in the bmux UI')
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let host = required(args, 'host')
+      if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host)) throw new Error('host must be a hostname')
+      if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
+      configuration?.update(['automation', 'safety', 'sites', profile.id, host], args.enabled)
+      return { enabled: args.enabled }
+    }
     if (method === 'automation.resume') {
       if (!sourceClientId) throw new Error('Resume automation from the bmux command prompt')
       let client = resolve(model.clients, sourceClientId, 'Client'), tabId = required(args, 'tab')

@@ -141,3 +141,21 @@ test('detects warning pages and visible dialogs without matching feed posts or h
   expect(detect({ feed: true, body: 'A post about how we suspect automated behavior on your account.' })).toBeUndefined()
   expect(detect({ body: 'Welcome back. Sign in to Instagram.' })).toBeUndefined()
 })
+
+test('site warning opt-outs release a latched pause without disabling profile limits or other hosts', async () => {
+  let { policy, settings, restart, advance } = fixture()
+  await expect(policy.before('bot', async () => ({ url: 'https://unblock.example.com/', warning: 'challenge' }))).rejects.toThrow('on unblock.example.com')
+  settings.sites = { bot: { 'unblock.example.com': false } }
+  let next = restart()
+  await next.before('bot', async () => ({ url: 'https://unblock.example.com/', warning: 'challenge' }))
+  await next.before('bot', async () => ({ url: 'file:///preview.html' }))
+  await expect(next.before('other', async () => ({ url: 'https://unblock.example.com/', warning: 'challenge' }))).rejects.toThrow('Automation paused')
+  await expect(next.before('bot', async () => ({ url: 'https://example.com/', warning: 'account-warning' }))).rejects.toThrow('on example.com')
+  settings.sites.bot['example.com'] = false
+  advance(10 * 60_000)
+  await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
+  settings.sites.bot['example.com'] = true
+  expect(() => next.assertAvailable('bot')).toThrow('on example.com')
+  expect(parseAutomationSettings({ safety: { sites: settings.sites } }).safety.sites).toEqual(settings.sites)
+  for (let sites of [{ bot: { 'example.com': 'false' } }, { bot: { 'https://example.com': false } }, { bot: [] }]) expect(() => parseAutomationSettings({ safety: { sites } })).toThrow()
+})

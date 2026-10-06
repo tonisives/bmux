@@ -3,7 +3,7 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
-import { automationSafetyEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import { automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -132,7 +132,7 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...proxyFailureNotices(state, window, show),
+    ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, window, show, run),
   ]
   let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
@@ -189,6 +189,16 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
   if (!pane) return []
   let name = state.model.profiles.find(item => item.id === pane.profileId)?.name ?? profileId
   return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
+})
+
+let automationWarningNotices = (state: PublicState, window: InternalWindow, show: UIContext['show'], run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
+  let pane = window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
+  if (!pane || !usage.warning || !host || !automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host)) return []
+  let profile = state.model.profiles.find(item => item.id === usage.profileId)
+  return [{ id: `automation:${usage.profileId}`, text: `Automation paused for ${profile?.name ?? usage.profileId}: ${usage.warning} on ${host}. All panes using this profile are affected.`, actions: [
+    { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
+    { label: 'Disable checks for this site', run: () => { void run('profile.anti-bot.site.set', { profile: usage.profileId, host, enabled: false }) } },
+  ] }]
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -1593,7 +1603,7 @@ let ProfileAntiBotSettings = () => {
   if (!profile) return null
   let usage = safety?.profiles.find(item => item.profileId === profile.id)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
-  let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning ? labels[usage.warning] : usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? `Cooldown until ${new Date(usage.retryAfter).toLocaleTimeString()}` : 'Ready'
+  let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? labels[usage.warning] : usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? `Cooldown until ${new Date(usage.retryAfter).toLocaleTimeString()}` : 'Ready'
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setEnabled(next); setBusy(true)
@@ -1604,12 +1614,16 @@ let ProfileAntiBotSettings = () => {
     setBusy(true)
     try { await run('automation.resume', { pane: pane.id }) } finally { setBusy(false) }
   }
+  let disableSite = () => { if (usage?.warningHost) void run('profile.anti-bot.site.set', { profile: profile.id, host: usage.warningHost, enabled: false }) }
+  let restoreSites = () => { for (let [host, checked] of Object.entries(limits.sites?.[profile.id] ?? {})) if (!checked) void run('profile.anti-bot.site.set', { profile: profile.id, host, enabled: true }) }
+  let disabledSites = Object.entries(limits.sites?.[profile.id] ?? {}).filter(([, checked]) => !checked).map(([host]) => host)
   return <div className={css.deviceSettings} role="tabpanel" aria-label="Anti-bot settings">
     <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Enable anti-bot protection</label>
     <p>Pauses automation on account warnings and limits session length.</p>
     <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
     {enabled && safety?.error && <p>{safety.error}</p>}
-    {enabled && usage?.warning && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button></>}
+    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button><button type="button" onClick={disableSite} disabled={busy}>Disable checks for this site</button></>}
+    {disabledSites.length > 0 && <><p>Warning checks disabled for: {disabledSites.join(', ')}. Session limits still apply.</p><button type="button" onClick={restoreSites}>Restore site checks</button></>}
   </div>
 }
 
@@ -1648,7 +1662,10 @@ let ProfileNameEditor = () => {
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
-  let [tab, setTab] = useState<'overview' | 'device' | 'connection' | 'anti-bot'>('overview')
+  let [tab, setTab] = useState<'overview' | 'device' | 'connection' | 'anti-bot'>(() => {
+    let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
+    return usage?.warning ? 'anti-bot' : 'overview'
+  })
   let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>

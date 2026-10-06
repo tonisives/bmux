@@ -8,12 +8,13 @@ export type AutomationGroup = {
   requiredPlugins: Record<string, string>
   likesPerDay: Record<string, number>
 }
-export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean> }
+export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; sites?: Record<string, Record<string, boolean>> }
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
 export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
 export type AutomationSettings = { safety: AutomationSafety; groups: Record<string, AutomationGroup> }
 export let DEFAULT_AUTOMATION: AutomationSettings = { safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, profiles: {} }, groups: {} }
 export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string) => settings.profiles[profileId] ?? settings.enabled
+export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string) => automationSafetyEnabled(settings, profileId) && settings.sites?.[profileId]?.[host.toLowerCase()] !== false
 export let SOCIAL_HOSTS = ['instagram.com', 'threads.com', 'threads.net', 'facebook.com', 'x.com', 'twitter.com', 'linkedin.com', 'reddit.com', 'youtube.com', 'youtu.be', 'tiktok.com', 'bsky.app', 'pinterest.com']
 export let isSocialUrl = (value: string) => {
   try { let url = new URL(value); return /^https?:$/.test(url.protocol) && SOCIAL_HOSTS.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`)) } catch { return false }
@@ -52,6 +53,14 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
   let safety = { ...DEFAULT_AUTOMATION.safety }, safetyRaw = mapping(raw.safety ?? {}, 'automation.safety')
   for (let [key, value] of Object.entries(safetyRaw)) {
     if (key === 'enabled') { if (typeof value !== 'boolean') throw new Error('automation.safety.enabled must be true or false'); safety.enabled = value; continue }
+    if (key === 'sites') {
+      let sites = mapping(value, 'automation.safety.sites')
+      for (let [profile, entries] of Object.entries(sites)) {
+        let rules = mapping(entries, `automation.safety.sites.${profile}`)
+        if (Object.entries(rules).some(([host, enabled]) => !/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host) || typeof enabled !== 'boolean')) throw new Error('automation.safety.sites must map hostnames to true or false')
+      }
+      safety.sites = sites as Record<string, Record<string, boolean>>; continue
+    }
     if (key === 'profiles') {
       let profiles = mapping(value, 'automation.safety.profiles')
       if (Object.values(profiles).some(enabled => typeof enabled !== 'boolean')) throw new Error('automation.safety.profiles must map profile IDs to true or false')

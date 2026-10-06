@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { AutomationSafety, AutomationSafetyState, AutomationWarning } from '../shared/automation'
-import { automationSafetyEnabled, isSocialUrl } from '../shared/automation'
+import { automationSafetyEnabled, automationWarningEnabled, isSocialUrl } from '../shared/automation'
 
 type Usage = { startedAt: number; lastUsed: number; warning?: AutomationWarning; warningHost?: string }
 type Page = { url: string; warning?: AutomationWarning }
@@ -53,7 +53,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (!automationSafetyEnabled(options.settings(), profileId)) return
     ensureLedger()
     let value = usage[profileId]
-    if (value?.warning) throw safetyError(`Automation paused: ${value.warning}. Resolve it manually, then run automation resume in the bmux command prompt`)
+    if (value?.warning && automationWarningEnabled(options.settings(), profileId, value.warningHost!)) throw safetyError(`Automation paused: ${value.warning} on ${value.warningHost}. Open the UI alert or Profile > Anti-bot to resolve, resume, or disable warning checks for this site`)
     if (value && now() >= value.startedAt + options.settings().maxSessionMinutes * 60_000 && now() < retryAt(value)) throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(value)).toISOString()}`)
   }
   let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true) => {
@@ -67,7 +67,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       if (!value || current >= retryAt(value) || current - value.lastUsed >= options.settings().cooldownMinutes * 60_000) value = { startedAt: current, lastUsed: current }
       let delay = pace && usage[profileId] && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, value.lastUsed + options.settings().socialDelayMs - current) : 0
       if (delay) { await sleep(delay); assertAvailable(profileId); page = await inspect() }
-      usage[profileId] = { ...value, lastUsed: now(), ...(page.warning ? { warning: page.warning, warningHost: new URL(page.url).hostname } : {}) }
+      usage[profileId] = { ...value, lastUsed: now(), ...(page.warning && automationWarningEnabled(options.settings(), profileId, new URL(page.url).hostname) ? { warning: page.warning, warningHost: new URL(page.url).hostname } : {}) }
       persist()
       assertAvailable(profileId)
     })

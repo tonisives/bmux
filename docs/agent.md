@@ -91,9 +91,12 @@ needed for these defaults:
 Human browser controls remain available. Session usage and warning pauses survive
 restarts. A pause applies to the profile across websites. Resolve the warning on
 the affected website manually, then use **Resume automation** in the Anti-bot
-tab, or `automation resume` in bmux's command prompt. The CLI cannot resume a
-warning pause or change the profile toggle. Resuming does not clear session usage
-or bypass a cooldown.
+tab. The UI alert names the blocking website and links to Anti-bot settings.
+**Disable checks for this site** skips warning detection for that exact hostname
+in this profile and releases its existing pause. Other sites and session limits
+still apply. Restore disabled sites in Anti-bot settings. The CLI cannot resume a
+warning pause or change these toggles. Resuming does not clear session usage or
+bypass a cooldown.
 
 ```sh
 bmux automation safety
