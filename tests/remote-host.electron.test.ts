@@ -151,8 +151,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).toContain('?linked=1')
     await viewer.getByRole('button',{name:'Back',exact:true}).click()
     await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).not.toContain('?linked=1')
-    await video.focus()
-    await video.press('ArrowDown')
+    // Establish keyboard focus through real input rather than calling DOM focus
+    // inside a debugger evaluation during native window activation.
+    await video.click()
+    await expect(video).toBeFocused()
+    await viewer.keyboard.press('ArrowDown')
     let page = application.context().pages().find(page=>page.url()===fixtureUrl+'/')!
     await expect.poll(() => page.evaluate(() => document.body.dataset.key)).toBe('ArrowDown')
     await expect(command('eval','-t',pane,'window.memory')).rejects.toThrow()
