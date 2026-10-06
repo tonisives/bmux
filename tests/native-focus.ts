@@ -1,6 +1,8 @@
 import type { ElectronApplication, TestInfo } from '@playwright/test'
 import { expect } from '@playwright/test'
 import fs from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 
 export let sendNativeKeys = async (application: ElectronApplication, events: Omit<Electron.KeyboardInputEvent, 'type'>[]) => {
   // Inspector evaluation can run inside an AppKit focus transition. Check and send
@@ -64,4 +66,11 @@ export let recordNativeFocus = async (application: ElectronApplication, info: Te
   let output = info.outputPath('native-focus.json')
   await fs.writeFile(output, JSON.stringify(state, null, 2))
   await info.attach('native-focus', { path: output, contentType: 'application/json' })
+  if (process.platform === 'darwin' && state && typeof state === 'object' && 'error' in state) {
+    let trace = info.outputPath('native-hang.txt')
+    try {
+      await promisify(execFile)('/usr/bin/sample', [String(application.process().pid), '1', '1', '-file', trace], { timeout: 5000 })
+    } catch (error) { await fs.writeFile(trace, String(error)) }
+    await info.attach('native-hang', { path: trace, contentType: 'text/plain' })
+  }
 }
