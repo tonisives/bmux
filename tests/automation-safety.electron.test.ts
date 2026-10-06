@@ -77,6 +77,11 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await panel.getByRole('tab', { name: 'Anti-bot', exact: true }).click()
     await antiBot.getByRole('button', { name: 'Resume automation' }).click()
     await expect.poll(async () => (await cli(['dom', '-t', pane.id])).ok).toBe(true)
+    await expect(antiBot).toContainText('Ready')
+    // Returning from the page inspection can change native focus. Activate this
+    // client before the next click so Playwright receives compositor frames.
+    expect((await cli(['rpc', 'activate-client', JSON.stringify({ client: state.clientId })])).ok).toBe(true)
+    await expect(toggle).toBeEnabled()
     await toggle.uncheck()
     await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
     await closeTestApplication(application); application = undefined

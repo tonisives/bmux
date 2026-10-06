@@ -28,11 +28,12 @@ export let observeNativeFocus = async (application: ElectronApplication) => {
   await fs.rm(logPath, { force: true })
   await application.evaluate(({ app, BaseWindow, webContents, dialog }, logPath) => {
     let log = (title: string, detail: string) => require('node:fs').appendFileSync(logPath, `${title}\n${detail}\n`.replace(/[a-f0-9]{24,}/gi, '[redacted]'), { mode: 0o600 })
+    let errorBox = dialog.showErrorBox
     dialog.showErrorBox = (title, content) => {
       // Electron's default uncaught-exception dialog blocks headless desktops.
-      // Retain the error and exit this disposable test process instead.
+      // Retain the error text before entering that native modal loop.
       log(title, content)
-      app.exit(1)
+      return Reflect.apply(errorBox, dialog, [title, content])
     }
     let messageBox = dialog.showMessageBoxSync
     dialog.showMessageBoxSync = (...args: any[]) => {
