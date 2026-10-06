@@ -34,10 +34,8 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await rpc('navigate', { tab: left.id, url: `${url}/left` })
     let right = await rpc('split-window', { pane: left.id, url: `${url}/right` })
     let lower = await rpc('split-window', { pane: right.id, axis: 'vertical', url: `${url}/lower` })
-    await rpc('wait', { tab: lower.id, selector: 'h1' })
+    for (let pane of [left, right, lower]) await rpc('wait', { tab: pane.id, selector: 'h1' })
     await rpc('activate-client', { client: client.id })
-    await rpc('select-pane', { client: client.id, pane: left.id })
-    await rpc('focus-page', { client: client.id })
     let pages: Record<string, string> = { [left.id]: `${url}/left`, [right.id]: `${url}/right`, [lower.id]: `${url}/lower` }
     let waitForLayout = () => expect.poll(async () => {
       let bounds = await chrome.locator('[data-browser-content]').evaluateAll(elements => elements.map(element => {
@@ -46,14 +44,20 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
       }))
       return application.evaluate(({ BaseWindow }, { bounds, pages }) => {
         let window = BaseWindow.getFocusedWindow()
-        return !!window && bounds.every(({ paneId, ...expected }) => window.contentView.children.some(view => {
+        return !!window && bounds.length > 0 && bounds.every(({ paneId, ...expected }) => window.contentView.children.some(view => {
           if (!('webContents' in view) || (view as Electron.WebContentsView).webContents.getURL() !== pages[paneId]) return false
           let actual = view.getBounds()
           return Object.entries(expected).every(([key, value]) => actual[key as keyof typeof actual] === value)
         }))
       }, { bounds, pages })
     }).toBe(true)
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(3)
     await waitForLayout()
+    // Native view attachment can focus a sibling while split layouts settle.
+    // Establish the shortcut's starting pane after all three pages are attached.
+    await rpc('select-pane', { client: client.id, pane: left.id })
+    await expect(chrome.locator(`[data-pane-id="${left.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await rpc('focus-page', { client: client.id })
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(pages[left.id])
     let cursor = () => application.evaluate(({ screen }) => screen.getCursorScreenPoint())
     let key = (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => application.evaluate(({ webContents }, { keyCode, modifiers }) => {

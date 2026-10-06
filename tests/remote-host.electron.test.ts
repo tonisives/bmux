@@ -37,16 +37,20 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     application.context().setDefaultNavigationTimeout(10000)
     await observeNativeFocus(application)
     let focusWindow = (id: number, name: string) => test.step(`Focus the ${name} native window`, async () => {
-      await expect.poll(() => application!.evaluate(({ BaseWindow }, id) => {
-        let window = BaseWindow.fromId(id)!
-        if (window.isFocused()) return true
-        if (!window.isVisible()) window.show()
-        // Window-manager activation can race the preceding view reattachment.
-        // Request it while unfocused, then observe acknowledgement on a later poll.
-        window.moveTop()
-        window.focus()
-        return false
-      }, id), { intervals: [50, 100, 200] }).toBe(true)
+      await test.step('Request focus outside the Inspector callback', () => application!.evaluate(({ BaseWindow }, id) => {
+        // Native activation can enter a nested event loop. Let the Inspector
+        // callback return before triggering it, then observe the window manager.
+        setImmediate(() => {
+          let window = BaseWindow.fromId(id)
+          if (!window || window.isFocused()) return
+          if (!window.isVisible()) window.show()
+          window.moveTop()
+          window.focus()
+        })
+      }, id))
+      await test.step('Wait for native focus acknowledgement', async () => {
+        await expect.poll(() => application!.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.isFocused(), id), { intervals: [50, 100, 200] }).toBe(true)
+      })
     }, { timeout: 10000 })
     let command = async (...args:string[]) => {
       try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
@@ -172,11 +176,13 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     // Return native focus to the viewer before sending its next mouse input.
     await focusWindow(viewerWindowId, 'viewer')
     // Regaining focus requests current ownership, rather than waiting for a broadcast.
-    await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeVisible({timeout:10000})
-    await viewer.getByRole('button',{name:'Take control',exact:true}).click()
-    await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
-    await viewer.getByRole('button',{name:'Release control',exact:true}).click()
-    await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
+    await test.step('Reacquire and release control from the focused viewer', async () => {
+      await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeVisible({timeout:10000})
+      await viewer.getByRole('button',{name:'Take control',exact:true}).click()
+      await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
+      await viewer.getByRole('button',{name:'Release control',exact:true}).click()
+      await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
+    }, { timeout: 30000 })
     let attachedClient = await test.step('Attach and focus the desktop session',async()=>{
       let client = await command('attach-session','-t',status.model.sessions[0].id)
       await command('rpc','activate-client',JSON.stringify({client:client.id}))
