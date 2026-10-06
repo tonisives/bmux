@@ -176,6 +176,15 @@ registered and be discarded. The host now holds that initial offer until
 registration, and discards it if opening is canceled. Unit tests reproduce the premature offer on
 the original implementation and check answer delivery and canceled opening.
 
+A later 32-repeat ARM run reported a watch timeout after viewer reload while the
+native process remained responsive. The relay's disconnect notification awaits
+authorization; a replacement socket can register during that wait. The old
+notification must recheck both the disconnected identity and its target before
+sending, so it cannot tear down the replacement stream. Deferred-authorization
+unit cases fail with the original notification loop and cover both replacement
+viewers and replacement hosts. The Linux fixture retains transport offer and
+connection states on failure without recording SDP, keys, or credentials.
+
 ## Bundled plugin completion
 
 A later full main run found the bundled Python heading action still `running`

@@ -5,6 +5,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { notifyDisconnected } from './peer-disconnect'
 
 let required = (name: string) => { let value = process.env[name]; if (!value) throw new Error(`${name} is required`); return value }
 let publicOrigin = new URL(required('BMUX_PUBLIC_ORIGIN')).origin
@@ -244,7 +245,7 @@ server.on('upgrade', (request, socket, head) => {
         if (peers.get(current.id) !== current) return
         peers.delete(current.id)
         void publish().catch(() => undefined)
-        void (async () => { for (let other of peers.values()) if (other.role !== current.role && await permission(current.role === 'viewer' ? current.owner : other.owner, current.role === 'host' ? current : other)) send(other, { type: 'disconnected', id: current.id }) })().catch(() => undefined)
+        void notifyDisconnected(peers, current, permission, send).catch(() => undefined)
       })
     })
   })().catch(() => socket.destroy())
