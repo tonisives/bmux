@@ -8,7 +8,7 @@ import type { RemoteEnvelope } from '../shared/remote'
 
 type PublicKey = { kty: string; crv: string; x: string }
 type Config = { url: string; token: string; identityFile?: string }
-type Stream = { close: () => void; answer: (sdp: RTCSessionDescriptionInit) => void; send: (data: string) => void }
+type Stream = { close: () => void; answer: (sdp: RTCSessionDescriptionInit) => void; candidate: (value: RTCIceCandidateInit) => void; send: (data: string) => void }
 export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directory: string, configFile: string) => {
   let config = (): Config => {
     if (fs.statSync(configFile).mode & 0o077) throw new Error('Remote configuration must have mode 600')
@@ -27,7 +27,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let verify = createEnvelopeVerifier(hostId, generation, () => Object.fromEntries([...authorized].map(([id, value]) => [id, value.key])))
   let socket: WebSocket | undefined, stopped = false, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
   let opening = new Map<string, symbol>()
-  let streams = new Map<string, { peer: Stream; pane: string }>(), iceServers: RTCIceServer[] = []
+  let streams = new Map<string, { peer: Stream; pane: string; request?: string; connection: string }>(), iceServers: RTCIceServer[] = []
   let jobs = new Map<string, { at: number; result?: string }>()
   let day = new Date().toISOString().slice(0, 10)
   let sequence = 0, started = 0, succeeded = 0, failed = 0, browserMs = 0, lastUsage = Date.now()
@@ -41,7 +41,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let disconnect = (id: string) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); stream?.peer.close(); runtime.remote.disconnect(id) }
   let signal = (to: string, payload: unknown) => send({ type: 'signal', to, envelope: identity.seal(to, generation, payload) })
   let state = (id: string) => { let stream = streams.get(id); stream?.peer.send(JSON.stringify({ type: 'state', ...runtime.remote.state(), pane: stream.pane })) }
-  let open = async (id: string, pane?: string) => {
+  let open = async (id: string, pane?: string, request?: string) => {
     if (!allowed(id)) throw new Error('Access revoked')
     if (!streams.has(id) && !opening.has(id) && streams.size + opening.size >= 8) throw new Error('Viewer capacity reached')
     disconnect(id)
@@ -49,7 +49,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let selected = pane ?? runtime.model.sessions[0]?.windows[0]?.panes[0]?.id
     if (!selected) { opening.delete(id); throw new Error('No pane available') }
     let peer: Stream | undefined
+    let connection = randomUUID()
     let offer: RTCSessionDescriptionInit | undefined
+    let candidates: RTCIceCandidateInit[] = []
+    let publishOffer = (sdp: RTCSessionDescriptionInit) => signal(id, { type: 'offer', sdp, ...(request ? { request, connection, trickle: true } : {}) })
     let incoming = Promise.resolve()
     try { peer = await runtime.remote.capture(selected, {
       iceServers,
@@ -57,8 +60,12 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
         // Capture can produce an offer before its promise returns the stream.
         // Publish only after answer routing can find that stream.
         if (opening.get(id) === attempt) offer = sdp
-        else if (peer && streams.get(id)?.peer === peer) signal(id, { type: 'offer', sdp })
+        else if (peer && streams.get(id)?.peer === peer) publishOffer(sdp)
       },
+      ...(request ? { candidate: (candidate: RTCIceCandidateInit) => {
+        if (opening.get(id) === attempt) candidates.push(candidate)
+        else if (peer && streams.get(id)?.peer === peer) signal(id, { type: 'candidate', candidate, request, connection })
+      } } : {}),
       data: raw => {
         incoming = incoming.then(async () => {
           if (streams.get(id)?.peer !== peer) return
@@ -67,7 +74,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           if (!message || typeof message !== 'object' || typeof message.type !== 'string') throw new Error('Invalid command')
           let result: unknown
           if (message.type === 'state') { state(id); return }
-          if (message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane); return }
+          if (message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane, request); return }
           if (allowed(id) !== 'control') throw new Error('Watch only access')
           if (message.type === 'acquire') result = runtime.remote.acquire(String(message.session), id, message.takeover === true)
           else if (message.type === 'renew') result = runtime.remote.renew(String(message.session), id, Number(message.generation))
@@ -94,8 +101,9 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     } catch (error) { if (opening.get(id) === attempt) opening.delete(id); throw error }
     if (opening.get(id) !== attempt || !allowed(id) || stopped || socket?.readyState !== WebSocket.OPEN) { peer.close(); return }
     opening.delete(id)
-    streams.set(id, { peer, pane: selected })
-    if (offer) signal(id, { type: 'offer', sdp: offer })
+    streams.set(id, { peer, pane: selected, request, connection })
+    if (offer) publishOffer(offer)
+    for (let candidate of candidates) signal(id, { type: 'candidate', candidate, request, connection })
   }
   let connect = () => {
     if (stopped) return
@@ -123,9 +131,14 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           let session = runtime.model.sessions.find(session => session.id === payload.session)
           let pane = session?.windows.flatMap(window => window.panes).find(pane => pane.id === payload.pane)
           if (!pane) throw new Error('Session is no longer available')
-          await open(message.from, pane.id)
+          await open(message.from, pane.id, typeof payload.request === 'string' && payload.request.length <= 64 ? payload.request : undefined)
         } catch (error) { signal(message.from, { type: 'error', error: error instanceof Error ? error.message : 'Unable to watch' }) } }
-        else if (payload.type === 'answer') streams.get(message.from)?.peer.answer(payload.sdp as RTCSessionDescriptionInit)
+        else if (payload.type === 'answer' || payload.type === 'candidate') {
+          let stream = streams.get(message.from)
+          if (!stream || stream.request && (payload.request !== stream.request || payload.connection !== stream.connection)) return
+          if (payload.type === 'answer') stream.peer.answer(payload.sdp as RTCSessionDescriptionInit)
+          else if (stream.request) stream.peer.candidate(payload.candidate as RTCIceCandidateInit)
+        }
         else if (payload.type === 'close') disconnect(message.from)
       })().catch(() => undefined)
     })

@@ -1,6 +1,7 @@
 import { envelopeText, validEnvelope } from '../../src/shared/remote'
 import type { RemoteEnvelope } from '../../src/shared/remote'
 import { observeViewerFocus, receiveViewerMessage } from './viewer-updates'
+import { prepareIceAnswer } from '../../src/shared/remote-ice'
 export type Host = { id: string; service: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; sessions: { id: string; name: string; panes: { id: string; title: string }[] }[] }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string }[] }[] }
 export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }> }
@@ -28,13 +29,16 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
   let url = new URL('/connect', options.origin ?? location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('ticket', ticket)
   let socket = new WebSocket(url), host: Host | undefined, peer: RTCPeerConnection | undefined, channel: RTCDataChannel | undefined
   let seen = new Set<string>(), closed = false
+  let request: string | undefined, connection: string | undefined
+  let candidates = new Map<string, RTCIceCandidateInit[]>()
   let pending: { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined
   let finish = (error?: Error) => { if (!pending) return; let current = pending; pending = undefined; clearTimeout(current.timer); if (error) current.reject(error); else current.resolve() }
   let signal = async (payload: unknown) => {
     if (!host || socket.readyState !== WebSocket.OPEN) throw new Error('Disconnected')
-    let envelope = { version: 1 as const, from: id, to: host.id, generation: host.generation, nonce: crypto.randomUUID(), expires: Date.now() + 60000, payload: JSON.stringify(payload) }
+    let selected = host
+    let envelope = { version: 1 as const, from: id, to: selected.id, generation: selected.generation, nonce: crypto.randomUUID(), expires: Date.now() + 60000, payload: JSON.stringify(payload) }
     let signature = base64(await crypto.subtle.sign('Ed25519', privateKey, bytes(envelopeText(envelope))))
-    socket.send(JSON.stringify({ type: 'signal', to: host.id, envelope: { ...envelope, signature } }))
+    socket.send(JSON.stringify({ type: 'signal', to: selected.id, envelope: { ...envelope, signature } }))
   }
   let send = (message: unknown) => { if (channel?.readyState === 'open' && channel.bufferedAmount < 65536) channel.send(JSON.stringify(message)) }
   let refresh = () => send({ type: 'state' }), stopRefresh = () => {}
@@ -51,13 +55,24 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       if (!await crypto.subtle.verify('Ed25519', publicKey, decode(envelope.signature), bytes(envelopeText(envelope)))) throw new Error('Invalid host signature')
       seen.add(envelope.nonce)
       let payload = JSON.parse(envelope.payload)
+      if (payload.request && payload.request !== request) return
       if (payload.type === 'error') { finish(new Error(payload.error)); return }
+      if (payload.type === 'candidate' && typeof payload.connection === 'string') {
+        if (payload.connection === connection && peer?.remoteDescription) await peer.addIceCandidate(payload.candidate)
+        else {
+          let pending = candidates.get(payload.connection) ?? []
+          if (pending.length < 64 && candidates.size < 8) { pending.push(payload.candidate); candidates.set(payload.connection, pending) }
+        }
+        return
+      }
       if (payload.type !== 'offer') return
       peer?.close()
-      peer = new RTCPeerConnection({ iceServers })
-      peer.ontrack = event => events.stream(event.streams[0])
-      peer.onconnectionstatechange = () => { if (['failed','disconnected'].includes(peer?.connectionState ?? '')) { finish(new Error('Video connection failed')); events.disconnected() } }
-      peer.ondatachannel = event => {
+      let current = new RTCPeerConnection({ iceServers }), currentRequest = request
+      peer = current; connection = payload.connection
+      current.ontrack = event => { if (peer === current) events.stream(event.streams[0]) }
+      current.onconnectionstatechange = () => { if (peer === current && ['failed','disconnected'].includes(current.connectionState)) { finish(new Error('Video connection failed')); events.disconnected() } }
+      current.ondatachannel = event => {
+        if (peer !== current) return
         channel = event.channel
         channel.onopen = () => send({ type: 'state' })
         channel.onmessage = event => {
@@ -65,10 +80,13 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
           receiveViewerMessage(message, { ...events, ready: finish, refresh })
         }
       }
-      await peer.setRemoteDescription(payload.sdp)
-      await peer.setLocalDescription(await peer.createAnswer())
-      if (peer.iceGatheringState !== 'complete') await new Promise<void>((resolve, reject) => { let timer = setTimeout(() => reject(new Error('Connection timed out')), 15000); peer!.onicegatheringstatechange = () => { if (peer?.iceGatheringState === 'complete') { clearTimeout(timer); resolve() } } })
-      await signal({ type: 'answer', sdp: peer.localDescription!.toJSON() })
+      await current.setRemoteDescription(payload.sdp)
+      for (let candidate of candidates.get(payload.connection) ?? []) await current.addIceCandidate(candidate)
+      candidates.delete(payload.connection)
+      let answer = await prepareIceAnswer(current, payload.trickle ? candidate => {
+        if (peer === current) void signal({ type: 'candidate', candidate, request: currentRequest, connection: payload.connection }).catch(() => undefined)
+      } : undefined)
+      if (peer === current) await signal({ type: 'answer', sdp: answer, request: currentRequest, connection: payload.connection })
     })().catch(error => { let failure = error instanceof Error ? error : new Error('Connection failed'); finish(failure); events.error(failure.message) })
   }
   socket.onclose = () => { stopRefresh(); peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
@@ -82,12 +100,12 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       if (host) await signal({ type: 'close' })
       finish(new Error('Watch replaced'))
       peer?.close(); peer = undefined; channel = undefined
-      host = selected; seen.clear()
+      host = selected; seen.clear(); request = crypto.randomUUID(); connection = undefined; candidates.clear()
       let ready = new Promise<void>((resolve, reject) => { pending = { resolve, reject, timer: setTimeout(() => finish(new Error('Watch timed out. Check that the host is online.')), 20000) } })
-      try { await signal({ type: 'open', session, pane }) } catch (error) { finish(error instanceof Error ? error : new Error('Unable to watch')) }
+      try { await signal({ type: 'open', session, pane, request }) } catch (error) { finish(error instanceof Error ? error : new Error('Unable to watch')) }
       await ready
     },
-    stop: () => { if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('Watch stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined },
+    stop: () => { if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('Watch stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined; request = undefined; connection = undefined; candidates.clear() },
     close: () => { stopRefresh(); closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
   }
 }

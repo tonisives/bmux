@@ -185,6 +185,17 @@ unit cases fail with the original notification loop and cover both replacement
 viewers and replacement hosts. The Linux fixture retains transport offer and
 connection states on failure without recording SDP, keys, or credentials.
 
+The transport diagnostics then found a new host peer still gathering ICE
+candidates after 25 seconds, with no offer published. Waiting for every TURN
+route can therefore exhaust the watch deadline even when direct candidates are
+available. New hosts and viewers exchange descriptions immediately and send
+subsequent candidates through the signed signaling channel. Watch and connection
+identities prevent late candidates or answers from reaching a replacement peer;
+candidates arriving before its description are buffered. Older peers retain the
+complete-description path. Unit cases cover pending gathering and compatibility,
+and the Linux viewer flow suppresses the gathering-complete notification while
+still requiring actual candidates, negotiated data channels, and decoded video.
+
 ## Bundled plugin completion
 
 A later full main run found the bundled Python heading action still `running`

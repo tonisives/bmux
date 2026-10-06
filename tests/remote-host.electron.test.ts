@@ -49,6 +49,13 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let NativePeer = RTCPeerConnection
       window.RTCPeerConnection = class extends NativePeer {
         constructor(configuration?: RTCConfiguration) { super(configuration); peers.push(this) }
+        // Exercise the full viewer flow without relying on the completion
+        // notification that was delayed in the ARM failure. Real candidates,
+        // peer negotiation, data channels, and decoded frames remain required.
+        set onicecandidate(listener: ((this: RTCPeerConnection, event: RTCPeerConnectionIceEvent) => any) | null) {
+          super.onicecandidate = listener ? event => { if (event.candidate) listener.call(this, event) } : null
+        }
+        get onicecandidate() { return super.onicecandidate }
       }
     })
     let focusWindow = (id: number, name: string) => test.step(`Focus the ${name} native window`, async () => {

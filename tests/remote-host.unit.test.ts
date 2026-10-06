@@ -29,14 +29,16 @@ beforeEach(async () => {
 })
 afterEach(async () => { host?.close(); host = undefined; await fs.rm(directory, { recursive: true, force: true }) })
 
-let setup = () => {
-  let peer = { answer: vi.fn(), send: vi.fn(), close: vi.fn() }
+let setup = (request?: string) => {
+  let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn() }
   let resolveCapture!: (value: typeof peer) => void
   let pending = new Promise<typeof peer>(resolve => { resolveCapture = resolve })
   let offer = { type: 'offer' as const, sdp: 'fixture' }
   let signalOffer!: () => void
-  let capture = vi.fn((_pane: string, options: { signal: (sdp: RTCSessionDescriptionInit) => void }) => {
+  let signalCandidate!: (value: RTCIceCandidateInit) => void
+  let capture = vi.fn((_pane: string, options: { signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void }) => {
     signalOffer = () => options.signal(offer)
+    signalCandidate = value => options.candidate?.(value)
     signalOffer()
     return pending
   })
@@ -47,8 +49,8 @@ let setup = () => {
   socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control' }))
   let deliver = (payload: unknown) => socket.emit('message', JSON.stringify({ type: 'signal', from: viewer.id, envelope: viewer.seal(host!.status().hostId, host!.status().generation, payload) }))
   let offers = () => socket.sent.filter(message => message.type === 'signal').map(message => JSON.parse(message.envelope!.payload))
-  deliver({ type: 'open', session: 'session', pane: 'pane' })
-  return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer }
+  deliver({ type: 'open', session: 'session', pane: 'pane', request })
+  return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer, signalCandidate }
 }
 
 it('registers an opening stream before publishing its offer so a fast answer reaches it', async () => {
@@ -69,4 +71,25 @@ it('does not publish an opening stream offer after the viewer disconnects', asyn
   resolveCapture(peer)
   await vi.waitFor(() => expect(peer.close).toHaveBeenCalledOnce(), { interval: 1 })
   expect(offers()).toEqual([])
+})
+
+it('buffers candidates until registration and routes only the current connection answer and candidates', async () => {
+  let request = 'fixture watch', { peer, resolveCapture, deliver, offers, signalCandidate } = setup(request)
+  let candidate = { candidate: 'fixture candidate', sdpMid: '0' }
+  signalCandidate(candidate)
+  expect(offers()).toEqual([])
+  resolveCapture(peer)
+  await vi.waitFor(() => expect(offers()).toHaveLength(2), { interval: 1 })
+  let [offer, update] = offers()
+  expect(offer).toMatchObject({ type: 'offer', request, trickle: true })
+  expect(update).toEqual({ type: 'candidate', candidate, request, connection: offer.connection })
+  let answer = { type: 'answer', sdp: 'fixture answer' }
+  deliver({ type: 'answer', sdp: answer, request, connection: 'obsolete' })
+  deliver({ type: 'candidate', candidate, request: 'obsolete', connection: offer.connection })
+  expect(peer.answer).not.toHaveBeenCalled()
+  expect(peer.candidate).not.toHaveBeenCalled()
+  deliver({ type: 'answer', sdp: answer, request, connection: offer.connection })
+  deliver({ type: 'candidate', candidate, request, connection: offer.connection })
+  expect(peer.answer).toHaveBeenCalledWith(answer)
+  expect(peer.candidate).toHaveBeenCalledWith(candidate)
 })

@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { createFrameCapture } from './frame-capture'
 
-type CaptureOptions = { contents: Electron.WebContents; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; data: (message: string) => void; closed: () => void }
+type CaptureOptions = { contents: Electron.WebContents; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void; data: (message: string) => void; closed: () => void }
 let frameSize = (frame: Electron.NativeImage) => {
   let size = frame.getSize(), scale = Math.min(1, 1920 / size.width, 1080 / size.height)
   return { width: Math.round(size.width * scale), height: Math.round(size.height * scale) }
@@ -36,17 +36,17 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     if (!window.isDestroyed()) window.destroy()
     options.closed()
   }
-  let receive = (event: Electron.IpcMainEvent, message: { type: string; sdp?: RTCSessionDescriptionInit; data?: string; state?: string }) => {
+  let receive = (event: Electron.IpcMainEvent, message: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; data?: string; state?: string }) => {
     if (event.sender !== window.webContents || !message || typeof message.type !== 'string') return
     if (message.type === 'ready') {
       void options.contents.capturePage().then(frame => {
         if (disposed) return
-        send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, ...frameSize(frame) })
+        send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...frameSize(frame) })
         unsubscribe = subscribe(options.contents, sendFrame)
         sendFrame(encodeFrame(frame))
       }).catch(() => {
         if (disposed) return
-        send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly })
+        send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate })
         unsubscribe = subscribe(options.contents, sendFrame)
       })
     } else if (message.type === 'frame-ack') framePending = false
@@ -54,6 +54,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
       void options.contents.capturePage().then(frame => sendFrame(encodeFrame(frame))).catch(() => undefined)
     }
     else if (message.type === 'offer' && message.sdp) options.signal(message.sdp)
+    else if (message.type === 'candidate' && message.candidate) options.candidate?.(message.candidate)
     else if (message.type === 'data' && typeof message.data === 'string') options.data(message.data)
     else if (message.type === 'error' || message.type === 'connection' && ['failed', 'closed'].includes(message.state ?? '')) close()
   }
@@ -62,5 +63,5 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
   try { await window.loadFile(path.join(import.meta.dirname, '../renderer/remote-peer.html')) } catch (error) { close(); throw error }
-  return { close, answer: (sdp: RTCSessionDescriptionInit) => send({ type: 'answer', sdp }), send: (data: string) => send({ type: 'data', data }) }
+  return { close, answer: (sdp: RTCSessionDescriptionInit) => send({ type: 'answer', sdp }), candidate: (candidate: RTCIceCandidateInit) => send({ type: 'candidate', candidate }), send: (data: string) => send({ type: 'data', data }) }
 }
