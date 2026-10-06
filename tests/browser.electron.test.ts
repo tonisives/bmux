@@ -1864,8 +1864,8 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
     await application.evaluate((_, label) => (globalThis as any).pinMenu.items.find((item: Electron.MenuItem) => item.label === label).click(), label)
   }
   try {
-    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await chrome.getByRole('button', { name: 'Address', exact: true }).or(address).click()
     await address.pressSequentially(`${url}/cached-favicon/pinned`)
     await address.press('Enter')
     await cli('wait', { pane: second.panes[0].id, selector: '#text' })
@@ -1896,7 +1896,7 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
     await menuAction(first.id, 'Unpin Window')
     await expect(tab(first.id)).toHaveAttribute('data-pinned', 'false')
     await expect(button(first.id)).toHaveText(`2:${first.name}`)
-    await cli('focus-ui', { client: client.id })
+    await chrome.evaluate(() => (window as any).bmux.command({ method: 'focus-ui' }))
     await button(second.id).focus()
     await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
     await expect(tab(second.id)).toHaveAttribute('data-pinned', 'false')
