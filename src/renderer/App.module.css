@@ -215,7 +215,8 @@
 .bookmarkToolbar { display: flex; align-items: center; gap: 12px; }
 .bookmarkToolbar > input { flex: 1; min-width: 0; }
 .bookmarkToolbar label { flex: 0 0 auto; white-space: nowrap; cursor: pointer; }
-.panel .bookmarkReorder { flex: 0 0 auto; padding: 4px 6px; color: #8e98a4; }
+.panel .bookmarkReorder { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; color: #8e98a4; cursor: pointer; }
+.bookmarkReorder svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .panel .bookmarkReorder:hover, .panel .bookmarkReorder:focus-visible { background: #303944; color: #f0f2f5; }
 .panel .bookmarkReorder[aria-pressed="true"] { background: #344738; color: #e8f4df; }
 .panel .bookmarkAdd { flex: 0 0 28px; height: 28px; padding: 0; color: #bdc9b4; font-size: 22px; line-height: 28px; cursor: pointer; }
