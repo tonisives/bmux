@@ -142,10 +142,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.getByRole('dialog',{name:'Open address'}).getByRole('button',{name:'Close'}).click()
     let video = viewer.getByLabel('Remote browser')
     await video.scrollIntoViewIfNeeded()
-    let linkPosition = await video.evaluate(element => {
+    let videoPosition = (x: number, y: number) => video.evaluate((element, { x, y }) => {
       let video = element as HTMLVideoElement, rect = video.getBoundingClientRect(), scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight)
-      return { x: (rect.width - video.videoWidth * scale) / 2 + 80 * video.videoWidth / Number(video.dataset.viewportWidth) * scale, y: (rect.height - video.videoHeight * scale) / 2 + 60 * video.videoHeight / Number(video.dataset.viewportHeight) * scale }
-    })
+      return { x: (rect.width - video.videoWidth * scale) / 2 + x * video.videoWidth / Number(video.dataset.viewportWidth) * scale, y: (rect.height - video.videoHeight * scale) / 2 + y * video.videoHeight / Number(video.dataset.viewportHeight) * scale }
+    }, { x, y })
+    let linkPosition = await videoPosition(80, 60)
     expect(Number.isFinite(linkPosition.x) && Number.isFinite(linkPosition.y)).toBe(true)
     await video.click({ position: linkPosition })
     await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).toContain('?linked=1')
@@ -153,7 +154,9 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect.poll(async () => (await command('status')).model.sessions[0].windows[0].panes[0].url).not.toContain('?linked=1')
     // Establish keyboard focus through real input rather than calling DOM focus
     // inside a debugger evaluation during native window activation.
-    await video.click()
+    // Target the fixture input as well, so the following text-entry assertion
+    // establishes its own selection instead of depending on initial autofocus.
+    await video.click({ position: await videoPosition(80, 130) })
     await expect(video).toBeFocused()
     await viewer.keyboard.press('ArrowDown')
     let page = application.context().pages().find(page=>page.url()===fixtureUrl+'/')!
