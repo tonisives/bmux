@@ -1256,9 +1256,10 @@ test('pane address bars navigate independently and leave window switching availa
   let contentWithSuggestions = await secondPane.locator('[data-browser-content]').boundingBox()
   expect(contentWithSuggestions!.y).toBe(contentBeforeSuggestions!.y)
   expect(suggestionBounds!.y).toBe(contentWithSuggestions!.y)
-  expect(suggestionBounds!.x).toBe(0)
-  expect(suggestionBounds!.width).toBe(await chrome.evaluate(() => window.innerWidth))
+  expect(suggestionBounds!.x).toBe(contentWithSuggestions!.x)
+  expect(suggestionBounds!.width).toBe(contentWithSuggestions!.width)
   expect(suggestionBounds!.height).toBeLessThan(contentWithSuggestions!.height / 2)
+  expect(await suggestions.evaluate(element => parseFloat(getComputedStyle(element).maxHeight))).toBeLessThan(contentWithSuggestions!.height)
   await expect(suggestions.getByRole('option').first()).toHaveAttribute('aria-selected', 'false')
   await address.press('ArrowDown')
   await expect(suggestions.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
@@ -1294,6 +1295,24 @@ test('pane address bars navigate independently and leave window switching availa
   await expect(chrome.getByRole('textbox', { name: 'URL or search', exact: true })).toHaveCount(0)
   await status.getByRole('button', { name: '1:bmux fixture', exact: true }).click()
   await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/edited-second-pan`)
+  for (let pane of [first, third]) {
+    let container = chrome.locator(`[data-pane-id="${pane.id}"]`)
+    await container.getByRole('button', { name: 'Address', exact: true }).click()
+    let input = container.getByRole('textbox', { name: 'URL or search', exact: true })
+    await expect(input).toBeFocused()
+    await input.fill('pane')
+    await expect(suggestions).toBeVisible()
+    for (let ratio of [.4, .6]) {
+      let layout = (await cli('list-windows', { session: session.id })).find((item: { id: string }) => item.id === window.id).layout
+      await cli('resize-pane', { window: window.id, split: layout.id, ratio })
+      await expect.poll(() => suggestions.evaluate(element => {
+        let list = element.getBoundingClientRect()
+        let content = document.querySelector('[data-focused-pane="true"] [data-browser-content]')!.getBoundingClientRect()
+        return Math.abs(list.x - content.x) < 1 && Math.abs(list.width - content.width) < 1 && list.y === content.y && list.bottom <= content.bottom && parseFloat(getComputedStyle(element).maxHeight) <= content.height
+      })).toBe(true)
+    }
+    await input.press('Escape')
+  }
   await cli('detach-client', { client: client.id })
 })
 
