@@ -25,7 +25,10 @@ export let observeNativeFocus = async (application: ElectronApplication) => {
     let windows = new WeakSet<Electron.BaseWindow>()
     ;(globalThis as any).bmuxTestFocusEvents = events
     let record = (event: string, id: number) => {
-      events.push({ event, id, at: Date.now(), focused: webContents.getFocusedWebContents()?.id, window: BaseWindow.getFocusedWindow()?.id })
+      // Native focus/input callbacks can run during view reattachment or window
+      // destruction. Record the notification without reentering focus lookup;
+      // the failure snapshot reads the settled native state separately.
+      events.push({ event, id, at: Date.now() })
       if (events.length > 100) events.shift()
     }
     let observe = (contents: Electron.WebContents) => {

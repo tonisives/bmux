@@ -49,7 +49,19 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
         })
       }, id))
       await test.step('Wait for native focus acknowledgement', async () => {
-        await expect.poll(() => application!.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.isFocused(), id), { intervals: [50, 100, 200] }).toBe(true)
+        await expect.poll(() => application!.evaluate(({ BaseWindow }, id) => {
+          let window = BaseWindow.fromId(id)
+          if (!window || window.isFocused()) return !!window
+          // View reattachment can supersede a pending activation. Request it
+          // again while unfocused, keeping native work outside the Inspector.
+          setImmediate(() => {
+            if (window.isDestroyed()) return
+            if (!window.isVisible()) window.show()
+            window.moveTop()
+            window.focus()
+          })
+          return false
+        }, id), { intervals: [50, 100, 200] }).toBe(true)
       })
     }, { timeout: 10000 })
     let command = async (...args:string[]) => {
