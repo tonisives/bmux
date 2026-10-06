@@ -55,6 +55,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       if (!validEnvelope(envelope, id, host.generation) || seen.has(envelope.nonce) || envelope.from !== await fingerprint(host.key)) throw new Error('Invalid host signature')
       let publicKey = await crypto.subtle.importKey('jwk', host.key, 'Ed25519', false, ['verify'])
       if (!await crypto.subtle.verify('Ed25519', publicKey, decode(envelope.signature), bytes(envelopeText(envelope)))) throw new Error('Invalid host signature')
+      if (currentRequest !== request) return
       seen.add(envelope.nonce)
       let payload = JSON.parse(envelope.payload)
       if (payload.request && payload.request !== request) return
@@ -69,7 +70,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       }
       if (payload.type !== 'offer') return
       peer?.close()
-      let current = new RTCPeerConnection({ iceServers }), currentRequest = request
+      let current = new RTCPeerConnection({ iceServers })
       peer = current; connection = payload.connection
       current.ontrack = event => { if (peer === current) events.stream(event.streams[0]) }
       current.onconnectionstatechange = () => { if (peer === current && ['failed','disconnected'].includes(current.connectionState)) { finish(new Error('Video connection failed')); events.disconnected() } }
@@ -84,6 +85,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
         }
       }
       await current.setRemoteDescription(payload.sdp)
+      if (peer !== current) return
       let pendingCandidates = candidates.get(payload.connection) ?? []
       candidates.clear()
       for (let candidate of pendingCandidates) await current.addIceCandidate(candidate)
