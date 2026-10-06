@@ -30,7 +30,17 @@ let command = async (...args) => {
   assert.equal(response.ok, true)
   return response.result
 }
-let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
+let frontmost = async () => {
+  let deadline = Date.now() + 10000
+  for (;;) {
+    try { return (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'], { timeout: 3000 })).stdout.trim() }
+    catch (error) {
+      // AppKit can briefly have no frontmost application after the prior run exits.
+      if (!error.stderr?.includes('(-1719)') || Date.now() >= deadline) throw error
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+}
 let server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Packaged bmux</title><input id="text"><div style="height:1800px">Package fixture</div><footer>Full document bottom</footer>') })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 try {
@@ -38,7 +48,13 @@ try {
   let pluginDirectory = path.join(data, 'plugins', 'local.page-tools')
   await fs.cp(path.join(appPath, 'Contents', 'Resources', 'plugins', 'local.page-tools'), pluginDirectory, { recursive: true })
   await fs.writeFile(path.join(data, 'config.yaml'), 'keyboard: {}\nautomaticUpdates: false\nplugins:\n  local.page-tools:\n    enabled: true\n')
-  let before = await frontmost()
+  let finder = (await exec('/usr/bin/osascript', ['-e', 'tell application "Finder" to activate', '-e', 'tell application "System Events" to get unix id of application process "Finder"'], { timeout: 10000 })).stdout.trim()
+  let focusDeadline = Date.now() + 10000
+  while (await frontmost() !== finder) {
+    assert.ok(Date.now() < focusDeadline, 'Finder did not become frontmost before package startup')
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  let before = finder
   let session = await command('new-session', '-s', 'packaged', '--profile', 'bot')
   pid = (await command('diagnostics')).pid
   let pane = session.windows[0].panes[0]
@@ -71,6 +87,7 @@ try {
   pid ??= (await request('diagnostics').catch(() => undefined))?.result?.pid
   let output = path.join(root, 'test-results', 'package-smoke', path.basename(data))
   await fs.mkdir(output, { recursive: true })
+  await fs.writeFile(path.join(output, 'failure.txt'), error.stack ?? String(error))
   await fs.copyFile(path.join(data, 'server.log'), path.join(output, 'server.log')).catch(() => undefined)
   if (pid) await exec('/usr/bin/sample', [String(pid), '3', '-file', path.join(output, 'main-process.txt')], { timeout: 10000 }).catch(() => undefined)
   console.error(`Package smoke diagnostics: ${output}`)
