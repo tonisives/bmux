@@ -114,6 +114,14 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{origin,cookie})
     await expect.poll(()=>application!.context().pages().some(page=>page.url()===origin+'/')).toBe(true)
     let viewer = application.context().pages().find(page=>page.url()===origin+'/')!
+    let resizeViewer = async (width: number, height = 800) => {
+      // Device-metrics emulation can finish before the native input surface
+      // follows the new layout. Resize the real disposable viewer instead.
+      await application!.evaluate(({ BrowserWindow }, { id, width, height }) => {
+        setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, height))
+      }, { id: viewerWindowId, width, height })
+      await expect.poll(() => viewer.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width, height })
+    }
     await expect(viewer.getByRole('button',{name:'Account'})).toBeVisible()
     let finishAccountCheck: (() => void) | undefined
     let accountCheck = new Promise<void>(resolve => { finishAccountCheck = resolve })
@@ -140,7 +148,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByText('Account ID:')).toBeVisible()
     await expect(viewer.getByRole('heading',{name:/Usage/})).toBeVisible()
     await viewer.getByRole('button',{name:'Sessions'}).click()
-    await viewer.setViewportSize({width:1280,height:800})
+    await resizeViewer(1280)
     await viewer.getByRole('button',{name:new RegExp(`main.*${service}`)}).click()
     // Watching allows up to twenty seconds for signaling and ICE negotiation.
     await expect(viewer.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
@@ -164,10 +172,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     let rowBounds = await sessionRow.boundingBox(), videoBounds = await viewer.getByLabel('Remote browser').boundingBox()
     expect(rowBounds).not.toBeNull(); expect(videoBounds).not.toBeNull()
     expect(rowBounds!.x + rowBounds!.width).toBeLessThan(videoBounds!.x)
-    await viewer.setViewportSize({width:390,height:800})
+    await resizeViewer(390)
     await expect(sessionRow).toBeHidden()
     await expect(viewer.getByRole('button',{name:'Sessions',exact:true})).toBeVisible()
-    await viewer.setViewportSize({width:1280,height:800})
+    await resizeViewer(1280)
+    await expect(sessionRow).toBeVisible()
     expect(await command('eval','-t',pane,'window.memory')).toBe('retained')
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()
     await expect(viewer.getByText('Controlling')).toBeVisible()
@@ -203,7 +212,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.getByRole('dialog',{name:'Type into page'}).getByRole('textbox',{name:'Text'}).fill('remote text')
     await viewer.getByRole('button',{name:'Type',exact:true}).click()
     await expect(page.getByLabel('Fixture input')).toHaveValue('remote text')
-    await viewer.setViewportSize({width:700,height:800})
+    await resizeViewer(700)
     await viewer.getByRole('button',{name:'Fit viewport'}).click()
     await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(700)
     await expect(command('attach-session','-t',status.model.sessions[0].id)).rejects.toThrow('CONTROL_HELD')

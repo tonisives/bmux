@@ -196,6 +196,13 @@ complete-description path. Unit cases cover pending gathering and compatibility,
 and the Linux viewer flow suppresses the gathering-complete notification while
 still requiring actual candidates, negotiated data channels, and decoded video.
 
+The subsequent ARM run negotiated every connection but missed the first control
+click after switching the viewer from mobile to desktop layout. Its fixture now
+resizes the real native viewer window, observes the resulting viewport dimensions,
+and checks that the desktop session row is visible before clicking. This avoids
+device-metrics emulation running ahead of the native input surface. The control
+lease and visible controlling-state assertions retain their existing deadlines.
+
 ## Bundled plugin completion
 
 A later full main run found the bundled Python heading action still `running`
