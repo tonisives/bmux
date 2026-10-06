@@ -230,6 +230,14 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     // TestInfo's final status is assigned after this callback returns.
     if (application) await recordNativeFocus(application,test.info(),failed)
     if (failed && applicationProcess) console.log('REMOTE_PROCESS_DIAGNOSTICS', { pid:applicationProcess.pid,exitCode:applicationProcess.exitCode,signalCode:applicationProcess.signalCode })
+    if (failed && process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && applicationProcess?.exitCode === null) {
+      // Capture only stack frames, without arguments or profile memory, before
+      // bounded shutdown kills an unresponsive native process.
+      let trace = await promisify(execFile)('gdb', ['--batch', '-ex', 'set print frame-arguments none', '-ex', 'thread apply all bt', '-p', String(applicationProcess.pid)], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 }).catch(error => ({ stdout: error.stdout ?? '', stderr: error.stderr ?? String(error) }))
+      let output = test.info().outputPath('native-hang.txt')
+      await fs.writeFile(output, `${trace.stdout}\n${trace.stderr}`)
+      await test.info().attach('native-hang', { path: output, contentType: 'text/plain' })
+    }
     await closeTestApplication(application,applicationProcess)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
