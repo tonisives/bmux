@@ -42,8 +42,10 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
   }
   let send = (message: unknown) => { if (channel?.readyState === 'open' && channel.bufferedAmount < 65536) channel.send(JSON.stringify(message)) }
   let refresh = () => send({ type: 'state' }), stopRefresh = () => {}
+  let incoming = Promise.resolve()
   socket.onmessage = event => {
-    void (async () => {
+    let currentRequest = request
+    incoming = incoming.then(async () => {
       let message = JSON.parse(event.data)
       if (message.type === 'hosts') { events.hosts(message.hosts); return }
       if (message.type === 'disconnected' && message.id === host?.id) { peer?.close(); finish(new Error('Host disconnected')); events.disconnected(); return }
@@ -74,20 +76,22 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       current.ondatachannel = event => {
         if (peer !== current) return
         channel = event.channel
-        channel.onopen = () => send({ type: 'state' })
+        channel.onopen = () => { if (peer === current) send({ type: 'state' }) }
         channel.onmessage = event => {
+          if (peer !== current) return
           let message = JSON.parse(event.data)
           receiveViewerMessage(message, { ...events, ready: finish, refresh })
         }
       }
       await current.setRemoteDescription(payload.sdp)
-      for (let candidate of candidates.get(payload.connection) ?? []) await current.addIceCandidate(candidate)
-      candidates.delete(payload.connection)
+      let pendingCandidates = candidates.get(payload.connection) ?? []
+      candidates.clear()
+      for (let candidate of pendingCandidates) await current.addIceCandidate(candidate)
       let answer = await prepareIceAnswer(current, payload.trickle ? candidate => {
         if (peer === current) void signal({ type: 'candidate', candidate, request: currentRequest, connection: payload.connection }).catch(() => undefined)
       } : undefined)
       if (peer === current) await signal({ type: 'answer', sdp: answer, request: currentRequest, connection: payload.connection })
-    })().catch(error => { let failure = error instanceof Error ? error : new Error('Connection failed'); finish(failure); events.error(failure.message) })
+    }).catch(error => { if (currentRequest !== request) return; let failure = error instanceof Error ? error : new Error('Connection failed'); finish(failure); events.error(failure.message) })
   }
   socket.onclose = () => { stopRefresh(); peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
   socket.onerror = () => { finish(new Error('Connection unavailable')); events.error('Connection unavailable') }
