@@ -36,15 +36,17 @@ export let useAddressSelection = () => {
     if (!event.shiftKey && start !== end && cursor >= start && cursor <= end) return
     event.preventDefault()
     let anchor = event.shiftKey ? input.selectionDirection === 'backward' ? end : start : cursor
-    let x = event.clientX, frame = 0
+    let x = event.clientX, y = event.clientY, frame = 0
     let select = () => {
-      let cursor = position(x)
+      let bounds = input.getBoundingClientRect()
+      let cursor = y < bounds.top ? 0 : y > bounds.bottom ? input.value.length : position(x)
       input.setSelectionRange(Math.min(anchor, cursor), Math.max(anchor, cursor), cursor < anchor ? 'backward' : 'forward')
     }
     input.focus({ preventScroll: true })
     select()
     let scroll = () => {
       let bounds = input.getBoundingClientRect()
+      if (y < bounds.top || y > bounds.bottom) { select(); frame = 0; return }
       let distance = x < bounds.left + leftInset ? x - bounds.left - leftInset : Math.max(0, x - bounds.right + rightInset)
       input.scrollLeft += Math.max(-20, Math.min(20, distance))
       select()
@@ -52,8 +54,7 @@ export let useAddressSelection = () => {
     }
     let move = (event: globalThis.MouseEvent) => {
       x = event.clientX
-      // Native inputs treat motion above/below the line as its start/end.
-      // Project the drag onto the text line instead, retaining horizontal scrolling.
+      y = event.clientY
       cancelAnimationFrame(frame)
       scroll()
     }
