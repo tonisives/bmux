@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -158,4 +158,36 @@ test('site warning opt-outs release a latched pause without disabling profile li
   expect(() => next.assertAvailable('bot')).toThrow('on example.com')
   expect(parseAutomationSettings({ safety: { sites: settings.sites } }).safety.sites).toEqual(settings.sites)
   for (let sites of [{ bot: { 'example.com': 'false' } }, { bot: { 'https://example.com': false } }, { bot: [] }]) expect(() => parseAutomationSettings({ safety: { sites } })).toThrow()
+})
+
+
+test.each([15, 60] as const)('timed exclusions expire after %i minutes across restarts', async duration => {
+  let { policy, settings, restart, advance } = fixture()
+  let start = Date.parse('2026-10-01T00:00:00Z')
+  let warning = async () => ({ url: 'https://example.com/', warning: 'challenge' as const })
+  await expect(policy.before('bot', warning)).rejects.toThrow('Automation paused')
+  settings.sites = { bot: { 'example.com': updateAutomationSiteExclusion(undefined, false, duration, start) } }
+  expect(automationWarningEnabled(settings, 'bot', 'EXAMPLE.COM', start)).toBe(false)
+  expect(automationWarningEnabled(settings, 'other', 'example.com', start)).toBe(true)
+  expect(automationWarningEnabled(settings, 'bot', 'sub.example.com', start)).toBe(true)
+  await restart().before('bot', warning)
+  advance(duration * 60_000 - 1)
+  expect(() => restart().assertAvailable('bot')).not.toThrow('Automation paused')
+  advance(1)
+  expect(() => restart().assertAvailable('bot')).toThrow('Automation paused')
+})
+
+test('exclusions retain duration while off, renew on enable, and support legacy and forever rules', () => {
+  let rule = updateAutomationSiteExclusion(undefined, false, 15, 1000)
+  let off = updateAutomationSiteExclusion(rule, true, undefined, 2000)
+  expect(off).toEqual({ enabled: false, durationMinutes: 15, expiresAt: 901000 })
+  expect(updateAutomationSiteExclusion(off, false, undefined, 3000)).toEqual({ enabled: true, durationMinutes: 15, expiresAt: 903000 })
+  expect(updateAutomationSiteExclusion(rule, false, null)).toEqual({ enabled: true, durationMinutes: null, expiresAt: null })
+  expect(automationSiteExclusion(false)).toEqual({ enabled: true, durationMinutes: null, expiresAt: null })
+  expect(automationSiteExclusion(true)?.enabled).toBe(false)
+  for (let duration of [0, -1, 30, '15', Infinity]) expect(() => updateAutomationSiteExclusion(rule, false, duration)).toThrow('durationMinutes')
+  expect(() => updateAutomationSiteExclusion(rule, 'false', 15)).toThrow('enabled')
+  let sites = { bot: { 'example.com': rule, localhost: false } }
+  expect(parseAutomationSettings({ safety: { sites } }).safety.sites).toEqual(sites)
+  for (let invalid of [{ ...rule, expiresAt: null }, { ...rule, expiresAt: Infinity }, { ...rule, durationMinutes: 30 }, { ...rule, durationMinutes: null }, { ...rule, enabled: 'false' }, { ...rule, unknown: true }]) expect(() => parseAutomationSettings({ safety: { sites: { bot: { 'example.com': invalid } } } })).toThrow()
 })

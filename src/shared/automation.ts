@@ -8,13 +8,26 @@ export type AutomationGroup = {
   requiredPlugins: Record<string, string>
   likesPerDay: Record<string, number>
 }
-export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; sites?: Record<string, Record<string, boolean>> }
+export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
+export type AutomationSiteRule = boolean | AutomationSiteExclusion
+export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
 export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
 export type AutomationSettings = { safety: AutomationSafety; groups: Record<string, AutomationGroup> }
 export let DEFAULT_AUTOMATION: AutomationSettings = { safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, profiles: {} }, groups: {} }
 export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string) => settings.profiles[profileId] ?? settings.enabled
-export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string) => automationSafetyEnabled(settings, profileId) && settings.sites?.[profileId]?.[host.toLowerCase()] !== false
+export let automationSiteExclusion = (rule: AutomationSiteRule | undefined): AutomationSiteExclusion | undefined => typeof rule === 'boolean' ? { enabled: !rule, durationMinutes: null, expiresAt: null } : rule
+export let automationExclusionActive = (rule: AutomationSiteExclusion, now = Date.now()) => rule.enabled && (rule.expiresAt === null || rule.expiresAt > now)
+export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string, now = Date.now()) => {
+  let exclusion = automationSiteExclusion(settings.sites?.[profileId]?.[host.toLowerCase()])
+  return automationSafetyEnabled(settings, profileId) && (!exclusion || !automationExclusionActive(exclusion, now))
+}
+export let updateAutomationSiteExclusion = (previous: AutomationSiteRule | undefined, enabled: unknown, durationMinutes: unknown, now = Date.now()): AutomationSiteExclusion => {
+  if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')
+  let duration = durationMinutes === undefined ? automationSiteExclusion(previous)?.durationMinutes ?? null : durationMinutes
+  if (duration !== null && duration !== 15 && duration !== 60) throw new Error('durationMinutes must be 15, 60, or null')
+  return { enabled: !enabled, durationMinutes: duration, expiresAt: duration === null ? null : !enabled ? now + duration * 60_000 : automationSiteExclusion(previous)?.expiresAt ?? now }
+}
 export let SOCIAL_HOSTS = ['instagram.com', 'threads.com', 'threads.net', 'facebook.com', 'x.com', 'twitter.com', 'linkedin.com', 'reddit.com', 'youtube.com', 'youtu.be', 'tiktok.com', 'bsky.app', 'pinterest.com']
 export let isSocialUrl = (value: string) => {
   try { let url = new URL(value); return /^https?:$/.test(url.protocol) && SOCIAL_HOSTS.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`)) } catch { return false }
@@ -57,9 +70,14 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
       let sites = mapping(value, 'automation.safety.sites')
       for (let [profile, entries] of Object.entries(sites)) {
         let rules = mapping(entries, `automation.safety.sites.${profile}`)
-        if (Object.entries(rules).some(([host, enabled]) => !/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host) || typeof enabled !== 'boolean')) throw new Error('automation.safety.sites must map hostnames to true or false')
+        for (let [host, entry] of Object.entries(rules)) {
+          if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host)) throw new Error('automation.safety.sites must map hostnames to exclusions')
+          if (typeof entry === 'boolean') continue
+          let rule = mapping(entry, 'automation.safety.sites exclusion')
+          if (Object.keys(rule).some(key => !['enabled', 'durationMinutes', 'expiresAt'].includes(key)) || typeof rule.enabled !== 'boolean' || ![null, 15, 60].includes(rule.durationMinutes as number | null) || (rule.durationMinutes === null ? rule.expiresAt !== null : typeof rule.expiresAt !== 'number' || !Number.isSafeInteger(rule.expiresAt) || rule.expiresAt < 0)) throw new Error('Invalid automation site exclusion')
+        }
       }
-      safety.sites = sites as Record<string, Record<string, boolean>>; continue
+      safety.sites = sites as Record<string, Record<string, AutomationSiteRule>>; continue
     }
     if (key === 'profiles') {
       let profiles = mapping(value, 'automation.safety.profiles')

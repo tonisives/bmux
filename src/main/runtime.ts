@@ -54,7 +54,7 @@ import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
-import { automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
 import { automationWarningScript, createAutomationSafety } from './automation-safety'
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
@@ -1637,14 +1637,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       configuration?.update(['automation', 'safety', 'profiles', profile.id], args.enabled)
       return { enabled: args.enabled }
     }
-    if (method === 'profile.anti-bot.site.set') {
+    if (method === 'profile.anti-bot.site.set' || method === 'profile.anti-bot.site.remove') {
       if (!sourceClientId) throw new Error('Change site warning checks in the bmux UI')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let host = required(args, 'host')
       if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host)) throw new Error('host must be a hostname')
-      if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
-      configuration?.update(['automation', 'safety', 'sites', profile.id, host], args.enabled)
-      return { enabled: args.enabled }
+      let previous = configuration?.automation.safety.sites?.[profile.id]?.[host]
+      let exclusion = method.endsWith('.remove') ? undefined : updateAutomationSiteExclusion(previous, args.enabled, args.durationMinutes)
+      configuration?.update(['automation', 'safety', 'sites', profile.id, host], exclusion)
+      return { exclusion }
     }
     if (method === 'automation.resume') {
       if (!sourceClientId) throw new Error('Resume automation from the bmux command prompt')

@@ -3,7 +3,8 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
-import { automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import { automationExclusionActive, automationSiteExclusion, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import type { AutomationSiteExclusion, AutomationSafety } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -39,17 +40,17 @@ type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'se
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
+type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
+  let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
   let [control, setControl] = useState<Control | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
-  let [addressFocusVersion, setAddressFocusVersion] = useState(0)
-  let [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
+  let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useBookmarkMemory()
@@ -132,7 +133,7 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, window, show, run),
+    ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, window, show).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
   let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
@@ -143,6 +144,14 @@ export let App = () => {
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
+}
+
+let useIgnoredAutomationWarnings = (state: PublicState | null) => {
+  let [ignoredWarnings, setIgnoredWarnings] = useState<string[]>([])
+  useExclusionExpiry(state?.automationSafety?.limits)
+  let warningKeys = (state?.automationSafety?.profiles ?? []).filter(item => item.warning && automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!)).map(item => `${item.profileId}:${item.warningHost}:${item.warning}`).join('|')
+  useEffect(() => { setIgnoredWarnings(current => current.filter(key => warningKeys.split('|').includes(key))) }, [warningKeys])
+  return { ignoredWarnings, setIgnoredWarnings }
 }
 
 let frameAssets = {
@@ -191,13 +200,12 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
   return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
 
-let automationWarningNotices = (state: PublicState, window: InternalWindow, show: UIContext['show'], run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
+let automationWarningNotices = (state: PublicState, window: InternalWindow, show: UIContext['show']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
   let pane = window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
   if (!pane || !usage.warning || !host || !automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host)) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
-  return [{ id: `automation:${usage.profileId}`, text: `Automation paused for ${profile?.name ?? usage.profileId}: ${usage.warning} on ${host}. All panes using this profile are affected.`, actions: [
+  return [{ id: `${usage.profileId}:${host}:${usage.warning}`, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${profile?.name ?? usage.profileId}: ${usage.warning} on ${host}. All panes using this profile are affected.`, actions: [
     { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
-    { label: 'Disable checks for this site', run: () => { void run('profile.anti-bot.site.set', { profile: usage.profileId, host, enabled: false }) } },
   ] }]
 })
 
@@ -251,7 +259,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -1592,6 +1600,42 @@ let ProxyInfo = () => {
   </section>
 }
 
+let useExclusionExpiry = (limits?: AutomationSafety) => {
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    let expiries = Object.values(limits?.sites ?? {}).flatMap(sites => Object.values(sites)).map(automationSiteExclusion).filter(rule => rule?.enabled && rule.expiresAt !== null && rule.expiresAt > Date.now()).map(rule => rule!.expiresAt!)
+    if (!expiries.length) return
+    let timer = setTimeout(() => setNow(Date.now()), Math.min(2_147_483_647, Math.max(1, Math.min(...expiries) - Date.now())))
+    return () => clearTimeout(timer)
+  }, [limits, now])
+}
+
+let SiteExclusionSelect = ({ profileId, host }: { profileId: string; host: string }) => {
+  let { run } = useUI(), [busy, setBusy] = useState(false)
+  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
+    let durationMinutes = event.target.value === 'forever' ? null : Number(event.target.value)
+    setBusy(true)
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
+  }
+  return <select className={css.notificationAction} aria-label="Disable checks for this site" value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
+}
+
+let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
+  let { run } = useUI(), [busy, setBusy] = useState(false)
+  let active = automationExclusionActive(exclusion)
+  let duration = exclusion.durationMinutes === null ? 'Forever' : exclusion.durationMinutes === 15 ? '15 minutes' : '1 hour'
+  let status = !exclusion.enabled ? `${duration} · Off` : exclusion.expiresAt === null ? 'Forever' : active ? `Until ${new Date(exclusion.expiresAt).toLocaleString()}` : `${duration} · Expired`
+  let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
+    setBusy(true)
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: !event.target.checked }) } finally { setBusy(false) }
+  }
+  let remove = async () => {
+    setBusy(true)
+    try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
+  }
+  return <div className={css.siteExclusion} role="group" aria-label={host}><label><input className={css.proxyToggle} type="checkbox" role="switch" aria-label={`Exclude ${host}`} checked={active} onChange={toggle} disabled={busy} /><span>{host}<small>{status}</small></span></label><button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button></div>
+}
+
 let ProfileAntiBotSettings = () => {
   let { state, run } = useUI()
   let { profile, pane } = selection(state)
@@ -1614,16 +1658,14 @@ let ProfileAntiBotSettings = () => {
     setBusy(true)
     try { await run('automation.resume', { pane: pane.id }) } finally { setBusy(false) }
   }
-  let disableSite = () => { if (usage?.warningHost) void run('profile.anti-bot.site.set', { profile: profile.id, host: usage.warningHost, enabled: false }) }
-  let restoreSites = () => { for (let [host, checked] of Object.entries(limits.sites?.[profile.id] ?? {})) if (!checked) void run('profile.anti-bot.site.set', { profile: profile.id, host, enabled: true }) }
-  let disabledSites = Object.entries(limits.sites?.[profile.id] ?? {}).filter(([, checked]) => !checked).map(([host]) => host)
+  let exclusions = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule)! }))
   return <div className={css.deviceSettings} role="tabpanel" aria-label="Anti-bot settings">
     <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Enable anti-bot protection</label>
     <p>Pauses automation on account warnings and limits session length.</p>
     <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
     {enabled && safety?.error && <p>{safety.error}</p>}
-    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button><button type="button" onClick={disableSite} disabled={busy}>Disable checks for this site</button></>}
-    {disabledSites.length > 0 && <><p>Warning checks disabled for: {disabledSites.join(', ')}. Session limits still apply.</p><button type="button" onClick={restoreSites}>Restore site checks</button></>}
+    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button><SiteExclusionSelect profileId={profile.id} host={usage.warningHost!} /></>}
+    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Site exclusions</h3><p>Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
   </div>
 }
 

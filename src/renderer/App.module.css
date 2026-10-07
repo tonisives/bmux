@@ -64,6 +64,7 @@
 .notification span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .notification button { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #b98d89; }
 .notification button:hover { color: #f2c1bb; }
+.notificationAction { background: transparent; color: inherit; }
 .notification .notificationAction { display: block; width: auto; height: auto; flex-basis: auto; padding: 2px 6px; border: 1px solid #76565a; color: #f2c1bb; white-space: nowrap; }
 .notification svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
@@ -391,3 +392,7 @@
 .proxyHostResults button { display: flex; flex-direction: column; width: 100%; text-align: left; padding: 8px; }
 .proxyHostResults button:hover, .proxyHostResults button:focus-visible { background: #292f38; outline: none; }
 .proxyHostResults small { color: #aab2bd; overflow-wrap: anywhere; }
+
+.siteExclusion { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #333; }
+.siteExclusion label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.siteExclusion small { display: block; margin-top: 4px; color: #999; }

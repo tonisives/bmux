@@ -6,7 +6,7 @@ import path from 'node:path'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { stringify } from 'yaml'
+import { parse, stringify } from 'yaml'
 
 test('default anti-bot protection blocks warnings across CLI and plugins, with a persistent profile toggle', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-safety-ui-'))
@@ -28,6 +28,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
       await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
       return application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     }
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     let chrome = await launch()
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state()), pane = state.model.sessions[0].windows[0].panes[0]
@@ -57,19 +58,50 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation paused for default' })
     await expect(alert).toContainText('127.0.0.1')
     await expect(alert).toContainText('All panes using this profile')
-    await alert.getByRole('button', { name: 'Disable checks for this site' }).click()
+    await alert.getByRole('combobox', { name: 'Disable checks for this site' }).selectOption('15')
     await expect(alert).toHaveCount(0)
     expect((await cli(['dom', '-t', pane.id])).ok).toBe(true)
-    expect((await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['127.0.0.1']).toBe(false)
+    expect((await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['127.0.0.1']).toMatchObject({ enabled: true, durationMinutes: 15, expiresAt: expect.any(Number) })
     expect((await cli(['rpc', 'profile.anti-bot.site.set', JSON.stringify({ profile: pane.profileId, host: '127.0.0.1', enabled: false })])).ok).toBe(false)
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     let panel = chrome.getByRole('dialog', { name: 'Profile' })
     await panel.getByRole('tab', { name: 'Anti-bot', exact: true }).click()
     let antiBot = panel.getByRole('tabpanel', { name: 'Anti-bot settings' }), toggle = antiBot.getByRole('switch', { name: 'Enable anti-bot protection' })
     await expect(toggle).toBeChecked()
-    await antiBot.getByRole('button', { name: 'Restore site checks' }).click()
+    let exclusion = antiBot.getByRole('group', { name: '127.0.0.1', exact: true })
+    let exclude = exclusion.getByRole('switch', { name: 'Exclude 127.0.0.1' })
+    await expect(exclude).toBeChecked()
+    await expect(exclusion).toContainText('Until')
+    await exclude.uncheck()
     await expect(alert).toBeVisible()
     expect((await cli(['dom', '-t', pane.id])).ok).toBe(false)
+    await alert.getByRole('button', { name: 'Dismiss notification' }).click()
+    await expect(alert).toHaveCount(0)
+    expect((await cli(['dom', '-t', pane.id])).ok).toBe(false)
+    await expect(exclude).not.toBeChecked()
+    await exclude.check()
+    await expect(exclude).toBeChecked()
+    expect((await cli(['dom', '-t', pane.id])).ok).toBe(true)
+    await exclude.uncheck()
+    await expect(alert).toBeVisible()
+    await antiBot.getByRole('combobox', { name: 'Disable checks for this site' }).selectOption('60')
+    await expect(exclude).toBeChecked()
+    expect((await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['127.0.0.1'].durationMinutes).toBe(60)
+    // Shorten only this disposable fixture's persisted expiry to exercise automatic UI refresh.
+    let config = parse(await fs.readFile(path.join(directory, 'config.yaml'), 'utf8'))
+    config.automation.safety.sites[pane.profileId]['127.0.0.1'].expiresAt = Date.now() + 3000
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(config))
+    await expect(exclusion).toContainText('Expired', { timeout: 10000 })
+    await expect(alert).toBeVisible()
+    expect((await cli(['dom', '-t', pane.id])).ok).toBe(false)
+    await alert.getByRole('combobox', { name: 'Disable checks for this site' }).selectOption('forever')
+    await expect(exclude).toBeChecked()
+    await expect(exclusion).toContainText('Forever')
+    await exclusion.getByRole('button', { name: 'Remove exclusion for 127.0.0.1' }).click()
+    await expect(exclusion).toHaveCount(0)
+    await expect(alert).toBeVisible()
+    expect((await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['127.0.0.1']).toBeUndefined()
+    expect((await cli(['rpc', 'profile.anti-bot.site.remove', JSON.stringify({ profile: pane.profileId, host: '127.0.0.1' })])).ok).toBe(false)
     await expect(antiBot).toContainText('Account warning')
     await expect(antiBot).toContainText('10 minutes')
     await expect(antiBot).toContainText('20 minutes')
@@ -95,12 +127,16 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect(toggle).toBeEnabled()
     await toggle.uncheck()
     await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
+    await command('profile.anti-bot.site.set', { profile: pane.profileId, host: '127.0.0.1', enabled: false, durationMinutes: 15 })
+    let savedExclusion = (await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['127.0.0.1']
     await closeTestApplication(application); application = undefined
     chrome = await launch()
+    expect((await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['127.0.0.1']).toEqual(savedExclusion)
     expect((await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('tab', { name: 'Anti-bot', exact: true }).click()
     await expect(chrome.getByRole('switch', { name: 'Enable anti-bot protection' })).not.toBeChecked()
+    await expect(chrome.getByRole('switch', { name: 'Exclude 127.0.0.1' })).toBeChecked()
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
