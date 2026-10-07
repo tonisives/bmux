@@ -1622,12 +1622,14 @@ let SiteExclusionSelect = ({ profileId, host }: { profileId: string; host: strin
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
   let { run } = useUI(), [busy, setBusy] = useState(false)
-  let active = automationExclusionActive(exclusion)
+  let savedActive = automationExclusionActive(exclusion), [active, setActive] = useState(savedActive)
+  useEffect(() => { setActive(savedActive) }, [savedActive])
   let duration = exclusion.durationMinutes === null ? 'Forever' : exclusion.durationMinutes === 15 ? '15 minutes' : '1 hour'
   let status = !exclusion.enabled ? `${duration} · Off` : exclusion.expiresAt === null ? 'Forever' : active ? `Until ${new Date(exclusion.expiresAt).toLocaleString()}` : `${duration} · Expired`
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
-    setBusy(true)
-    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: !event.target.checked }) } finally { setBusy(false) }
+    let next = event.target.checked
+    setActive(next); setBusy(true)
+    try { if (!await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: !next })) setActive(savedActive) } finally { setBusy(false) }
   }
   let remove = async () => {
     setBusy(true)
