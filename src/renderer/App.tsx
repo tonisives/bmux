@@ -787,6 +787,33 @@ let ClickModeActions = ({ action, input, backgroundColor, textColor }: { action:
     })}
   </div>
 }
+let useDisplayedAddressSelection = (open: () => void) => {
+  let addressSelection = useRef<AddressSelection | undefined>(undefined)
+  let selectionPointer = useRef<number | undefined>(undefined)
+  let takeAddressSelection = useCallback(() => {
+    let selection = addressSelection.current
+    addressSelection.current = undefined
+    return selection
+  }, [])
+  let rememberSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
+    let input = event.currentTarget
+    let start = input.selectionStart ?? 0, end = input.selectionEnd ?? 0
+    if (start !== end) addressSelection.current = { start, end, direction: input.selectionDirection ?? 'none' }
+  }
+  let beginSelection = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button === 0) { selectionPointer.current = event.pointerId; addressSelection.current = undefined; captureAddressPointer(event) }
+  }
+  let editSelection = (event: PointerEvent<HTMLInputElement>) => {
+    if (selectionPointer.current !== event.pointerId || (event.type === 'pointerup' && event.button !== 0)) return
+    // Crossing into a native page can cancel capture before this input receives pointerup.
+    // Complete the display-to-editor handoff once, preserving the selected text.
+    selectionPointer.current = undefined
+    rememberSelection(event)
+    void open()
+  }
+  return { beginSelection, editSelection, takeAddressSelection }
+}
+
 let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let { state, control, show, run, historyPopup, setHistoryPopup } = useUI()
   let { client, session, window } = selection(state)
@@ -798,26 +825,9 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let security = tab ? state.security?.[tab.id] : undefined
   let url = tab ? state.pendingUrls[tab.id] ?? (security?.status === 'certificate-error' ? security.url : tab.url) : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
-  let addressSelection = useRef<AddressSelection | undefined>(undefined), selectAddress = useAddressSelection()
-  let takeAddressSelection = useCallback(() => {
-    let selection = addressSelection.current
-    addressSelection.current = undefined
-    return selection
-  }, [])
+  let selectAddress = useAddressSelection()
   let open = () => show('address', paneId)
-  let rememberSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
-    let input = event.currentTarget
-    let start = input.selectionStart ?? 0, end = input.selectionEnd ?? 0
-    if (start !== end) addressSelection.current = { start, end, direction: input.selectionDirection ?? 'none' }
-  }
-  let beginSelection = (event: PointerEvent<HTMLInputElement>) => {
-    if (event.button === 0) { addressSelection.current = undefined; captureAddressPointer(event) }
-  }
-  let editSelection = (event: PointerEvent<HTMLInputElement>) => {
-    if (event.button !== 0) return
-    rememberSelection(event)
-    void open()
-  }
+  let { beginSelection, editSelection, takeAddressSelection } = useDisplayedAddressSelection(open)
   let editFromClick = (event: MouseEvent<HTMLInputElement>) => { if (event.detail === 0) void open() }
   let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
@@ -881,7 +891,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     </div>}
     <div className={css.urlBar}>
       {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-      {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+      {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
     </div>
     {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
