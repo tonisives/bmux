@@ -2484,6 +2484,56 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
   await cli('detach-client', { client: client.id })
 })
 
+for (let loseCapture of [false, true]) test(`fast displayed URL release ${loseCapture ? 'after losing pointer capture' : 'over the page'} stays editable`, async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  let configured = parseDocument(previous)
+  configured.setIn(['keyboard', 'shortcuts', 'j'], { action: 'scroll-down', when: 'pane-not-editing' })
+  await fs.writeFile(config, configured.toString())
+  await cli('settings.reload')
+  let session = await cli('new-session', { name: `Fast address selection ${loseCapture}` })
+  let pane = session.windows[0].panes[0]
+  let target = `${url}/fast-address-selection-with-a-long-enough-path`
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  await cli('navigate', { pane: pane.id, url: target })
+  await cli('wait', { pane: pane.id, selector: '#text' })
+  let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let mouse = async (events: { type: number; x: number; y: number }[]) => {
+    await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); let events = ${JSON.stringify(events)}; events.forEach(e => { let mouse = $.CGEventCreateMouseEvent(null, e.type, $.CGPointMake(e.x, e.y), 0); $.CGEventSetIntegerValueField(mouse, 1, 1); $.CGEventPost(0, mouse); delay(0.005); });`])
+  }
+  let bounds = (await displayed.boundingBox())!
+  let origin = await application.evaluate(({ BaseWindow }) => BaseWindow.getFocusedWindow()!.getContentBounds())
+  let x = origin.x + bounds.x + 210, y = origin.y + bounds.y + bounds.height / 2
+  try {
+    await mouse([{ type: 5, x, y }, { type: 1, x, y }, { type: 6, x: x + 140, y }])
+    await expect.poll(() => displayed.evaluate(input => (input as HTMLInputElement).selectionEnd! - (input as HTMLInputElement).selectionStart!)).toBeGreaterThan(0)
+    let selected = await displayed.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))
+    if (loseCapture) {
+      // Model capture being lost at the boundary between native browser views.
+      await displayed.evaluate(input => { if (!input.hasPointerCapture(1)) throw new Error('Address did not capture the pointer'); input.releasePointerCapture(1) })
+    }
+    // No inspector round trip between leaving the address bar and releasing.
+    await mouse([{ type: 6, x: x + 140, y: y + 160 }, { type: 2, x: x + 140, y: y + 160 }])
+    await expect(address).toBeFocused()
+    if (loseCapture) await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))).toEqual(selected)
+    selected = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))
+    expect(selected.end).toBeGreaterThan(selected.start)
+    await sendNativeKeys(application, [{ keyCode: 'Delete' }])
+    await expect(address).toHaveValue(target.slice(0, selected.start) + target.slice(selected.end))
+    await sendNativeKeys(application, [{ keyCode: 'Escape' }])
+    await expect(address).toHaveCount(0)
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(target)
+    await sendNativeKeys(application, [{ keyCode: 'j' }])
+    await expect.poll(() => cli('eval', { pane: pane.id, expression: 'scrollY' })).toBeGreaterThan(0)
+  } finally {
+    await mouse([{ type: 2, x: x + 140, y: y + 160 }])
+    await cli('detach-client', { client: client.id })
+    await fs.writeFile(config, previous); await cli('settings.reload')
+  }
+})
+
 test('address suggestions preserve a mouse selection across browser state updates', async () => {
   let session = await cli('new-session', { name: 'Completion mouse selection' })
   let pane = session.windows[0].panes[0]
