@@ -90,7 +90,7 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
     await apple(`tell application "System Events"\nkeystroke "l" using command down\ndelay 0.2\nkeystroke "${url}"\nkey code 36\nend tell`)
     await expect.poll(() => rpc('state').then(state => state.model.sessions[0].windows[0].panes[0].url)).toBe(url)
     let paneId = state.model.sessions[0].windows[0].panes[0].id
-    let frameReady = '!!document.querySelector("iframe")?.contentDocument?.querySelector("#image")'
+    let frameReady = 'typeof document.querySelector("iframe")?.contentDocument?.querySelector("#image")?.onclick === "function"'
     await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : '!!document.querySelector("#image")' })
     await apple('delay 0.3')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('before-image-click.png')])
@@ -102,9 +102,8 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
       await rpc('wait', { tab: paneId, expression: frameReady })
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
-      // Move onto the new native view rather than reusing the opener's pointer
-      // position. AppKit may still route an unmoved pointer to the old view.
-      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', mouse.replace('p[0]+80,p[1]+s[1]-100', 'p[0]+s[0]/2,p[1]+s[1]/2')], { timeout: 5000 })
+      let point = await rpc('eval', { tab: paneId, expression: '({x:innerWidth/2,y:innerHeight/2})' })
+      for (let type of ['mousePressed', 'mouseReleased']) await rpc('cdp', { tab: paneId, method: 'Input.dispatchMouseEvent', params: { type, ...point, button: 'left', clickCount: 1 } })
     }
     await expect.poll(() => clicks).toBe(picker === 'input-frame-popup' ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
