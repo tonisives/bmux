@@ -22,7 +22,7 @@ export let baseUrlCompletion = (input: string, url: string): InlineUrlCompletion
   if (!candidate) return undefined
   let hostEnd = candidate.match(/^(?:https?:\/\/)?[^/?#]+/i)![0].length
   let nextSeparator = candidate.slice(input.length).search(/[/?#]/)
-  let end = input.endsWith('/') ? input.length : hostEnd >= input.length ? hostEnd : nextSeparator < 0 ? candidate.length : input.length + nextSeparator
+  let end = hostEnd >= input.length ? hostEnd : input.endsWith('/') ? input.length : nextSeparator < 0 ? candidate.length : input.length + nextSeparator
   let value = input + candidate.slice(input.length, end)
   // Complete only the host or path segment being typed, without saved page state.
   let destination = new URL(/^https?:\/\//i.test(value) ? value : `${parsed.protocol}//${value}`)

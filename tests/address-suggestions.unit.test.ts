@@ -19,6 +19,8 @@ describe('address suggestions', () => {
     expect(baseUrlCompletion('example.com', 'https://example.com?state=old')).toEqual({ value: 'example.com', url: 'https://example.com/' })
     expect(baseUrlCompletion('example.com/docs', 'https://example.com/docs?state=old')).toEqual({ value: 'example.com/docs', url: 'https://example.com/docs' })
     expect(baseUrlCompletion('example.com/', 'https://example.com/docs/page')).toEqual({ value: 'example.com/', url: 'https://example.com/' })
+    expect(baseUrlCompletion('https://', 'https://example.com/docs/page')).toEqual({ value: 'https://example.com', url: 'https://example.com/' })
+    expect(baseUrlCompletion('https:/', 'https://example.com/docs/page')).toEqual({ value: 'https://example.com', url: 'https://example.com/' })
   })
 
   test('leaves search terms and explicit query or fragment completion to history', () => {

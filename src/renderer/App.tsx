@@ -585,8 +585,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection)
-  let profileHistory = profile?.history ?? []
-  let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean)
+  let profileHistory = profile?.history ?? [], baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean)
   let inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
   let bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
   let inlineBookmark = inlineHistory && bookmarkMatches.slice(0, 8).some(bookmark => bookmark.url === inlineHistory.url)
@@ -601,8 +600,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
   ]
-  let selectedResult = results[index]
-  let selectedCompletion = selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let selectedResult = results[index], selectedCompletion = selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
   let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || !!selectedResult?.value
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
