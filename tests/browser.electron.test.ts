@@ -2306,6 +2306,55 @@ for (let source of ['history', 'bookmark']) test(`address suggestions infer clea
   }
 })
 
+test('address suggestions deduplicate titled pages and tracking variants before counting more matches', async () => {
+  let profile = await cli('profile.create', { name: 'duplicate-address-results' })
+  let session = await cli('new-session', { name: 'Duplicate address results', profile: profile.id })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('activate-client', { client: client.id })
+  let entries = [
+    { url: `${url}/duplicate-results/saved?utm_source=bookmark`, title: 'Saved destination' },
+    { url: `${url}/duplicate-results/saved?utm_source=history`, title: 'Old saved title' },
+    { url: `${url}/duplicate-results/resort-one`, title: 'City Resort' },
+    { url: `${url}/duplicate-results/resort-two`, title: 'City Resort' },
+    { url: `${url}/duplicate-results/park`, title: 'City Park' },
+  ]
+  let savedBookmark: string | undefined
+  try {
+    for (let [index, entry] of entries.entries()) {
+      await cli('navigate', { tab: pane.id, url: entry.url })
+      await cli('eval', { tab: pane.id, expression: `document.title = ${JSON.stringify(entry.title)}` })
+      await expect.poll(async () => {
+        let state = await cli('state')
+        return state.model.profiles.find((item: { id: string }) => item.id === profile.id)?.history?.find((item: { url: string }) => item.url === entry.url)?.title
+      }).toBe(entry.title)
+      if (index === 0) savedBookmark = (await cli('bookmark.add', { tab: pane.id })).bookmark.id
+    }
+    let chrome = await rendererForClient(client.id, { sessionId: session.id, windowId: session.windows[0].id, paneId: pane.id })
+    let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await displayed.click()
+    await expect(address).toBeFocused()
+    await address.fill('duplicate-results')
+    let options = chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('option')
+    await expect(options).toHaveCount(4)
+    await expect(options.first()).toHaveAttribute('data-value', `${url}/duplicate-results`)
+    await expect(options.filter({ hasText: 'Saved destination' })).toHaveCount(1)
+    await expect(options.filter({ hasText: 'Old saved title' })).toHaveCount(0)
+    await expect(options.filter({ hasText: 'City Resort' })).toHaveCount(1)
+    await expect(options.filter({ hasText: 'City Park' })).toHaveCount(1)
+    await expect(options.filter({ hasText: 'Show ' })).toHaveCount(0)
+    await options.filter({ hasText: 'City Resort' }).click()
+    await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(entries[3].url)
+    await cli('wait', { tab: pane.id, selector: '#text' })
+    let state = await cli('state')
+    expect(state.model.profiles.find((item: { id: string }) => item.id === profile.id).history.some((item: { url: string }) => item.url === entries[2].url)).toBe(true)
+  } finally {
+    if (savedBookmark) await cli('bookmark.remove', { profile: profile.id, bookmark: savedBookmark })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('address suggestions reveal older matching history', async () => {
   let session = await cli('new-session', { name: 'More history suggestions' })
   let pane = session.windows[0].panes[0]
@@ -2317,10 +2366,13 @@ test('address suggestions reveal older matching history', async () => {
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/github/bmux`)
   }).toBe(true)
   for (let index = 0; index < 2; index++) await cli('navigate', { tab: pane.id, url: `${url}/g-i-t-h-u-b/b-m-u-x-${index}` })
-  for (let index = 0; index < 12; index++) await cli('navigate', { tab: pane.id, url: `${url}/older-history-${index}` })
+  for (let index = 0; index < 12; index++) {
+    await cli('navigate', { tab: pane.id, url: `${url}/older-history-${index}` })
+    await cli('eval', { tab: pane.id, expression: `document.title = 'Older history ${index}'` })
+  }
   await expect.poll(async () => {
     let state = await cli('state')
-    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.filter((entry: { url: string }) => entry.url.includes('/older-history-')).length
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.filter((entry: { url: string; title: string }) => entry.url.includes('/older-history-') && entry.title === `Older history ${entry.url.split('/older-history-')[1]}`).length
   }).toBe(12)
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
   await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
