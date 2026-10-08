@@ -605,12 +605,16 @@ test('links show their target, offer browser actions, and open popups in bmux wi
 for (let mobile of [false, true]) test(`middle and Command clicks defer background links until activation on ${mobile ? 'mobile' : 'desktop'}`, async ({}, info) => {
   let session = await cli('new-session', { name: `background-links-${mobile}` })
   let source = session.windows[0].panes[0]
-  if (mobile) await cli('profile.device.set', { pane: source.id, profile: source.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
   await cli('navigate', { tab: source.id, url: `${url}/background-links` })
   let client = await cli('attach-session', { session: session.id })
   let failed = false
   try {
     await cli('activate-client', { client: client.id })
+    if (mobile) {
+      let chrome = await rendererForClient(client.id)
+      await chrome.evaluate(args => (window as any).bmux.command({ method: 'profile.device.set', args }), { pane: source.id, profile: source.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+      await cli('wait', { tab: source.id, selector: '#background-link' })
+    }
     let website = application.context().pages().find(page => page.url() === `${url}/background-links`)!
     for (let click of [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
       let destination = `/deferred-link?device=${mobile}&click=${click.button ?? 'command'}`
