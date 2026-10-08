@@ -29,6 +29,31 @@ export let baseUrlCompletion = (input: string, url: string): InlineUrlCompletion
   return { value, url: destination.href }
 }
 
+export let searchUrlDestination = (input: string, urls: string[]): InlineUrlCompletion | undefined => {
+  let terms = input.trim().toLowerCase().split(/\s+/)
+  if (!input.trim() || /[/?#:]/.test(input)) return undefined
+  let best: { completion: InlineUrlCompletion; depth: number } | undefined
+  for (let url of urls) {
+    let parsed: URL
+    try { parsed = new URL(url) } catch { continue }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) continue
+    let segments = parsed.pathname.split('/').filter(Boolean)
+    for (let depth = 0; depth <= segments.length; depth++) {
+      let pathname = segments.slice(0, depth).join('/')
+      let address = `${parsed.host}/${pathname}`
+      try { address = decodeURIComponent(address) } catch { /* Keep malformed escapes searchable as written. */ }
+      if (!terms.every(term => address.toLowerCase().includes(term))) continue
+      let destination = `${parsed.origin}/${pathname}`
+      // Promote the shortest matching destination, without inferring from titles or query data.
+      if (destination !== parsed.href && (!best || depth < best.depth)) {
+        best = { completion: { value: address.replace(/^www\./i, '').replace(/\/$/, ''), url: destination }, depth }
+      }
+      break
+    }
+  }
+  return best?.completion
+}
+
 export let prioritizeInlineHistory = (matches: HistoryEntry[], history: HistoryEntry[], inlineUrl?: string): HistoryEntry[] => {
   if (!inlineUrl) return matches
   let inlineEntry = history.find(entry => entry.url === inlineUrl)

@@ -2264,6 +2264,48 @@ test('address suggestions prefer base URLs over saved paths and page state', asy
   await cli('detach-client', { client: client.id })
 })
 
+for (let source of ['history', 'bookmark']) test(`address suggestions infer clean destinations from ${source} text searches`, async () => {
+  let profile = await cli('profile.create', { name: `clean-${source}-searches` })
+  let session = await cli('new-session', { name: `Clean ${source} searches`, profile: profile.id })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('activate-client', { client: client.id })
+  let savedUrl = `${url}/google/maps/place/${source}?entry=old#saved`
+  await cli('navigate', { tab: pane.id, url: savedUrl })
+  await cli('wait', { tab: pane.id, selector: '#text' })
+  await expect.poll(async () => {
+    let state = await cli('state')
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === savedUrl)
+  }).toBe(true)
+  let bookmark = source === 'bookmark' ? await cli('bookmark.add', { tab: pane.id, title: 'Saved place - Google Maps' }) : undefined
+  if (bookmark) await cli('history.remove', { profile: pane.profileId, url: savedUrl })
+  let chrome = await rendererForClient(client.id, { sessionId: session.id, windowId: session.windows[0].id, paneId: pane.id })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
+  let website = application.context().pages().find(page => page.url() === savedUrl)!
+  try {
+    await displayed.click()
+    await expect(address).toBeFocused()
+    await address.fill('google maps')
+    await expect(address).toHaveValue('google maps')
+    await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}/google/maps`)
+    await expect(chrome.locator(`[role="option"][data-value="${savedUrl}"]`)).toHaveAttribute('data-kind', source)
+    await address.press('ArrowDown')
+    await address.press('Enter')
+    await expect(website).toHaveURL(`${url}/google/maps`)
+    await expect(website.locator('header')).toHaveText('Fixture top')
+    await displayed.click()
+    await expect(address).toBeFocused()
+    await address.fill('google maps')
+    await chrome.locator(`[role="option"][data-value="${savedUrl}"]`).click()
+    await expect(website).toHaveURL(savedUrl)
+  } finally {
+    if (bookmark) await cli('bookmark.remove', { profile: pane.profileId, bookmark: bookmark.bookmark.id })
+    await cli('history.remove', { profile: pane.profileId, url: savedUrl })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('address suggestions reveal older matching history', async () => {
   let session = await cli('new-session', { name: 'More history suggestions' })
   let pane = session.windows[0].panes[0]

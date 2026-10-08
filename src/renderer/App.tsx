@@ -24,7 +24,7 @@ import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory } from '../shared/address-suggestions'
+import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
@@ -585,9 +585,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection)
-  let profileHistory = profile?.history ?? [], baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean)
+  let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
+  let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean) ?? searchUrlDestination(query, [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
   let inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
-  let bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
   let inlineBookmark = inlineHistory && bookmarkMatches.slice(0, 8).some(bookmark => bookmark.url === inlineHistory.url)
   let bookmarks = bookmarkMatches.slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
   let bookmarkUrls = new Set(bookmarks.map(bookmark => bookmark.url))

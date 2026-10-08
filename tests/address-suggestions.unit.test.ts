@@ -1,7 +1,32 @@
 import { describe, expect, test } from 'vitest'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory } from '../src/shared/address-suggestions'
+import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination } from '../src/shared/address-suggestions'
 
 describe('address suggestions', () => {
+  test.each(['google maps', 'maps google', '  GOOGLE   MAPS  ', 'maps'])('offers the clean Maps URL for the text search %s', query => {
+    let urls = [
+      'https://www.google.com/maps/place/Be+Live+Residence/@8,98,12z/data=previous',
+      'https://www.google.com/maps/place/Seapine+Beach?entry=ttu#saved',
+    ]
+    expect(searchUrlDestination(query, urls)).toEqual({ value: 'google.com/maps', url: 'https://www.google.com/maps' })
+  })
+
+  test('infers clean host and repository destinations without a site-specific list', () => {
+    expect(searchUrlDestination('google translate', ['https://translate.google.com/?sl=en&tl=et&text=old'])).toEqual({ value: 'translate.google.com', url: 'https://translate.google.com/' })
+    expect(searchUrlDestination('github bmux', ['https://github.com/tonisives/bmux/issues/123?state=old'])).toEqual({ value: 'github.com/tonisives/bmux', url: 'https://github.com/tonisives/bmux' })
+  })
+
+  test('prefers a shallow destination over an older page mentioning the same words', () => {
+    expect(searchUrlDestination('google maps', ['https://example.test/articles/using/google/maps/details', 'https://www.google.com/maps/place/previous'])).toEqual({ value: 'google.com/maps', url: 'https://www.google.com/maps' })
+  })
+
+  test('does not infer destinations from query data, fragments, or unrelated URLs', () => {
+    let urls = ['https://www.google.com/search?q=maps', 'https://example.test/#google-maps', 'file:///google/maps', 'invalid', 'https://google:maps@example.test/']
+    expect(searchUrlDestination('google maps', urls)).toBeUndefined()
+    expect(searchUrlDestination('unrelated place', ['https://www.google.com/maps/place/previous'])).toBeUndefined()
+    for (let query of ['', ' ', 'google.com/maps', 'google.com/?q=maps']) expect(searchUrlDestination(query, urls)).toBeUndefined()
+    expect(searchUrlDestination('google maps', ['https://www.google.com/maps'])).toBeUndefined()
+  })
+
   test.each(['translate', 'translate.google.com', 'translate.google.com/'])('prefers the translation homepage for %s', input => {
     expect(baseUrlCompletion(input, 'https://translate.google.com/?sl=en&tl=et&text=previous+translation')).toEqual({
       value: input.endsWith('/') ? 'translate.google.com/' : 'translate.google.com', url: 'https://translate.google.com/',
