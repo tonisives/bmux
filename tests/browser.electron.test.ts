@@ -602,25 +602,18 @@ test('links show their target, offer browser actions, and open popups in bmux wi
   }
 })
 
-for (let mobile of [false, true]) test(`background links defer loading until activation on ${mobile ? 'mobile' : 'desktop'}`, async ({}, info) => {
-  let session = await cli('new-session', { name: `background-links-${mobile}` })
+test('middle and Command clicks defer background links until activation', async ({}, info) => {
+  let session = await cli('new-session', { name: 'background-links' })
   let source = session.windows[0].panes[0]
-  let sourceUrl = `${url}/background-links-${mobile}`
+  let sourceUrl = `${url}/background-links`
   await cli('navigate', { tab: source.id, url: sourceUrl })
   let client = await cli('attach-session', { session: session.id })
   let failed = false
   try {
     await cli('activate-client', { client: client.id })
-    if (mobile) {
-      let chrome = await rendererForClient(client.id)
-      await chrome.evaluate(args => (window as any).bmux.command({ method: 'profile.device.set', args }), { pane: source.id, profile: source.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
-      await cli('wait', { tab: source.id, selector: '#background-link' })
-    }
     let website = application.context().pages().find(page => page.url() === sourceUrl)!
-    // Touch emulation opens target=_blank links with a normal tap.
-    if (mobile) await website.locator('#background-link').evaluate(element => element.setAttribute('target', '_blank'))
-    for (let click of mobile ? [{ button: 'left' as const }] : [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
-      let destination = `/deferred-link?device=${mobile}&click=${click.button ?? 'command'}`
+    for (let click of [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
+      let destination = `/deferred-link?click=${click.button ?? 'command'}`
       await website.locator('#background-link').evaluate((element, target) => element.setAttribute('href', target), destination)
       let before = await cli('list-windows', { session: session.id })
       await website.locator('#background-link').click(click)
@@ -638,11 +631,9 @@ for (let mobile of [false, true]) test(`background links defer loading until act
       let loaded = application.context().pages().find(page => page.url() === `${url}${destination}`)!
       await expect(loaded.locator('#text')).toBeVisible()
       expect(deferredLinkRequests.get(destination)).toEqual({ count: 1, referrer: sourceUrl })
-      expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(mobile)
-      if (!mobile) {
-        await cli('back', { tab: tab.id })
-        expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
-      }
+      expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(false)
+      await cli('back', { tab: tab.id })
+      expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
       await cli('select-window', { client: client.id, window: session.windows[0].id })
       await cli('select-window', { client: client.id, window: opened.id })
       expect(deferredLinkRequests.get(destination)?.count).toBe(1)

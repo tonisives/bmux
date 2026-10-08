@@ -1005,7 +1005,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
-      if (!activate && !options) {
+      if (!activate && !options && !backToOpener) {
         deferredTabs.add(added.id)
         if (loadOptions) deferredLinkLoads.set(added.id, loadOptions)
         changed(); return undefined
