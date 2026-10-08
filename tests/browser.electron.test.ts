@@ -1296,11 +1296,14 @@ test('pane address bars navigate independently and leave window switching availa
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill('http')
   await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { value: input.value, start: input.selectionStart, end: input.selectionEnd } })).toEqual({ value: url, start: 4, end: url.length })
+  await address.press('ArrowDown')
+  await address.press('ArrowDown')
+  await expect(address).toHaveValue(`${url}/edited-second-pane`)
   await address.press('ArrowRight')
-  await expect(address).toHaveValue(url)
-  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd } })).toEqual({ start: url.length, end: url.length })
+  await expect(address).toHaveValue(`${url}/edited-second-pane`)
+  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd } })).toEqual({ start: `${url}/edited-second-pane`.length, end: `${url}/edited-second-pane`.length })
   await address.press('Backspace')
-  await expect(address).toHaveValue(url.slice(0, -1))
+  await expect(address).toHaveValue(`${url}/edited-second-pan`)
   await application.evaluate(({ webContents }) => {
     let chrome = webContents.getFocusedWebContents()!
     chrome.sendInputEvent({ type: 'keyDown', keyCode: 'l', modifiers: ['meta'] })
