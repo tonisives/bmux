@@ -1345,7 +1345,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     keepClientFocus(live)
     if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
     if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
+    live.view.setVisible(false)
     parent.contentView.addChildView(live.view)
+    live.view.setVisible(true)
     if (live.camera) parent.contentView.addChildView(live.camera)
     live.parent = parent
   }
