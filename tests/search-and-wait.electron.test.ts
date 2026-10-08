@@ -276,7 +276,6 @@ for (let focus of ['browser controls', 'page content']) test(`Command+Shift+N cr
   expect(selected.windowId).toBe(created.windows[0].id)
   expect(selected.paneId).toBe(created.windows[0].panes[0].id)
   await expect(chrome.getByRole('button', { name: 'Sessions', exact: true }).getByRole('img', { name: 'Private session' })).toBeVisible()
-  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
   await address.pressSequentially(`${url}/private-shortcut`)
