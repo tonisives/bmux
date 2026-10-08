@@ -98,6 +98,8 @@ test.beforeAll(async () => {
       deferredLinkRequests.set(request.url, { count: (previous?.count ?? 0) + 1, referrer: request.headers.referer })
     }
     if (request.url === '/pending-tab') { pendingPages.add(response); response.on('close', () => pendingPages.delete(response)); return }
+    if (request.url === '/redirect-abort') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><script>location.replace("/slow-redirected")</script>'); return }
+    if (request.url === '/navigation-failure') { response.destroy(); return }
     if (request.url === '/tab-icon.svg') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#588e73"/></svg>'); return }
     if (request.url?.startsWith('/cached-favicon/')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(fixture.replace('</head>', '<link rel="icon" href="/tab-icon.svg" type="image/svg+xml"></head>')); return }
     if (request.url?.startsWith('/slow')) { response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' }); response.end(`<!doctype html><title>Slow fixture</title><h1>Loading fixture</h1><script src="/held.js?fixture=${++slowFixture}"></script>`); return }
@@ -1363,6 +1365,69 @@ test('Command+L shows and replaces the URL during pending navigations', async ()
   await address.press('Escape')
   await cli('stop', { tab: tab.id })
   await cli('detach-client', { client: client.id })
+})
+
+test('replaced URL bar loads and link redirects keep the native page visible while resources load', async () => {
+  let session = await cli('new-session', { name: 'navigation-aborts' })
+  let tab = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id, client)
+  let openUrl = async (target: string) => {
+    await cli('activate-client', { client: client.id })
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.fill(target); await address.press('Enter')
+    await expect(address).toHaveCount(0)
+  }
+  let visibleWhileLoading = async (target: string) => {
+    await expect.poll(async () => (await cli('tab.list', { pane: tab.id }))[0].url).toBe(target)
+    let current = await cli('state')
+    expect(current.loading[tab.id]).toBe(true)
+    expect(current.crashes[tab.id]).toBeUndefined()
+    expect(current.pendingUrls[tab.id]).toBeUndefined()
+    await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)), target)).toBe(true)
+    await expect(chrome.getByText(/ERR_ABORTED/)).toHaveCount(0)
+  }
+  try {
+    await openUrl(`${url}/pending-tab`)
+    await expect.poll(async () => (await cli('state')).pendingUrls[tab.id]).toBe(`${url}/pending-tab`)
+    await openUrl(`${url}/slow-replacement`)
+    await visibleWhileLoading(`${url}/slow-replacement`)
+    await cli('stop', { tab: tab.id })
+
+    await openUrl(`${url}/redirect-abort`)
+    await visibleWhileLoading(`${url}/slow-redirected`)
+    await cli('stop', { tab: tab.id })
+
+    await cli('navigate', { tab: tab.id, url })
+    let page = application.context().pages().find(page => page.url() === url || page.url() === `${url}/`)!
+    await page.locator('#background-link').evaluate(element => { element.setAttribute('href', '/redirect-abort') })
+    await page.locator('#background-link').click()
+    await visibleWhileLoading(`${url}/slow-redirected`)
+  } finally {
+    await cli('stop', { tab: tab.id })
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id, confirm: true })
+  }
+})
+
+test('real navigation failures stay visible and clear as soon as a replacement commits', async () => {
+  let session = await cli('new-session', { name: 'navigation-recovery' })
+  let tab = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('navigate', { tab: tab.id, url: `${url}/navigation-failure`, waitUntil: 'none' })
+    await expect.poll(async () => (await cli('state')).crashes[tab.id]).toContain('ERR_EMPTY_RESPONSE')
+    await cli('navigate', { tab: tab.id, url: `${url}/slow-recovery`, waitUntil: 'none' })
+    await expect.poll(async () => (await cli('tab.list', { pane: tab.id }))[0].url).toBe(`${url}/slow-recovery`)
+    let current = await cli('state')
+    expect(current.crashes[tab.id]).toBeUndefined()
+    expect(current.loading[tab.id]).toBe(true)
+  } finally {
+    await cli('stop', { tab: tab.id })
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id, confirm: true })
+  }
 })
 
 test('stalled loads cannot block shortcuts, independent windows, or live keyboard settings', async () => {

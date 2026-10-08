@@ -78,6 +78,10 @@ let focusWindow = async (window: BaseWindow) => {
   }
 }
 let errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
+let navigationAborted = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false
+  return ('code' in error && error.code === 'ERR_ABORTED') || ('errno' in error && error.errno === -3)
+}
 let required = (args: Record<string, unknown>, name: string) => {
   let value = args[name]
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
@@ -900,7 +904,22 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
       catch { contents.stop() }
     })
-    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { scriptTouchedTabs.delete(tabId); if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url); live.pendingUrl = url; filters?.reset(tabId); delete findResults[tabId]; let cached = faviconCache.get(pane.profileId, url, session.private ? session.id : undefined); if (cached) favicons[tabId] = cached; else delete favicons[tabId]; audio[tabId] = { playing: false, muted: contents.isAudioMuted() }; audibleMedia.delete(tabId); faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1); publish() } })
+    contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
+      if (!mainFrame || inPlace) return
+      scriptTouchedTabs.delete(tabId)
+      if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url)
+      live.pendingUrl = url
+      filters?.reset(tabId)
+      delete findResults[tabId]
+      let cached = faviconCache.get(pane.profileId, url, session.private ? session.id : undefined)
+      if (cached) favicons[tabId] = cached
+      else delete favicons[tabId]
+      audio[tabId] = { playing: false, muted: contents.isAudioMuted() }
+      audibleMedia.delete(tabId)
+      faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1)
+      if (crashes[tabId]) { delete crashes[tabId]; void scheduleVisuals() }
+      publish()
+    })
     contents.on('found-in-page', (_event, result) => {
       let current = findResults[tabId]
       if (live.disposed || current?.requestId !== result.requestId) return
@@ -986,7 +1005,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (client.paneId !== pane.id) { client.paneId = pane.id; raisePane(paneById(model, pane.id).window, pane.id); save(); void scheduleVisuals() }
       }
     })
-    contents.on('did-navigate', () => { live.pendingUrl = undefined; update() })
+    contents.on('did-navigate', () => { live.pendingUrl = undefined; delete crashes[tabId]; update() })
     contents.on('did-navigate-in-page', () => update())
     contents.on('did-finish-load', () => {
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.
@@ -1112,7 +1131,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
       live.initialNavigation = result
-      void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && error?.code !== 'ERR_ABORTED' && error?.errno !== -3) { crashes[tabId] = errorText(error); publish() } })
+      void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } })
     }
     return live
   }
@@ -2738,10 +2757,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return loadPage(live.contents, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return loadPage(live.contents, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
-        if (live.pendingUrl === url) live.pendingUrl = undefined
+        if (live.pendingUrl === url && (live.disposed || live.contents.isDestroyed() || !live.contents.isLoading())) live.pendingUrl = undefined
         publish()
         if (!live.disposed) void scheduleVisuals()
       })
