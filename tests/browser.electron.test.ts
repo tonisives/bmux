@@ -605,7 +605,8 @@ test('links show their target, offer browser actions, and open popups in bmux wi
 for (let mobile of [false, true]) test(`background links defer loading until activation on ${mobile ? 'mobile' : 'desktop'}`, async ({}, info) => {
   let session = await cli('new-session', { name: `background-links-${mobile}` })
   let source = session.windows[0].panes[0]
-  await cli('navigate', { tab: source.id, url: `${url}/background-links` })
+  let sourceUrl = `${url}/background-links-${mobile}`
+  await cli('navigate', { tab: source.id, url: sourceUrl })
   let client = await cli('attach-session', { session: session.id })
   let failed = false
   try {
@@ -615,7 +616,7 @@ for (let mobile of [false, true]) test(`background links defer loading until act
       await chrome.evaluate(args => (window as any).bmux.command({ method: 'profile.device.set', args }), { pane: source.id, profile: source.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
       await cli('wait', { tab: source.id, selector: '#background-link' })
     }
-    let website = application.context().pages().find(page => page.url() === `${url}/background-links`)!
+    let website = application.context().pages().find(page => page.url() === sourceUrl)!
     // Touch emulation opens target=_blank links with a normal tap.
     if (mobile) await website.locator('#background-link').evaluate(element => element.setAttribute('target', '_blank'))
     for (let click of mobile ? [{ button: 'left' as const }] : [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
@@ -636,7 +637,7 @@ for (let mobile of [false, true]) test(`background links defer loading until act
       await expect.poll(() => application.context().pages().some(page => page.url() === `${url}${destination}`)).toBe(true)
       let loaded = application.context().pages().find(page => page.url() === `${url}${destination}`)!
       await expect(loaded.locator('#text')).toBeVisible()
-      expect(deferredLinkRequests.get(destination)).toEqual({ count: 1, referrer: `${url}/background-links` })
+      expect(deferredLinkRequests.get(destination)).toEqual({ count: 1, referrer: sourceUrl })
       expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(mobile)
       if (!mobile) {
         await cli('back', { tab: tab.id })
