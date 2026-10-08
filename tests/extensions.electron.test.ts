@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -89,9 +90,40 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
     let extensionPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await expect(extensionPanel).toContainText('Profile: default')
+    await expect(extensionPanel.getByText('Details', { exact: true })).toHaveCount(0)
+    let row = extensionPanel.getByRole('button', { name: 'Fixture extension', exact: true }).locator('..')
+    let nameButton = row.getByRole('button', { name: 'Fixture extension', exact: true })
+    let infoButton = row.getByRole('button', { name: 'Details for Fixture extension' })
+    let rowToggle = row.getByRole('switch')
+    for (let control of [nameButton, infoButton, rowToggle]) {
+      await control.hover()
+      await expect(row).toHaveCSS('background-color', 'rgb(48, 57, 68)')
+      await expect(nameButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(infoButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(rowToggle).toHaveCSS('background-color', 'rgb(167, 182, 156)')
+    }
+    await extensionPanel.getByText(/^Profile: default\./).hover()
+    await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await extensionPanel.getByRole('button', { name: 'Fixture extension', exact: true }).click()
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
     let toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
+    await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
+    await toolbarPopup.close()
+    await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
+    let detailsButton = extensionPanel.getByRole('button', { name: 'Details for Fixture extension' })
+    await detailsButton.focus()
+    await detailsButton.press('Enter')
+    let initialDetails = extensionPanel.getByRole('region', { name: 'Extension details' })
+    await expect(initialDetails.getByRole('button', { name: 'Back to extensions' })).toBeFocused()
+    await expect(initialDetails.getByRole('button', { name: 'Open extension', exact: true })).toHaveCount(0)
+    expect(application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(false)
+    await initialDetails.getByRole('button', { name: 'Back to extensions' }).click()
+    await expect(detailsButton).toBeFocused()
+    let extensionRow = extensionPanel.getByRole('button', { name: 'Fixture extension', exact: true })
+    await extensionRow.focus()
+    await extensionRow.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
+    toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
     await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
     await toolbarPopup.close()
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
@@ -182,7 +214,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect(await restoredPopup.evaluate(() => (window as any).chrome.storage.session.get(null))).toEqual({})
     let beforeEnabling = await chrome.evaluate(() => (window as any).bmux.state())
     await rpc('new-session', { name: 'extension sharing', profile: other.id, client: beforeEnabling.clientId })
-    await expect(chrome.getByRole('button', { name: `Profile: ${other.name}`, exact: true })).toBeVisible()
+    await expect(chrome.getByRole('button', { name: `Choose pane profile: ${other.name}`, exact: true })).toBeVisible()
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
     let sharingPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await expect(sharingPanel).toContainText('Profile: Isolated extension profile')
@@ -229,8 +261,10 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect(disabledPage.locator('html')).not.toHaveAttribute('data-extension-fixture', 'loaded')
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
     sharingPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
+    await expect(sharingPanel.getByRole('button', { name: 'Fixture extension', exact: true })).toBeDisabled()
     await sharingPanel.getByRole('button', { name: 'Details for Fixture extension' }).click()
     await expect(sharingPanel.getByRole('region', { name: 'Extension details' })).toContainText('storage, tabs')
+    await expect(sharingPanel.getByRole('button', { name: 'Open extension', exact: true })).toHaveCount(0)
     await sharingPanel.getByRole('button', { name: 'Back to extensions' }).click()
     await expect(sharingPanel.getByRole('button', { name: 'Details for Fixture extension' })).toBeFocused()
     let toggle = sharingPanel.getByRole('switch', { name: 'Enable Fixture extension' })
@@ -249,8 +283,8 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     expect((await rpc('extension.list', { profile })).extensions).toEqual([])
     expect(JSON.parse(await fs.readFile(path.join(directory, 'extensions.json'), 'utf8'))).toEqual([])
   } finally {
-    await application?.close()
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

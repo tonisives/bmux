@@ -1,31 +1,34 @@
 import { normalizeKeyAction } from './keyboard'
+import { indexedTarget, paneOrder, resolvePaneTarget, resolveWindowTarget, selectedWindow, windowInSession, windowPositionTarget } from './command-target'
 import type { Command, PublicState } from './types'
 
-export let tokenize = (line: string): string[] => {
-  let words: string[] = [], word = '', quote = '', escaped = false, started = false
-  for (let char of line.trim().replace(/^:/, '')) {
+export let commandTokens = (line: string, partial = false): { value: string; start: number; end: number }[] => {
+  let words: { value: string; start: number; end: number }[] = [], word = '', quote = '', escaped = false, start = -1
+  let offset = line.search(/\S/)
+  if (offset < 0) return words
+  if (line[offset] === ':') offset++
+  for (let index = offset; index < line.length; index++) {
+    let char = line[index]
     if (escaped) { word += char; escaped = false; continue }
-    if (char === '\\' && quote !== "'") { escaped = true; started = true; continue }
+    if (/\s/.test(char) && !quote) { if (start >= 0) words.push({ value: word, start, end: index }); word = ''; start = -1; continue }
+    if (start < 0) start = index
+    if (char === '\\' && quote !== "'") { escaped = true; continue }
     if (quote) { if (char === quote) quote = ''; else word += char; continue }
-    if (char === '"' || char === "'") { quote = char; started = true; continue }
-    if (/\s/.test(char)) { if (started) words.push(word); word = ''; started = false; continue }
-    word += char; started = true
+    if (char === '"' || char === "'") { quote = char; continue }
+    word += char
   }
-  if (quote || escaped) throw new Error('Unfinished quote or escape')
-  if (started) words.push(word)
+  if (!partial && (quote || escaped)) throw new Error('Unfinished quote or escape')
+  if (start >= 0) words.push({ value: word, start, end: line.length })
   return words
 }
 
+export let tokenize = (line: string): string[] => commandTokens(line).map(word => word.value)
+
 export let COMMAND_ALIASES: Record<string, string> = {
-  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapw: 'swap-window',
+  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', movew: 'move-window', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', rotatew: 'rotate-window', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapp: 'swap-pane', swapw: 'swap-window',
 }
 
-let indexed = <T extends { id: string; name?: string }>(items: T[], value: string) => {
-  let exact = items.find(item => item.id === value || item.name === value)
-  return exact ?? (/^[1-9]\d*$/.test(value) ? items[Number(value) - 1] : undefined)
-}
-
-let moveDestination = (state: PublicState, currentSessionId: string, target: unknown, newWindowForSession = false) => {
+let moveDestination = (state: PublicState, currentSessionId: string, target: unknown) => {
   if (target === undefined) return {}
   let value = String(target), sessions = state.model.sessions
   let pane = sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === value)
@@ -33,26 +36,32 @@ let moveDestination = (state: PublicState, currentSessionId: string, target: unk
   let currentSession = sessions.find(session => session.id === currentSessionId)!
   if (value.startsWith(':')) {
     let selector = value.slice(1).replace(/^\{(.+)\}$/, '$1')
-    let session = indexed(sessions, selector)
-    if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
-    let window = indexed(currentSession.windows, selector)
+    if (selector.includes('.')) return { destination: resolvePaneTarget(state, value).pane.id }
+    let window = windowInSession(state, currentSession, selector)
     if (window) return { window: window.id }
+    throw new Error(`Window '${selector}' not found`)
   }
   if (value.endsWith(':')) {
-    let session = indexed(sessions, value.slice(0, -1))
-    if (session) return newWindowForSession ? { session: session.id } : { window: session.windows[0].id }
+    let session = indexedTarget(sessions, value.slice(0, -1), 'Session')
+    if (session) return { window: selectedWindow(state, session).id }
+    throw new Error(`Session '${value.slice(0, -1)}' not found`)
   }
   if (value.includes(':')) {
     let [sessionSelector, windowSelector] = value.split(':', 2)
-    let session = indexed(sessions, sessionSelector)
-    let window = session && indexed(session.windows, windowSelector)
+    let session = indexedTarget(sessions, sessionSelector, 'Session')
+    if (!session) throw new Error(`Session '${sessionSelector}' not found`)
+    if (windowSelector.includes('.')) return { destination: resolvePaneTarget(state, value).pane.id }
+    let window = windowInSession(state, session, windowSelector)
     if (window) return { window: window.id }
+    throw new Error(`Window '${value}' not found`)
   }
-  let window = indexed(currentSession.windows, value)
+  if (value.startsWith('.') || value.includes('.')) return { destination: resolvePaneTarget(state, value).pane.id }
+  let window = windowInSession(state, currentSession, value)
     ?? sessions.flatMap(session => session.windows).find(window => window.id === value)
   if (window) return { window: window.id }
-  let session = indexed(sessions, value)
-  return session ? newWindowForSession ? { session: session.id } : { window: session.windows[0].id } : { destination: value }
+  let session = indexedTarget(sessions, value, 'Session')
+  if (session) return { window: selectedWindow(state, session).id }
+  throw new Error(`Pane, window, or session '${value}' not found`)
 }
 
 export let parseCommandLine = (line: string, state: PublicState): Command => {
@@ -60,7 +69,8 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let name = words.shift()
   if (!name) throw new Error('Enter a command')
   name = normalizeKeyAction(name)
-  let tmuxPaneMove = name === 'movep' || name === 'joinp'
+  let tmuxPaneMove = name === 'movep' || name === 'joinp' || (['move-pane', 'join-pane'].includes(name) && !words.some(word => /^--(pane|window|destination|x|y)(=|$)/.test(word)))
+  let shortBreak = name === 'breakp'
   name = COMMAND_ALIASES[name] ?? name
   let client = state.model.clients.find(client => client.id === state.clientId)
   if (!client) throw new Error('Client is detached')
@@ -69,22 +79,43 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let pane = window.panes.find(pane => pane.id === client.paneId)
   let positional: string[] = []
   let options: Record<string, unknown> = {}
-  let aliases: Record<string, string> = { t: 'target', s: tmuxPaneMove ? 'source' : 'name', n: 'name', c: 'client', W: 'floating' }
+  let movement = ['move-pane', 'join-pane', 'break-pane', 'swap-pane', 'rotate-window', 'move-window', 'swap-window'].includes(name)
+  let aliases: Record<string, string> = { t: 'target', s: movement ? 'source' : 'name', n: 'name', c: 'client', W: 'floating', ...(movement ? { d: 'background', b: 'before', a: 'after', U: 'up', D: 'down', Z: 'keepZoom', r: 'renumber' } : {}) }
   while (words.length) {
     let word = words.shift()!
     if (word === '--') { positional.push(...words); break }
     if (word === '-h' || word === '-v') { options.axis = word === '-h' ? 'horizontal' : 'vertical'; continue }
     if (!word.startsWith('-')) { positional.push(word); continue }
+    if (movement && /^-[bdhvWUDZar]{2,}$/.test(word)) { words.unshift(...word.slice(1).split('').map(flag => `-${flag}`)); continue }
+    if (movement && /^-[tsnc].+/.test(word) && !word.includes('=')) { words.unshift(word.slice(2)); word = word.slice(0, 2) }
     let [raw, ...rest] = word.replace(/^-+/, '').split('=')
     let key = aliases[raw] ?? raw
-    let value = rest.length ? rest.join('=') : ['confirm', 'background', 'floating', 'private'].includes(key) ? true : words.shift()
+    let boolean = ['confirm', 'background', 'floating', 'private', ...(movement ? ['before', 'after', 'up', 'down', 'keepZoom', 'renumber'] : [])].includes(key)
+    let value: unknown = rest.length ? rest.join('=') : boolean ? true : words.shift()
     if (value === undefined) throw new Error(`Missing value for ${word}`)
+    if (boolean && typeof value === 'string' && ['true', 'false'].includes(value)) value = value === 'true'
     options[key] = value
+  }
+  if (movement) {
+    let supported: Record<string, string[]> = {
+      'move-pane': ['target', 'source', 'pane', 'window', 'destination', 'session', 'x', 'y', 'axis', 'before', 'background', 'client'],
+      'join-pane': ['target', 'source', 'pane', 'window', 'destination', 'axis', 'before', 'background', 'client'],
+      'break-pane': ['target', 'source', 'pane', 'window', 'session', 'floating', 'name', 'before', 'after', 'background', 'client'],
+      'swap-pane': ['target', 'source', 'background', 'up', 'down', 'keepZoom', 'client'],
+      'rotate-window': ['target', 'up', 'down', 'keepZoom', 'client'],
+      'move-window': ['target', 'source', 'position', 'session', 'before', 'after', 'background', 'renumber', 'client'],
+      'swap-window': ['target', 'source', 'background', 'client'],
+    }
+    for (let key of Object.keys(options)) if (!supported[name].includes(key)) throw new Error(`Unsupported option for ${name}: --${key}`)
+    if (positional.length && name !== 'move-window' && name !== 'swap-window') throw new Error(`${name} does not accept positional targets; use -s and -t`)
+    if (options.before && options.after) throw new Error('Use either -b or -a')
+    if (options.up && options.down) throw new Error('Use either -U or -D')
   }
   let target = options.target
   delete options.target
+  if (movement && options.client !== undefined && options.client !== client.id) return parseCommandLine(line, { ...state, clientId: String(options.client) })
   let current = { client: client.id }
-  let windowTarget = target !== undefined && /^[1-9]\d*$/.test(String(target)) ? session.windows[Number(target) - 1]?.id ?? target : target ?? client.windowId
+  let windowTarget = () => resolveWindowTarget(state, target).window.id
   let paneTarget = target ?? pane?.id
   if (name === 'dark' || name === 'adblock') {
     let value: unknown = positional[0] ?? 'toggle'
@@ -108,6 +139,12 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     if (['list', 'runs', 'reload'].includes(action ?? '')) return { method: `plugin.${action}` }
     throw new Error('Use plugin list, run ID/ACTION, runs, cancel ID, or reload')
   }
+  if (name === 'automation') {
+    let action = positional[0]
+    if (action === 'resume') return { method: 'automation.resume', args: { pane: paneTarget } }
+    if (['status', 'safety'].includes(action ?? '')) return { method: `automation.${action}` }
+    throw new Error('Use automation status, safety, or resume')
+  }
   if (/^(https?:\/\/|localhost[:/])/.test(name) || name.includes('.')) return { method: 'navigate', args: { pane: pane?.id, url: [name, ...positional].join(' ') } }
   if (name === 'session') name = 'switch-client'
   if (name === 'new-client') name = 'attach-session'
@@ -120,20 +157,54 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'reopen-closed' || name === 'reopen-closed-tab') return { method: 'reopen-closed', args: current }
   if (name === 'move-window-left' || name === 'move-window-right') return { method: 'swap-window', args: { ...current, direction: name === 'move-window-left' ? -1 : 1 } }
   if (name === 'move-window-first' || name === 'move-window-last') return { method: 'move-window', args: { ...current, position: name === 'move-window-first' ? 'first' : 'last' } }
-  if (name === 'move-window') return { method: name, args: { ...current, position: target ?? positional[0] } }
-  if (name === 'swap-window') {
-    let destination = String(target ?? positional[0] ?? '')
-    if (!['-1', '+1'].includes(destination)) throw new Error('Use swap-window -t -1 or swap-window -t +1')
-    return { method: name, args: { ...current, direction: destination === '-1' ? -1 : 1 } }
+  if (name === 'move-window') {
+    let source = resolveWindowTarget(state, options.source)
+    if (options.renumber) {
+      let selector = target === undefined ? session.id : String(target).replace(/:$/, '')
+      let selected = indexedTarget(state.model.sessions, selector, 'Session')
+      if (!selected) throw new Error(`Session '${selector}' not found`)
+      return { method: 'renumber-windows', args: { session: selected.id } }
+    }
+    delete options.source
+    let destination = windowPositionTarget(state, target ?? positional[0] ?? options.position ?? (options.before || options.after ? ':' : undefined))
+    return { method: name, args: { ...current, window: source.window.id, ...destination, ...options } }
   }
-  if (['select-window', 'kill-window', 'rename-window', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget, name: options.name ?? positional[0] } }
+  if (name === 'swap-window') {
+    let source = resolveWindowTarget(state, options.source).window.id
+    delete options.source
+    return { method: name, args: { ...current, window: source, destination: resolveWindowTarget(state, target ?? positional[0]).window.id, ...options } }
+  }
+  if (['select-window', 'kill-window', 'rename-window', 'toggle-window-pin', 'save-layout', 'restore-layout'].includes(name)) return { method: name, args: { ...current, ...options, window: windowTarget(), name: options.name ?? positional[0] } }
   if (name === 'rename-session') return { method: name, args: { ...options, session: target ?? client.sessionId, name: options.name ?? positional[0] } }
   if (tmuxPaneMove) {
-    let source = options.source ?? pane?.id
+    let source = resolvePaneTarget(state, options.source).pane.id
+    let destination = target === undefined && options.source !== undefined ? { destination: pane?.id } : moveDestination(state, client.sessionId, target)
     delete options.source
-    return { method: name, args: { ...current, pane: source, ...moveDestination(state, client.sessionId, target, name === 'move-pane'), ...options } }
+    return { method: name, args: { ...current, pane: source, ...destination, ...options } }
   }
-  if (['split-window', 'select-pane', 'kill-pane', 'move-pane', 'join-pane', 'new-pane', 'break-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
+  if (name === 'break-pane') {
+    let legacySource = !shortBreak && options.source === undefined && state.model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === target)))
+    let source = resolvePaneTarget(state, options.source ?? options.pane ?? (legacySource ? target : undefined))
+    if (!options.floating && target === undefined && source.window.panes.length === 1) throw new Error('Pane is already the only pane in its window')
+    delete options.source
+    let destination = options.floating || legacySource ? {} : windowPositionTarget(state, target ?? (options.before || options.after ? source.window.id : undefined), source.session.id)
+    return { method: name, args: { ...current, pane: source.pane.id, ...destination, ...options } }
+  }
+  if (name === 'swap-pane') {
+    let destination = resolvePaneTarget(state, target)
+    let neighbor: string | undefined
+    if (options.up || options.down) {
+      let order = paneOrder(destination.window).filter(id => !destination.window.floating?.some(item => item.paneId === id))
+      if (!order.includes(destination.pane.id)) throw new Error('Cannot swap up or down on a floating pane')
+      neighbor = order[(order.indexOf(destination.pane.id) + (options.up ? -1 : 1) + order.length) % order.length]
+    }
+    let source = resolvePaneTarget(state, neighbor ?? options.source)
+    delete options.source; delete options.up; delete options.down
+    return { method: name, args: { ...current, pane: source.pane.id, destination: destination.pane.id, ...options } }
+  }
+  if (name === 'rotate-window') return { method: name, args: { ...current, window: windowTarget(), direction: options.up ? -1 : 1, keepZoom: options.keepZoom } }
+  if (['split-window', 'select-pane', 'kill-pane', 'new-pane'].includes(name)) return { method: name, args: { ...current, pane: resolvePaneTarget(state, target).pane.id, ...options } }
+  if (['move-pane', 'join-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
   if (name === 'resize-pane') return { method: name, args: { ...current, ...(options.split ? { window: target ?? client.windowId } : { pane: target ?? pane?.id }), ...options } }
   if (name === 'next-window' || name === 'previous-window') return { method: 'cycle-window', args: { ...current, direction: name === 'next-window' ? 1 : -1 } }
   if (name === 'next-session' || name === 'previous-session') {

@@ -1,0 +1,31 @@
+import { expect, test } from 'vitest'
+import { createSwipeSnapshotCache } from '../src/main/swipe-snapshots'
+
+let snapshot = (bytes: number) => ({ image: Buffer.alloc(bytes), width: 800, height: 600 })
+test('history previews obey global byte and per-tab limits and evict oldest images', () => {
+  let cache = createSwipeSnapshotCache(100, 2)
+  cache.set(1, 10, snapshot(30)); cache.set(1, 11, snapshot(30)); cache.set(1, 12, snapshot(30))
+  expect(cache.get(1, 10, 800, 600)).toBeUndefined()
+  cache.set(2, 10, snapshot(50))
+  expect(cache.bytes).toBe(80)
+  expect(cache.get(1, 11, 800, 600)).toBeUndefined()
+  expect(cache.get(2, 10, 800, 600)).toHaveLength(50)
+  cache.set(1, 12, snapshot(20))
+  expect(cache.bytes).toBe(70)
+  cache.set(3, 10, snapshot(101))
+  expect(cache.bytes).toBe(70)
+})
+test('snapshots are isolated by tab and history identity, match dimensions and clear on close', () => {
+  let cache = createSwipeSnapshotCache()
+  cache.set(1, 10, snapshot(30)); cache.set(2, 10, snapshot(40)); cache.set(1, 11, snapshot(50))
+  expect(cache.get(1, 10, 900, 600)).toBeUndefined()
+  expect(cache.get(1, 10, 800, 600)).toHaveLength(30)
+  cache.prune(1, [11])
+  expect(cache.get(1, 10, 800, 600)).toBeUndefined()
+  expect(cache.get(2, 10, 800, 600)).toHaveLength(40)
+  cache.clear(1)
+  expect(cache.size).toBe(1)
+  expect(cache.bytes).toBe(40)
+  cache.clear(2)
+  expect(cache.bytes).toBe(0)
+})

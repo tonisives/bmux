@@ -4,8 +4,18 @@ image="${BMUX_TEST_IMAGE:-bmux-test:local}"
 suffix="$$"
 database="bmux-test-db-${suffix}"
 turn="bmux-test-turn-${suffix}"
+browser="bmux-test-browser-${suffix}"
+results="${BMUX_TEST_RESULTS:-test-results/linux}"
+core_limit=0
+diagnostic_capability=
+if [ "${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" = 1 ]; then
+  core_limit=-1
+  diagnostic_capability=--cap-add=SYS_PTRACE
+fi
+mkdir -p "$results"
 cleanup() {
-  docker rm -f "$turn" "$database" >/dev/null 2>&1 || true
+  docker cp "$browser:/tmp/results/." "$results/" >/dev/null 2>&1 || true
+  docker rm -f "$browser" "$turn" "$database" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 docker run -d --name "$database" -e POSTGRES_HOST_AUTH_METHOD=trust postgres:17-alpine >/dev/null
@@ -16,10 +26,13 @@ done
 docker run -d --name "$turn" --network "container:${database}" coturn/coturn:4.6.3 \
   --no-cli --no-tls --no-dtls --fingerprint --use-auth-secret --static-auth-secret=fixture \
   --realm=bmux-fixture --allow-loopback-peers --no-multicast-peers >/dev/null
-docker run --rm --network "container:${database}" --shm-size=256m \
+docker run --name "$browser" --network "container:${database}" --shm-size=1g \
+  $diagnostic_capability \
+  --ulimit core="$core_limit" \
   --security-opt seccomp=containers/chromium-seccomp.json \
+  -e BMUX_NATIVE_CRASH_DIAGNOSTICS="${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
-  "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/host-proxy.electron.test.ts --output=/tmp/results
+  "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/host-proxy.electron.test.ts --output=/tmp/results "$@"
 docker run --rm --network "container:${database}" --entrypoint node \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   "$image" tests/remote-service.integration.mjs

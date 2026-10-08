@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -30,8 +31,8 @@ test('required home egress fails closed across outages and new profiles', async 
     await expect(run('navigate','-t',pane.id,`${url}/outage`)).rejects.toThrow()
     expect(requests).toBe(before)
   } finally {
-    await application.close(); await proxy.close(true).catch(()=>undefined)
+    await closeTestApplication(application); await proxy.close(true).catch(()=>undefined)
     await new Promise<void>(resolve=>fixture.close(()=>resolve()))
-    await fs.rm(directory,{recursive:true,force:true})
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

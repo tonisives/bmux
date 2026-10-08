@@ -1,5 +1,5 @@
 diff --git a/dist/chrome-extension-api.preload.js b/dist/chrome-extension-api.preload.js
-index 67d3be4b5026069ec4ae73c1fc6e661f8a19098e..aebb82ca171ad10111316c976b499bdb6227ff8b 100644
+index 67d3be4b5026069ec4ae73c1fc6e661f8a19098e..2b80a3167dd888d765c447b9712453695f90feb2 100644
 --- a/dist/chrome-extension-api.preload.js
 +++ b/dist/chrome-extension-api.preload.js
 @@ -14,18 +14,21 @@
@@ -55,7 +55,29 @@ index 67d3be4b5026069ec4ae73c1fc6e661f8a19098e..aebb82ca171ad10111316c976b499bdb
          console.log(fnName, "(result)", result);
        }
        if (callback) {
-@@ -450,8 +455,37 @@
+@@ -346,8 +351,12 @@
+         },
+         extension: {
+           factory: (base) => {
++            // Chromium's removed MV2 request APIs throw when their getters are read.
++            const supported = Object.fromEntries(Object.keys(base || {})
++              .filter((key) => !["sendRequest", "onRequest", "onRequestExternal"].includes(key))
++              .map((key) => [key, base[key]]));
+             return {
+-              ...base,
++              ...supported,
+               isAllowedFileSchemeAccess: invokeExtension2("extension.isAllowedFileSchemeAccess", {
+                 noop: true,
+                 defaultResponse: false
+@@ -432,6 +441,7 @@
+           factory: (base) => {
+             return {
+               ...base,
++              get lastError() { return base.lastError; },
+               connectNative: (application) => {
+                 const port = new NativePort();
+                 const receive = port._receive.bind(port);
+@@ -450,8 +460,37 @@
          storage: {
            factory: (base) => {
              const local = base && base.local;

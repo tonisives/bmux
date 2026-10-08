@@ -6,11 +6,12 @@ extensions you trust. They run in sandboxed extension contexts; websites do not
 receive the bmux API.
 
 Use the extensions button in the status bar to see extensions installed in the
-selected pane's profile and open their popups. Use each row's toggle to enable or
-disable an extension. Details opens a separate view with its description, version,
-ID, package location, and declared permissions, including site access and optional
-permissions. Removal lives in the details view's Danger zone and affects only the
-selected profile.
+selected pane's profile. Use each row's toggle to enable or disable an extension.
+Click an enabled extension row to open its popup when one is provided. The info
+button within each row opens its description, version, ID, package location, and
+declared permissions, including site access and optional permissions. Back to
+extensions returns to the list. Removal lives in the details view's Danger zone
+and affects only the selected profile.
 Disabled extensions stay installed and remain disabled after restarting bmux.
 Options in the details view opens the extension's own settings page when one is provided.
 These controls affect only the selected profile; removing an extension does not
@@ -53,11 +54,26 @@ Bitwarden registers its passkey scripts only after an account is signed in.
 For the first manual check, sign in with email and master password, unlock the
 vault, reload the website, and choose that website's passkey sign-in option.
 
+If Bitwarden reports "Attempting to use a disconnected port object", disable
+and re-enable it in the affected pane's profile, then reopen its popup. This
+reloads the extension's background process and retains its saved browser storage.
+Sign in or unlock that profile's vault and reload the login page afterward.
+
 For other unpacked extensions, use `extension load /absolute/path`. The directory
 must contain `manifest.json` and remain at that path between launches. Packaged
 CRX files are not supported. To remove an extension, use `extension remove ID`.
 Unloading stops the extension but retains its browser storage; reload open pages
 to remove scripts it has already injected.
+
+Hanzisize 0.2.7 and 1.0.1 automatically apply the profile's saved language and
+minimum font size when permitted pages finish loading, including after a reload
+or browser restart. Open its popup once to choose the language and a nonzero size.
+Enabling it also applies those settings to pages already loaded in that profile.
+Its resize keyboard shortcut is not supported in bmux yet.
+Electron does not currently grant temporary host access for `activeTab`, so
+Hanzisize also needs explicit site patterns in its local manifest's `permissions`
+array (for example, `https://*.facebook.com/*`). Add only the sites you intend to
+allow, then disable and re-enable the extension in each profile to reload it.
 
 The CLI exposes the same operations with an explicit profile:
 

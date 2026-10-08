@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -49,6 +50,9 @@ test('background panes deliver static frames without a visible window', async ()
       state.remoteCapture = await state.createTestCapture({ contents, iceServers, relayOnly, signal: (sdp: unknown) => { state.remoteOffer = sdp }, data: (data: string) => { state.remoteData = data }, closed: () => undefined })
     }, { url: origin, iceServers, relayOnly })
     await expect.poll(() => application.evaluate(() => !!(globalThis as any).remoteOffer)).toBe(true)
+    await test.step('Native focus lookup remains safe with an active hidden transport', async () => {
+      await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.id ?? null)
+    })
     await application.evaluate(async ({ BrowserWindow }, url) => {
       let viewer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
       await viewer.loadURL(url + '/viewer')
@@ -86,8 +90,8 @@ test('background panes deliver static frames without a visible window', async ()
     })).toBe('relay')
     await application.evaluate(() => (globalThis as any).remoteCapture.close())
   } finally {
-    await application.close()
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

@@ -3,10 +3,86 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, reassignConflictingPaneIds, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
+import { backOpener } from '../src/shared/opener-navigation'
 
 describe('session layouts and persistence', () => {
+  it('persists pinned windows, accepts older state and rejects invalid pin settings', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-pinned-'))
+    try {
+      let model = initialModel(), session = model.sessions[0], first = session.windows[0]
+      let pinned = newWindow('pinned', session.defaultProfileId, false, model)
+      pinned.pinned = true
+      session.windows.push(pinned)
+      writeModel(directory, model)
+      let restored = readModel(directory).sessions[0].windows
+      expect(restored.map(window => window.id)).toEqual([pinned.id, first.id])
+      expect(restored[0].pinned).toBe(true)
+      expect(restored[1].pinned).toBeUndefined()
+      let invalid = { ...model, sessions: [{ ...session, windows: [{ ...pinned, pinned: 'yes' }] }] }
+      expect(() => validateModel(invalid)).toThrow('Invalid pinned window setting')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('returns to an eligible opener across windows and forgets closed openers before IDs are reused', () => {
+    let model = initialModel(), session = model.sessions[0], source = session.windows[0]
+    let popup = newWindow('popup', session.defaultProfileId, false, model), pane = popup.panes[0]
+    pane.openerPaneId = source.panes[0].id
+    session.windows.push(popup)
+    expect(backOpener(model, pane)).toBeUndefined()
+    pane.backToOpener = true
+    expect(backOpener(validateModel(structuredClone(model)), pane)?.pane.id).toBe(source.panes[0].id)
+    expect(backOpener(model, pane)?.window).toBe(source)
+    session.windows = [popup]
+    repairClientSelections(model)
+    let replacement = newWindow('unrelated', session.defaultProfileId, false, model)
+    session.windows.push(replacement)
+    expect(replacement.panes[0].id).toBe(source.panes[0].id)
+    expect(backOpener(model, pane)).toBeUndefined()
+  })
+  it('uses the smallest available numeric pane ID and keeps IDs unique across windows', () => {
+    let model = initialModel()
+    let first = model.sessions[0].windows[0]
+    expect(first.panes[0].id).toBe('%1')
+    let second = newPane('profile_default', 'about:blank', model)
+    first.panes.push(second)
+    expect(second.id).toBe('%2')
+    let other = newWindow('other', 'profile_default', false, model)
+    model.sessions[0].windows.push(other)
+    expect(other.panes[0].id).toBe('%3')
+    first.panes = first.panes.filter(pane => pane !== second)
+    let reused = newPane('profile_default', 'about:blank', model)
+    expect(reused.id).toBe('%2')
+    first.panes.push(reused)
+    expect(cloneWindow(first, model).panes.map(pane => pane.id)).toEqual(['%4', '%5'])
+  })
+  it('remaps a reopened pane when its number has been reused', () => {
+    let model = initialModel()
+    let window = model.sessions[0].windows[0]
+    let closed = newPane('profile_default', 'about:blank', model)
+    closed.openerPaneId = window.panes[0].id
+    window.panes.push(closed)
+    window.layout = splitLayout(window.layout, window.panes[0].id, closed.id, 'horizontal')
+    window.panes.pop()
+    window.layout = removePane(window.layout, closed.id)
+    let replacement = newPane('profile_default', 'about:blank', model)
+    window.panes.push(replacement)
+    let reopened = { ...window, panes: [closed], layout: { kind: 'pane' as const, paneId: closed.id } }
+    reassignConflictingPaneIds(reopened, model)
+    expect(replacement.id).toBe('%2')
+    expect(closed.id).toBe('%3')
+    expect(closed.openerPaneId).toBe('%1')
+    expect(reopened.layout).toEqual({ kind: 'pane', paneId: '%3' })
+  })
+  it('moves a saved profile device to existing panes without setting a future-pane default', () => {
+    let model = initialModel()
+    model.profiles[0].device = { preset: 'pixel-8', platform: 'android', width: 412, height: 915, deviceScaleFactor: 2.625, orientation: 'portrait', locale: 'en-US', timezone: 'UTC' }
+    let pane = model.sessions[0].windows[0].panes[0]
+    validateModel(model)
+    expect(pane.device?.preset).toBe('pixel-8')
+    expect(model.profiles[0].device).toBeUndefined()
+    expect(model.sessions[0].device).toBeUndefined()
+  })
   it('resolves a window by session and one-based index', () => {
     let model = initialModel()
     let session = model.sessions[0]
@@ -58,28 +134,34 @@ describe('session layouts and persistence', () => {
     window.panes[0].url = 'https://www.example.com/first'
     expect(updateAutomaticWindowName(window)).toBe(true)
     expect(window.name).toBe('example.com')
+    window.panes[0].title = 'Example page title'
+    expect(updateAutomaticWindowName(window)).toBe(true)
+    expect(window.name).toBe('Example page title')
+    expect(updateAutomaticWindowName(window)).toBe(false)
     window.panes[0].url = 'https://docs.example.test/latest'
+    window.panes[0].title = 'Documentation and guides'
     updateAutomaticWindowName(window)
-    expect(window.name).toBe('docs.example.test')
+    expect(window.name).toBe('Documentation and guides')
     let second = newPane('profile_default', 'https://second.test')
     window.panes.push(second)
     updateAutomaticWindowName(window)
-    expect(window.name).toBe('docs.example.test')
+    expect(window.name).toBe('Documentation and guides')
     updateAutomaticWindowName(window, second.id)
     expect(window.name).toBe('second.test')
     let pane = newPane('profile_default', 'https://third.test')
     window.panes.push(pane)
     updateAutomaticWindowName(window, pane.id)
     expect(window.name).toBe('third.test')
-    window.name = 'research'; window.automaticName = false
+    window.name = 'Research with a deliberately long manual window name'; window.automaticName = false
     updateAutomaticWindowName(window, window.panes[0].id)
-    expect(window.name).toBe('research')
+    expect(window.name).toBe('Research with a deliberately long manual window name')
   })
   it('round-trips state atomically and refuses corrupt state without replacing it', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-unit-'))
     try {
       let model = initialModel()
       model.sessions[0].name = 'persistent'
+      model.sessions[0].windows[0].panes[0].adblock = false
       writeModel(directory, model)
       expect(readModel(directory)).toEqual(model)
       expect(fs.existsSync(path.join(directory, 'state.json.tmp'))).toBe(false)

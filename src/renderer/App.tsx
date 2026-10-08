@@ -1,16 +1,29 @@
+import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
+import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
+import { permissionPaneLabel } from '../shared/permission-source'
+import { parseDevicePersona } from '../shared/device-persona'
+import { DeviceEmulationDetails } from './DeviceEmulationDetails'
+import { automationExclusionActive, automationSiteExclusion, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import type { AutomationSiteExclusion, AutomationSafety } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
-import type { Bookmark, BookmarkParameters, Bridge, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
 import css from './App.module.css'
+import iphoneFrame from './device-frames/iphone-15-pro.png'
+import pixelFrame from './device-frames/pixel-8.png'
+import galaxyFrame from './device-frames/galaxy-s24.png'
 import { SearchInput } from './SearchInput'
+import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
 import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keyboard'
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
+import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
+import { backOpener } from '../shared/opener-navigation'
 import { inlineUrlCompletion, prioritizeInlineHistory } from '../shared/address-suggestions'
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
@@ -18,27 +31,29 @@ import { clampFloat } from '../shared/floating'
 import { DEFAULT_SEARCH_APPS, SEARCH_APPS } from '../shared/search-app'
 import type { ClickAction } from '../shared/click-mode'
 import { CloseButton } from './CloseButton'
+import { BookmarkActions, BookmarkTitle, useBookmarkActions } from './BookmarkActions'
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'remote-sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
+type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[] }
+type Notification = { id: string; text: string; dismiss?: () => void; actions?: { label: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
-type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string) => void; dismiss: () => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let [state, setState] = useState<PublicState | null>(null)
+  let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
   let [control, setControl] = useState<Control | null>(null)
-  let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null)
-  let [addressFocusVersion, setAddressFocusVersion] = useState(0)
-  let [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
+  let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
+  let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
-  let { bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useBookmarkMemory()
+  let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
@@ -59,9 +74,9 @@ export let App = () => {
   }, [])
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args }) }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); return undefined }
+    catch (error) { setMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); return undefined }
   }, [])
-  let show = useCallback(async (control: Control, paneId?: string) => {
+  let show = useCallback(async (control: Control, paneId?: string, destination?: BookmarkDestination) => {
     setHistoryPopup(null)
     if (paneId) {
       let current = await bridge.state()
@@ -72,7 +87,7 @@ export let App = () => {
       accept(current)
     }
     if (control === 'address') { void run('focus-ui', { pane: paneId }); setAddressFocusVersion(version => version + 1) }
-    setMessage(''); setControl(control)
+    setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
     if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
@@ -118,9 +133,9 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...proxyFailureNotices(state, window, run, show),
+    ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, window, show).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
-  let context = { state, control, historyPopup, setHistoryPopup, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
+  let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -129,6 +144,33 @@ export let App = () => {
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
+}
+
+let useIgnoredAutomationWarnings = (state: PublicState | null) => {
+  let [ignoredWarnings, setIgnoredWarnings] = useState<string[]>([])
+  useExclusionExpiry(state?.automationSafety?.limits)
+  let warningKeys = (state?.automationSafety?.profiles ?? []).filter(item => item.warning && automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!)).map(item => `${item.profileId}:${item.warningHost}:${item.warning}`).join('|')
+  useEffect(() => { setIgnoredWarnings(current => current.filter(key => warningKeys.split('|').includes(key))) }, [warningKeys])
+  return { ignoredWarnings, setIgnoredWarnings }
+}
+
+let frameAssets = {
+  ios: { image: iphoneFrame },
+  pixel: { image: pixelFrame },
+  galaxy: { image: galaxyFrame },
+}
+let frameAsset = (device: DevicePersona) => device.platform === 'ios' ? frameAssets.ios : device.preset === 'galaxy-s24' ? frameAssets.galaxy : frameAssets.pixel
+let frameGeometry = (device: DevicePersona, screenSize: { width: number; height: number }) => {
+  let screen = deviceFrameScreen(device)
+  let portrait = device.orientation === 'portrait'
+  let widthFactor = portrait ? 1024 / screen.width : 1536 / screen.height
+  let heightFactor = portrait ? 1536 / screen.height : 1024 / screen.width
+  return {
+    width: screenSize.width * widthFactor,
+    height: screenSize.height * heightFactor,
+    screenLeft: screenSize.width * (portrait ? screen.x / screen.width : (1536 - screen.y - screen.height) / screen.height),
+    screenTop: screenSize.height * (portrait ? screen.y / screen.height : screen.x / screen.width),
+  }
 }
 
 let useAddressTabSwitch = (control: Control | null, clientId: string | undefined, run: UIContext['run']) => useEffect(() => {
@@ -143,24 +185,34 @@ let useAddressTabSwitch = (control: Control | null, clientId: string | undefined
 }, [control, clientId, run])
 
 let useBookmarkMemory = () => {
+  let [allBookmarkProfiles, setAllBookmarkProfiles] = useState(false)
   let [bookmarkSearches, setBookmarkSearches] = useState<Record<string, string>>({})
   let [bookmarkSelections, setBookmarkSelections] = useState<Record<string, string>>({})
   let rememberBookmarkSearch = useCallback((profileId: string, query: string) => setBookmarkSearches(current => ({ ...current, [profileId]: query })), [])
   let rememberBookmarkSelection = useCallback((profileId: string, bookmarkId: string) => setBookmarkSelections(current => ({ ...current, [profileId]: bookmarkId })), [])
-  return { bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection }
+  return { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection }
 }
 
-let proxyFailureNotices = (state: PublicState, window: InternalWindow, run: UIContext['run'], show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
-  let pane = window.panes.find(item => item.profileId === profileId)
+let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
+  let pane = window.panes.find(item => paneConnectionId(item) === profileId)
   if (!pane) return []
-  let name = state.model.profiles.find(item => item.id === profileId)?.name ?? profileId
-  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }, { label: 'Disable proxy and continue', run: () => { void run('profile.proxy.clear', { profile: profileId }) } }] }]
+  let name = state.model.profiles.find(item => item.id === pane.profileId)?.name ?? profileId
+  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
+})
+
+let automationWarningNotices = (state: PublicState, window: InternalWindow, show: UIContext['show']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
+  let pane = window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
+  if (!pane || !usage.warning || !host || !automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host)) return []
+  let profile = state.model.profiles.find(item => item.id === usage.profileId)
+  return [{ id: `${usage.profileId}:${host}:${usage.warning}`, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${profile?.name ?? usage.profileId}: ${usage.warning} on ${host}. All panes using this profile are affected.`, actions: [
+    { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
+  ] }]
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
 
 let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
-let profileDeviceLabel = (profile: Profile) => !profile.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: profile.device.platform === 'android' ? 'Android' : 'iOS' })[profile.device.preset]
+let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
 
 let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
   let hash = profileHash(id), background = AVATAR_COLORS[hash % AVATAR_COLORS.length], foreground = AVATAR_COLORS[(hash >>> 5) % AVATAR_COLORS.length]
@@ -207,7 +259,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -246,8 +298,6 @@ let Status = () => {
     void run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
   }
   let sessions = () => show('sessions')
-  let profiles = () => show('profiles')
-  let proxy = () => show('proxy')
   let help = () => show('help')
   let commands = () => show('command')
   let activity = () => show('activity')
@@ -262,15 +312,21 @@ let Status = () => {
   let downloadTitle = progressingDownloads.length
     ? `${progressingDownloads.length} download${progressingDownloads.length === 1 ? '' : 's'} in progress${downloadProgress === undefined ? '' : ` · ${downloadProgress}%`}`
     : 'Downloads'
-  let proxyTest = profile ? state.profileProxyTests[profile.id] : undefined
-  let proxyFailure = profile ? state.profileProxyFailures[profile.id] : undefined
-  let profileTitle = profile ? `Profile: ${profile.name}` : 'Profile'
-  let proxyTitle = proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : profile?.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : ''
   useLayoutEffect(() => {
     let list = windows.current
     if (!list) return
     let reveal = () => {
-      let active = list.querySelector<HTMLElement>('[data-active="true"]')
+      let tabs = Array.from(list.querySelectorAll<HTMLElement>('[data-window-id]'))
+      let widths = tabs.map(tab => {
+        if (tab.dataset.pinned === 'true') return tab.getBoundingClientRect().width
+        let range = document.createRange()
+        range.selectNodeContents(tab.querySelector(`.${css.windowLabel}`)!)
+        return range.getBoundingClientRect().width + parseFloat(getComputedStyle(tab).minWidth)
+      })
+      let automaticWidth = Math.max(0, ...widths.filter((_, index) => tabs[index].dataset.automatic === 'true'))
+      list.style.setProperty('--automatic-tab-width', `${automaticWidth}px`)
+      list.dataset.compressed = String(widths.reduce((total, width) => total + width, 0) + Math.max(0, tabs.length - 1) * 3 > list.clientWidth)
+      let active = list.querySelector<HTMLElement>('[data-selected="true"]')
       if (!active) return
       let item = active.getBoundingClientRect(), bounds = list.getBoundingClientRect()
       if (item.left < bounds.left) list.scrollLeft = Math.max(0, list.scrollLeft - (bounds.left - item.left) - 1)
@@ -279,14 +335,12 @@ let Status = () => {
     let observer = new ResizeObserver(reveal)
     observer.observe(list); reveal()
     return () => observer.disconnect()
-  }, [client?.windowId, session?.windows.length])
+  }, [client?.windowId, session?.windows])
   let reclaim = () => { void run('remote.reclaim') }
-  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}>[<span className={css.sessionName}>{session!.name}</span>{session!.private && <PrivateIcon />}]</button>
+  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
-    {!session!.private && <button onClick={profiles} aria-label={profile ? `Profile: ${profile.name}` : 'Profile'} title={profileTitle} className={css.profileButton}>{profile && <ProfileAvatar id={profile.id} name={profile.name} />}</button>}
-    {profile?.proxy && <button type="button" onClick={proxy} aria-label={`Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}`} title={proxyTitle} className={css.proxyButton} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
     <button onClick={extensions} aria-label="Extensions" title="Extensions" className={css.extensionsButton}><ExtensionsIcon /></button>
@@ -298,16 +352,38 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let client = state.model.clients.find(client => client.id === state.clientId)
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
   let tabId = pane?.id
-  let label = `${index}:${window.name}${active ? '*' : ''}`
-  let select = () => { void run('select-window', { client: state.clientId, window: window.id }) }
+  let characters = Array.from(window.name)
+  let name = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
+  let label = `${index}:${name}${active ? '*' : ''}`
+  let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
+  let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
+  let tooltipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  let hideTooltip = () => {
+    clearTimeout(tooltipTimer.current)
+    tooltipTimer.current = undefined
+    void run('client.tooltip', { visible: false })
+  }
+  let showTooltip = (event: MouseEvent<HTMLButtonElement>) => {
+    clearTimeout(tooltipTimer.current)
+    let button = event.currentTarget, bounds = button.getBoundingClientRect()
+    let canvas = document.createElement('canvas'), context = canvas.getContext('2d')!
+    context.font = '12px ui-monospace, SFMono-Regular, Menlo, monospace'
+    let width = Math.ceil(context.measureText(window.name).width) + 18
+    let y = state.statusBar === 'bottom' ? bounds.top - 30 : bounds.bottom + 2
+    tooltipTimer.current = setTimeout(() => { void run('client.tooltip', { visible: true, window: window.id, x: bounds.left, y, width }) }, 250)
+  }
+  useEffect(() => () => { clearTimeout(tooltipTimer.current); void run('client.tooltip', { visible: false }) }, [run])
+  let select = () => { hideTooltip(); void run('select-window', { client: state.clientId, window: window.id }) }
+  let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-drop-position={dropPosition} onContextMenu={menu}>
-    <button onClick={select} className={css.windowSelect} data-active={active} title={window.name} draggable>
-      {tabId && (state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : null)}
-      <span className={css.windowLabel}>{label}</span>
+  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} data-drop-position={dropPosition} title={window.name} onContextMenu={menu}>
+    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : undefined} title={window.name} draggable>
+      {tabId && state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : tabId && state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>}
+      {!window.pinned && <span className={css.windowLabel}>{label}</span>}
     </button>
-    {state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+    {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
+    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
 
@@ -338,8 +414,9 @@ let CommandPrompt = () => {
   let historyIndex = useRef(commandHistory.length), draft = useRef('')
   let entries = commandEntries(state.keyboard ?? DEFAULT_KEYBOARD, state.plugins)
   let literal = literalCommand(text), argumentsStarted = literal && /\S\s/.test(text.trimStart())
-  let query = argumentsStarted ? text.trim().split(/\s+/)[0] : text
-  let results = searchCommands(entries, query, commandHistory).slice(0, 80)
+  let targets = commandTargetSuggestions(text, state)
+  let query = targets?.query ?? (argumentsStarted ? text.trim().split(/\s+/)[0] : text)
+  let results = (targets?.entries ?? searchCommands(entries, query, commandHistory)).slice(0, 80)
   let active = results[Math.min(index, Math.max(0, results.length - 1))]
   useEffect(() => { input.current?.focus(); mounted.current = true; return () => { mounted.current = false; rememberCommand(currentText.current) } }, [])
   useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [index, text])
@@ -402,8 +479,8 @@ let CommandPrompt = () => {
   }
   return <><form className={css.prompt} onSubmit={submit}><label htmlFor="command">:</label><input id="command" ref={input} aria-label="Command" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={active ? `command-result-${results.indexOf(active)}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'running…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     <section className={css.commandFinder} aria-label="Command finder"><div className={css.finderHint}>Type to find · ↑/↓ or Ctrl+P/N select · Tab complete · Enter {argumentsStarted && !selected ? 'run typed command' : 'open / run'} · Ctrl+R history</div>
-      <div ref={list} id="command-results" role="listbox" aria-label="Commands" className={css.commandResults}>{results.map((entry, position) => <CommandOption key={entry.command} entry={entry} position={position} active={entry === active} query={query} busy={busy} choose={choose} />)}</div>
-      {!results.length && <p className={css.finderHint}>No matching commands. Enter runs the text you typed.</p>}
+      <div ref={list} id="command-results" role="listbox" aria-label={targets ? 'Targets' : 'Commands'} className={css.commandResults}>{results.map((entry, position) => <CommandOption key={entry.command} entry={entry} position={position} active={entry === active} query={query} busy={busy} choose={choose} />)}</div>
+      {!results.length && <p className={css.finderHint}>No matching {targets ? 'targets' : 'commands'}. Enter runs the text you typed.</p>}
     </section></>
 }
 
@@ -413,10 +490,12 @@ let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, lis
     let bar = form.current.closest('[aria-label="Pane address"]')
     let pane = bar?.parentElement
     let position = () => {
-      if (!bar || !list.current) return
-      let bottom = bar.getBoundingClientRect().bottom
-      let available = window.innerHeight - bottom - (statusBar === 'bottom' ? 28 : 0)
-      list.current.style.top = `${bottom}px`
+      if (!bar || !pane || !list.current) return
+      let bounds = bar.getBoundingClientRect()
+      let available = pane.getBoundingClientRect().bottom - bounds.bottom
+      list.current.style.top = `${bounds.bottom}px`
+      list.current.style.left = `${bounds.left}px`
+      list.current.style.width = `${bounds.width}px`
       list.current.style.maxHeight = `${Math.max(0, available * .9)}px`
     }
     position()
@@ -438,14 +517,55 @@ let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: nu
   }, [focusVersion, ref, takeSelection])
 }
 
-let useDismissAddressOnPageClick = (finish: () => void) => {
+let useAddressSelectionFocus = () => {
+  let { run } = useUI()
+  let source = useRef<HTMLInputElement | undefined>(undefined)
+  let original = useRef<AddressSelection | undefined>(undefined)
+  let dragging = useRef(false)
+  let start = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button !== 0) return
+    let input = event.currentTarget
+    source.current = input
+    dragging.current = false
+    original.current = { start: input.selectionStart ?? 0, end: input.selectionEnd ?? 0, direction: input.selectionDirection ?? 'none' }
+    captureAddressPointer(event)
+  }
+  let drag = (event: DragEvent<HTMLInputElement>) => {
+    // Dragging selected URL text must leave it editable instead of starting a native drop.
+    event.preventDefault()
+    dragging.current = true
+  }
+  useEffect(() => {
+    let finish = (event: globalThis.MouseEvent) => {
+      let input = source.current
+      if (event.button !== 0 || !input) return
+      let selection = dragging.current ? original.current : undefined
+      source.current = undefined; dragging.current = false
+      let bounds = input.getBoundingClientRect()
+      if (!selection && event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) return
+      void run('focus-ui').then(() => {
+        if (!input.isConnected) return
+        let { start, end, direction } = selection ?? { start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection }
+        input.blur(); input.focus(); input.setSelectionRange(start, end, direction ?? undefined)
+      })
+    }
+    // Restore after mouse-up, once native text dragging has finished changing the selection.
+    document.addEventListener('mouseup', finish, true)
+    return () => document.removeEventListener('mouseup', finish, true)
+  }, [run])
+  return { start, drag }
+}
+
+let useDismissAddressOnOutsideClick = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, dismiss: () => void, finish: () => void) => {
   useEffect(() => {
     let outside = (event: globalThis.PointerEvent) => {
-      if (event.target instanceof Element && event.target.closest('[data-browser-content]')) finish()
+      if (!(event.target instanceof Element) || form.current?.contains(event.target) || list.current?.contains(event.target)) return
+      if (event.target.closest('[data-pane-content]')) finish()
+      else dismiss()
     }
     document.addEventListener('pointerdown', outside)
     return () => document.removeEventListener('pointerdown', outside)
-  }, [finish])
+  }, [form, list, dismiss, finish])
 }
 
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
@@ -458,9 +578,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
   let [expandedHistory, setExpandedHistory] = useState(false)
   let [busy, setBusy] = useState(false)
-  let ref = useRef<HTMLInputElement>(null)
-  let form = useRef<HTMLFormElement>(null)
-  let suggestionList = useRef<HTMLDivElement>(null)
+  let ref = useRef<HTMLInputElement>(null), form = useRef<HTMLFormElement>(null), suggestionList = useRef<HTMLDivElement>(null)
+  let selectionFocus = useAddressSelectionFocus()
+  let selectAddress = useAddressSelection()
   let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -481,16 +601,16 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   ]
   let selectedResult = results[index]
   let selectedCompletion = selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
-  let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text
+  let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || !!selectedResult?.value
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
   useEffect(() => { if (index >= 0) suggestionList.current?.children[index]?.scrollIntoView({ block: 'nearest' }) }, [index])
   useLayoutEffect(() => {
-    if (!ref.current || (!inlineUrl && !selectedResult)) return
+    if (!ref.current || !completing) return
     let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
     ref.current.setSelectionRange(start, previewText.length)
-  }, [inlineUrl, selectedResult, previewText, query])
+  }, [completing, previewText, query])
   let change = (event: ChangeEvent<HTMLInputElement>) => {
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
@@ -499,7 +619,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     setQuery(value); setIndex(-1); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
-  useDismissAddressOnPageClick(finish)
+  useDismissAddressOnOutsideClick(form, suggestionList, dismiss, finish)
   let navigate = async (url: string) => {
     if (!url.trim() || busy) return
     setBusy(true)
@@ -544,7 +664,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><label htmlFor="prompt">open</label><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span className={message ? css.error : undefined} role="status">{message || (busy ? 'loading…' : inlineUrl ? 'Enter opens · Backspace searches · esc' : 'esc')}</span><CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
@@ -627,11 +747,12 @@ let NavigationButton = ({ direction, tabId, enabled, hasHistory, open }: { direc
   useEffect(() => () => clearTimeout(timer.current), [])
   let cancelHold = () => { clearTimeout(timer.current); timer.current = undefined }
   let press = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || !hasHistory) return
+    if (event.button !== 0) return
     held.current = false
+    if (!hasHistory || event.metaKey) return
     timer.current = setTimeout(() => { held.current = true; open() }, 450)
   }
-  let click = () => { if (held.current) { held.current = false; return }; void run(direction, { tab: tabId }) }
+  let click = (event: MouseEvent<HTMLButtonElement>) => { if (held.current) { held.current = false; return }; void run(direction, { tab: tabId, newWindow: event.metaKey }) }
   let contextMenu = (event: MouseEvent<HTMLButtonElement>) => { if (!hasHistory) return; event.preventDefault(); cancelHold(); held.current = true; open() }
   return <button type="button" className={css.navigationButton} aria-label={direction === 'back' ? 'Back' : 'Forward'} title={direction === 'back' ? 'Back (hold for history)' : 'Forward (hold for history)'} disabled={!enabled} onPointerDown={press} onPointerUp={cancelHold} onPointerCancel={cancelHold} onPointerLeave={cancelHold} onClick={click} onContextMenu={contextMenu}><svg viewBox="0 0 16 16" aria-hidden="true"><path d={direction === 'back' ? 'M10.5 3.5 6 8l4.5 4.5' : 'M5.5 3.5 10 8l-4.5 4.5'} /></svg></button>
 }
@@ -677,7 +798,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let security = tab ? state.security?.[tab.id] : undefined
   let url = tab ? state.pendingUrls[tab.id] ?? (security?.status === 'certificate-error' ? security.url : tab.url) : undefined
   let editing = control === 'address' && (client?.paneId === paneId || !paneId)
-  let addressSelection = useRef<AddressSelection | undefined>(undefined)
+  let addressSelection = useRef<AddressSelection | undefined>(undefined), selectAddress = useAddressSelection()
   let takeAddressSelection = useCallback(() => {
     let selection = addressSelection.current
     addressSelection.current = undefined
@@ -685,18 +806,19 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [])
   let open = () => show('address', paneId)
   let rememberSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
-    let input = event.currentTarget, bounds = input.getBoundingClientRect()
-    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return
+    let input = event.currentTarget
     let start = input.selectionStart ?? 0, end = input.selectionEnd ?? 0
     if (start !== end) addressSelection.current = { start, end, direction: input.selectionDirection ?? 'none' }
   }
   let beginSelection = (event: PointerEvent<HTMLInputElement>) => {
-    if (event.button === 0) { addressSelection.current = undefined; event.currentTarget.setPointerCapture(event.pointerId) }
+    if (event.button === 0) { addressSelection.current = undefined; captureAddressPointer(event) }
   }
-  let editSelection = (event: PointerEvent<HTMLInputElement> | MouseEvent<HTMLInputElement>) => {
+  let editSelection = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button !== 0) return
     rememberSelection(event)
     void open()
   }
+  let editFromClick = (event: MouseEvent<HTMLInputElement>) => { if (event.detail === 0) void open() }
   let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault(); void open()
@@ -707,7 +829,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let back = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index < activeIndex).reverse()
   let forward = entries.map((entry, index) => ({ ...entry, index })).filter(entry => entry.index > activeIndex)
   let backHasPage = back.length > 0 && back[0].url !== 'about:blank'
-  let backEnabled = back.length > 0 ? backHasPage : !!tab?.openerPaneId && !!window?.panes.some(candidate => candidate.id === tab.openerPaneId)
+  let backEnabled = back.length > 0 ? backHasPage : !!backOpener(state.model, tab)
   let popup = historyPopup?.tabId === tab?.id ? historyPopup : null
   let menu = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -718,6 +840,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   }, [popup, setHistoryPopup])
   let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
+  let blocking = tab ? state.browserTools?.tabs[tab.id] : undefined
+  let toggleAdblock = () => { if (tab) void run('browser.set', { tab: tab.id, setting: 'adblock', value: 'toggle', scope: 'pane' }) }
   let openSiteInfo = () => show('site-info', paneId)
   let openProfile = () => show('profiles', paneId)
   let openProxy = () => show('proxy', paneId)
@@ -737,10 +861,13 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [profilePickerOpen])
   let customProfile = profile && session && !session.private && profile.id !== session.defaultProfileId ? profile : undefined
-  let proxyTest = customProfile ? state.profileProxyTests[customProfile.id] : undefined
-  let profileRouteLabel = customProfile ? `Profile ${customProfile.name}, ${profileDeviceLabel(customProfile)}` : ''
-  let proxyRouteLabel = customProfile?.proxy ? `Proxy for ${customProfile.name}${proxyTest ? ', verified' : ''}` : ''
-  let proxyRouteTitle = customProfile?.proxy ? `${customProfile.proxy.protocol}://${customProfile.proxy.host}:${customProfile.proxy.port}${proxyTest ? ` · Exit IP: ${proxyTest.ip}` : ''}` : ''
+  let paneProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)) : undefined
+  let proxyTest = paneProxy ? state.profileProxyTests[paneProxy.id] : undefined
+  let profileRouteLabel = profile ? `Profile: ${profile.name}` : 'Profile'
+  let profileRouteTitle = profile ? `${profileRouteLabel}, ${profileDeviceLabel(pane!)}` : profileRouteLabel
+  let proxyFailure = paneProxy ? state.profileProxyFailures[paneProxy.id] : undefined
+  let proxyRouteLabel = profile && paneProxy?.proxy ? `Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}` : ''
+  let proxyRouteTitle = proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : paneProxy?.proxy ? `${paneProxy.proxy.protocol}://${paneProxy.proxy.host}:${paneProxy.proxy.port}` : ''
   let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
   if (clickState && !editing) return <div className={css.addressBar} role="group" aria-label="Pane address"><ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /></div>
   return <div className={css.addressBar} role="group" aria-label="Pane address">
@@ -752,10 +879,12 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
         {(popup.direction === 'back' ? back : forward).map(entry => <NavigationMenuItem key={entry.index} entry={entry} select={selectHistory} />)}
       </div>}
     </div>}
-    {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
-    {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editSelection} onPointerDown={beginSelection} onPointerMove={rememberSelection} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
-    {!editing && !clickState && tab && state.loading[tab.id] && <span className={css.loading}>loading…</span>}
-    {(blank || customProfile) && profile && <div ref={profilePicker} className={css.profileRouteControls}><button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!customProfile.device} />}</button>{customProfile?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</div>}
+    <div className={css.urlBar}>
+      {tab && <ConnectionIndicator security={security} url={url ?? tab.url} open={openSiteInfo} />}
+      {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
+    </div>
+    {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
+    {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -799,19 +928,39 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
   let tab = pane
   let ref = useRef<HTMLDivElement>(null)
+  let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
+  let frame = pane.device ? frameGeometry(pane.device, deviceSize) : null
   useLayoutEffect(() => {
-    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height } }))
+    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(), pane = element.closest('[data-pane-content]')!.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height, paneBounds: { x: pane.x, y: pane.y, width: pane.width, height: pane.height } } }))
     let observer = new ResizeObserver(publish)
     if (ref.current) observer.observe(ref.current)
+    let screen = ref.current?.querySelector<HTMLElement>('[data-browser-content]')
+    if (screen && screen !== ref.current) observer.observe(screen)
     publish()
     return () => observer.disconnect()
-  }, [tab.id, client!.windowId, state.statusBar])
+  }, [tab.id, client!.windowId, state.statusBar, pane.device])
+  useLayoutEffect(() => {
+    if (!pane.device || !ref.current) return
+    let element = ref.current
+    let measure = () => {
+      let portrait = pane.device!.orientation === 'portrait'
+      let width = portrait ? pane.device!.width : pane.device!.height
+      let height = portrait ? pane.device!.height : pane.device!.width
+      let geometry = frameGeometry(pane.device!, { width, height })
+      let scale = Math.min(1, Math.max(1, element.clientWidth - 16) / geometry.width, Math.max(1, element.clientHeight - 16) / geometry.height)
+      setDeviceSize({ width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) })
+    }
+    let observer = new ResizeObserver(measure)
+    observer.observe(element); measure()
+    return () => observer.disconnect()
+  }, [pane.device])
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-browser-content data-content-pane-id={pane.id} onMouseDown={focus}>
-    {state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty}>{state.loading[tab.id] ? 'Loading…' : ''}</div>}
+  let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+    {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>
 }
 
@@ -823,7 +972,7 @@ let Panel = ({ type }: { type: Control }) => {
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'proxy' ? css.proxyPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
-    <header>{sessionPicker ? <div className={css.sessionTabs} role="tablist" aria-label="Sessions">
+    <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
       <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
     </div> : <strong>{title}</strong>}<CloseButton label="Close" onClick={dismiss} /></header>
@@ -848,13 +997,23 @@ let Panel = ({ type }: { type: Control }) => {
   </div></div>
 }
 let SiteInformation = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
   let { tab, profile } = selection(state)
+  let [busy, setBusy] = useState(false)
+  let [notice, setNotice] = useState('')
+  useEffect(() => { setNotice('') }, [tab?.id, tab?.url])
   if (!tab) return <p>Open a page to see its connection.</p>
   let security = state.security?.[tab.id] ?? initialSecurity(tab.url)
   let origin = (() => { try { let parsed = new URL(security.url); return parsed.origin === 'null' ? parsed.protocol : parsed.origin } catch { return security.url } })()
   let certificate = security.certificate
   let date = (seconds: number) => Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : 'Unavailable'
+  let clearSiteData = async () => {
+    setBusy(true); setNotice('')
+    try {
+      let result = await run('site-data.clear', { tab: tab.id, origin })
+      if (result !== undefined) setNotice('Cookies and site data cleared. Page reloaded.')
+    } finally { setBusy(false) }
+  }
   return <section aria-label="Connection details">
     <p><strong>{origin}</strong><br />{profile?.name}</p>
     <p role="status">{connectionLabels[security.status]}</p>
@@ -863,6 +1022,8 @@ let SiteInformation = () => {
     {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
     <p>Encryption protects the connection. It does not establish that a website is trustworthy.</p>
     {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
+    {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
+    {notice && <p role="status">{notice}</p>}
   </section>
 }
 let ExtensionManager = () => {
@@ -953,11 +1114,9 @@ let ExtensionManager = () => {
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>{session?.private ? 'No extensions enabled in this private session.' : 'No extensions in this profile.'}</p>}
     {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
-      <div className={css.extensionName}>{extension.enabled && extension.hasPopup ? <button className={css.listRow} data-id={extension.id} data-action="open" onClick={action} disabled={busy}><strong>{extension.name}</strong></button> : <strong>{extension.name}</strong>}{extension.error && <span className={css.error}>Failed to load</span>}</div>
-      <div className={css.extensionActions}>
-        <button data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`}>Details</button>
-        <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
-      </div>
+      <button className={css.extensionName} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong>{extension.error && <span className={css.error}>Failed to load</span>}</button>
+      <button className={css.extensionInfo} data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`} title="Extension details"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg></button>
+      <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
     </div>)}
     {!!listing?.available.length && <p>{session?.private ? 'Installed extensions' : 'Available from other profiles'}</p>}
     {listing?.available.map(extension => <button key={extension.path} className={css.listRow} disabled={busy} data-action="load" data-path={extension.path} onClick={action}><strong>Enable {extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
@@ -1024,7 +1183,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
   useEffect(() => {
     let picker = ref.current
     let updateSelection = () => {
-      let rows = picker?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')
+      let rows = picker?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])')
       rows?.forEach((row, index) => { row.dataset.searchSelected = String(!!query && document.activeElement === input.current && index === 0) })
     }
     picker?.addEventListener('focusin', updateSelection)
@@ -1036,7 +1195,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     if (event.nativeEvent.isComposing || event.altKey) return
     if (event.target instanceof HTMLElement && event.target !== input.current && event.target.closest('input, [data-picker-action]')) return
     let editing = event.target === input.current
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')].filter(row => row.getClientRects().length)
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])')].filter(row => row.getClientRects().length)
     if (event.key === 'Enter' && event.metaKey && onMetaEnter) {
       event.preventDefault()
       let selected = rows.find(row => row === document.activeElement) ?? rows[0]
@@ -1154,10 +1313,53 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow}><button className={`${css.listRow} ${css.sessionLabelRow}`} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
-type DeviceSettingsProps = { profile: Profile; paneCount: number }
-let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
-  let { run } = useUI()
-  let current = profile.device
+type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
+let DevicePresetSelect = ({ value, onChange }: { value: DevicePreset; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Device" value={value} onChange={onChange}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select>
+let DeviceOrientationSelect = ({ value, onChange }: { value: DevicePersona['orientation']; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Orientation" value={value} onChange={onChange}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select>
+let DevicePlatformSelect = ({ value, onChange }: { value: DevicePlatform; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Platform" value={value} onChange={onChange}><option value="android">Android</option><option value="ios">iOS</option></select>
+type DeviceAutoSaveProps = { current?: DevicePersona; sessionDevice?: DevicePersona; draft: { device?: DevicePersona; error?: string }; newPanes: boolean; busy: boolean; form: RefObject<HTMLFormElement | null>; profileId: string; paneId: string; saveDevice: (device: DevicePersona, newPanes: boolean) => Promise<unknown> }
+let useDeviceAutoSave = ({ current, sessionDevice, draft, newPanes, busy, form, profileId, paneId, saveDevice }: DeviceAutoSaveProps) => {
+  let { run, onMessage } = useUI()
+  let [focusRevision, setFocusRevision] = useState(0)
+  let lastAutoSave = useRef('')
+  let editingText = useRef(false)
+  let pendingSave = useRef<{ device: DevicePersona; newPanes: boolean } | undefined>(undefined)
+  let deviceKey = JSON.stringify(draft.device), currentKey = JSON.stringify(current), sessionKey = JSON.stringify(sessionDevice)
+  let pendingSaveKey = `${deviceKey}:${newPanes}`
+  let hasChanges = deviceKey !== currentKey || (newPanes ? sessionKey !== deviceKey : !!sessionKey)
+  useEffect(() => {
+    pendingSave.current = current && draft.device && hasChanges && !busy && form.current?.checkValidity() ? { device: draft.device, newPanes } : undefined
+  })
+  useEffect(() => () => {
+    let pending = pendingSave.current
+    if (pending) void run('profile.device.set', { profile: profileId, pane: paneId, ...pending })
+  }, [profileId, paneId, run])
+  useEffect(() => {
+    if (!current || !draft.device || busy || !form.current?.checkValidity()) return
+    if (!hasChanges || lastAutoSave.current === pendingSaveKey) return
+    if (editingText.current) return
+    let timer = setTimeout(() => { pendingSave.current = undefined; lastAutoSave.current = pendingSaveKey; void saveDevice(draft.device!, newPanes) }, 400)
+    return () => clearTimeout(timer)
+  }, [currentKey, draft.device, busy, hasChanges, pendingSaveKey, newPanes, saveDevice, focusRevision])
+  let commitField = (event: FocusEvent<HTMLFormElement>) => {
+    editingText.current = false
+    setFocusRevision(revision => revision + 1)
+    if (!current || busy || !form.current?.checkValidity()) return
+    if (draft.error) { onMessage(draft.error); return }
+    if (hasChanges && !form.current.contains(event.relatedTarget as Node | null)) {
+      pendingSave.current = undefined
+      lastAutoSave.current = pendingSaveKey
+      void saveDevice(draft.device!, newPanes)
+    }
+  }
+  let queueField = (event: ChangeEvent<HTMLFormElement>) => { editingText.current = event.target instanceof HTMLInputElement && event.target.type !== 'checkbox' }
+  return { commitField, queueField }
+}
+let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) => {
+  let { run, onMessage } = useUI()
+  let form = useRef<HTMLFormElement>(null)
+  let current = pane.device
+  let [active, setActive] = useState(!!current)
   let [preset, setPreset] = useState<DevicePreset>(current?.preset ?? 'pixel-8')
   let [platform, setPlatform] = useState<DevicePlatform>(current?.platform ?? 'android')
   let [width, setWidth] = useState(String(current?.width ?? 412)), [height, setHeight] = useState(String(current?.height ?? 915)), [dpr, setDpr] = useState(String(current?.deviceScaleFactor ?? 2.625))
@@ -1167,6 +1369,18 @@ let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
   let [locationEnabled, setLocationEnabled] = useState(!!current?.geolocation)
   let [latitude, setLatitude] = useState(String(current?.geolocation?.latitude ?? '')), [longitude, setLongitude] = useState(String(current?.geolocation?.longitude ?? '')), [accuracy, setAccuracy] = useState(String(current?.geolocation?.accuracy ?? 100))
   let [busy, setBusy] = useState(false)
+  let [newPanes, setNewPanes] = useState(!!session.device)
+  let draft = useMemo(() => {
+    try { return { device: parseDevicePersona({ preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) }) } }
+    catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
+  }, [preset, platform, width, height, dpr, orientation, locale, timezone, locationEnabled, latitude, longitude, accuracy])
+  let saveDevice = useCallback(async (device: DevicePersona, newPanes: boolean) => {
+    setBusy(true)
+    try { return await run('profile.device.set', { profile: profile.id, pane: pane.id, newPanes, device }) }
+    finally { setBusy(false) }
+  }, [profile.id, pane.id, run])
+  useEffect(() => { if (!busy) setActive(!!current) }, [current, busy])
+  let { commitField, queueField } = useDeviceAutoSave({ current, sessionDevice: session.device, draft, newPanes, busy, form, profileId: profile.id, paneId: pane.id, saveDevice })
   let changePreset = (event: ChangeEvent<HTMLSelectElement>) => setPreset(event.target.value as DevicePreset)
   let changePlatform = (event: ChangeEvent<HTMLSelectElement>) => setPlatform(event.target.value as DevicePlatform)
   let changeOrientation = (event: ChangeEvent<HTMLSelectElement>) => setOrientation(event.target.value as 'portrait' | 'landscape')
@@ -1179,31 +1393,41 @@ let ProfileDeviceSettings = ({ profile, paneCount }: DeviceSettingsProps) => {
   let changeLatitude = (event: ChangeEvent<HTMLInputElement>) => setLatitude(event.target.value)
   let changeLongitude = (event: ChangeEvent<HTMLInputElement>) => setLongitude(event.target.value)
   let changeAccuracy = (event: ChangeEvent<HTMLInputElement>) => setAccuracy(event.target.value)
-  let saveDevice = async (event: FormEvent) => {
-    event.preventDefault(); if (busy) return
-    setBusy(true)
-    await run('profile.device.set', { profile: profile.id, device: { preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) } })
-    setBusy(false)
+  let changeNewPanes = (event: ChangeEvent<HTMLInputElement>) => setNewPanes(event.target.checked)
+  let changeActive = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (busy) return
+    if (event.target.checked) {
+      if (!form.current?.reportValidity()) return
+      if (!draft.device) { onMessage(draft.error ?? 'Check the device settings'); return }
+      setActive(true)
+      if (!await saveDevice(draft.device, newPanes)) setActive(!!current)
+      return
+    }
+    setActive(false); setBusy(true)
+    try { if (await run('profile.device.clear', { profile: profile.id, pane: pane.id })) setNewPanes(false); else setActive(!!current) }
+    finally { setBusy(false) }
   }
-  let clearDevice = async () => { if (busy) return; setBusy(true); await run('profile.device.clear', { profile: profile.id }); setBusy(false) }
-  return <form className={css.profileProxy} onSubmit={saveDevice}>
-    <h2>Device</h2>
-    <p>{current ? 'Mobile identity active' : 'Desktop identity'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+  let preventSubmit = (event: FormEvent) => { event.preventDefault(); if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur() }
+  return <form ref={form} className={css.deviceSettings} onSubmit={preventSubmit} onBlur={commitField} onChange={queueField}>
+    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={active} onChange={changeActive} disabled={busy} />Mobile device</label>
+    <fieldset className={css.deviceFields} disabled={busy}>
     <div className={css.profileDeviceGrid}>
-      <label>Device<select aria-label="Device" value={preset} onChange={changePreset}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select></label>
-      <label>Orientation<select aria-label="Orientation" value={orientation} onChange={changeOrientation}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+      <label>Device<DevicePresetSelect value={preset} onChange={changePreset} /></label>
+      <label>Orientation<DeviceOrientationSelect value={orientation} onChange={changeOrientation} /></label>
       <label>Locale<input className={css.pluginInput} value={locale} onChange={changeLocale} required spellCheck={false} /></label>
       <label>Timezone<input className={css.pluginInput} value={timezone} onChange={changeTimezone} required spellCheck={false} /></label>
     </div>
     {preset === 'custom' && <div className={css.profileDeviceGrid}>
-      <label>Platform<select aria-label="Platform" value={platform} onChange={changePlatform}><option value="android">Android</option><option value="ios">iOS</option></select></label>
+      <label>Platform<DevicePlatformSelect value={platform} onChange={changePlatform} /></label>
       <label>Width<input className={css.pluginInput} type="number" min="240" max="1440" value={width} onChange={changeWidth} required /></label>
       <label>Height<input className={css.pluginInput} type="number" min="320" max="2560" value={height} onChange={changeHeight} required /></label>
       <label>DPR<input className={css.pluginInput} type="number" min="1" max="4" step="0.125" value={dpr} onChange={changeDpr} required /></label>
     </div>}
     <label className={css.profileProxyAuthentication}><input type="checkbox" checked={locationEnabled} onChange={changeLocationEnabled} />Set geolocation</label>
     {locationEnabled && <div className={css.profileDeviceLocation}><label>Latitude<input className={css.pluginInput} type="number" min="-90" max="90" step="any" value={latitude} onChange={changeLatitude} required /></label><label>Longitude<input className={css.pluginInput} type="number" min="-180" max="180" step="any" value={longitude} onChange={changeLongitude} required /></label><label>Accuracy<input className={css.pluginInput} type="number" min="0" max="100000" step="any" value={accuracy} onChange={changeAccuracy} required /></label></div>}
-    <div className={css.profileProxyActions}><button type="submit" disabled={busy}>Apply device</button>{current && <button type="button" onClick={clearDevice} disabled={busy}>Use desktop</button>}</div>
+    <label className={css.profileProxyAuthentication}><input type="checkbox" checked={newPanes} onChange={changeNewPanes} />Enable for all new panes</label>
+    </fieldset>
+    {draft.device && <DeviceEmulationDetails device={draft.device} active={!!current} />}
   </form>
 }
 
@@ -1218,8 +1442,54 @@ let matchesProxyRegion = (region: PluginProxyRegion, profile: Profile) => region
 
 let ProxyProviderSelect = ({ value, entries, onChange }: { value: string; entries: ProxyProviderEntry[]; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Provider" value={value} onChange={onChange}><option value="custom">Custom</option>{entries.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select>
 
+let ProxyHostOption = ({ region, entry, onChoose }: { region: PluginProxyRegion; entry: ProxyProviderEntry; onChoose: (region: PluginProxyRegion, entry: ProxyProviderEntry) => void }) => {
+  let choose = () => onChoose(region, entry)
+  return <button type="button" onClick={choose}><span>{region.label}</span><small>{region.host}:{region.port}</small></button>
+}
+
+let ProxyHostPicker = ({ protocol, entries, onChoose, onClose }: { protocol: PluginProxyRegion['protocol']; entries: ProxyProviderEntry[]; onChoose: (region: PluginProxyRegion, entry: ProxyProviderEntry) => void; onClose: () => void }) => {
+  let dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { let element = dialog.current; element?.showModal(); return () => element?.close() }, [])
+  let handleKey = (event: KeyboardEvent<HTMLDialogElement>) => {
+    event.stopPropagation()
+    if (event.key === 'Escape') { event.preventDefault(); onClose() }
+    if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault()
+  }
+  let [query, setQuery] = useState('')
+  let [providerKey, setProviderKey] = useState('')
+  let available = entries.filter(entry => entry.provider.regions.some(region => region.protocol === protocol))
+  let selected = available.find(entry => entry.key === providerKey)
+  let regions = selected?.provider.regions.filter(region => region.protocol === protocol && `${region.group} ${region.label} ${region.host}`.toLowerCase().includes(query.toLowerCase())) ?? []
+  let groups = [...new Set(regions.map(region => region.group))]
+  let changeQuery = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let chooseProvider = (event: ChangeEvent<HTMLSelectElement>) => setProviderKey(event.target.value)
+  return <dialog ref={dialog} className={css.proxyHostPicker} aria-label="Proxy providers" onKeyDown={handleKey} onCancel={onClose}>
+    <header><strong>Choose a {protocol.toUpperCase()} host</strong><button type="button" onClick={onClose}>Close providers</button></header>
+    <label>Provider<select aria-label="Host provider" value={providerKey} onChange={chooseProvider}><option value="">Choose provider</option>{available.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select></label>
+    {!available.length && <p>No providers available for this protocol.</p>}
+    {selected && <><input aria-label="Search proxy locations" placeholder="Search country, city or host" value={query} onChange={changeQuery} />
+      <div className={css.proxyHostResults}>{groups.map(group => <section key={group} aria-label={group}><h3>{group}</h3>{regions.filter(region => region.group === group).map(region => <ProxyHostOption key={region.host} region={region} entry={selected} onChoose={onChoose} />)}</section>)}{!regions.length && <p>No matching locations.</p>}</div></>}
+  </dialog>
+}
+
+let useProxyDefault = (args: Record<string, unknown>, onSaved: (profile: Profile) => void) => {
+  let { run, onMessage } = useUI()
+  let [saving, setSaving] = useState(false)
+  let changeNewPanes = async (event: ChangeEvent<HTMLInputElement>) => {
+    let enabled = event.target.checked
+    if (saving || enabled && !event.target.form?.reportValidity()) return
+    onMessage(''); setSaving(true)
+    try {
+      if (!enabled) { await run('profile.proxy.clear', { profile: args.profile }); return }
+      let result = await run('profile.proxy.set', args)
+      if (result) onSaved(result as Profile)
+    } finally { setSaving(false) }
+  }
+  return { saving, changeNewPanes }
+}
+
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
-  let { state, run } = useUI()
+  let { state, run, onMessage } = useUI()
   let providers = proxyProviderEntries(state)
   let configuredProvider = providers.find(entry => entry.provider.regions.some(region => matchesProxyRegion(region, profile)))
   let configuredRegion = configuredProvider?.provider.regions.find(region => matchesProxyRegion(region, profile))?.host ?? ''
@@ -1230,8 +1500,39 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
   let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useState(''), [password, setPassword] = useState('')
-  let [busy, setBusy] = useState(false)
-  let proxyTest = state.profileProxyTests[profile.id]
+  let [testing, setTesting] = useState(false)
+  let form = useRef<HTMLFormElement>(null)
+  let [credentialProfile, setCredentialProfile] = useState(defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useState('')
+  let [pickerOpen, setPickerOpen] = useState(false)
+  let savedProfiles = savedProxyProfiles(state.model)
+  useEffect(() => {
+    if (!credentialProfile) return
+    let cancelled = false
+    void run('profile.proxy.username', { profile: credentialProfile }).then(result => {
+      if (!cancelled && result) { let value = (result as { username: string }).username; setUsername(value); setSavedUsername(value) }
+    })
+    return () => { cancelled = true }
+  }, [credentialProfile, run])
+  let reuseCredentials = (source: Profile | undefined) => { let next = source?.id ?? ''; if (next !== credentialProfile) setUsername(''); setCredentialProfile(next); setPassword('') }
+  let applyRegion = (region: PluginProxyRegion, entry: ProxyProviderEntry) => {
+    setProviderKey(entry.key); setProviderRegion(region.host); setHost(region.host); setProtocol(region.protocol); setPort(String(region.port)); setAuthenticated(entry.provider.authenticated)
+    reuseCredentials(savedProfiles.find(item => item.proxy?.authenticated && entry.provider.regions.some(candidate => matchesProxyRegion(candidate, item))))
+  }
+  let chooseRegion = (region: PluginProxyRegion, entry: ProxyProviderEntry) => { applyRegion(region, entry); setPickerOpen(false) }
+  let openProviders = () => { if (!host) setPickerOpen(true) }
+  let closeProviders = () => setPickerOpen(false)
+  let changeSavedProxy = (event: ChangeEvent<HTMLSelectElement>) => {
+    let source = savedProfiles.find(item => item.id === event.target.value)
+    if (!source?.proxy) return
+    let entry = providers.find(item => item.provider.regions.some(region => matchesProxyRegion(region, source)))
+    setProviderKey(entry?.key ?? 'custom'); setProviderRegion(entry ? source.proxy.host : '')
+    setProtocol(source.proxy.protocol); setHost(source.proxy.host); setPort(String(source.proxy.port)); setAuthenticated(source.proxy.authenticated)
+    reuseCredentials(source)
+  }
+  let [tested, setTested] = useState<{ ip: string; region?: string }>(), testRevision = useRef(0)
+  useEffect(() => { testRevision.current++; setTested(undefined) }, [protocol, host, port, authenticated, username, password, credentialProfile])
+  let savedEndpoint = protocol === profile.proxy?.protocol && host === profile.proxy?.host && Number(port) === profile.proxy?.port && authenticated === profile.proxy?.authenticated && !password && username === savedUsername && credentialProfile === defaultConnectionId(profile)
+  let proxyTest = tested ?? (savedEndpoint ? state.profileProxyTests[defaultConnectionId(profile)] : undefined)
   let providerEntry = providers.find(entry => entry.key === providerKey)
   let provider = providerEntry?.provider
   let changeProvider = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -1244,62 +1545,171 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
     if (region) setHost(region.host)
     else { setProviderRegion(''); setHost('') }
     if (region) { setProtocol(region.protocol); setPort(String(region.port)) }
+    reuseCredentials(savedProfiles.find(item => item.proxy?.authenticated && selectedProvider?.regions.some(candidate => matchesProxyRegion(candidate, item))))
   }
   let changeProviderRegion = (event: ChangeEvent<HTMLSelectElement>) => {
     let region = provider?.regions.find(item => item.host === event.target.value)
     if (!region) return
-    setProviderRegion(region.host); setHost(region.host); setProtocol(region.protocol); setPort(String(region.port))
+    if (providerEntry) applyRegion(region, providerEntry)
   }
   let changeProtocol = (event: ChangeEvent<HTMLSelectElement>) => { let value = event.target.value as 'http' | 'https' | 'socks5'; setProtocol(value); if (!profile.proxy) setPort(value === 'http' ? '80' : value === 'https' ? '443' : '1080') }
-  let changeHost = (event: ChangeEvent<HTMLInputElement>) => setHost(event.target.value)
+  let changeHost = (event: ChangeEvent<HTMLInputElement>) => { setHost(event.target.value); if (event.target.value) setPickerOpen(false) }
   let changePort = (event: ChangeEvent<HTMLInputElement>) => setPort(event.target.value)
   let changeAuthenticated = (event: ChangeEvent<HTMLInputElement>) => setAuthenticated(event.target.checked)
   let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
   let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
-  let saveProxy = async (event: FormEvent) => {
-    event.preventDefault(); if (busy) return
-    setBusy(true)
-    let result = await run('profile.proxy.set', { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password })
-    if (result) { setUsername(''); setPassword('') }
-    setBusy(false)
-  }
-  let useSystem = async () => { if (busy) return; setBusy(true); await run('profile.proxy.clear', { profile: profile.id }); setBusy(false) }
+  let proxyArgs = { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile }
+  let proxySaved = (saved: Profile) => { setCredentialProfile(defaultConnectionId(saved)); setSavedUsername(username); setPassword('') }
+  let { saving, changeNewPanes } = useProxyDefault(proxyArgs, proxySaved)
+  let preventSubmit = (event: FormEvent) => event.preventDefault()
   let testProxy = async () => {
-    if (busy) return
-    setBusy(true)
-    await run('profile.proxy.test', { profile: profile.id })
-    setBusy(false)
+    if (testing || !form.current?.reportValidity()) return
+    onMessage(''); setTesting(true); let revision = testRevision.current
+    setTested(undefined)
+    try {
+      let result = await run('profile.proxy.test', proxyArgs)
+      if (result && revision === testRevision.current) setTested(result as { ip: string; region?: string })
+    } finally { setTesting(false) }
   }
-  return <form className={css.profileProxy} onSubmit={saveProxy}>
-      <h2>Connection</h2>
+  return <form ref={form} className={css.profileProxy} onSubmit={preventSubmit}>
+      <h2>New panes</h2>
       <div className={css.proxyFields}>
-      <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Changes reload {paneCount} open pane{paneCount === 1 ? '' : 's'} using this profile.</p>
+      <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Used for new panes. {paneCount} existing pane{paneCount === 1 ? ' keeps' : 's keep'} their current connection.</p>
+      {savedProfiles.length > 0 && <label className={css.savedProxy}>Saved proxies (all profiles)<select aria-label="Saved proxies" value="" onChange={changeSavedProxy}><option value="" disabled>Choose a saved proxy</option>{savedProfiles.map(item => <option key={item.id} value={item.id}>{item.name} · {item.proxy!.protocol}://{item.proxy!.host}:{item.proxy!.port}</option>)}</select></label>}
       <div className={css.profileProxyProvider}><label>Provider<ProxyProviderSelect value={providerEntry ? providerKey : 'custom'} entries={providers} onChange={changeProvider} /></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
-      {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
+      {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} onClick={openProviders} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
+      {pickerOpen && <ProxyHostPicker protocol={protocol} entries={providers} onChoose={chooseRegion} onClose={closeProviders} />}
       {provider ? <p>Uses {protocol.toUpperCase()} proxy on port {port}. {provider.help}</p> : <label className={css.profileProxyAuthentication}><input type="checkbox" checked={authenticated} onChange={changeAuthenticated} />Proxy requires authentication</label>}
-      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={profile.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
-      {protocol === 'socks5' && <p>Authenticated SOCKS5 uses a private loopback relay because Chromium does not support SOCKS5 credentials directly.</p>}
+      {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
       </div>
-      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><button type="submit" disabled={busy}>Save proxy</button>{profile.proxy && <button type="button" onClick={testProxy} disabled={busy}>Test connection</button>}{profile.proxy && <button type="button" onClick={useSystem} disabled={busy}>Use system connection</button>}</div>
+      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><label className={css.proxyDefault}><input className={css.proxyToggle} type="checkbox" role="switch" checked={savedEndpoint} onChange={changeNewPanes} disabled={saving} />Use for new panes</label><button type="button" aria-label="Test connection" onClick={testProxy} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</button></div>
     </form>
 }
 
 let ProxyInfo = () => {
   let { state } = useUI()
-  let { profile } = selection(state)
+  let { profile, pane } = selection(state)
   if (!profile) return <p>No profile is selected.</p>
+  let current = pane ? connectionProfile(state.model, paneConnectionId(pane)) : profile
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   return <section className={css.profileInfo} aria-label={`${profile.name} proxy settings`}>
-    <div className={css.profileHeading}><ProfileConnectionIcon proxy={!!profile.proxy} verified={!!state.profileProxyTests[profile.id]} /><strong>{profile.name}</strong></div>
-    <ProxySettings profile={profile} paneCount={paneCount} showRegion />
+    <div className={css.profileHeading}><ProfileConnectionIcon proxy={!!current.proxy} verified={!!state.profileProxyTests[current.id]} /><strong>{profile.name}</strong></div>
+    <p>This pane: {current.proxy ? `${current.proxy.protocol}://${current.proxy.host}:${current.proxy.port}` : 'system connection'}</p>
+    <ProxySettings key={profile.id} profile={profile} paneCount={paneCount} showRegion />
   </section>
+}
+
+let useExclusionExpiry = (limits?: AutomationSafety) => {
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    let expiries = Object.values(limits?.sites ?? {}).flatMap(sites => Object.values(sites)).map(automationSiteExclusion).filter(rule => rule?.enabled && rule.expiresAt !== null && rule.expiresAt > Date.now()).map(rule => rule!.expiresAt!)
+    if (!expiries.length) return
+    let timer = setTimeout(() => setNow(Date.now()), Math.min(2_147_483_647, Math.max(1, Math.min(...expiries) - Date.now())))
+    return () => clearTimeout(timer)
+  }, [limits, now])
+}
+
+let SiteExclusionSelect = ({ profileId, host }: { profileId: string; host: string }) => {
+  let { run } = useUI(), [busy, setBusy] = useState(false)
+  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
+    let durationMinutes = event.target.value === 'forever' ? null : Number(event.target.value)
+    setBusy(true)
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
+  }
+  return <select className={css.notificationAction} aria-label="Disable checks for this site" value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
+}
+
+let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
+  let { run } = useUI(), [busy, setBusy] = useState(false)
+  let savedActive = automationExclusionActive(exclusion), [active, setActive] = useState(savedActive)
+  useEffect(() => { setActive(savedActive) }, [savedActive])
+  let duration = exclusion.durationMinutes === null ? 'Forever' : exclusion.durationMinutes === 15 ? '15 minutes' : '1 hour'
+  let status = !exclusion.enabled ? `${duration} · Off` : exclusion.expiresAt === null ? 'Forever' : active ? `Until ${new Date(exclusion.expiresAt).toLocaleString()}` : `${duration} · Expired`
+  let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
+    let next = event.target.checked
+    setActive(next); setBusy(true)
+    try { if (!await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: !next })) setActive(savedActive) } finally { setBusy(false) }
+  }
+  let remove = async () => {
+    setBusy(true)
+    try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
+  }
+  return <div className={css.siteExclusion} role="group" aria-label={host}><label><input className={css.proxyToggle} type="checkbox" role="switch" aria-label={`Exclude ${host}`} checked={active} onChange={toggle} disabled={busy} /><span>{host}<small>{status}</small></span></label><button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button></div>
+}
+
+let ProfileAntiBotSettings = () => {
+  let { state, run } = useUI()
+  let { profile, pane } = selection(state)
+  let [busy, setBusy] = useState(false)
+  let safety = state.automationSafety, limits = safety?.limits ?? DEFAULT_AUTOMATION.safety
+  let savedEnabled = profile ? automationSafetyEnabled(limits, profile.id) : true
+  let [enabled, setEnabled] = useState(savedEnabled)
+  useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
+  if (!profile) return null
+  let usage = safety?.profiles.find(item => item.profileId === profile.id)
+  let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
+  let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? labels[usage.warning] : usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? `Cooldown until ${new Date(usage.retryAfter).toLocaleTimeString()}` : 'Ready'
+  let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
+    let next = event.target.checked
+    setEnabled(next); setBusy(true)
+    try { if (!await run('profile.anti-bot.set', { profile: profile.id, enabled: next })) setEnabled(savedEnabled) } finally { setBusy(false) }
+  }
+  let resume = async () => {
+    if (!pane) return
+    setBusy(true)
+    try { await run('automation.resume', { pane: pane.id }) } finally { setBusy(false) }
+  }
+  let exclusions = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule)! }))
+  return <div className={css.deviceSettings} role="tabpanel" aria-label="Anti-bot settings">
+    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Enable anti-bot protection</label>
+    <p>Pauses automation on account warnings and limits session length.</p>
+    <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
+    {enabled && safety?.error && <p>{safety.error}</p>}
+    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button><SiteExclusionSelect profileId={profile.id} host={usage.warningHost!} /></>}
+    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Site exclusions</h3><p>Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
+  </div>
+}
+
+let ProfileNameEditor = () => {
+  let { state, run, onMessage } = useUI()
+  let { profile } = selection(state)
+  let [editing, setEditing] = useState(false), [name, setName] = useState(''), [saving, setSaving] = useState(false)
+  let input = useRef<HTMLInputElement>(null), button = useRef<HTMLButtonElement>(null), wasEditing = useRef(false)
+  useEffect(() => {
+    if (editing) { input.current?.focus(); input.current?.select() }
+    else if (wasEditing.current) button.current?.focus()
+    wasEditing.current = editing
+  }, [editing])
+  if (!profile) return null
+  let edit = () => { setName(profile.name); onMessage(''); setEditing(true) }
+  let cancel = () => { if (!saving) { onMessage(''); setEditing(false) } }
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let escape = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault(); event.stopPropagation(); cancel()
+  }
+  let save = async (event: FormEvent) => {
+    event.preventDefault()
+    if (saving || !name.trim()) return
+    onMessage(''); setSaving(true)
+    try { if (await run('profile.rename', { profile: profile.id, name: name.trim() })) setEditing(false) }
+    finally { setSaving(false) }
+  }
+  if (!editing) return <button ref={button} type="button" className={css.profileName} onClick={edit} aria-label="Edit profile name">{profile.name}</button>
+  return <form className={css.profileNameEditor} onSubmit={save} onKeyDown={escape}>
+    <input ref={input} className={css.pluginInput} aria-label="Profile name" value={name} onChange={changeName} disabled={saving} required />
+    <button type="submit" disabled={saving || !name.trim()}>Save</button><button type="button" onClick={cancel} disabled={saving}>Cancel</button>
+  </form>
 }
 
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
-  let [tab, setTab] = useState<'overview' | 'device' | 'connection'>('overview')
+  let [tab, setTab] = useState<'overview' | 'device' | 'connection' | 'anti-bot'>(() => {
+    let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
+    return usage?.warning ? 'anti-bot' : 'overview'
+  })
   let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
@@ -1314,10 +1724,10 @@ let ProfileInfo = () => {
     await run('session.profile.set', { session: session.id, profile: event.target.value })
     setBusy(false)
   }
-  let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection')
+  let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
-    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><strong>{profile.name}</strong></div>
-    <div className={css.profileTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button></div>
+    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}>Anti-bot</button></div>
     {tab === 'overview' && <div role="tabpanel" aria-label="Profile overview"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
@@ -1329,8 +1739,9 @@ let ProfileInfo = () => {
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
     </section></div>}
-    {tab === 'device' && <div role="tabpanel" aria-label="Device settings"><ProfileDeviceSettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'anti-bot' && <ProfileAntiBotSettings />}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }
@@ -1350,10 +1761,11 @@ let bookmarkFolderForUrl = (bookmarks: Bookmark[], url: string, folderId = ''): 
   return undefined
 }
 let BookmarkEditor = () => {
-  let { state, run, dismiss } = useUI()
-  let { tab, profile } = selection(state)
+  let { state, run, dismiss, bookmarkDestination } = useUI()
+  let { tab, profile: pageProfile } = selection(state)
+  let profile = bookmarkDestination ? state.model.profiles.find(item => item.id === bookmarkDestination.profileId) : pageProfile
   let folders = bookmarkFolderOptions(profile?.bookmarks ?? [])
-  let [title, setTitle] = useState(tab?.title && tab.title !== 'about:blank' ? tab.title : ''), [folder, setFolder] = useState(() => bookmarkFolderForUrl(profile?.bookmarks ?? [], tab?.url ?? '') ?? '')
+  let [title, setTitle] = useState(tab?.title && tab.title !== 'about:blank' ? tab.title : ''), [folder, setFolder] = useState(() => bookmarkDestination?.folderId ?? bookmarkFolderForUrl(profile?.bookmarks ?? [], tab?.url ?? '') ?? '')
   let [busy, setBusy] = useState(false), [creatingFolder, setCreatingFolder] = useState(false), [folderName, setFolderName] = useState(''), [folderBusy, setFolderBusy] = useState(false)
   let input = useRef<HTMLInputElement>(null)
   let folderNameInput = useRef<HTMLInputElement>(null)
@@ -1372,7 +1784,7 @@ let BookmarkEditor = () => {
   let createFolder = async () => {
     if (!tab || !folderName.trim() || folderBusy) return
     setFolderBusy(true)
-    let result = await run('bookmark.folder.add', { tab: tab.id, title: folderName, parent: folder }) as { folder: Bookmark } | undefined
+    let result = await run('bookmark.folder.add', { tab: tab.id, profile: profile?.id, title: folderName, parent: folder }) as { folder: Bookmark } | undefined
     setFolderBusy(false)
     if (!result) return
     setFolder(result.folder.id); setFolderQuery(''); setFolderName(''); setCreatingFolder(false)
@@ -1391,13 +1803,14 @@ let BookmarkEditor = () => {
     event.preventDefault()
     if (!tab || !supported || !title.trim() || busy) return
     setBusy(true)
-    let result = await run('bookmark.add', { tab: tab.id, title, folder })
+    let result = await run('bookmark.add', { tab: tab.id, profile: profile?.id, title, folder })
     setBusy(false)
     if (result !== undefined) dismiss()
   }
   if (!profile || !tab) return <p>No page is selected.</p>
   return <form className={css.bookmarkEditor} onSubmit={submit} onKeyDown={editorKeys}>
     <p className={css.bookmarkUrl}>{tab.url}</p>
+    {profile.id !== pageProfile?.id && <p>Profile: {profile.name}</p>}
     <label>Title<input ref={input} value={title} onChange={changeTitle} autoComplete="off" spellCheck={false} required /></label>
     <div ref={folderPicker} className={css.bookmarkFolders} onKeyDown={folderKeys} role="group" aria-label="Choose bookmark folder">
       <label>Folder search<SearchInput ref={folderSearch} aria-label="Search bookmark folders" value={folderQuery} onChange={changeFolderQuery} /></label>
@@ -1409,62 +1822,75 @@ let BookmarkEditor = () => {
     <button type="submit" disabled={!supported || !title.trim() || busy}>{busy ? 'Saving…' : 'Save bookmark'}</button>
   </form>
 }
-type BookmarkDrag = { id: string; parentId: string }
-type BookmarkDrop = { id: string; position: 'before' | 'after' }
-let BookmarkExpansionContext = createContext<{ expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
+type BookmarkDrag = { id: string; parentId: string; profileId: string }
+type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after' }
+let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
+let BookmarkExpansionContext = createContext<{ canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
 let BookmarkPicker = () => {
-  let { state, run, dismiss, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
+  let { state, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
   let { profile, client, session, tab } = selection(state)
   let [expandedBookmarkId, setExpandedBookmarkId] = useState<string | null>(null)
   let [pointerMode, setPointerMode] = useState(false)
+  let [reordering, setReordering] = useState(false)
   let dragSource = useRef<BookmarkDrag | null>(null)
   let [dropTarget, setDropTarget] = useState<BookmarkDrop | null>(null)
-  let bookmarks: Bookmark[] = []
-  let activate = async (bookmark: Bookmark, newWindow = false, settings?: BookmarkParameters) => {
+  let groups: { profile: Profile; bookmarks: Bookmark[] }[] = []
+  let activate = async (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
-    if (profile) rememberBookmarkSelection(profile.id, bookmark.id)
-    let url = parameterizedBookmarkUrl(bookmark.url, settings ?? state.bookmarkParameters?.[profile!.id]?.[bookmark.id])
-    let result = newWindow
-      ? await run('new-window', { session: session?.id, profile: profile?.id, client: client.id, url })
-      : tab ? await run('navigate', { pane: tab.id, url }) : undefined
+    if (profile) rememberBookmarkSelection(profile.id, bookmarkKey(profileId, bookmark.id))
+    let url = parameterizedBookmarkUrl(bookmark.url, settings ?? state.bookmarkParameters?.[profileId]?.[bookmark.id])
+    let result = await run('new-window', { session: session?.id, profile: profileId, client: client.id, url })
     if (result !== undefined) dismiss()
   }
   let { ref, keys, input, query, change } = usePickerNavigation(row => {
-    let bookmark = findBookmark(bookmarks, row.dataset.bookmarkId ?? '')
-    if (bookmark) void activate(bookmark, true)
+    let group = groups.find(item => item.profile.id === row.dataset.bookmarkProfile)
+    let bookmark = findBookmark(group?.bookmarks ?? [], row.dataset.bookmarkId ?? '')
+    if (bookmark && group) void activate(bookmark, group.profile.id)
   }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) }, false)
   useEffect(() => {
-    let selected = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[data-bookmark-id]') ?? [])].find(row => row.dataset.bookmarkId === bookmarkSelections[profile?.id ?? ''])
+    let selected = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[data-bookmark-id]') ?? [])].find(row => bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') === bookmarkSelections[profile?.id ?? ''])
     if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }) }
   }, [profile?.id])
   let changeQuery = (event: ChangeEvent<HTMLInputElement>) => { setExpandedBookmarkId(null); change(event) }
   let endDrag = () => { dragSource.current = null; setDropTarget(null) }
+  let toggleReordering = () => { endDrag(); setReordering(current => !current) }
+  let changeProfiles = (event: ChangeEvent<HTMLInputElement>) => { setAllBookmarkProfiles(event.target.checked); setExpandedBookmarkId(null); endDrag(); input.current?.focus() }
+  let addBookmark = () => show('bookmark')
   let dragPosition = (event: DragEvent<HTMLElement>): BookmarkDrop['position'] => event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2 ? 'before' : 'after'
   let dragOver = (event: DragEvent<HTMLElement>, target: BookmarkDrag) => {
     let source = dragSource.current
-    if (!source || source.id === target.id || source.parentId !== target.parentId) return
+    if (!reordering || !source || source.profileId !== target.profileId || source.id === target.id || source.parentId !== target.parentId) return
     event.preventDefault(); event.stopPropagation()
     event.dataTransfer.dropEffect = 'move'
     let position = dragPosition(event)
-    setDropTarget(current => current?.id === target.id && current.position === position ? current : { id: target.id, position })
+    setDropTarget(current => current?.profileId === target.profileId && current.id === target.id && current.position === position ? current : { id: target.id, profileId: target.profileId, position })
   }
   let drop = (event: DragEvent<HTMLElement>, target: BookmarkDrag) => {
     let source = dragSource.current
-    if (!source || source.id === target.id || source.parentId !== target.parentId || !profile) return
+    if (!reordering || !source || source.profileId !== target.profileId || source.id === target.id || source.parentId !== target.parentId) return
     event.preventDefault(); event.stopPropagation()
     let position = dragPosition(event)
     endDrag()
-    void run('bookmark.move', { profile: profile.id, bookmark: source.id, target: target.id, position })
+    void run('bookmark.move', { profile: source.profileId, bookmark: source.id, target: target.id, position })
   }
   let focus = (event: FocusEvent<HTMLDivElement>) => {
     let bookmarkId = event.target instanceof HTMLButtonElement ? event.target.dataset.bookmarkId : undefined
-    if (profile && bookmarkId) rememberBookmarkSelection(profile.id, bookmarkId)
-    if (event.target === input.current || (event.target instanceof HTMLButtonElement && event.target.dataset.bookmarkId && event.target.dataset.bookmarkId !== expandedBookmarkId)) setExpandedBookmarkId(null)
+    let key = bookmarkId && event.target instanceof HTMLButtonElement ? bookmarkKey(event.target.dataset.bookmarkProfile ?? '', bookmarkId) : undefined
+    if (profile && key) rememberBookmarkSelection(profile.id, key)
+    if (event.target === input.current || (key && key !== expandedBookmarkId)) setExpandedBookmarkId(null)
   }
-  bookmarks = searchBookmarks(profile?.bookmarks ?? [], query)
-  return <BookmarkExpansionContext.Provider value={{ expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark"><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} />{bookmarks.map((bookmark, index) => <BookmarkRow key={`${query}:${bookmark.id}`} bookmark={bookmark} profileId={profile?.id ?? ''} parentId="" activate={activate} index={index} count={bookmarks.length} />)}{!bookmarks.length && <p role="status">{query ? 'No matching bookmarks.' : 'No bookmarks in this profile.'}</p>}</div></BookmarkExpansionContext.Provider>
+  let profiles = profile ? [profile, ...(allBookmarkProfiles ? state.model.profiles.filter(item => item.id !== profile.id) : [])] : []
+  groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query) })).filter(group => group.bookmarks.length)
+  let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
+  let focusSearch = () => input.current?.focus()
+  return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
+    <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
+    <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
+    {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
+  </div></BookmarkExpansionContext.Provider>
 }
+let BookmarkReorderIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 12V3m-3 3 3-3 3 3M11 4v9m-3-3 3 3 3-3" /></svg>
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
     if (bookmark.id === id) return bookmark
@@ -1474,30 +1900,35 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
     }
   }
 }
-let BookmarkRow = ({ bookmark, profileId, parentId, activate, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; activate: (bookmark: Bookmark, newTab?: boolean, settings?: BookmarkParameters) => void; index: number; count: number }) => {
-  let { state, run } = useUI()
-  let { expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
-  let expanded = expandedBookmarkId === bookmark.id
+let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
+  let { state, run, show } = useUI()
+  let { canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
+  let key = bookmarkKey(profileId, bookmark.id)
+  let { editing, menu, menuKeys } = useBookmarkActions()
+  let contextMenu = (event: MouseEvent<HTMLElement>) => menu(event, { bookmark, profileId })
+  let contextKeys = (event: KeyboardEvent<HTMLElement>) => menuKeys(event, { bookmark, profileId })
+  let expanded = expandedBookmarkId === key
   let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
   let parameters = bookmark.url ? editableBookmarkParameters(bookmark.url, settings) : []
   let visible = parameters.filter(([key]) => !settings.hidden.includes(key))
   let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
-  let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, true, settings) }
-  let click = () => { void open() }
-  let toggle = () => setExpandedBookmarkId(expanded ? null : bookmark.id)
+  let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, profileId, settings) }
+  let click = () => { if (supported) void open() }
+  let toggle = () => setExpandedBookmarkId(expanded ? null : key)
   let update = (key: string, value: string) => setSettings(current => ({ ...current, values: { ...current.values, [key]: value } }))
   let hide = (key: string) => {
     let next = { ...settings, hidden: [...settings.hidden, key] }
     setSettings(next); void persist(next)
   }
   let save = () => { void persist(settings) }
-  let drag = { id: bookmark.id, parentId }
-  let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.id === bookmark.id ? dropTarget.position : undefined }
-  let handle = <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} index={index} count={count} />
-  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps}>{handle}<span>{bookmark.title || 'Untitled folder'}</span></summary><div>{bookmark.children.map((child, childIndex) => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} activate={activate} index={childIndex} count={bookmark.children!.length} />)}</div></details>
+  let addToFolder = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); show('bookmark', undefined, { profileId, folderId: bookmark.id }) }
+  let drag = { id: bookmark.id, parentId, profileId }
+  let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.profileId === profileId && dropTarget.id === bookmark.id ? dropTarget.position : undefined }
+  let handle = reordering ? <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} /> : null
+  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}><svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} />)}</div></details>
   return <div className={css.bookmarkItem}>
-    <div className={css.bookmarkRow} {...dragProps}>{handle}<button className={css.listRow} data-bookmark-id={bookmark.id} data-active={expanded} disabled={!supported} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}>{bookmark.title || bookmark.url}</button>
+    <div className={css.bookmarkRow} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}{editing === key ? <BookmarkTitle bookmark={bookmark} profileId={profileId} /> : <button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} aria-disabled={!supported || undefined} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></button>}
       {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
     </div>
     {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
@@ -1513,20 +1944,19 @@ let BookmarkRow = ({ bookmark, profileId, parentId, activate, index, count }: { 
     })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
   </div>
 }
-let BookmarkDragHandle = ({ bookmark, profileId, parentId, index, count }: { bookmark: Bookmark; profileId: string; parentId: string; index: number; count: number }) => {
+let BookmarkDragHandle = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
   let { run } = useUI()
   let { startDrag, endDrag } = useContext(BookmarkExpansionContext)!
   let dragStart = (event: DragEvent<HTMLButtonElement>) => {
     event.stopPropagation()
-    startDrag({ id: bookmark.id, parentId })
+    startDrag({ id: bookmark.id, parentId, profileId })
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData('text/plain', bookmark.id)
   }
   let keys = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
     event.preventDefault(); event.stopPropagation()
-    if (event.key === 'ArrowUp' && index > 0) void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: 'up' })
-    if (event.key === 'ArrowDown' && index < count - 1) void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: 'down' })
+    void run('bookmark.reorder', { profile: profileId, bookmark: bookmark.id, direction: event.key === 'ArrowUp' ? 'up' : 'down' })
   }
   let click = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation() }
   return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={dragStart} onDragEnd={endDrag} onClick={click} onKeyDown={keys} aria-label={`Drag ${bookmark.title || bookmark.url} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>
@@ -1549,10 +1979,12 @@ let HistoryRow = ({ entry }: { entry: HistoryEntry }) => {
   return <div className={css.historyEntry}><button className={`${css.listRow} ${css.historyRow}`} onClick={activate} title={entry.url}><span><strong>{entry.title || entry.url}</strong><span>{entry.url}</span></span><time dateTime={visited.toISOString()}>{visited.toLocaleString()}</time></button><button type="button" data-picker-action className={css.historyRemove} aria-label={`Remove ${entry.title || entry.url} from history`} title="Remove from history" onClick={remove}>×</button></div>
 }
 let PermissionRow = ({ permission }: { permission: Permission }) => {
-  let { run } = useUI()
+  let { state, run, dismiss } = useUI()
+  let paneLabel = permissionPaneLabel(state.model, permission.paneId)
+  let visit = async () => { if (await run('permission.visit', { id: permission.id, pane: permission.paneId }) !== undefined) dismiss() }
   let deny = () => { void run('permission.respond', { id: permission.id, allow: false }) }
   let allow = () => { void run('permission.respond', { id: permission.id, allow: true }) }
-  return <div className={css.row}>{permission.origin}: {permission.permission}<div><button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
+  return <div className={css.row}>{permission.origin}: {permission.permission}<div><button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button><button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
 }
 let downloadSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 let DownloadManager = () => {
@@ -1812,7 +2244,7 @@ let SettingsContent = () => {
   let changeSearch = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   return <div ref={root} className={css.settings} onKeyDown={typeToSearch}>
     <SearchInput ref={searchInput} aria-label="Search settings" placeholder="Search settings" value={query} onChange={changeSearch} onKeyDown={searchKeys} autoFocus />
-    <div className={css.settingsTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{SETTINGS_TABS.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
+    <div className={css.panelTabs} role="tablist" aria-label="Settings sections" onKeyDown={moveTab}>{SETTINGS_TABS.map(item => <button key={item.id} type="button" role="tab" data-tab={item.id} aria-selected={tab === item.id} aria-controls="settings-panel" tabIndex={tab === item.id ? 0 : -1} onClick={changeTab}>{item.label}</button>)}</div>
     <section id="settings-panel" role="tabpanel" aria-label={SETTINGS_TABS.find(item => item.id === tab)?.label} className={css.settingsContent}>
       {query.trim() ? <SettingsSearchResults results={results} changeSetting={changeSetting} makeDefault={makeDefault} prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} /> : <>
       {tab === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} />}

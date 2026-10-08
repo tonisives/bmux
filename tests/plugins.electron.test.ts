@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -12,7 +13,7 @@ let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluat
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let run = async (action: string, args: Record<string, unknown> = {}) => (await rpc('plugin.run', { action: `test/${action}`, ...args })).id as string
-let completed = async (id: string, status = 'completed') => { await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === id)?.status).toBe(status) }
+let completed = async (id: string, status = 'completed', timeout = 5000) => { await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === id)?.status, { timeout }).toBe(status) }
 let script = `import { execFileSync } from 'node:child_process';
 let host = (method,args={}) => JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8',stdio:['pipe','pipe','pipe']})).result;
 let context = host('context'), action = process.argv[2];
@@ -38,7 +39,7 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(folder, 'run.mjs'), script)
   let action = (id: string) => ({ id, title: id, command: ['node', './run.mjs', id], capabilities: ['browser.read', 'browser.write', 'ui'], timeout_seconds: 40 })
   await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title'].map(action).concat([{ ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
@@ -48,9 +49,9 @@ test.beforeAll(async () => {
   let current = await state(); await rpc('activate-client', { client: current.clientId })
 })
 test.afterAll(async () => {
-  await application?.close().catch(() => undefined)
+  await closeTestApplication(application).catch(() => undefined)
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.beforeEach(async ({}, info) => {
@@ -116,8 +117,14 @@ test('bundled shell/Python examples run from the plugin panel with prompts and r
   let command = chrome.getByRole('combobox', { name: 'Command', exact: true }); await command.fill('plugins'); await command.press('Enter')
   await chrome.getByRole('button', { name: 'Jump to heading', exact: true }).click()
   let picker = chrome.getByRole('textbox', { name: 'Jump to heading', exact: true })
-  await expect(picker).toBeFocused(); await picker.press('Enter')
-  await expect.poll(async () => (await rpc('plugin.runs')).find((item: any) => item.pluginId === 'local.page-tools' && item.actionId === 'heading')?.status).toBe('completed')
+  await expect(picker).toBeFocused()
+  let heading = (await state()).pluginPrompt!.runId
+  await picker.press('Enter')
+  await expect(picker).toHaveCount(0)
+  // Python launches another CLI process after the prompt to evaluate and publish
+  // the result. Bound that work by its own deadline, after verifying submission.
+  await completed(heading, 'completed', 15000)
+  expect((await rpc('plugin.runs')).find((item: any) => item.id === heading).result).toEqual({ scrolled: true })
   await activate()
   let annotation = await rpc('plugin.run', { action: 'local.page-tools/annotate' })
   let note = chrome.getByRole('textbox', { name: 'Note', exact: true }); await note.fill('Fixture annotation'); await note.press('Enter'); await completed(annotation.id)

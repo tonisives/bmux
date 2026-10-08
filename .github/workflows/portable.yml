@@ -3,6 +3,18 @@ on:
   push:
     branches: [main, feat/portable-bmux]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      native_crashes:
+        description: Collect native crash stacks in the disposable Linux runner
+        required: false
+        default: false
+        type: boolean
+      repeat_each:
+        description: Repeat each Linux test (1-32)
+        required: false
+        default: 1
+        type: number
 jobs:
   linux:
     strategy:
@@ -14,10 +26,29 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: docker build --target test -t bmux-test:local .
-      - run: scripts/test-linux.sh
+      - name: Enable native crash diagnostics
+        if: inputs.native_crashes
+        run: sudo sysctl -w kernel.core_pattern=/tmp/bmux-core.%p
+      - name: Linux tests
+        env:
+          REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
+          BMUX_NATIVE_CRASH_DIAGNOSTICS: ${{ inputs.native_crashes && '1' || '0' }}
+        run: |
+          case "$REPEAT_EACH" in
+            [1-9]|[12][0-9]|3[0-2]) ;;
+            *) echo "repeat_each must be between 1 and 32"; exit 1 ;;
+          esac
+          scripts/test-linux.sh --repeat-each "$REPEAT_EACH"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: linux-test-results-${{ matrix.arch }}
+          path: test-results/
+          if-no-files-found: ignore
       - run: docker build --target host -t bmux-host:local .
       - run: docker build --target packaged -t bmux-package:local .
       - run: |

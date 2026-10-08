@@ -39,8 +39,15 @@ Common direct shortcuts:
 | Command+Shift+W | Detach the client |
 | Command+D | Bookmark the current page and choose its folder |
 | Command+, | Open settings |
+| Command+. (macOS) / Control+. (Linux and Windows) | Pin or unpin the current window |
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
+
+Right-click a status bar tab and choose **Pin Window** to keep it on the left as an icon. Choose **Unpin Window** to restore its label after the pinned windows. Pins persist with the session, and window movement stays within the pinned or regular group. The shortcut action is `toggle-window-pin`.
+
+On macOS, swipe horizontally with two fingers over a page to go back or forward.
+Navigation happens when scrolling settles. Short or reversed swipes cancel;
+horizontal page scrolling and widgets that handle the gesture keep their input.
 
 ## Click mode
 
@@ -172,6 +179,10 @@ keyboard:
 ```
 
 Window reordering actions are `move-window`, `move-window-left`, `move-window-right`, `move-window-first`, and `move-window-last`. Prefix then `.` prompts for the one-based destination index. Modifier-only shortcuts can distinguish the physical Shift keys with `ShiftLeft` and `ShiftRight`; the defaults use `Cmd+ShiftRight` to move the current window one position right and `Cmd+ShiftLeft` to move it one position left. Directional movement wraps to the opposite end at the boundary. The shortcuts run when the Shift key is released and are canceled if another key is pressed while it is held.
+
+In the command finder, `movew` is an alias for `move-window`. Enter `movew` to
+open the index prompt, or `movew -t 2` to move the current window to position 2
+within its session. From the shell, use `bmux movew -c CLIENT -t 2`.
 
 `BMUX_CONFIG` selects another configuration file. Normal instances respect `XDG_CONFIG_HOME`. Isolated `BMUX_DATA_DIR` instances use their own `config.yaml`.
 

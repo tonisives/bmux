@@ -39,10 +39,10 @@ export let forgetPlacement = (window: InternalWindow, paneId: string) => {
   window.layout = removePane(window.layout, paneId)
   window.floating = window.floating?.filter(item => item.paneId !== paneId)
 }
-export let dockPane = (window: InternalWindow, paneId: string, placement?: FloatingPane, target?: string, axis?: 'horizontal' | 'vertical') => {
+export let dockPane = (window: InternalWindow, paneId: string, placement?: FloatingPane, target?: string, axis?: 'horizontal' | 'vertical', before?: boolean) => {
   let ids = layoutPaneIds(window.layout)
   if (target && !ids.includes(target)) throw new Error('Destination must be a tiled pane')
-  let previous = !target && !axis ? placement?.dock : undefined
+  let previous = !target && !axis && before === undefined ? placement?.dock : undefined
   let sibling = previous?.siblingIds.find(id => ids.includes(id))
   let destination = target ?? sibling ?? ids[0]
   if (!destination) { window.layout = { kind: 'pane', paneId }; return }
@@ -62,8 +62,8 @@ export let dockPane = (window: InternalWindow, paneId: string, placement?: Float
   window.layout = mapLayout(window.layout, node => {
     if (node.kind !== 'pane' || node.paneId !== destination) return node
     let added: Layout = { kind: 'pane', paneId }
-    let before = !!sibling && previous?.before
-    return { kind: 'split', id: id('split'), axis: axis ?? previous?.axis ?? 'horizontal', ratio: sibling ? previous!.ratio : .5, first: before ? added : node, second: before ? node : added }
+    let insertBefore = before ?? (!!sibling && previous?.before)
+    return { kind: 'split', id: id('split'), axis: axis ?? previous?.axis ?? 'horizontal', ratio: sibling ? previous!.ratio : .5, first: insertBefore ? added : node, second: insertBefore ? node : added }
   })
 }
 export let raisePane = (window: InternalWindow, paneId: string) => {

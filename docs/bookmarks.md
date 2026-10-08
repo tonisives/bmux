@@ -10,7 +10,13 @@ Opening a bookmark preserves the current layout and keeps its original page
 available. Searches are remembered per profile during
 the running UI session. This is not cross-device synchronization.
 
-Press Command+D or run `bookmark` to save the current page. Run `bookmarks` to search saved pages and folders in the selected profile. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark. Each profile has its own bookmarks.
+Press Command+D or run `bookmark` to save the current page. The + button in the bookmarks view opens the same menu when the current page can be bookmarked. Run `bookmarks` to search saved pages and folders in the selected profile. Enable **All profiles** to include other profiles, grouped by profile name; this choice is remembered when you reopen the view. Each bookmark opens in its owning profile, with that profile's saved URL parameters. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark. Each profile keeps its own bookmarks; reordering stays within its profile and folder.
+
+The + button beside each folder opens the current-page menu with that folder selected, in both search results and the full list. In **All profiles**, it saves to the folder's owning profile without changing the current page's profile.
+
+Click a folder's left chevron or title to collapse or expand it. Use the **Reorder bookmarks** icon at the top to show or hide drag handles for bookmarks and folders. The handles also support Option+Up/Down. These controls work in both the full list and search results.
+
+Right-click a bookmark or folder for Rename and Delete, in both the full list and search results. The list dims while the menu is open; clicking outside the menu closes it without opening a bookmark or changing a folder. Rename opens an inline title editor: Enter or leaving the title saves; Escape cancels. A single click on a bookmark title opens the page. Deleting a folder also deletes its contents. These actions change only the owning profile, including in **All profiles**.
 
 For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
 For X searches, numeric `min_faves` and `min_replies` operators inside the `q` parameter also appear as separate controls. A post-age slider writes a relative `since:YYYY-MM-DD` operator when the bookmark opens; 0 keeps posts of any age. The `f` URL parameter is labeled Results, with `live` identified as Latest. X does not support a minimum post-view or impression-count search operator.
@@ -46,10 +52,11 @@ not reload live; edit while bmux is closed and restart, unlike keyboard settings
 Run `history` to search visited pages by title or URL within the selected profile.
 Select a result with Up/Down and Enter. History replaces the active page; bookmarks
 keep the previous page available. Each profile keeps its 1,000 most recent distinct
-history entries. Google Maps records selected places, groups map movement under the
-same place, and omits map viewport and search pages. Existing Maps entries are
-compacted when the profile loads. Other sites keep their full URLs, including query
-parameters, because those parameters may identify different pages.
+history entries. Visits with the same host, path, and page title share one entry even
+when query parameters change. The most recent URL is kept so the result reopens that
+visit. Pages with different titles remain separate. Google Maps records selected
+places, groups map movement under the same place, and omits map viewport and search
+pages. Existing history entries are compacted when the profile loads.
 Deleting individual history entries and clearing history from
 the panel remain follow-up work.
 

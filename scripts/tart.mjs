@@ -167,6 +167,9 @@ let start = async (headless = process.env.BMUX_TART_HEADLESS === '1') => {
 }
 
 let nativeTest = async () => {
+  // Electron can lazily download its binary with a synchronous require().
+  // Prepare it asynchronously before Playwright starts individual test deadlines.
+  await run(process.execPath, ['node_modules/electron/install.js'], { timeout: 300000 })
   if (mode === 'package-smoke' || process.env.BMUX_TEST_PACKAGED === '1' || process.env.BMUX_TEST_INSTALLED === '1' || args.includes('--installed')) await run('pnpm', ['package'])
   else await run('pnpm', ['build'])
   if (mode === 'electron') return run('pnpm', ['exec', 'playwright', 'test', '--workers=1', ...args], { allowFailure: true })

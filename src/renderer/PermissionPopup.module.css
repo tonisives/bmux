@@ -7,3 +7,5 @@
 .origin { color: #b5c0d3; }
 .content [role="alert"] { color: #e6a69c; }
 .popup footer { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px 12px; }
+
+.visit { margin-right: auto; }

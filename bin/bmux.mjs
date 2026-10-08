@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import net from 'node:net'
-import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { runtimeDataDirectory, developmentExecutable } from './runtime-paths.mjs'
+import { controlSocketPath } from './ipc.mjs'
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 let argv = process.argv.slice(2)
@@ -23,6 +23,8 @@ Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | a
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
+          movew [-c CLIENT] [-s WINDOW] -t [SESSION:]INDEX [-a|-b] [-d]
+          swapw [-c CLIENT] [-s WINDOW] -t WINDOW [-d]
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           list-panes -t WINDOW | select-pane -c CLIENT -t PANE
           pane keep-alive -t PANE --enabled[=true|false]
@@ -30,6 +32,10 @@ Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           new-pane -t PANE [--url URL] | break-pane -t PANE --floating (or -W)
           join-pane -t PANE [--destination PANE] [-h|-v]
           move-pane -t PANE --x X --y Y | resize-pane -t PANE --width W --height H
+          joinp|movep [-c CLIENT] [-s PANE] -t [SESSION:]WINDOW[.PANE] [-h|-v] [-b] [-d]
+          breakp [-c CLIENT] [-s PANE] [-t SESSION:INDEX] [-n NAME] [-d] [-W]
+          swapp [-c CLIENT] [-s PANE] [-t PANE] [-U|-D] [-d] [-Z]
+          rotatew [-c CLIENT] [-t WINDOW] [-U|-D] [-Z]
 Layouts:  save-layout -t WINDOW -n NAME | list-layouts
           restore-layout -t WINDOW -n NAME --confirm
 Browser:  navigate -t PANE URL | dom -t PANE [--html] | eval -t PANE EXPRESSION [--file FILE]
@@ -49,7 +55,7 @@ Other:    permission list | permission respond ID [--allow]
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
-Automation: automation status | automation acquire -t PANE --url URL | automation release
+Automation: automation status | automation safety | automation acquire -t PANE --url URL | automation release
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
@@ -65,10 +71,20 @@ let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir
 let configuredDataDirectory = process.env.BMUX_DATA_DIR ?? process.env.BROWMUX_DATA_DIR
 if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDataDirectory) fs.renameSync(legacyDataDirectory, defaultDataDirectory)
 let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process.env)
-let socketPath = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
+let socketPath = controlSocketPath(dataDirectory)
 
 let parse = () => {
+  let targetIndex = argv.findIndex(item => ['-t', '--target'].includes(item))
+  let target = targetIndex >= 0 ? argv[targetIndex + 1] : argv.find(item => /^(?:-t|--target)=/.test(item))?.split('=').slice(1).join('=')
+  let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window'].includes(argv[0])
+    || ['move-pane', 'join-pane'].includes(argv[0]) && !argv.some(item => /^--(?:pane|window|destination|x|y)(?:=|$)/.test(item)) && (argv.some(item => /^(?:-s|--source)(?:=|$)/.test(item)) || !target || !/^(?:%\d+|pane_.+)$/.test(target))
+  if (movement) {
+    let clientIndex = argv.findIndex(item => ['-c', '--client'].includes(item))
+    let client = clientIndex >= 0 ? argv[clientIndex + 1] : argv.find(item => /^(?:-c|--client)=/.test(item))?.split('=').slice(1).join('=')
+    return { method: 'command-line', args: { line: argv.map(item => JSON.stringify(item)).join(' '), ...(client ? { client } : {}) } }
+  }
   let command = argv.shift()
+  if (command === 'movew') command = 'move-window'
   if (command === 'tab') throw new Error('Unknown command: tab')
   let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'pane'].includes(command) ? argv.shift() : null
   let args = {}
@@ -102,11 +118,12 @@ let parse = () => {
   if (['extension.open', 'extension.options', 'extension.enable', 'extension.disable', 'extension.remove'].includes(method)) args.id = positional[0]
   let targetKeys = {
     'rename-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
-    'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window',
+    'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
     'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
   if (method === 'resize-pane' && !args.split && (args.width !== undefined || args.height !== undefined)) targetKeys[method] = 'pane'
   if (args.target !== undefined) { args[targetKeys[method] ?? 'pane'] = args.target; delete args.target }
+  if (method === 'move-window') args.position ??= positional[0]
   if (method === 'profile.create') args.name = positional[0] ?? args.name
   if (method === 'profile.rename') { args.profile = positional[0]; args.name = positional[1] ?? args.name }
   if (method === 'navigate') args.url = positional[0] ?? args.url
@@ -137,7 +154,8 @@ let request = (command, socket = socketPath, timeout = 90_000) => new Promise((r
 let start = async (foreground = false) => {
   let output = path.resolve(root, process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
   let installed = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
-  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? [output, installed] : [path.join(root, 'bmux'), path.join(root, '..', 'bmux')]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
+  let binary = process.platform === 'win32' ? 'bmux.exe' : 'bmux'
+  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? [output, installed] : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', path.basename(packaged, '.app')) : packaged

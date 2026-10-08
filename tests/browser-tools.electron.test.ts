@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -8,7 +9,7 @@ import { stringify } from 'yaml'
 
 let directory: string, application: ElectronApplication, chrome: Page, page: Page, url: string, server: http.Server, tabId: string
 let adRequests = 0
-let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+let rpc = (method: string, args: Record<string, unknown> = {}) => test.step(`Browser tools command: ${method}`, () => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args }), { timeout: 15000 })
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let command = async (line: string) => {
@@ -34,6 +35,23 @@ test.beforeAll(async () => {
   ] } }))
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
   application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  if (process.env.BMUX_TEST_TRACE === '1') await application.evaluate(({ app, webContents }) => {
+    let pending = new Map<number, { id: number; method: string; started: number }>(), sequence = 0
+    let observe = (contents: Electron.WebContents) => {
+      let wrap = (owner: any, name: string, label = name) => {
+        let original = owner[name].bind(owner)
+        owner[name] = async (...args: any[]) => {
+          let key = ++sequence
+          pending.set(key, { id: contents.id, method: name === 'sendCommand' ? String(args[0]) : label, started: Date.now() })
+          try { return await original(...args) } finally { pending.delete(key) }
+        }
+      }
+      wrap(contents, 'insertCSS'); wrap(contents, 'removeInsertedCSS'); wrap(contents.debugger, 'sendCommand')
+    }
+    for (let contents of webContents.getAllWebContents()) observe(contents)
+    app.on('web-contents-created', (_event, contents) => observe(contents))
+    ;(globalThis as any).bmuxTestPendingPageTools = () => [...pending.values()].slice(-40).map(({ id, method, started }) => ({ id, method, elapsed: Date.now() - started }))
+  })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await activate()
@@ -46,21 +64,15 @@ test.beforeAll(async () => {
   await expect(page.locator('h1')).toBeVisible()
 })
 test.afterAll(async () => {
-  if (application) {
-    let closed = application.close().then(() => undefined, () => undefined)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await Promise.race([closed, new Promise<void>(resolve => { timer = setTimeout(() => { application.process().kill('SIGKILL'); resolve() }, 10000) })])
-      await closed
-    } finally { clearTimeout(timer) }
-  }
+  await closeTestApplication(application)
   if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) }
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 test.afterEach(async ({}, info) => {
   if (info.status === info.expectedStatus) return
   let current = await state().catch(() => undefined)
   console.error('BROWSER_TOOLS_FAILURE', { focusedClientId: current?.focusedClientId, scripts: current?.browserTools?.scripts, tabs: Object.fromEntries(Object.entries(current?.browserTools?.tabs ?? {}).map(([id, tab]: [string, any]) => [id, { error: tab.error, adblock: tab.adblock }])), runs: current?.pluginRuns?.map((run: any) => ({ pluginId: run.pluginId, status: run.status, error: run.error })) })
+  if (process.env.BMUX_TEST_TRACE === '1') console.error('PENDING_PAGE_TOOLS', await test.step('Pending page tools', () => application.evaluate(() => (globalThis as any).bmuxTestPendingPageTools?.()), { timeout: 5000 }).catch(() => 'Unavailable'))
 })
 
 test('blocks requests before they reach the server and runs scripts before page JavaScript', async () => {
@@ -89,6 +101,40 @@ test('plugin screen shows live tool status and opens blocking configuration', as
   await expect(tools.getByRole('region', { name: 'Tools status' })).toContainText('Off')
   await tools.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true }).click()
   await tools.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
+test('address bar toggles blocking independently for panes sharing a profile and site', async () => {
+  let other = await rpc('split-window', { pane: tabId, axis: 'horizontal', url: `${url}/other-pane` }) as { id: string }
+  let bar = chrome.locator(`[data-pane-id="${tabId}"]`).getByRole('group', { name: 'Pane address', exact: true })
+  let toggle = bar.getByRole('button', { name: 'Ad blocking', exact: true })
+  let otherToggle = chrome.locator(`[data-pane-id="${other.id}"]`).getByRole('button', { name: 'Ad blocking', exact: true })
+  try {
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(otherToggle).toHaveAttribute('aria-pressed', 'true')
+    expect(await toggle.evaluate(element => element === element.parentElement?.lastElementChild)).toBe(true)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(otherToggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.bmux-ad')).toBeVisible()
+    await Promise.all([page.waitForEvent('domcontentloaded'), rpc('reload', { tab: tabId })])
+    await expect.poll(() => page.evaluate(() => (window as any).adLoaded)).toBe(true)
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/other-pane`)).toBe(true)
+    let otherPage = application.context().pages().find(page => page.url() === `${url}/other-pane`)!
+    await otherPage.waitForLoadState('load', { timeout: 5000 })
+    await expect(otherPage.locator('h1')).toHaveText('Browser tools fixture')
+    await expect(otherPage.locator('.bmux-ad')).toHaveCount(1)
+    await expect(otherPage.locator('.bmux-ad')).toBeHidden()
+    expect(await otherPage.evaluate(() => (window as any).adLoaded)).toBeUndefined()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.bmux-ad')).toBeHidden()
+    await Promise.all([page.waitForEvent('domcontentloaded'), rpc('navigate', { tab: tabId, url: `${url}/fixture` })])
+    expect(await page.evaluate(() => (window as any).adLoaded)).toBeUndefined()
+  } finally {
+    await rpc('browser.set', { tab: tabId, setting: 'adblock', value: 'inherit', scope: 'pane' })
+    await rpc('kill-pane', { pane: other.id })
+  }
 })
 
 test('settings tabs change preferences without editing YAML', async () => {
@@ -235,6 +281,12 @@ test('request exceptions are profile scoped; userscript changes and exclusions r
   await rpc('browser.script', { id: 'early', enabled: false })
   await rpc('navigate', { tab: tabId, url: `${url}/fixture` })
   await expect.poll(() => page.evaluate(() => (window as any).startObserved)).toBe('missing')
+  for (let enabled of [true, false]) {
+    await rpc('browser.script', { id: 'early', enabled })
+    await rpc('navigate', { tab: tabId, url: `${url}/fixture?enabled=${enabled}` })
+    expect(await page.evaluate(() => (window as any).startObserved)).toBe(enabled ? 'changed' : 'missing')
+    expect(await page.evaluate(() => (window as any).earlyFlag)).toBe(enabled ? 'changed' : undefined)
+  }
   await rpc('select-pane', { client: current.clientId, pane: pane.id })
 })
 

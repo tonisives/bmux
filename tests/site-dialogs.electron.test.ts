@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -23,10 +24,10 @@ let fixture = async () => {
   let page = application.context().pages().find(page => page.url() === url)!
   await expect(page.getByRole('heading')).toHaveText('Comment fixture')
   let close = async () => {
-    await application.close()
+    await closeTestApplication(application)
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   return { application, chrome, page, url, close }
 }
@@ -61,6 +62,10 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
       let state = await (window as any).bmux.state()
       return state.model.sessions[0].windows[0].panes[0].id as string
     })
+    let nextTabId = await chrome.evaluate(async tabId => {
+      let pane = await (window as any).bmux.command({ method: 'split-window', args: { pane: tabId } })
+      return pane.id as string
+    }, tabId)
     await application.evaluate(({ dialog }) => {
       let native = dialog.showMessageBoxSync
       let choices = [0, 1, 0, 1]
@@ -75,10 +80,10 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
     await expect(page.locator('output')).toHaveText('Unsaved')
     expect(await closeTab()).toEqual({ closed: tabId })
     await expect.poll(() => application.context().pages().some(candidate => candidate.url() === url)).toBe(false)
-    let { windowId, nextTabId } = await chrome.evaluate(async () => {
+    let windowId = await chrome.evaluate(async () => {
       let state = await (window as any).bmux.state()
       let current = state.model.sessions[0].windows[0]
-      return { windowId: current.id as string, nextTabId: current.panes[0].id as string }
+      return current.id as string
     })
     await chrome.evaluate(({ nextTabId, url }) => (window as any).bmux.command({ method: 'navigate', args: { tab: nextTabId, url } }), { nextTabId, url })
     await expect.poll(() => application.context().pages().some(candidate => candidate.url() === url)).toBe(true)

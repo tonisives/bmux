@@ -3,13 +3,14 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
+import { controlSocketPath, prepareControlSocket, listenSocket, removeSocket } from '../../bin/ipc.mjs'
 import { startRemoteHost } from './remote-host'
 import { createLocalRemote } from './remote-client'
+import { installUpdateMenu } from './update-menu'
 
 let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
 let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
@@ -22,12 +23,13 @@ for (let signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
 app.setPath('userData', dataDirectory)
 fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
-let socketDirectory = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`)
-let socketPath = path.join(socketDirectory, `${createHash('sha256').update(dataDirectory).digest('hex').slice(0, 16)}.sock`)
+let socketPath = controlSocketPath(dataDirectory)
 let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 let remoteHost: ReturnType<typeof startRemoteHost> | undefined
 let localRemote: ReturnType<typeof createLocalRemote> | undefined
+
+let updateMenu: ReturnType<typeof installUpdateMenu>
 
 let readyForLinks = false
 let pendingLinks: { url: string; allowFile: boolean }[] = []
@@ -47,7 +49,8 @@ let receiveLink = (url: string, allowFile = false) => {
   linkQueue = linkQueue.then(async () => {
     let browser = runtime!
     let client = await existingClient()
-    await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } })
+    // OS-opened links are human navigation, like entering a URL in this client.
+    await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } }, client.id)
     await browser.execute({ method: 'activate-client', args: { client: client.id } })
   }).catch(() => { console.error('Could not open external browser link') })
 }
@@ -71,19 +74,20 @@ void app.whenReady().then(async () => {
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   app.on('before-quit', () => {
+    updateMenu?.close()
     remoteHost?.close()
     localRemote?.close()
     runtime?.shutdown()
     server?.close()
-    try { fs.unlinkSync(socketPath) } catch { /* Already removed. */ }
+    removeSocket(socketPath)
   })
   if (background) app.dock?.hide()
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+    { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { label: 'New Client', accelerator: 'CmdOrCtrl+Shift+N', click: () => { if (runtime) void runtime.createClient(runtime.model.sessions[0].id) } }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]))
-  runtime = createRuntime(dataDirectory)
+  runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
   localRemote = createLocalRemote()
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('state', event => {
@@ -118,14 +122,12 @@ void app.whenReady().then(async () => {
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
+  updateMenu = installUpdateMenu({ enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
   if (process.env.BMUX_REMOTE_CONFIG) remoteHost = startRemoteHost(runtime, dataDirectory, process.env.BMUX_REMOTE_CONFIG)
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
   if (pendingActivation) activateExistingClient()
-  fs.mkdirSync(socketDirectory, { recursive: true, mode: 0o700 })
-  if (fs.statSync(socketDirectory).uid !== process.getuid?.()) throw new Error('Socket directory belongs to another user')
-  fs.chmodSync(socketDirectory, 0o700)
-  try { fs.unlinkSync(socketPath) } catch { /* First launch. */ }
+  prepareControlSocket(socketPath)
   server = net.createServer(connection => {
     let buffer = ''
     connection.setEncoding('utf8')
@@ -155,6 +157,6 @@ void app.whenReady().then(async () => {
       })()
     })
   })
-  server.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600) })
+  await listenSocket(server, socketPath)
   server.on('error', error => { console.error(`bmux control socket: ${error.message}`); app.quit() })
 }).catch(error => { console.error(`bmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })

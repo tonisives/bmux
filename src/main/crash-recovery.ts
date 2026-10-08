@@ -82,9 +82,9 @@ let readRunMarker = (file: string): RunMarker | undefined => {
 export let startNavigationCrashRecovery = (directory: string, model: Model) => {
   let runFile = runMarkerPath(directory)
   let previous = readRunMarker(runFile)
-  let startupNotice = previous?.recovery ? recoverNavigationCrash(directory, model) : undefined
-  if (!previous?.recovery) removeMarker(markerPath(directory))
-  let serializeRestores = previous?.recovery === false
+  let startupNotice = previous ? recoverNavigationCrash(directory, model) : undefined
+  if (!previous) removeMarker(markerPath(directory))
+  let serializeRestores = previous !== undefined
   writeAtomic(runFile, JSON.stringify({ version: 1, recovery: serializeRestores } satisfies RunMarker))
   let marker = createNavigationCrashMarker(directory)
   return {

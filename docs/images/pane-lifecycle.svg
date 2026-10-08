@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="352" viewBox="0 0 800 352" role="img" aria-labelledby="title description">
+  <title id="title">Floating and docking preserve the same pane</title>
+  <desc id="description">Pane 2 with the work profile starts in a split, floats above the other panes in the same internal window, and returns to the split. Its pane ID, profile, and live page remain the same throughout.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="#63746a"/></marker>
+    <style>
+      text { font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill:#304a41; }
+      .heading { font-size:28px; font-weight:650; }
+      .state { font-size:22px; font-weight:600; text-anchor:middle; }
+      .pane { font-size:18px; font-weight:600; text-anchor:middle; }
+      .profile { font-size:17px; text-anchor:middle; }
+      .bar { font-size:13px; }
+      .frame { fill:#fffefa; stroke:#aebfae; stroke-width:1.5; }
+      .page { fill:#f1f2ec; stroke:#c8d0c1; }
+      .target { fill:#e4edd9; stroke:#7e987c; stroke-width:1.5; }
+    </style>
+  </defs>
+  <rect width="800" height="352" fill="#fbfaf6"/>
+  <text x="30" y="43" class="heading">Change layout, keep the pane</text>
+  <text x="138" y="88" class="state">Split</text>
+  <text x="402" y="88" class="state">Floating</text>
+  <text x="666" y="88" class="state">Docked</text>
+  <rect x="30" y="108" width="216" height="170" rx="6" class="frame"/>
+  <path d="M30 137H246" stroke="#aebfae"/>
+  <text x="42" y="128" class="bar">Window: research</text>
+  <rect x="42" y="149" width="92" height="116" rx="3" class="target"/>
+  <text x="88" y="195" class="pane">Pane %2</text>
+  <text x="88" y="224" class="profile">work</text>
+  <rect x="144" y="149" width="90" height="116" rx="3" class="page"/>
+  <path d="M157 166H220M157 181H211M157 196H219" stroke="#c2cbbd" stroke-width="3"/>
+  <rect x="294" y="108" width="216" height="170" rx="6" class="frame"/>
+  <path d="M294 137H510" stroke="#aebfae"/>
+  <text x="306" y="128" class="bar">Window: research</text>
+  <rect x="306" y="149" width="192" height="116" rx="3" class="page"/>
+  <path d="M318 166H481M318 181H431M318 196H416" stroke="#c2cbbd" stroke-width="3"/>
+  <rect x="350" y="172" width="144" height="89" rx="4" class="target"/>
+  <path d="M350 192H494" stroke="#7e987c"/>
+  <text x="422" y="220" class="pane">Pane %2</text>
+  <text x="422" y="244" class="profile">work</text>
+  <rect x="558" y="108" width="216" height="170" rx="6" class="frame"/>
+  <path d="M558 137H774" stroke="#aebfae"/>
+  <text x="570" y="128" class="bar">Window: research</text>
+  <rect x="570" y="149" width="92" height="116" rx="3" class="target"/>
+  <text x="616" y="195" class="pane">Pane %2</text>
+  <text x="616" y="224" class="profile">work</text>
+  <rect x="672" y="149" width="90" height="116" rx="3" class="page"/>
+  <path d="M685 166H748M685 181H739M685 196H747" stroke="#c2cbbd" stroke-width="3"/>
+  <path d="M254 200H283" stroke="#63746a" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M518 200H547" stroke="#63746a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="400" y="324" font-size="21" font-weight="600" text-anchor="middle">Same pane ID · Same profile · Same live page</text>
+</svg>

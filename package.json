@@ -1,6 +1,6 @@
 {
   "name": "bmux",
-  "version": "0.1.0",
+  "version": "0.1.7",
   "description": "A Chromium browser with tmux-style sessions and isolated profiles",
   "author": "bmux contributors",
   "license": "GPL-3.0-only",
@@ -21,6 +21,7 @@
     "lint": "eslint .",
     "test": "vitest run --maxWorkers=4",
     "test:electron": "node scripts/tart.mjs electron",
+    "test:windows": "node scripts/test-windows.mjs",
     "package": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir && BMUX_DEFAULT_SIGNING_IDENTITY=EF765C5EE39AC9C656688DD1DFB230405C03F735 node scripts/install-app.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "test:package": "node scripts/tart.mjs package-smoke",
@@ -42,6 +43,7 @@
     "@ghostery/adblocker": "2.18.2",
     "darkreader": "^4.9.130",
     "electron-chrome-extensions": "4.9.0",
+    "electron-updater": "^6.8.9",
     "jose": "^6.2.12",
     "pg": "^8.23.0",
     "proxy-chain": "^3.0.1",
@@ -72,6 +74,7 @@
     "vitest": "^3.2.0"
   },
   "build": {
+    "publish": null,
     "appId": "bmux.tonis.dev",
     "productName": "bmux",
     "directories": {
@@ -108,7 +111,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "identity": null,
+      "identity": "-",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSCameraUsageDescription": "Allow websites you approve to use the camera.",
         "NSMicrophoneUsageDescription": "Allow websites you approve to use the microphone."
@@ -116,6 +121,9 @@
       "icon": "build/icon.icns"
     },
     "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "win": {
+      "icon": "build/icon.ico"
+    },
     "protocols": [
       {
         "name": "Web links",

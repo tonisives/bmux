@@ -8,8 +8,8 @@ import { parsePluginManifest, matchesPluginUrl } from '../src/main/plugin-manife
 import { parseConfig } from '../src/main/config'
 import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
-let cleanup: (() => void)[] = []
-afterEach(() => { for (let dispose of cleanup.splice(0)) dispose() })
+let cleanup: (() => Promise<void>)[] = []
+afterEach(async () => { for (let dispose of cleanup.splice(0)) await dispose() })
 let fixture = (script: string, overrides: Record<string, unknown> = {}) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugin-test-'))
   let folder = path.join(directory, 'plugins', 'test')
@@ -20,12 +20,12 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}) => {
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
   let plugins = createPlugins({ directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
-  cleanup.push(() => { plugins.close(); fs.rmSync(directory, { recursive: true, force: true }) })
+  cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
   return { directory, plugins, browser, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
 }
 let hostScript = `import { execFileSync } from 'node:child_process';
-let host = (method, args = {}) => JSON.parse(execFileSync(process.env.BMUX_CLI, ['plugin','host',method,'--stdin'], { input: JSON.stringify(args), encoding:'utf8', stdio:['pipe','pipe','pipe'] })).result;
+let host = (method, args = {}) => JSON.parse(execFileSync(process.execPath, [process.env.BMUX_CLI,'plugin','host',method,'--stdin'], { input: JSON.stringify(args), encoding:'utf8', stdio:['pipe','pipe','pipe'] })).result;
 `
 let done = async (plugins: ReturnType<typeof createPlugins>, id: string) => {
   await vi.waitFor(() => expect(plugins.runs().find(run => run.id === id)?.status).not.toMatch(/queued|running/), { timeout: 8000 })
@@ -71,7 +71,7 @@ describe('plugin definitions', () => {
     expect(plugins.list()[0].actions).toHaveLength(1)
     expect(plugins.list()[0].error).toContain('previous')
     fs.renameSync(path.join(directory, 'plugins/test'), path.join(directory, 'source'))
-    fs.symlinkSync(path.join(directory, 'source'), path.join(directory, 'plugins/test'))
+    fs.symlinkSync(path.join(directory, 'source'), path.join(directory, 'plugins/test'), process.platform === 'win32' ? 'junction' : 'dir')
     plugins.reload(); expect(plugins.list()[0].id).toBe('test')
   })
 })
@@ -112,6 +112,16 @@ test('reports missing executables and timeouts without raw errors', async () => 
   expect((await done(missing.plugins, missing.plugins.run('test/run', {}).id)).error).toBe('Could not start plugin command')
   let slow = fixture('setInterval(() => {}, 1000)', { timeout_seconds: 1 })
   expect((await done(slow.plugins, slow.plugins.run('test/run', {}).id)).error).toBe('Plugin timed out')
+})
+test('cancelling a plugin terminates its process and descendants', async () => {
+  let { plugins } = fixture(hostScript + `import { spawn } from 'node:child_process'; let child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']); host('result', { pid: process.pid, childPid: child.pid }); setInterval(() => {}, 1000);`)
+  let { id } = plugins.run('test/run', {})
+  let result = () => plugins.runs().find(run => run.id === id)?.result as { pid: number; childPid: number } | undefined
+  await vi.waitFor(() => expect(result()).toMatchObject({ pid: expect.any(Number), childPid: expect.any(Number) }), { timeout: 8000 })
+  let { pid, childPid } = result()!
+  plugins.cancel(id)
+  await vi.waitFor(() => { for (let processId of [pid, childPid]) expect(() => process.kill(processId, 0)).toThrow() }, { timeout: 8000 })
+  expect(plugins.runs().find(run => run.id === id)?.status).toBe('cancelled')
 })
 test('filters hooks and starts startup only on activation, invalidates page hooks', async () => {
   let { plugins, manifest, writeManifest, settings, context } = fixture('setInterval(() => {}, 1000)')

@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -7,7 +8,7 @@ import http from 'node:http'
 import { stringify } from 'yaml'
 import { Server as ProxyServer } from 'proxy-chain'
 
-test('blocks restored pages when a saved proxy is unavailable and lets the user continue directly', async () => {
+test('keeps unavailable restored panes blocked while new panes can use the system connection', async () => {
   test.setTimeout(60000)
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-proxy-startup-'))
   let pageRequests = 0, proxyRequests = 0
@@ -36,23 +37,27 @@ test('blocks restored pages when a saved proxy is unavailable and lets the user 
     let chrome = await chromeFor(application)
     let current = await currentState(chrome), profile = current.model.profiles[0], tab = current.model.sessions[0].windows[0].panes[0]
     await command(chrome, 'navigate', { tab: tab.id, url: `${origin}/page` })
-    await command(chrome, 'profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'saved-user', password: 'saved-password' })
+    let saved = await command(chrome, 'profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'saved-user', password: 'saved-password' })
+    let connectionId = saved.connectionId
+    let proxied = await command(chrome, 'new-window', { session: current.model.sessions[0].id, profile: profile.id, client: current.clientId })
+    await command(chrome, 'navigate', { pane: proxied.panes[0].id, url: `${origin}/page` })
+    await command(chrome, 'kill-window', { window: current.model.sessions[0].windows[0].id, confirm: true })
     await expect.poll(() => proxyRequests).toBeGreaterThan(0)
-    await application.close(); application = undefined
+    await closeTestApplication(application); application = undefined
     pageRequests = 0
 
     application = await launch()
     chrome = await chromeFor(application)
-    await expect.poll(async () => (await currentState(chrome)).profileProxyTests[profile.id]?.ip, { timeout: 15000 }).toBe('203.0.113.12')
+    await expect.poll(async () => (await currentState(chrome)).profileProxyTests[connectionId]?.ip, { timeout: 15000 }).toBe('203.0.113.12')
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/page`)).toBe(true)
-    expect((await currentState(chrome)).profileProxyFailures[profile.id]).toBeUndefined()
-    await application.close(); application = undefined
+    expect((await currentState(chrome)).profileProxyFailures[connectionId]).toBeUndefined()
+    await closeTestApplication(application); application = undefined
     await proxy.close(true)
     pageRequests = 0
 
     application = await launch()
     chrome = await chromeFor(application)
-    await expect.poll(async () => (await currentState(chrome)).profileProxyFailures[profile.id]?.error, { timeout: 15000 }).toBeTruthy()
+    await expect.poll(async () => (await currentState(chrome)).profileProxyFailures[connectionId]?.error, { timeout: 15000 }).toBeTruthy()
     await expect.poll(() => pageRequests).toBe(0)
     expect(application.context().pages().some(page => page.url() === `${origin}/page`)).toBe(false)
     let failure = chrome.getByRole('status').filter({ hasText: `Proxy for ${profile.name} could not connect` })
@@ -74,14 +79,18 @@ test('blocks restored pages when a saved proxy is unavailable and lets the user 
     await failure.getByRole('button', { name: 'Proxy settings', exact: true }).click()
     await expect(chrome.getByRole('dialog', { name: 'Proxy', exact: true })).toBeVisible()
     await chrome.getByRole('dialog', { name: 'Proxy', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
-    await failure.getByRole('button', { name: 'Disable proxy and continue', exact: true }).click()
+    await command(chrome, 'profile.proxy.clear', { profile: profile.id })
+    expect((await currentState(chrome)).model.sessions[0].windows[0].panes[0].connectionId).toBe(connectionId)
+    expect(application.context().pages().some(page => page.url() === `${origin}/page`)).toBe(false)
+    let direct = await command(chrome, 'new-window', { session: current.model.sessions[0].id, profile: profile.id, client: current.clientId })
+    await command(chrome, 'navigate', { pane: direct.panes[0].id, url: `${origin}/page` })
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/page`)).toBe(true)
     await expect.poll(() => pageRequests).toBeGreaterThan(0)
     await expect.poll(async () => (await currentState(chrome)).model.profiles[0].proxy).toBeUndefined()
   } finally {
-    await application?.close()
+    await closeTestApplication(application)
     await proxy.close(true).catch(() => undefined)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

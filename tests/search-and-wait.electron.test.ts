@@ -1,4 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
+import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -39,6 +41,21 @@ let openFind = async () => {
   await expect(chrome.getByRole('textbox', { name: 'Find in page', exact: true })).toBeFocused()
 }
 let flattenBookmarks = (bookmarks: any[]): any[] => bookmarks.flatMap(bookmark => [bookmark, ...flattenBookmarks(bookmark.children ?? [])])
+let holdPageLayout = () => application.evaluate(({ ipcMain }) => {
+  let listener = ipcMain.listeners('bounds')[0] as (...args: unknown[]) => void
+  let pending: unknown[] | undefined
+  let hold = (...args: unknown[]) => {
+    if ((args[1] as unknown[]).length) pending = args
+    else listener(...args)
+  }
+  ipcMain.removeListener('bounds', listener); ipcMain.on('bounds', hold)
+  ;(globalThis as any).bmuxTestReleaseLayout = () => {
+    ipcMain.removeListener('bounds', hold); ipcMain.on('bounds', listener)
+    if (pending) listener(...pending)
+    delete (globalThis as any).bmuxTestReleaseLayout
+  }
+})
+let releasePageLayout = () => application.evaluate(() => (globalThis as any).bmuxTestReleaseLayout?.())
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-search-wait-'))
@@ -65,15 +82,21 @@ test.beforeAll(async () => {
   { id: 'parameterized', title: 'Parameterized search', url: `${url}/search?q=original&limit=10&tracking=1` },
   { id: 'x-ideas', title: 'X ideas', url: 'https://x.com/search?q=startup&f=live' },
   { id: 'url-only', title: 'Other page', url: `${url}/sessions/other` }] }]
-  model.profiles[1].bookmarks = [{ id: 'bot-docs', title: 'Bot-only docs', url: `${url}/bot` }]
+  model.profiles[1].bookmarks = [{ id: 'work', title: 'Bot work', children: [{ id: 'docs', title: 'Bot guides', children: [
+    { id: 'api', title: 'Bot-only docs', url: `${url}/bot` }, { id: 'unsupported', title: 'Bot next page', url: `${url}/bot-next` },
+  ] }, { id: 'parameterized', title: 'Bot parameterized search', url: `${url}/bot-search?q=bot&limit=20` }] }]
   model.profiles[0].history = [{ title: 'Research notes', url: `${url}/notes`, visitedAt: Date.parse('2026-01-02T03:04:00Z') }]
   model.profiles[1].history = [{ title: 'Bot-only visit', url: `${url}/bot`, visitedAt: Date.parse('2026-01-01T03:04:00Z') }]
   model.sessions.push(newSession('Project planning', model.profiles[1].id))
   for (let index = 0; index < 24; index++) model.sessions.push(newSession(`Scroll fixture ${index + 1}`, model.profiles[0].id))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
-  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: { profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } } } }))
+  await fs.writeFile(path.join(directory, 'bookmark-parameters.yaml'), JSON.stringify({ profiles: {
+    profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } },
+    [model.profiles[1].id]: { parameterized: { values: { q: 'saved bot query' }, hidden: [] } },
+  } }))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_REMOTE_URL: url, BMUX_BACKGROUND: '0' } })
+  await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   expect((await state()).configError).toBeNull()
@@ -88,13 +111,19 @@ test.beforeAll(async () => {
 })
 test.beforeEach(async () => {
   await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
-  await rpc('switch-client', { client: (await state()).clientId, session: session.id })
+  let client = (await state()).clientId
+  await rpc('switch-client', { client, session: session.id })
+  // Session switching restores its last window; each test needs the fixture window.
+  await rpc('select-window', { client, window: session.windows[0].id })
+  await rpc('select-pane', { client, pane: original })
   await rpc('navigate', { pane: original, url: `${url}/fixture` }); await activate()
+  await expect(chrome.locator(`[data-pane-id="${original}"]`)).toHaveAttribute('data-focused-pane', 'true')
 })
+test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.afterAll(async () => {
-  await application?.close()
+  await closeTestApplication(application)
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
-  if (directory) await fs.rm(directory, { recursive: true, force: true })
+  if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 test('session search filters by name without changing selection until confirmed', async () => {
@@ -303,7 +332,7 @@ test('picker arrows wrap between the first and last rows', async () => {
 test('bookmark arrows wrap across visible selectable rows', async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
-  let rows = group.locator('button[data-bookmark-id]:not(:disabled)')
+  let rows = group.locator('button[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])')
   let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
   await search.press('ArrowUp')
   await expect(rows.last()).toBeFocused()
@@ -313,11 +342,233 @@ test('bookmark arrows wrap across visible selectable rows', async () => {
   await expect(rows.last()).toBeFocused()
 })
 
+for (let mobile of [false, true]) test(`opening bookmarks restores native page focus and Vim scrolling (${mobile ? 'mobile' : 'desktop'})`, async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  try {
+    await fs.writeFile(config, 'keyboard:\n  shortcuts:\n    j: { action: scroll-down, when: pane-not-editing }\n    k: { action: scroll-up, when: pane-not-editing }\nbrowser:\n  autoUpdateFilters: false\n')
+    await rpc('settings.reload')
+    let client = (await state()).clientId
+    let created = await rpc('new-session', { client, profile: pane.profileId }) as { id: string; windows: { panes: { id: string }[] }[] }
+    let source = created.windows[0].panes[0].id
+    if (mobile) await rpc('profile.device.set', { pane: source, profile: pane.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+    await rpc('navigate', { pane: source, url: `${url}/fixture` })
+    for (let keyboard of [false, true]) {
+      await open('bookmarks')
+      let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+      await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('API reference')
+      let bookmark = group.getByRole('button', { name: 'API reference', exact: true })
+      if (keyboard) {
+        await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).press('ArrowDown')
+        await expect(bookmark).toBeFocused()
+        await chrome.keyboard.press('Enter')
+      } else await bookmark.click()
+      await expect(group).toHaveCount(0)
+      let current = await state(), selected = current.model.clients.find((item: { id: string }) => item.id === client)
+      let opened = current.model.sessions.find((item: { id: string }) => item.id === created.id).windows.find((item: { id: string }) => item.id === selected.windowId).panes[0]
+      expect(opened.url).toBe(`${url}/docs`)
+      await expect.poll(() => application.evaluate(({ BaseWindow, webContents }, tab) => {
+        let contents = webContents.getFocusedWebContents(), window = BaseWindow.getFocusedWindow()
+        return contents?.getURL() === tab.url && window?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents === contents && view.getBounds().height > 0)
+      }, opened)).toBe(true)
+      let scroll = async () => (await rpc('eval', { pane: opened.id, expression: 'scrollY' })) as number
+      await rpc('wait', { pane: opened.id, selector: 'h1' })
+      await rpc('wait', { pane: opened.id, expression: "document.readyState === 'complete' && document.documentElement.scrollHeight > innerHeight" })
+      // DOM presence and AppKit focus can precede the first native page frame.
+      // Wait for the fixture background before asking Chromium to route a wheel.
+      await expect.poll(() => application.evaluate(async ({ webContents }, url) => {
+        let contents = webContents.getFocusedWebContents()
+        if (!contents || contents.getURL() !== url) return []
+        let image = await contents.capturePage().catch(error => {
+          if (String(error).includes('UnknownVizError')) return undefined
+          throw error
+        })
+        if (!image) return []
+        let size = image.getSize()
+        if (size.width < 40 || size.height < 100) return []
+        let offset = ((size.height - 50) * size.width + size.width - 20) * 4
+        return [...image.toBitmap().subarray(offset, offset + 3)]
+      }, opened.url)).toEqual([248, 238, 232])
+      await sendNativeKeys(application, [{ keyCode: 'j' }])
+      await expect.poll(scroll).toBeGreaterThan(0)
+      await sendNativeKeys(application, [{ keyCode: 'k' }])
+      await expect.poll(scroll).toBe(0)
+      if (mobile) {
+        let bounds = await chrome.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => {
+          let rect = element.getBoundingClientRect()
+          return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        }))
+        // Hold new bounds to exercise an explicit focus request before attachment.
+        await holdPageLayout()
+        await chrome.evaluate(() => (window as any).bmux.bounds([]))
+        await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getFocusedWindow()?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url), opened.url)).toBe(false)
+        await rpc('focus-page', { client })
+        expect(await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(chrome.url())
+        if (keyboard) await rpc('focus-ui', { client })
+        await releasePageLayout()
+        await chrome.evaluate(bounds => (window as any).bmux.bounds(bounds), bounds)
+        await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getFocusedWindow()?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url), opened.url)).toBe(true)
+        await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(keyboard ? chrome.url() : opened.url)
+        if (!keyboard) {
+          await sendNativeKeys(application, [{ keyCode: 'j' }])
+          await expect.poll(scroll).toBeGreaterThan(0)
+          await sendNativeKeys(application, [{ keyCode: 'k' }])
+          await expect.poll(scroll).toBe(0)
+        }
+      }
+    }
+  } finally {
+    await releasePageLayout()
+    await fs.writeFile(config, previous)
+    await rpc('settings.reload')
+  }
+})
+
+test('bookmarks add button opens the current page menu and hides on a blank page', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('button', { name: 'Bookmark current page', exact: true }).click()
+  let editor = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
+  await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toBeFocused()
+  await expect(editor).toContainText(`${url}/fixture`)
+  await expect(editor.getByRole('group', { name: 'Choose bookmark folder', exact: true })).toBeVisible()
+  await editor.getByRole('button', { name: 'Close', exact: true }).click()
+  await rpc('navigate', { pane: original, url: 'about:blank' })
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].url).toBe('about:blank')
+  await open('bookmarks')
+  await expect(group.getByRole('button', { name: 'Bookmark current page', exact: true })).toHaveCount(0)
+  await expect(group.getByRole('button', { name: /^Bookmark current page in / })).toHaveCount(0)
+  await expect(group.getByRole('checkbox', { name: 'All profiles', exact: true })).toBeVisible()
+})
+
+for (let query of ['', 'API reference']) test(`folder bookmark buttons preselect nested folders (${query ? 'search results' : 'full list'})`, async () => {
+  let targetUrl = `${url}/folder-add-${query ? 'search' : 'list'}`
+  await rpc('navigate', { pane: original, url: targetUrl })
+  await expect.poll(() => application.context().pages().some(page => page.url() === targetUrl)).toBe(true)
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill(query)
+  await expect(group.getByRole('button', { name: 'Bookmark current page in Work', exact: true })).toBeVisible()
+  let add = group.getByRole('button', { name: 'Bookmark current page in Guides', exact: true })
+  await expect(add).toBeVisible()
+  if (query) { await add.focus(); await add.press('Enter') }
+  else {
+    await chrome.screenshot({ path: path.resolve('artifacts/bookmark-folder-actions.png') })
+    await add.click()
+  }
+  let editor = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
+  await expect(editor.getByRole('button', { name: 'Work / Guides', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toBeFocused()
+  await expect(editor.locator('form > p').first()).toHaveText(targetUrl)
+  await editor.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+})
+
+test('folder bookmark buttons save into the owning profile and reset the ordinary bookmark menu', async () => {
+  let targetUrl = `${url}/folder-add-other-profile`
+  await rpc('navigate', { pane: original, url: targetUrl })
+  await expect.poll(() => application.context().pages().some(page => page.url() === targetUrl)).toBe(true)
+  let before = (await state()).model.profiles[0].bookmarks
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('checkbox', { name: 'All profiles', exact: true }).check()
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('Bot-only')
+  await group.getByRole('button', { name: 'Bookmark current page in Bot guides', exact: true }).click()
+  let editor = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
+  await expect(editor.getByRole('button', { name: 'Bot work / Bot guides', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(editor).toContainText('Profile: bot')
+  await editor.getByRole('button', { name: 'New folder inside Bot work / Bot guides', exact: true }).click()
+  let folderName = editor.getByRole('textbox', { name: 'New folder name', exact: true })
+  await folderName.fill('Reading'); await folderName.press('Enter')
+  await expect(editor.getByRole('button', { name: 'Bot work / Bot guides / Reading', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await editor.getByRole('button', { name: 'Save bookmark', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  let current = await state()
+  expect(current.model.profiles[0].bookmarks).toEqual(before)
+  expect(current.model.profiles[1].bookmarks[0].children[0].children.at(-1)).toMatchObject({ title: 'Reading', children: [expect.objectContaining({ url: targetUrl })] })
+  expect(current.model.clients.find((client: { id: string }) => client.id === current.clientId).paneId).toBe(original)
+  expect(current.model.sessions[0].windows[0].panes[0].profileId).toBe(model.profiles[0].id)
+  await open('bookmark')
+  await expect(editor).not.toContainText('Profile: bot')
+  await expect(editor.getByRole('button', { name: 'Profile root', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await editor.getByRole('button', { name: 'Close', exact: true }).click()
+  await open('bookmarks')
+  await group.getByRole('checkbox', { name: 'All profiles', exact: true }).uncheck()
+})
+
+test('all-profile bookmarks preserve owning profiles, duplicate IDs, parameters, and reorder boundaries', async () => {
+  let botProfile = model.profiles[1]
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  let scope = group.getByRole('checkbox', { name: 'All profiles', exact: true })
+  await expect(scope).not.toBeChecked()
+  await search.fill('Bot-only')
+  await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
+  await scope.check()
+  await expect(group.getByRole('heading', { name: botProfile.name, exact: true })).toBeVisible()
+  let botBookmark = group.getByRole('button', { name: 'Bot-only docs', exact: true })
+  await expect(botBookmark).toBeVisible()
+  await search.press('Escape')
+  await open('bookmarks')
+  await expect(scope).toBeChecked()
+  await expect(search).toHaveValue('Bot-only')
+  await search.fill('')
+  await expect(group.getByRole('heading')).toHaveText([model.profiles[0].name, botProfile.name])
+  await group.getByRole('button', { name: 'Reorder bookmarks', exact: true }).click()
+  let botNext = group.getByRole('button', { name: 'Drag Bot next page to reorder', exact: true })
+  await chrome.screenshot({ path: path.resolve('artifacts/bookmarks-all-profiles.png') })
+  let beforeMove = (await state()).model.profiles.map((profile: { bookmarks: unknown }) => profile.bookmarks)
+  await botNext.dragTo(group.getByRole('button', { name: 'API reference', exact: true }), { targetPosition: { x: 8, y: 2 } })
+  expect((await state()).model.profiles.map((profile: { bookmarks: unknown }) => profile.bookmarks)).toEqual(beforeMove)
+  await botNext.dragTo(botBookmark, { targetPosition: { x: 8, y: 2 } })
+  await expect.poll(async () => (await state()).model.profiles[1].bookmarks[0].children[0].children[0].id).toBe('unsupported')
+  expect((await state()).model.profiles[0].bookmarks).toEqual(beforeMove[0])
+  await search.fill('parameterized')
+  let defaultCustomize = group.getByRole('button', { name: 'Customize Parameterized search', exact: true })
+  let botCustomize = group.getByRole('button', { name: 'Customize Bot parameterized search', exact: true })
+  await botCustomize.click()
+  await expect(botCustomize).toHaveAttribute('aria-expanded', 'true')
+  await expect(defaultCustomize).toHaveAttribute('aria-expanded', 'false')
+  await expect(group.getByRole('textbox', { name: 'q', exact: true })).toHaveValue('saved bot query')
+  await group.getByRole('textbox', { name: 'q', exact: true }).fill('changed bot query')
+  await group.getByRole('textbox', { name: 'q', exact: true }).press('Tab')
+  await expect.poll(async () => (await state()).bookmarkParameters[botProfile.id].parameterized.values.q).toBe('changed bot query')
+  await defaultCustomize.click()
+  await expect(botCustomize).toHaveAttribute('aria-expanded', 'false')
+  await expect(group.getByRole('textbox', { name: 'q', exact: true })).toHaveValue('original')
+  await search.fill('Bot-only')
+  await search.press('Meta+Enter')
+  await expect(group).toHaveCount(0)
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/bot`)
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  let opened = current.model.sessions[0].windows.find((item: { id: string }) => item.id === client.windowId)
+  expect(opened.panes[0].profileId).toBe(botProfile.id)
+  await rpc('select-window', { client: current.clientId, window: session.windows[0].id })
+  await open('bookmarks')
+  await expect(scope).toBeChecked()
+  await expect(botBookmark).toBeFocused()
+  await search.fill('Bot parameterized')
+  await group.getByRole('button', { name: 'Bot parameterized search', exact: true }).click()
+  await expect(group).toHaveCount(0)
+  current = await state(); client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  opened = current.model.sessions[0].windows.find((item: { id: string }) => item.id === client.windowId)
+  expect(opened.panes[0].profileId).toBe(botProfile.id)
+  expect(new URL(opened.panes[0].url).searchParams.get('q')).toBe('changed bot query')
+  await rpc('select-window', { client: current.clientId, window: session.windows[0].id })
+  await open('bookmarks')
+  await scope.uncheck()
+  await expect(group.getByRole('heading')).toHaveCount(0)
+  await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
+  await search.press('Escape')
+  await open('bookmarks')
+  await expect(scope).not.toBeChecked()
+})
+
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
   await search.fill('api reference')
-  await expect(group.locator('summary')).toHaveText(['Work', 'Guides'])
+  await expect(group.locator('[data-bookmark-folder-title]')).toHaveText(['Work', 'Guides'])
   await expect(group.locator('button[data-bookmark-id]')).toHaveText(['API reference'])
   await search.fill('sessions'); await expect(group.locator('button[data-bookmark-id]')).toHaveText(['Sessions', 'Other page'])
   await search.fill('bot-only'); await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
@@ -325,7 +576,7 @@ test('bookmark search preserves folders, excludes other profiles, and keeps unsu
   await search.press('Enter'); await expect(group).toBeVisible()
   await search.press('Escape'); await expect(group).toHaveCount(0)
   await open('bookmarks'); await expect(search).toHaveValue('bookmarklet')
-  await search.fill('guides'); await expect(group.locator('summary')).toHaveText(['Work', 'Guides']); await expect(group.locator('button[data-bookmark-id]')).toHaveText(['API reference', 'Disabled bookmarklet'])
+  await search.fill('guides'); await expect(group.locator('[data-bookmark-folder-title]')).toHaveText(['Work', 'Guides']); await expect(group.locator('button[data-bookmark-id]')).toHaveText(['API reference', 'Disabled bookmarklet'])
   await search.fill('API reference')
   await chrome.screenshot({ path: path.resolve('artifacts/bookmark-search.png') })
   await search.press('ArrowDown'); await expect(group.getByRole('button', { name: 'API reference', exact: true })).toBeFocused()
@@ -477,7 +728,7 @@ test('mouse hover and arrow keys share one visible bookmark highlight', async ()
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
   let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
   await search.fill('')
-  let rows = group.locator('button[data-bookmark-id]:not(:disabled)')
+  let rows = group.locator('button[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])')
   let highlightedRows = () => rows.evaluateAll(buttons => buttons.filter(button => ['rgb(48, 57, 68)', 'rgb(52, 71, 56)'].includes(getComputedStyle(button).backgroundColor)).map(button => button.dataset.bookmarkId))
   await search.press('ArrowDown')
   await expect(rows.first()).toBeFocused()
@@ -682,7 +933,8 @@ test('new sessions use the saved preference and loaded panes keep their profile 
   expect(created.defaultProfileId).toBe(fresh.id)
   expect(created.windows[0].panes[0].profileId).toBe(fresh.id)
   expect(created.profileExplicit).toBeUndefined()
-  await chrome.getByRole('button', { name: 'Profile: Fresh identity' }).click()
+  await chrome.getByRole('button', { name: 'Choose pane profile: Fresh identity' }).click()
+  await chrome.getByRole('button', { name: 'Profile settings', exact: true }).click()
   let panel = chrome.getByRole('dialog', { name: 'Profile' })
   await expect(panel.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
   await expect(panel.getByRole('tab', { name: 'Device' })).toBeVisible()
@@ -712,9 +964,192 @@ test('blank pane can change profile beside the address, then keeps that profile 
   await chrome.getByRole('combobox', { name: 'Pane profile' }).selectOption(model.profiles[1].id)
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes.find((item: { id: string }) => item.id === created.id)?.profileId).toBe(model.profiles[1].id)
   await rpc('navigate', { pane: created.id, url: `${url}/pane-profile` })
-  await expect(chrome.getByRole('button', { name: /Profile bot,/ })).toBeVisible()
+  await expect(chrome.getByRole('button', { name: 'Profile: bot' })).toBeVisible()
   await expect(chrome.getByRole('button', { name: /Choose pane profile/ })).toHaveCount(0)
   await expect(rpc('pane.profile.set', { pane: created.id, profile: model.profiles[0].id })).rejects.toThrow('Pane profile can only change')
+})
+
+for (let query of ['', 'Guides']) test(`bookmark reorder toggle and folder chevrons work (${query ? 'search results' : 'full list'})`, async () => {
+  let before = (await state()).model.profiles[0].bookmarks
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill(query)
+  let reorder = group.getByRole('button', { name: 'Reorder bookmarks', exact: true }), handles = group.getByRole('button', { name: /^Drag .* to reorder$/ })
+  await expect(reorder).toHaveAttribute('title', 'Reorder bookmarks')
+  await expect(reorder).toHaveText(''); await expect(reorder.locator('svg')).toBeVisible()
+  await expect(reorder).toHaveAttribute('aria-pressed', 'false'); await expect(handles).toHaveCount(0)
+  let folderTitle = group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Guides$/ }), summary = folderTitle.locator('..'), folder = summary.locator('..')
+  let chevron = summary.locator('[data-bookmark-chevron]'), row = group.getByRole('button', { name: 'API reference', exact: true })
+  await expect(chevron).toBeVisible(); await expect(folder).toHaveJSProperty('open', true)
+  await expect(chevron).toHaveCSS('transform', 'matrix(0, 1, -1, 0, 0, 0)')
+  await chevron.click(); await expect(folder).toHaveJSProperty('open', false); await expect(row).toBeHidden()
+  await expect(chevron).toHaveCSS('transform', 'none')
+  await expect(group.getByRole('textbox', { name: 'Bookmark title', exact: true })).toHaveCount(0)
+  await summary.focus(); await summary.press('Enter'); await expect(row).toBeVisible()
+  await reorder.click(); await expect(reorder).toHaveAttribute('aria-pressed', 'true')
+  let handle = group.getByRole('button', { name: 'Drag API reference to reorder', exact: true })
+  await expect(handle).toBeVisible(); await expect(group.getByRole('button', { name: 'Drag Guides to reorder', exact: true })).toBeVisible()
+  let siblings = flattenBookmarks(before).find(item => item.id === 'docs').children.map((item: { id: string }) => item.id)
+  let index = siblings.indexOf('api'), down = index < siblings.length - 1, next = index + (down ? 1 : -1), moved = [...siblings]
+  ;[moved[index], moved[next]] = [moved[next], moved[index]]
+  await handle.press(down ? 'Alt+ArrowDown' : 'Alt+ArrowUp')
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'docs').children.map((item: { id: string }) => item.id)).toEqual(moved)
+  // Reverse immediately: the renderer may still have the previous row position.
+  await handle.press(down ? 'Alt+ArrowUp' : 'Alt+ArrowDown')
+  await expect.poll(async () => (await state()).model.profiles[0].bookmarks).toEqual(before)
+  await expect.poll(() => handle.evaluate(button => {
+    let item = button.parentElement!.parentElement!
+    return [...item.parentElement!.children].indexOf(item)
+  })).toBe(index)
+  await search.focus(); await search.press('ArrowDown'); await expect(row).toBeFocused()
+  await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-reorder-${query ? 'search' : 'tree'}.png`) })
+  await reorder.click(); await expect(handles).toHaveCount(0); await expect(reorder).toHaveAttribute('aria-pressed', 'false')
+  await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-chevrons-${query ? 'search' : 'tree'}.png`) })
+  await reorder.press('Enter'); await expect(handle).toBeVisible()
+  await reorder.press('Enter'); await expect(handles).toHaveCount(0)
+  await search.press('Escape'); await open('bookmarks')
+  await expect(reorder).toHaveAttribute('aria-pressed', 'false'); await expect(handles).toHaveCount(0)
+})
+
+for (let query of ['', 'API reference']) test(`bookmark context menus dim the list and consume outside clicks (${query ? 'search results' : 'full list'})`, async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill(query)
+  let list = group.locator('[data-bookmark-list]'), row = group.getByRole('button', { name: 'API reference', exact: true })
+  let menu = chrome.getByRole('menu', { name: 'Actions for API reference', exact: true })
+  let before = (await state()).model.sessions[0].windows.length, bounds = (await row.boundingBox())!
+  await expect(list).toHaveCSS('opacity', '1')
+  await row.click({ button: 'right', position: { x: bounds.width - 10, y: bounds.height / 2 } })
+  await expect(list).toHaveCSS('opacity', '0.45'); await expect(menu).toHaveCSS('opacity', '1')
+  await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-menu-dim-${query ? 'search' : 'tree'}.png`) })
+  let title = row.locator('[data-bookmark-title]'), titleBounds = (await title.boundingBox())!
+  await chrome.mouse.move(titleBounds.x + titleBounds.width / 2, titleBounds.y + titleBounds.height / 2)
+  await chrome.mouse.down(); await expect(menu).toBeVisible()
+  await chrome.mouse.up()
+  await expect(menu).toHaveCount(0); await expect(list).toHaveCSS('opacity', '1'); await expect(group).toBeVisible()
+  expect((await state()).model.sessions[0].windows).toHaveLength(before)
+  await row.click({ button: 'right', position: { x: bounds.width - 10, y: bounds.height / 2 } })
+  let folder = group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Guides$/ }).locator('..').locator('..')
+  let chevron = folder.locator(':scope > summary > [data-bookmark-chevron]'), chevronBounds = (await chevron.boundingBox())!
+  await chrome.mouse.click(chevronBounds.x + chevronBounds.width / 2, chevronBounds.y + chevronBounds.height / 2)
+  await expect(menu).toHaveCount(0); await expect(list).toHaveCSS('opacity', '1'); await expect(folder).toHaveJSProperty('open', true)
+  await chevron.click(); await expect(folder).toHaveJSProperty('open', false)
+  await chevron.click(); await title.click()
+  await expect(group).toHaveCount(0)
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(before + 1)
+})
+
+for (let query of ['', 'API reference']) test(`bookmark titles open pages and context menus rename (${query ? 'search results' : 'full list'})`, async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill(query)
+  let row = group.getByRole('button', { name: 'API reference', exact: true }), title = row.locator('[data-bookmark-title]')
+  let before = (await state()).model.sessions[0].windows.length
+  await title.hover(); await expect(title).toHaveCSS('cursor', 'pointer')
+  await row.click({ button: 'right' })
+  await chrome.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  let editor = group.getByRole('textbox', { name: 'Bookmark title', exact: true })
+  await expect(editor).toBeFocused()
+  await expect(editor).toHaveValue('API reference')
+  await editor.fill('Cancelled title'); await editor.press('Escape')
+  await expect(group).toBeVisible(); await expect(row).toBeVisible()
+  expect(flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'api').title).toBe('API reference')
+  await row.click({ button: 'right' })
+  let menu = chrome.getByRole('menu', { name: 'Actions for API reference', exact: true })
+  await expect(menu.getByRole('menuitem', { name: 'Rename', exact: true })).toBeFocused()
+  await chrome.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0); await expect(group).toBeVisible(); await expect(row).toBeFocused()
+  await row.press('Shift+F10')
+  await menu.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  await editor.fill('  Revised reference  ')
+  if (!query) await chrome.screenshot({ path: path.resolve('artifacts/bookmark-inline-rename.png') })
+  await editor.press('Enter')
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'api').title).toBe('Revised reference')
+  await expect(editor).toHaveCount(0); await expect(group).toBeVisible(); await expect(search).toBeFocused()
+  if (query) await expect(group.getByRole('status')).toHaveText('No matching bookmarks.')
+  expect((await state()).model.sessions[0].windows).toHaveLength(before)
+  await rpc('bookmark.update', { profile: model.profiles[0].id, bookmark: 'api', title: 'API reference' })
+  let folderTitle = group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Guides$/ })
+  await folderTitle.click({ button: 'right' })
+  await chrome.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  await editor.fill('Guides revised'); await search.click()
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'docs').title).toBe('Guides revised')
+  await expect(row).toBeVisible()
+  await rpc('bookmark.update', { profile: model.profiles[0].id, bookmark: 'docs', title: 'Guides' })
+  await row.click({ button: 'right' })
+  let searchBounds = (await search.boundingBox())!
+  await chrome.mouse.click(searchBounds.x + searchBounds.width / 2, searchBounds.y + searchBounds.height / 2)
+  await expect(menu).toHaveCount(0)
+  await search.fill('bookmarklet')
+  let disabled = group.getByRole('button', { name: 'Disabled bookmarklet', exact: true })
+  let disabledTitle = await disabled.locator('[data-bookmark-title]').boundingBox()
+  await chrome.mouse.click(disabledTitle!.x + disabledTitle!.width / 2, disabledTitle!.y + disabledTitle!.height / 2)
+  await expect(editor).toHaveCount(0); await expect(group).toBeVisible()
+  await disabled.click({ button: 'right', force: true })
+  await chrome.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  await editor.fill(''); await editor.press('Enter'); await expect(editor).toBeFocused()
+  await editor.fill('Changed bookmarklet'); await editor.press('Enter')
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).find(item => item.id === 'unsupported').title).toBe('Changed bookmarklet')
+  await rpc('bookmark.update', { profile: model.profiles[0].id, bookmark: 'unsupported', title: 'Disabled bookmarklet' })
+  await search.fill('API reference'); await title.click()
+  await expect(group).toHaveCount(0); await expect(editor).toHaveCount(0)
+  await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(before + 1)
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  expect(current.model.sessions[0].windows.find((item: { id: string }) => item.id === client.windowId).panes[0].url).toBe(`${url}/docs`)
+})
+
+for (let searching of [false, true]) test(`bookmark deletion updates the saved tree and parameters (${searching ? 'search results' : 'full list'})`, async () => {
+  let profile = model.profiles[0].id
+  let folder = await rpc('bookmark.folder.add', { tab: original, profile, title: `Disposable ${searching ? 'filtered' : 'tree'}` }) as { folder: { id: string } }
+  let targetUrl = `${url}/disposable-${searching}`
+  await rpc('navigate', { pane: original, url: targetUrl })
+  let saved = await rpc('bookmark.add', { tab: original, profile, title: 'Disposable entry', folder: folder.folder.id }) as { bookmark: { id: string } }
+  await rpc('bookmark.parameters.update', { profile, bookmark: saved.bookmark.id, values: {}, hidden: [] })
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill(searching ? 'Disposable' : '')
+  await group.getByRole('button', { name: 'Disposable entry', exact: true }).click({ button: 'right' })
+  let menu = chrome.getByRole('menu', { name: 'Actions for Disposable entry', exact: true })
+  await chrome.screenshot({ path: path.resolve(`artifacts/bookmark-delete-${searching ? 'search' : 'tree'}.png`) })
+  if (searching) {
+    await chrome.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitem', { name: 'Delete', exact: true })).toBeFocused()
+    await chrome.keyboard.press('Enter')
+  } else await menu.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  await expect(group.getByRole('button', { name: 'Disposable entry', exact: true })).toHaveCount(0)
+  await expect(search).toBeFocused()
+  expect((await state()).bookmarkParameters[profile]?.[saved.bookmark.id]).toBeUndefined()
+  await expect.poll(async () => (await fs.readFile(path.join(directory, 'bookmarks.yaml'), 'utf8')).includes(targetUrl)).toBe(false)
+  await group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Disposable / }).click({ button: 'right' })
+  await chrome.getByRole('menuitem', { name: 'Delete folder and bookmarks', exact: true }).click()
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).some(item => item.id === folder.folder.id)).toBe(false)
+  await expect(group).toBeVisible()
+})
+
+test('bookmark rename and recursive deletion keep duplicate IDs in other profiles untouched', async () => {
+  let before = (await state()).model.profiles[0].bookmarks, profile = model.profiles[1].id
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await group.getByRole('checkbox', { name: 'All profiles', exact: true }).check(); await search.fill('Bot-only')
+  await group.getByRole('button', { name: 'Bot-only docs', exact: true }).click({ button: 'right' })
+  await chrome.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  let editor = group.getByRole('textbox', { name: 'Bookmark title', exact: true })
+  await editor.fill('Bot-only revised'); await editor.press('Enter')
+  await expect(group.getByRole('button', { name: 'Bot-only revised', exact: true })).toBeVisible()
+  expect((await state()).model.profiles[0].bookmarks).toEqual(before)
+  await search.fill('Bot parameterized')
+  await group.getByRole('button', { name: 'Bot parameterized search', exact: true }).click({ button: 'right' })
+  await chrome.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  await expect.poll(async () => (await state()).bookmarkParameters[profile]?.parameterized).toBeUndefined()
+  await rpc('bookmark.parameters.update', { profile, bookmark: 'api', values: {}, hidden: [] })
+  await search.fill('Bot-only revised')
+  await group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Bot guides$/ }).click({ button: 'right' })
+  await chrome.getByRole('menuitem', { name: 'Delete folder and bookmarks', exact: true }).click()
+  await expect.poll(async () => flattenBookmarks((await state()).model.profiles[1].bookmarks).some(item => ['docs', 'api', 'unsupported'].includes(item.id))).toBe(false)
+  expect((await state()).bookmarkParameters[profile]?.api).toBeUndefined()
+  expect((await state()).model.profiles[0].bookmarks).toEqual(before)
+  await expect.poll(async () => (await fs.readFile(path.join(directory, 'bookmark-parameters.yaml'), 'utf8')).includes('saved bot query')).toBe(false)
+  await group.getByRole('checkbox', { name: 'All profiles', exact: true }).uncheck()
 })
 
 test('renaming a fresh blank session restores a closed session profile unless a profile or page was chosen', async () => {

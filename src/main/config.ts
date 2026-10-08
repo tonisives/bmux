@@ -18,7 +18,7 @@ import { DEFAULT_SEARCH_APPS, SEARCH_APPS } from '../shared/search-app'
 import type { SearchApps } from '../shared/search-app'
 
 export let DEFAULT_MEMORY: MemorySettings = { lazyRestore: true, idleUnloadMinutes: 0 }
-type Settings = { keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; searchApps: SearchApps; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
+type Settings = { automaticUpdates: boolean; keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showTabCloseButtons: boolean; searchApps: SearchApps; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -33,7 +33,7 @@ export let configPath = (dataDirectory: string) => {
   }
   return current
 }
-export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status windows.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ statusBar: 'top', showTabCloseButtons: false, accessibility: false, searchApps: DEFAULT_SEARCH_APPS, memory: DEFAULT_MEMORY, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
+export let defaultConfigText = (prefix = DEFAULT_KEYBOARD.prefix) => '# bmux settings. Changes reload automatically.\n# Set statusBar to top or bottom.\n# Set showTabCloseButtons to true to show close buttons on status windows.\n# Set a shortcut or prefix binding to null to disable it.\n# Cmd+C/V/X/A/Z and other standard editing keys use the native Edit menu.\n' + stringify({ automaticUpdates: true, statusBar: 'top', showTabCloseButtons: false, accessibility: false, searchApps: DEFAULT_SEARCH_APPS, memory: DEFAULT_MEMORY, automation: DEFAULT_AUTOMATION, clickMode: DEFAULT_CLICK_MODE, keyboard: { ...DEFAULT_KEYBOARD, prefix } })
 let parseSearchApps = (value: unknown): SearchApps => {
   if (value === undefined) return { ...DEFAULT_SEARCH_APPS }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('searchApps must be a mapping')
@@ -81,6 +81,7 @@ export let parseConfig = (text: string): Settings => {
   if (value.accessibility !== undefined && typeof value.accessibility !== 'boolean') throw new Error('accessibility must be true or false')
   if (value.statusBar !== undefined && value.statusBar !== 'top' && value.statusBar !== 'bottom') throw new Error('statusBar must be top or bottom')
   if (value.showTabCloseButtons !== undefined && typeof value.showTabCloseButtons !== 'boolean') throw new Error('showTabCloseButtons must be true or false')
+  if (value.automaticUpdates !== undefined && typeof value.automaticUpdates !== 'boolean') throw new Error('automaticUpdates must be true or false')
   let keyboard = value.keyboard
   for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'sequences', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
   let result = structuredClone(DEFAULT_KEYBOARD)
@@ -125,7 +126,7 @@ export let parseConfig = (text: string): Settings => {
       result.sequences[key] = object ? { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined } : name
     }
   }
-  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false } }
+  let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false }, 'bmux.nordvpn': { enabled: true, hooks: false } }
   if (value.plugins !== undefined) {
     if (!value.plugins || typeof value.plugins !== 'object' || Array.isArray(value.plugins)) throw new Error('plugins must be a mapping')
     for (let [id, raw] of Object.entries(value.plugins)) {
@@ -135,10 +136,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, searchApps: parseSearchApps(value.searchApps), memory: parseMemory(value.memory), plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
+  return { automaticUpdates: value.automaticUpdates ?? true, keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showTabCloseButtons: value.showTabCloseButtons ?? false, searchApps: parseSearchApps(value.searchApps), memory: parseMemory(value.memory), plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, searchApps: { ...DEFAULT_SEARCH_APPS }, memory: { ...DEFAULT_MEMORY }, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
+  let settings: Settings = { automaticUpdates: true, keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showTabCloseButtons: false, searchApps: { ...DEFAULT_SEARCH_APPS }, memory: { ...DEFAULT_MEMORY }, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -158,6 +159,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
     fs.writeFileSync(temporary, text, { mode: 0o600 }); fs.renameSync(temporary, file); reload()
   }
   return {
+    get automaticUpdates() { return settings.automaticUpdates },
     get plugins() { return settings.plugins },
     get automation() { return settings.automation },
     get browser() { return settings.browser }, update,

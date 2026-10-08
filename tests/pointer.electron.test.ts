@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -9,7 +10,7 @@ import { promisify } from 'node:util'
 test('pane shortcuts move the macOS pointer into page content, including zoomed panes', async () => {
   test.skip(process.platform !== 'darwin', 'Native pointer following is supported on macOS')
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-pointer-'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+H: pane-left\n    Cmd+J: pane-down\n    Cmd+K: pane-up\n    Cmd+L: pane-right\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+H: pane-left\n    Cmd+J: pane-down\n    Cmd+K: pane-up\n    Cmd+L: pane-right\nbrowser:\n  autoUpdateFilters: false\n')
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end('<!doctype html><title>Pointer fixture</title><style>body{margin:0;height:3000px;background:#e8eef8}h1{padding:40px}</style><h1>Pointer fixture</h1>')
@@ -27,16 +28,37 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
-    let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let rpc = (method: string, args: Record<string, unknown> = {}) => test.step(`Pointer fixture command: ${method}`, () => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args }), { timeout: 15000 })
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let client = state.model.clients[0], left = state.model.sessions[0].windows[0].panes[0]
     await rpc('navigate', { tab: left.id, url: `${url}/left` })
     let right = await rpc('split-window', { pane: left.id, url: `${url}/right` })
     let lower = await rpc('split-window', { pane: right.id, axis: 'vertical', url: `${url}/lower` })
-    await rpc('wait', { tab: lower.id, selector: 'h1' })
+    for (let pane of [left, right, lower]) await rpc('wait', { tab: pane.id, selector: 'h1' })
     await rpc('activate-client', { client: client.id })
+    let pages: Record<string, string> = { [left.id]: `${url}/left`, [right.id]: `${url}/right`, [lower.id]: `${url}/lower` }
+    let waitForLayout = () => expect.poll(async () => {
+      let bounds = await chrome.locator('[data-browser-content]').evaluateAll(elements => elements.map(element => {
+        let rect = element.getBoundingClientRect()
+        return { paneId: (element as HTMLElement).dataset.contentPaneId!, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+      }))
+      return application.evaluate(({ BaseWindow }, { bounds, pages }) => {
+        let window = BaseWindow.getFocusedWindow()
+        return !!window && bounds.length > 0 && bounds.every(({ paneId, ...expected }) => window.contentView.children.some(view => {
+          if (!('webContents' in view) || (view as Electron.WebContentsView).webContents.getURL() !== pages[paneId]) return false
+          let actual = view.getBounds()
+          return Object.entries(expected).every(([key, value]) => actual[key as keyof typeof actual] === value)
+        }))
+      }, { bounds, pages })
+    }).toBe(true)
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(3)
+    await waitForLayout()
+    // Native view attachment can focus a sibling while split layouts settle.
+    // Establish the shortcut's starting pane after all three pages are attached.
     await rpc('select-pane', { client: client.id, pane: left.id })
+    await expect(chrome.locator(`[data-pane-id="${left.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     await rpc('focus-page', { client: client.id })
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(pages[left.id])
     let cursor = () => application.evaluate(({ screen }) => screen.getCursorScreenPoint())
     let key = (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = ['meta']) => application.evaluate(({ webContents }, { keyCode, modifiers }) => {
       let contents = webContents.getFocusedWebContents()!
@@ -63,6 +85,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     expect(await cursor()).toEqual(before)
     await rpc('toggle-pane-zoom', { client: client.id })
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(1)
+    await waitForLayout()
     await key('j')
     await expectPointer(lower.id)
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/lower`)
@@ -70,6 +93,7 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await expect.poll(() => rpc('eval', { tab: lower.id, expression: 'scrollY' })).toBeGreaterThan(0)
     await rpc('toggle-pane-zoom', { client: client.id })
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(3)
+    await waitForLayout()
     await key('b', ['control']); await key('o', [])
     await expectPointer(left.id)
     // Clicking the URL bar selects its pane without recentering the real pointer.
@@ -84,12 +108,12 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await rpc('select-pane', { client: client.id, pane: lower.id, movePointer: true })
     expect(await cursor()).toEqual(before)
   } catch (error) {
-    console.log('POINTER_DIAGNOSTICS', await application.evaluate(({ BaseWindow, screen, webContents }) => ({ pointer: screen.getCursorScreenPoint(), focused: webContents.getFocusedWebContents()?.getURL(), windows: BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), bounds: window.getContentBounds() })) })))
+    console.log('POINTER_DIAGNOSTICS', await test.step('Capture pointer failure diagnostics', () => application.evaluate(({ BaseWindow, screen, webContents }) => ({ pointer: screen.getCursorScreenPoint(), focused: webContents.getFocusedWebContents()?.getURL(), windows: BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), bounds: window.getContentBounds() })) })), { timeout: 5000 }).catch(error => ({ error: String(error) })))
     throw error
   } finally {
     await promisify(execFile)(process.execPath, ['-e', 'require(process.argv[1]).move(Number(process.argv[2]), Number(process.argv[3]))', path.join(process.cwd(), 'out/native/pointer.node'), String(originalPointer.x), String(originalPointer.y)])
-    await application.close()
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

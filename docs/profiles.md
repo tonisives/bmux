@@ -6,9 +6,11 @@ profiles. A pane keeps its profile after a page is loaded.
 
 ## Choose a profile
 
-Open profile details from the status bar. Panes with the same profile share
-settings and logins. A split inherits its source profile unless another is
-specified. Create a new pane when you need a different profile:
+Open profile details from the profile icon beside the pane address. Panes with
+the same profile share settings and logins. Click the profile name to edit it,
+and press Enter or **Save**. Escape or **Cancel** discards the edit.
+A split inherits its source profile unless another is specified. Create a new
+pane when you need a different profile:
 
 ```sh
 bmux profile create review
@@ -37,23 +39,37 @@ Profiles are not an authorization boundary against the local CLI.
 
 In profile details, find **Connection**. Choose **Custom**, then HTTP, HTTPS,
 or SOCKS5. Enter the host and port. Enable authentication when needed and enter
-both credentials. Choose **Save proxy**.
+both credentials. Turn on **Use for new panes** to save these settings as the default.
 
-Changes reload open panes using this profile. Finish unsaved page work first.
-Other profiles retain their own settings.
+**Saved proxies (all profiles)** lists connections already configured in any
+profile. Selecting one fills the endpoint and saved username and reuses its
+encrypted credentials when you save. New panes using an existing profile show
+the default selected when they were created.
+
+Changes apply to newly created panes and windows. Existing panes retain their
+connection, including after restart. Previous endpoints and their encrypted
+credentials remain available in **Saved proxies (all profiles)**.
+
+Each connection uses separate browser site storage. On first use, a new
+connection copies cookies from the previous default to preserve most logins;
+local storage and IndexedDB remain separate. Existing panes are not reloaded.
+Cookies already present in the destination are preserved. Cookies Chromium
+rejects are skipped without blocking navigation.
 
 Credentials are encrypted with Electron safeStorage and stored separately from
 ordinary profile state. Saving credentials fails if OS encryption is unavailable.
 Authenticated SOCKS5 uses a private loopback relay because Chromium does not
 directly support SOCKS5 credentials.
 
-**Use system connection** removes the profile proxy. It does not disable a system
-VPN or proxy. HTTP/HTTPS describes the proxy protocol, not the destination's security.
+Turn off **Use for new panes** to select the system connection for new panes. The
+displayed settings stay available for testing and reuse. This does not disable a
+system VPN or proxy. HTTP/HTTPS describes the proxy protocol, not the destination's security.
 
 ## Verify and troubleshoot
 
-Choose **Test connection** after saving a working endpoint. Success shows the
-reported exit IP. Open the **Proxy** panel from the proxy icon to inspect the
+Choose **Test connection** to check the settings currently shown, including
+unsaved changes, whether **Use for new panes** is on or off. Testing does not replace the saved connection. Success shows the
+reported exit IP. Authentication failures require the provider’s service credentials. Open the **Proxy** panel from the proxy icon to inspect the
 connection and reported region when available.
 
 Verification is a point-in-time result, not a guarantee about all traffic or
@@ -62,15 +78,21 @@ and does not make a signed-in account anonymous.
 
 At startup, configured proxies are verified before page navigation is restored.
 If setup or verification fails, affected profile pages are paused. The notification
-offers **Proxy settings** and **Disable proxy and continue**. Check protocol,
+offers **Proxy settings**. Choosing a new default leaves paused panes on their original connection. Check protocol,
 host, port, credentials, and service availability. This startup protection is
 not a general system-wide kill switch.
 
 ## Optional provider presets
 
-Enable `bmux.nordvpn` in the Plugins panel for its provider and region choices.
-It is disabled by default. Presets supply endpoint, protocol, and port; core bmux
-manages credentials and connections.
+Click an empty **Host** field to open the provider picker. Choose a provider,
+then search by country, city, or hostname. Locations are grouped geographically
+and filtered by the selected protocol. Selecting a location fills the endpoint
+and reuses a saved username and credentials from a profile using that provider.
+
+The bundled `bmux.nordvpn` catalog is enabled by default and can be disabled in
+the Plugins panel. Presets supply endpoint, protocol, and port; core bmux manages
+credentials and connections. NordVPN SOCKS5 locations are limited to its
+[published proxy hosts](https://support.nordvpn.com/hc/en-us/articles/20195967385745-NordVPN-proxy-setup-for-qBittorrent).
 
 Use the provider's required service credentials and test the connection. A preset
 does not create an account or include paid service. See [Plugins](plugins.md)

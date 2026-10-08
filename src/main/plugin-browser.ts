@@ -4,6 +4,7 @@ type Options = {
   context: (target: PluginContext) => PluginContext
   cdp: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
+  before?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<void>
 }
 // Object handles belong to one execution context. A navigation cannot redirect a
 // delayed credential fill or evaluation into the replacement document.
@@ -24,6 +25,7 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
       return response.result.value ?? null
     } finally { if (objectId) void options.cdp(context.paneId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
   }
+  if (['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp'].includes(method)) { validate(); await options.before?.(context, method, args); validate() }
   if (method === 'dom') return { pane: context.paneId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }
   if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return evaluate(args.expression) }
   if (method.startsWith('forms.')) {

@@ -1,13 +1,19 @@
+import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
+import { copyConnectionCookies } from './connection-cookies'
+import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
+import { deviceScreenShape } from '../shared/device-frame'
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
 import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
+import { selectedPane } from '../shared/command-target'
+import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
 import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
@@ -22,15 +28,16 @@ import { waitOptions } from './wait'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
 import { windowCloseBehavior } from '../shared/window-close'
+import { backOpener } from '../shared/opener-navigation'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
-import { bookmarkById, createBookmarkFolder, moveBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
+import { bookmarkById, createBookmarkFolder, moveBookmark, removeBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
 import { editableBookmarkParameters } from '../shared/bookmark-parameters'
 import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
 import type { SearchApp } from '../shared/search-app'
 import { normalizeUrl } from './url'
-import { createProfileProxyRelays, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
+import { createProfileProxyRelays, testProxyRelay, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
@@ -47,12 +54,20 @@ import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
-import { matchingAutomationGroup } from '../shared/automation'
+import { updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { automationWarningScript, createAutomationSafety } from './automation-safety'
+import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
+import { loadPage, settlePageNavigation } from './navigation'
+import { createFaviconCache } from './favicon-cache'
+import { createSwipeNavigation } from './swipe-navigation'
 
-type LiveTab = { view: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation> }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+// Debugger detach can settle pending work inside Chromium's WebContents destructor,
+// before isDestroyed() changes. A requested close must block new navigation too.
+let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
@@ -72,12 +87,11 @@ let required = (args: Record<string, unknown>, name: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`)
   return value.trim()
 }
-export let createRuntime = (dataDirectory: string) => {
+export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) => {
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
-  if (hostProxy) for (let profile of model.profiles) profile.proxy = hostProxy
   let controls = createControlLeases()
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
@@ -97,6 +111,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (live && !live.disposed) live.view.setBounds(size.previous)
       remoteSizes.delete(pane)
     }
+  }
+  let reclaimDesktopControl = (sessionId: string) => {
+    controls.release(sessionId)
+    clearRemoteSizes()
+    void scheduleVisuals()
+    publish()
   }
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot'])
@@ -133,12 +153,13 @@ export let createRuntime = (dataDirectory: string) => {
   if (startupNotice) writeModel(dataDirectory, model, bookmarkFile)
   let navigationCrashMarker = crashRecovery.marker
   let queueRestoredNavigation = createSerialNavigationQueue()
-  let restoringTabs = crashRecovery.serializeRestores
+  let recoveryTabs = new Set(crashRecovery.serializeRestores ? walkPanes(model).map(({ pane }) => pane.id) : [])
   let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'pane'; windowId: string; index: number; pane: Pane; layout: InternalWindow['layout']; floating: InternalWindow['floating']; remainingPaneIds: string[] })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
   let deferredTabs = new Set<string>()
+  let deferredLinkLoads = new Map<string, Electron.LoadURLOptions>()
   let idleUnloaded = new Set<string>()
   let idleHistory = new Map<string, { entries: Electron.NavigationEntry[]; index: number }>()
   let idleClosing = new Set<string>()
@@ -177,7 +198,7 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === focusedClientId)
       let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
       let owner = pane && paneById(model, pane.id).session
-      if (!pane || (owner?.private ? `private:${owner.id}:${pane.profileId}` : pane.profileId) !== profileId) throw new Error('Select a pane in the extension profile first')
+      if (!pane || (owner?.private ? `private:${owner.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)) !== profileId) throw new Error('Select a pane in the extension profile first')
       let tab = await execute({ method: 'tab.create', args: { pane: pane.id, url: details.url ?? 'about:blank', ...(details.active !== false ? { client: client!.id } : {}) } }) as { id: string }
       let live = tabs.get(tab.id)!
       return [live.contents, live.parent]
@@ -216,7 +237,10 @@ export let createRuntime = (dataDirectory: string) => {
   let snapshots: Record<string, Snapshot> = {}
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
+  let audio: PublicState['audio'] = {}
+  let audibleMedia = new Set<string>()
   let favicons: Record<string, string> = {}
+  let faviconCache = createFaviconCache(dataDirectory)
   let faviconRevisions = new Map<string, number>()
   let findResults: Record<string, FindResult> = {}
   let permissions = new Map<string, PendingPermission>()
@@ -228,6 +252,8 @@ export let createRuntime = (dataDirectory: string) => {
   let lastFocusedClientId: string | null = null
   let preferredClient = () => model.clients.find(client => client.id === (focusedClientId ?? lastFocusedClientId)) ?? model.clients[0]
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
+  let permissionFocusTarget: { clientId: string; paneId: string } | undefined
+  let pageFocusTarget: { clientId: string; paneId: string } | undefined
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
@@ -269,11 +295,12 @@ export let createRuntime = (dataDirectory: string) => {
     tabs: Object.fromEntries([...tabs].map(([tabId, live]) => {
       let url = live.contents.isDestroyed() ? '' : live.contents.getURL()
       let { pane } = tabById(model, tabId)
-      return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), ...siteSettings(browserSettings(), pane.profileId, url), ...filters!.counts(tabId) }]
+      return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
     })),
   } : undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
+  let automationSafety: ReturnType<typeof createAutomationSafety> | undefined
   let tabAutomation = new Map<string, string>()
   let documents = new Map<string, number>()
   let pluginContext = (target: PluginContext): PluginContext => {
@@ -301,7 +328,7 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ automationSafety: automationSafety?.status(), remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
     live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
     let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
@@ -326,7 +353,8 @@ export let createRuntime = (dataDirectory: string) => {
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
-    let bounds = live.linkTabId ? (client && target ? floatBounds(client, target.pane.id) : undefined) ?? live.bounds.find(bounds => bounds.paneId === live.linkTabId) : undefined
+    let reported = live.bounds.find(bounds => bounds.paneId === live.linkTabId)
+    let bounds = live.linkTabId ? (client && target ? floatBounds(client, target.pane.id) : undefined) ?? reported?.paneBounds ?? reported : undefined
     let page = live.linkTabId ? tabs.get(live.linkTabId) : undefined
     let visible = !!live.linkUrl && !!client && !overlays.has(clientId) && page?.parent === live.window && target?.session.id === client.sessionId && target.window.id === client.windowId && target.pane.id === live.linkTabId && !!bounds
     if (!visible || !bounds) { live.linkPreview.setVisible(false); return }
@@ -384,18 +412,33 @@ export let createRuntime = (dataDirectory: string) => {
     browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(key)!, persona?.locale)
     return browser
   }
+  let profileCacheSessions = (connectionId: string) => {
+    let profile = model.profiles.find(profile => profile.id === connectionId || profile.connections?.some(connection => connection.id === connectionId))!
+    return { profile, sessions: (profile.connections ?? [{ id: profile.id }]).map(connection => electronSession.fromPartition(`persist:${connection.id}`)) }
+  }
   let maintainCache = async (profileId: string, force = false) => {
-    let last = lastCacheChecks.get(profileId) ?? 0
+    let { profile, sessions } = profileCacheSessions(profileId)
+    let last = lastCacheChecks.get(profile.id) ?? 0
     if (!force && Date.now() - last < 30 * 60 * 1000) return
-    lastCacheChecks.set(profileId, Date.now())
-    let browser = electronSession.fromPartition(`persist:${profileId}`)
-    let limit = 256 * 1024 * 1024, bytes = await browser.getCacheSize()
-    if (bytes > limit) { await browser.clearCache(); bytes = 0 }
-    profileCaches = { ...profileCaches, [profileId]: { bytes, limit, checkedAt: Date.now() } }
+    lastCacheChecks.set(profile.id, Date.now())
+    let limit = 256 * 1024 * 1024, bytes = (await Promise.all(sessions.map(browser => browser.getCacheSize()))).reduce((sum, size) => sum + size, 0)
+    if (bytes > limit) { await Promise.all(sessions.map(browser => browser.clearCache())); bytes = 0 }
+    profileCaches = { ...profileCaches, [profile.id]: { bytes, limit, checkedAt: Date.now() } }
     publish()
   }
+  let proxySettings = (args: Record<string, unknown>, profile: Model['profiles'][number]) => {
+    let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
+    let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
+    let credentialProfile = args.credentialProfile === '' ? undefined : args.credentialProfile ? connectionProfile(model, String(args.credentialProfile)) : connectionProfile(model, defaultConnectionId(profile))
+    let savedCredentials = proxy.authenticated && credentialProfile?.proxy?.authenticated ? proxyCredentials.get(credentialProfile.id) : undefined
+    if (proxy.authenticated && password && !username) throw new Error('Enter both proxy username and password')
+    if (proxy.authenticated && username && !password && username !== savedCredentials?.username) throw new Error('Enter a password for this username')
+    let replacement = username && password ? { username, password } : savedCredentials
+    if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
+    return { proxy, replacement }
+  }
   let applyProfileNetwork = async (profileId: string, override?: ReturnType<typeof parseProfileProxy> | null, replacement?: ProxyCredentials) => {
-    let proxy = hostProxy ?? (override === undefined ? resolve(model.profiles, profileId, 'Profile').proxy : override ?? undefined)
+    let proxy = hostProxy ?? (override === undefined ? connectionProfile(model, profileId).proxy : override ?? undefined)
     let browser = electronSession.fromPartition(`persist:${profileId}`)
     if (proxy) {
       let relay = await proxyRelays.create(profileId, proxy, replacement)
@@ -410,31 +453,11 @@ export let createRuntime = (dataDirectory: string) => {
     await browser.closeAllConnections()
   }
   let testProfileProxy = async (profileId: string) => {
-    let browser = electronSession.fromPartition(`persist:${profileId}`)
-    let response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-      let request = net.request({ url: process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/', session: browser, credentials: 'include' })
-      let timer = setTimeout(() => { request.abort(); reject(new Error('Proxy test timed out')) }, 10000)
-      request.on('login', (auth, callback) => {
-        let relay = proxyRelays.authentication(auth.host, auth.port)
-        if (relay) callback(relay.username, relay.password)
-        else callback()
-      })
-      request.on('response', incoming => {
-        let chunks: Buffer[] = []
-        incoming.on('data', chunk => chunks.push(Buffer.from(chunk)))
-        incoming.on('end', () => { clearTimeout(timer); resolve({ status: incoming.statusCode, body: Buffer.concat(chunks).toString('utf8') }) })
-        incoming.on('error', error => { clearTimeout(timer); reject(error) })
-      })
-      request.on('error', error => { clearTimeout(timer); reject(error) })
-      request.end()
-    })
-    if (response.status < 200 || response.status >= 300) throw new Error(`Proxy test failed with HTTP ${response.status}`)
-    let value = JSON.parse(response.body) as { ip?: unknown; city?: unknown; region?: unknown; country?: unknown }
-    if (typeof value.ip !== 'string' || !value.ip || value.ip.length > 80) throw new Error('Proxy test returned an invalid address')
-    let locations = [value.city, value.region, value.country].filter((item): item is string => typeof item === 'string' && !!item.trim() && item.length <= 120)
-    let region = [...new Set(locations.map(item => item.trim()))].join(', ')
-    return { ip: value.ip, ...(region ? { region } : {}), checkedAt: Date.now() }
+    let relay = proxyRelays.get(profileId)
+    if (!relay) throw new Error('Profile proxy is unavailable')
+    return testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/')
   }
+
   let releaseProfileNetwork = (profileId: string) => {
     let blocked = blockedProfileNetworks.get(profileId)
     blockedProfileNetworks.delete(profileId)
@@ -453,18 +476,18 @@ export let createRuntime = (dataDirectory: string) => {
     publish()
     return blocked.wait
   }
-  let verifyProfileProxy = async (profileId: string) => {
-    let result = await testProfileProxy(profileId)
+  let acceptProfileProxyTest = (profileId: string, result: Awaited<ReturnType<typeof testProfileProxy>>) => {
     profileProxyTests = { ...profileProxyTests, [profileId]: result }
     if (profileProxyFailures[profileId]) { let next = { ...profileProxyFailures }; delete next[profileId]; profileProxyFailures = next }
     releaseProfileNetwork(profileId)
     publish()
     return result
   }
+  let verifyProfileProxy = async (profileId: string) => acceptProfileProxyTest(profileId, await testProfileProxy(profileId))
   let browserSession = (profileId: string, privateSessionId?: string) => {
-    let profile = resolve(model.profiles, profileId, 'Profile')
+    let profile = connectionProfile(model, profileId)
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
-    let session = configureSessionIdentity(profile.id, profile.device, privateSessionId)
+    let session = configureSessionIdentity(profile.id, undefined, privateSessionId)
     if (configuredProfiles.has(key)) return session
     configuredProfiles.add(key)
     // The sandboxed media decoder cannot always open file URLs outside temporary storage.
@@ -474,9 +497,11 @@ export let createRuntime = (dataDirectory: string) => {
       return await localMediaResponse(request) ?? net.fetch(request, { bypassCustomProtocolHandlers: true })
     })
     let networkReady = (async () => {
+      // Cookie migration must never be reported as a proxy failure or pause navigation.
+      if (!privateSessionId) await seedConnectionCookies(profileId, session).catch(() => console.warn('bmux: Could not finish copying connection cookies'))
       try {
         if (privateSessionId) {
-          if (profile.proxy) {
+          if (profile.proxy || hostProxy) {
             browserSession(profileId)
             await profileNetworkReady.get(profileId)
             let relay = proxyRelays.get(profileId)
@@ -493,18 +518,25 @@ export let createRuntime = (dataDirectory: string) => {
         await waitForProfileProxyRecovery(profileId, error)
       }
     })()
-    let ready = privateSessionId ? networkReady.then(() => extensions.attachPrivate(key, session)) : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session))
+    let ready = privateSessionId ? networkReady.then(() => extensions.attachPrivate(key, session)) : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session, model.profiles.find(owner => owner.connections?.some(connection => connection.id === profileId))?.id))
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
-    filters?.attach(session, profileId)
-    session.setPermissionCheckHandler((_contents, permission, origin) => permissionGrants.get(`${key}|${origin}|${permission}`) === true)
+    let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
+    filters?.attach(session, ownerId)
+    session.setPermissionCheckHandler((_contents, permission, origin, details) => {
+      let known = permissionGrants.get(`${key}|${origin}|${permission}`)
+      if (known !== undefined) return known
+      // A native file handle requires user selection. Reading an individual
+      // upload must not grant directory access or permission to modify files.
+      return permission === 'fileSystem' && details.fileAccessType === 'readable' && details.isDirectory === false
+    })
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
       let origin = details.requestingUrl ? new URL(details.requestingUrl).origin : new URL(contents.getURL()).origin
       let grantKey = `${key}|${origin}|${permission}`
       let known = permissionGrants.get(grantKey)
       if (known !== undefined) { reply(known); return }
       let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''
-      let request = { id: id('permission'), profileId, origin, permission, paneId: tabId, reply, privateSessionId }
+      let request = { id: id('permission'), profileId: ownerId, origin, permission, paneId: tabId, reply, privateSessionId }
       permissions.set(request.id, request)
       publish()
     })
@@ -515,7 +547,7 @@ export let createRuntime = (dataDirectory: string) => {
       let directory = app.getPath('downloads')
       let target = path.join(directory, requestedName)
       for (let index = 1; fsSync.existsSync(target) || downloadPaths.has(target); index++) target = path.join(directory, `${stem} (${index})${extension}`)
-      let record: Download = { id: id('download'), profileId, name: path.basename(target), path: target, state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
+      let record: Download = { id: id('download'), profileId: ownerId, name: path.basename(target), path: target, state: 'progressing', received: 0, total: item.getTotalBytes(), paused: false, canResume: false, active: true }
       // Avoid a Save As dialog activating the application during bot work.
       item.setSavePath(target)
       downloadPaths.add(target)
@@ -548,24 +580,37 @@ export let createRuntime = (dataDirectory: string) => {
     }))
     await fs.rm(path.join(privateStorageRoot, sessionId), { recursive: true, force: true })
   }
-  let reloadProfileTabs = (profileId: string) => {
-    for (let [tabId, live] of tabs) {
-      if (live.contents.isDestroyed() || tabById(model, tabId).pane.profileId !== profileId) continue
-      delete crashes[tabId]
-      live.contents.reloadIgnoringCache()
-    }
+  let seedConnectionCookies = async (connectionId: string, target: Electron.Session, visited = new Set<string>()) => {
+    let owner = model.profiles.find(profile => profile.connections?.some(connection => connection.id === connectionId))
+    let connection = owner?.connections?.find(connection => connection.id === connectionId)
+    if (!connection?.seedFrom) return
+    if (visited.has(connectionId)) throw new Error('Invalid cookie source')
+    visited.add(connectionId)
+    let source = electronSession.fromPartition(`persist:${connection.seedFrom}`)
+    await seedConnectionCookies(connection.seedFrom, source, visited)
+    let rejected = await copyConnectionCookies(source.cookies, target.cookies)
+    if (rejected) console.warn(`bmux: Skipped ${rejected} cookies rejected while copying a connection`)
+    delete connection.seedFrom
+    save()
   }
-  let recreateProfileTabs = async (profileId: string) => {
-    let tabIds = [...tabs].filter(([tabId]) => tabById(model, tabId).pane.profileId === profileId).map(([tabId]) => tabId)
-    for (let tabId of tabIds) disposeTab(tabId)
-    await scheduleVisuals()
-    await Promise.all(tabIds.map(tabId => tabs.get(tabId)?.ready))
-  }
-  let updateProfileNetwork = async (profileId: string, proxy?: ReturnType<typeof parseProfileProxy>, replacement?: ProxyCredentials) => {
-    browserSession(profileId)
-    let applying = applyProfileNetwork(profileId, proxy ?? null, replacement)
-    profileNetworkReady.set(profileId, applying)
-    await applying
+  let saveDefaultConnection = (profile: Model['profiles'][number], proxy?: ReturnType<typeof parseProfileProxy>, credentials?: ProxyCredentials) => {
+    let currentId = defaultConnectionId(profile)
+    let currentCredentials = profile.proxy?.authenticated ? proxyCredentials.get(currentId) : undefined
+    if (JSON.stringify(profile.proxy) === JSON.stringify(proxy) && (!proxy?.authenticated || credentials?.username === currentCredentials?.username && credentials?.password === currentCredentials?.password)) return profile
+    let saved = profile.connections?.find(connection => {
+      if (JSON.stringify(connection.proxy) !== JSON.stringify(proxy)) return false
+      let previous = proxy?.authenticated ? proxyCredentials.get(connection.id) : undefined
+      return !proxy?.authenticated || previous?.username === credentials?.username && previous?.password === credentials?.password
+    })
+    if (saved) { profile.connectionId = saved.id; profile.proxy = saved.proxy; save(); return profile }
+    let connectionId = id('profile')
+    proxyCredentials.set(connectionId, proxy?.authenticated ? credentials : undefined)
+    profile.connections ??= [{ id: profile.id, ...(profile.proxy ? { proxy: { ...profile.proxy } } : {}) }]
+    profile.connections.push({ id: connectionId, ...(proxy ? { proxy } : {}), seedFrom: currentId })
+    profile.connectionId = connectionId
+    profile.proxy = proxy
+    save()
+    return profile
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false) => {
     let live = await ensureLiveTab(tabId)
@@ -579,12 +624,12 @@ export let createRuntime = (dataDirectory: string) => {
     let debuggerApi = contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     let viewport = deviceViewport(persona)
-    await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale })
+    // The native view owns its visible size; CDP only controls the emulated viewport.
+    await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale, dontSetVisibleSize: true })
   }
   let applyDevicePersona = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
     let debuggerApi = contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    let viewport = deviceViewport(persona)
     let metadata = deviceUserAgentMetadata(persona)
     let deviceMemoryScript = persona.platform === 'android'
       ? "Object.defineProperty(Navigator.prototype, 'deviceMemory', { configurable: true, get: () => 8 })"
@@ -592,7 +637,9 @@ export let createRuntime = (dataDirectory: string) => {
     await Promise.all([
       debuggerApi.sendCommand('Emulation.setUserAgentOverride', { userAgent: deviceUserAgent(persona), acceptLanguage: persona.locale, platform: persona.platform === 'android' ? 'Linux armv81' : 'iPhone', ...(metadata ? { userAgentMetadata: metadata } : {}) }),
       debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceMemoryScript }),
-      debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: persona.deviceScaleFactor, mobile: true, screenWidth: viewport.width, screenHeight: viewport.height, screenOrientation: { angle: viewport.angle, type: viewport.type }, scale }),
+      debuggerApi.sendCommand('Emulation.setSafeAreaInsetsOverride', { insets: deviceSafeAreaInsets(persona) }),
+      debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceSafeAreaScript(persona), worldName: 'bmux:device-safe-areas', runImmediately: true }),
+      applyDeviceMetrics(contents, persona, scale),
       debuggerApi.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }),
       debuggerApi.sendCommand('Emulation.setLocaleOverride', { locale: persona.locale }),
       debuggerApi.sendCommand('Emulation.setTimezoneOverride', { timezoneId: persona.timezone }),
@@ -628,35 +675,36 @@ export let createRuntime = (dataDirectory: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
     let focused = clients.get(client.id)!
+    let invoke = (command: Command) => { void execute(command, client.id).catch(reportError) }
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
     let tab = pane?.id
     let control = (name: string) => { pointerTarget = undefined; let chrome = name === 'address' && pane && !client.zoomedPaneId ? focused.floats.get(pane.id) ?? focused.chrome : focused.chrome; chrome.webContents.focus(); chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
-    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { void execute({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }).catch(reportError); return }
+    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { invoke({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
     let session = model.sessions.find(session => session.id === client.sessionId)!
     let window = session.windows.find(window => window.id === client.windowId)!
     if (action === 'close-pane' || (action === 'close-pane-or-window' && pane && window.floating?.some(item => item.paneId === pane.id))) {
-      void execute({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }).catch(reportError); return
+      invoke({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }); return
     }
     if (action === 'close-window' || action === 'close-pane-or-window') {
       let behavior = windowCloseBehavior(session, window)
-      if (behavior === 'close-window') { void execute({ method: 'kill-window', args: { window: window.id, confirm: true } }).catch(reportError); return }
+      if (behavior === 'close-window') { invoke({ method: 'kill-window', args: { window: window.id, confirm: true } }); return }
     }
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
-    if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { void execute({ method: action, args: { tab } }).catch(reportError); return }
+    if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { invoke({ method: action, args: { tab } }); return }
     if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
     if (action.startsWith('zoom-') && tab) {
       let current = tabById(model, tab).tab.zoom
-      void execute({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }).catch(reportError); return
+      invoke({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }); return
     }
     let windowNumber = action.match(/^select-window-([1-9])$/)?.[1]
     let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : windowNumber ? `select-window -t ${windowNumber}` : action
     let command = parseCommandLine(line, state(client.id))
     if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
-    void execute(command).catch(reportError)
+    invoke(command)
   }
   let closeFocusedWindow = () => {
     let focused = [...clients.values()].find(client => client.window.isFocused()) ?? (focusedClientId ? clients.get(focusedClientId) : undefined)
@@ -667,7 +715,7 @@ export let createRuntime = (dataDirectory: string) => {
     let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'bmux', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
       { label: 'Browser', submenu: [...nativeWindowItems, { label: 'Command prefix', accelerator: keyboard.prefix, click: () => dispatchShortcut('prefix') }, ...items] },
       // Only unconditional accelerators take precedence over native menu defaults.
       { role: 'editMenu' },
@@ -681,6 +729,7 @@ export let createRuntime = (dataDirectory: string) => {
     pageTools?.reload()
     plugins?.reload()
     refreshMenu()
+    settingsChanged()
     if (configuration && configuration.accessibility !== accessibilityPreference) {
       accessibilityPreference = configuration.accessibility
       app.setAccessibilitySupportEnabled(accessibilityPreference)
@@ -779,13 +828,24 @@ export let createRuntime = (dataDirectory: string) => {
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
     let { tab, pane, session } = tabById(model, tabId)
     let initialUrl = tab.url
+    let initialLoadOptions = deferredLinkLoads.get(tabId)
+    deferredLinkLoads.delete(tabId)
+    let cachedIcon = faviconCache.get(pane.profileId, initialUrl, session.private ? session.id : undefined)
+    if (cachedIcon) favicons[tabId] = cachedIcon
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
-    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(pane.profileId, session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
+    let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(paneConnectionId(pane), session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
+    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) }), {
+      available: () => !!backOpener(model, pane),
+      navigate: () => { void execute({ method: 'back', args: { tab: tabId } }).catch(reportError).finally(() => installSwipe?.cancel()) },
+      snapshot: (width, height) => { let opener = backOpener(model, pane); return opener ? tabs.get(opener.pane.id)?.refreshSwipe?.snapshot(width, height) : undefined },
+    }) : undefined
+    live.refreshSwipe = installSwipe
+    if (installSwipe) view.on('bounds-changed', installSwipe.cancel)
     contents.on('will-prevent-unload', event => {
       if (idleClosing.has(tabId)) { live.cancelClose?.(); return }
       let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
@@ -794,49 +854,40 @@ export let createRuntime = (dataDirectory: string) => {
       if (choice === 1) event.preventDefault()
       else live.cancelClose?.()
     })
-    contents.debugger.on('message', (_event, method, params) => {
-      if (method !== 'Page.fileChooserOpened' || live.disposed) return
-      let choose = async () => {
-        let backendNodeId = params.backendNodeId as number | undefined
-        if (!backendNodeId || contents.isDestroyed()) return
-        let owner = [...clients.values()].find(client => client.window === live.parent)
-        if (!owner || live.parent.isDestroyed() || !live.parent.isVisible()) return
-        let node = await contents.debugger.sendCommand('DOM.describeNode', { backendNodeId })
-        let attributes = (node.node.attributes ?? []) as string[]
-        let directory = attributes.includes('webkitdirectory')
-        let properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = directory ? ['openDirectory'] : ['openFile']
-        if (params.mode === 'selectMultiple' && !directory) properties.push('multiSelections')
-        let selected = await dialog.showOpenDialog(live.parent, { properties })
-        if (selected.canceled || !selected.filePaths.length || contents.isDestroyed() || live.disposed) return
-        await contents.debugger.sendCommand('DOM.setFileInputFiles', { backendNodeId, files: selected.filePaths })
-      }
-      void choose().catch(reportError)
-    })
-    let serializedRestore = restoringTabs
+    // Lazy pages may first load after client restoration or a later selection.
+    let serializedRestore = recoveryTabs.delete(tabId)
     tabs.set(tabId, live)
+    audio[tabId] = { playing: contents.isCurrentlyAudible(), muted: contents.isAudioMuted() }
     lastTabUse.set(tabId, Date.now())
     idleUnloaded.delete(tabId)
     let savedHistory = idleHistory.get(tabId)
     idleHistory.delete(tabId)
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
-    extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, contents, parent)
+    extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), contents, parent)
     let bootstrapping = !popupOptions?.webContents
     live.ready = Promise.all([
-      profileNetworkReady.get(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId),
-      (profile.device ? contents.loadURL('about:blank').then(() => applyDevicePersona(contents, profile.device!)) : Promise.resolve()).then(async () => {
-        await pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents)
-        if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
-        await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
-      }),
-    ]).then(startSecurity).finally(() => { bootstrapping = false })
+      profileNetworkReady.get(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)),
+      // Let Chromium open native pickers. CDP interception aborts the File System
+      // Access API, whose requests have no input node to receive selected files.
+      (pane.device ? contents.loadURL('about:blank').then(() => { if (isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device!) }) : Promise.resolve()).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents) }),
+    ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
+    contents.on('audio-state-changed', ({ audible }) => {
+      if (live.disposed) return
+      if (audible) audibleMedia.add(tabId)
+      // Muting may report silence even while the media continues to play.
+      audio[tabId] = { playing: audible || !!audio[tabId]?.playing && contents.isAudioMuted(), muted: contents.isAudioMuted() }
+      publish()
+    })
+    contents.on('media-started-playing', () => { if (live.disposed || !audio[tabId]?.muted || !audibleMedia.has(tabId)) return; audio[tabId] = { playing: true, muted: true }; publish() })
+    contents.on('media-paused', () => { if (live.disposed || !audio[tabId]?.muted) return; audio[tabId] = { playing: false, muted: true }; publish() })
     let lastCountedUrl = initialUrl
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
     let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
     contents.on('will-navigate', (event, url) => {
-      if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? { groups: {} }, pane.profileId, url)) return
+      if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, pane.profileId, url)) return
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation', record: false }) }
       catch { event.preventDefault() }
     })
@@ -859,7 +910,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url)
       live.pendingUrl = url
       filters?.reset(tabId)
-      delete findResults[tabId]; delete favicons[tabId]
+      delete findResults[tabId]
+      let cached = faviconCache.get(pane.profileId, url, session.private ? session.id : undefined)
+      if (cached) favicons[tabId] = cached
+      else delete favicons[tabId]
+      audio[tabId] = { playing: false, muted: contents.isAudioMuted() }
+      audibleMedia.delete(tabId)
       faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1)
       if (crashes[tabId]) { delete crashes[tabId]; void scheduleVisuals() }
       publish()
@@ -886,6 +942,11 @@ export let createRuntime = (dataDirectory: string) => {
     installKeys(contents)
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
+      // Bootstrap and new-window blanks must never become a Back destination.
+      let history = contents.navigationHistory
+      while (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === 'about:blank') {
+        if (!history.removeEntryAtIndex(0)) break
+      }
       tab.url = contents.getURL() || tab.url
       tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New window' : tab.url)
       if (!session.private && /^https?:\/\//.test(tab.url)) {
@@ -926,6 +987,7 @@ export let createRuntime = (dataDirectory: string) => {
         }
         if (live.disposed || faviconRevisions.get(tabId) !== revision) return
         favicons[tabId] = icon
+        faviconCache.set(pane.profileId, contents.getURL() || tab.url, icon, session.private ? session.id : undefined)
         publish()
       })().catch(() => undefined)
     })
@@ -945,37 +1007,50 @@ export let createRuntime = (dataDirectory: string) => {
     })
     contents.on('did-navigate', () => { live.pendingUrl = undefined; delete crashes[tabId]; update() })
     contents.on('did-navigate-in-page', () => update())
+    contents.on('did-finish-load', () => {
+      // Navigation can replace Chromium's emulated native surface. Reapply its fit.
+      if (pane.device && live.deviceScale !== undefined) void applyDeviceMetrics(contents, pane.device, live.deviceScale).catch(reportError)
+    })
     contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
-    let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions) => {
-      let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true)
+    let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions, backToOpener = false) => {
+      let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true, model)
       let added = created.panes[0]
+      added.device = session.device
       added.openerPaneId = tabId
+      added.backToOpener = backToOpener
       if (!options?.webContents) { added.url = url; added.title = url }
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
+      if (!activate && !options && !backToOpener) {
+        deferredTabs.add(added.id)
+        if (loadOptions) deferredLinkLoads.set(added.id, loadOptions)
+        changed(); return undefined
+      }
       if (!options) {
-        if (profile.device) {
+        if (pane.device || loadOptions) {
           let popup = createLiveTab(added.id, false)
-          void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url) }).catch(reportError)
+          void popup.ready.then(() => { if (isLiveTabOpen(popup)) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
         }
         changed(); return undefined
       }
       let popup = createLiveTab(added.id, false, options)
-      if (!options.webContents) void popup.ready.then(() => { if (!popup.disposed) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
+      if (!options.webContents) void popup.ready.then(() => { if (isLiveTabOpen(popup)) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
       changed()
       return popup.contents
     }
     contents.setWindowOpenHandler(details => {
-      if (profile.device) {
-        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, false) }, 100)
+      // Chromium loads allowed background popups before their tab is selected.
+      // Keep only their destination until activation creates the page instead.
+      if (details.disposition === 'background-tab' || pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
+        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab') }, 100)
         return { action: 'deny' }
       }
       return {
         action: 'allow', outlivesOpener: true,
-        createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) })!,
+        createWindow: options => openLinkWindow(details.url, details.disposition !== 'background-tab', options as Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab')!,
       }
     })
     contents.on('update-target-url', (_event, url) => {
@@ -1015,7 +1090,7 @@ export let createRuntime = (dataDirectory: string) => {
         }
         if (linkUrl) {
           template.push(
-            { label: 'Open link', click: () => { void contents.loadURL(linkUrl).catch(reportError) } },
+            { label: 'Open link', click: () => { if (isLiveTabOpen(live)) void contents.loadURL(linkUrl).catch(reportError) } },
             { label: 'Open link in floating pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
             { label: 'Open link in new window', click: () => { openLinkWindow(linkUrl, true) } },
             { label: 'Copy link address', click: () => clipboard.writeText(linkUrl) },
@@ -1037,6 +1112,11 @@ export let createRuntime = (dataDirectory: string) => {
             { role: 'selectAll' },
           )
         }
+        if (params.mediaType === 'image') template.push(
+          { type: 'separator' },
+          { label: 'Copy image', enabled: params.hasImageContents, click: () => contents.copyImageAt(params.x, params.y) },
+          { label: 'Save image', enabled: !!params.srcURL, click: () => contents.downloadURL(params.srcURL) },
+        )
         Menu.buildFromTemplate(template).popup({ window: owner.window, frame: frame.isDestroyed() ? undefined : frame })
       }
       void show().catch(reportError)
@@ -1044,12 +1124,12 @@ export let createRuntime = (dataDirectory: string) => {
     if (load && initialUrl !== 'about:blank') {
       let navigate = async () => {
         await live.ready
-        if (live.disposed) return
+        if (!isLiveTabOpen(live)) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
-        if (savedHistory?.entries.length) await contents.navigationHistory.restore(savedHistory)
-        else await contents.loadURL(initialUrl)
+        if (savedHistory?.entries.length) await settlePageNavigation(contents, contents.navigationHistory.restore(savedHistory))
+        else await loadPage(contents, initialUrl, initialLoadOptions)
       }
-      let result = serializedRestore ? queueRestoredNavigation(navigate) : navigate()
+      let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
       live.initialNavigation = result
       void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } })
     }
@@ -1063,12 +1143,13 @@ export let createRuntime = (dataDirectory: string) => {
     lastTabUse.set(tabId, Date.now())
     let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
     await live.ready
+    if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
     if (load && live.initialNavigation) {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
       live.initialNavigation = undefined
-    } else if (load && !live.pendingNavigation && !live.contents.getURL() && tab.url !== 'about:blank') await live.contents.loadURL(tab.url)
-    if (live.disposed || live.contents.isDestroyed() || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
+    } else if (load && !live.pendingNavigation && !live.contents.getURL() && tab.url !== 'about:blank') await loadPage(live.contents, tab.url)
+    if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
     return live
   }
   let canUnloadIdleTab = async (tabId: string, live: LiveTab) => {
@@ -1171,6 +1252,8 @@ export let createRuntime = (dataDirectory: string) => {
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
       if (!live.parent.isDestroyed() && live.parent.contentView.children.includes(live.view)) live.parent.contentView.removeChildView(live.view)
+      if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
+      live.camera?.webContents.close()
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
     }
@@ -1179,6 +1262,8 @@ export let createRuntime = (dataDirectory: string) => {
     delete snapshots[tabId]
     delete crashes[tabId]
     delete loading[tabId]
+    delete audio[tabId]
+    audibleMedia.delete(tabId)
     delete favicons[tabId]
     faviconRevisions.delete(tabId)
     delete findResults[tabId]
@@ -1254,11 +1339,14 @@ export let createRuntime = (dataDirectory: string) => {
   }
   let moveView = (live: LiveTab, parent: BaseWindow) => {
     if (live.parent === parent || live.disposed) return
+    live.refreshSwipe?.cancel()
     // Keep the native client's first responder valid when parking its focused page.
     // Reparenting a focused view directly into a hidden host can resign the client.
     keepClientFocus(live)
     if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
+    if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
     parent.contentView.addChildView(live.view)
+    if (live.camera) parent.contentView.addChildView(live.camera)
     live.parent = parent
   }
   let requestPreview = (tabId: string, live: LiveTab) => {
@@ -1296,7 +1384,9 @@ export let createRuntime = (dataDirectory: string) => {
     if (shuttingDown) return
     let liveIds = new Set(walkPanes(model).map(({ pane }) => pane.id))
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
+    for (let tabId of Object.keys(favicons)) if (!liveIds.has(tabId)) delete favicons[tabId]
     for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
+    for (let tabId of deferredLinkLoads.keys()) if (!liveIds.has(tabId)) deferredLinkLoads.delete(tabId)
     for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
     let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
     let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
@@ -1316,8 +1406,9 @@ export let createRuntime = (dataDirectory: string) => {
         let tabId = paneById(model, paneId).pane.id
         let floatingBounds = floatBounds(candidate, paneId)
         let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.paneId === tabId)
-        if (!floatingBounds && paneIds.length === 1) bounds = singlePaneBounds(tabId, live, bounds)
-        if (!bounds) continue
+        if (!floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
+        // A remounted device frame has no screen size until its layout effect runs.
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue
         let entries = viewers.get(tabId) ?? []
         entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
       }
@@ -1336,14 +1427,38 @@ export let createRuntime = (dataDirectory: string) => {
       if (live.disposed) continue
       moveView(live, target)
       let { session, pane } = tabById(model, tabId)
-      extensions.track(session.private ? `private:${session.id}:${pane.profileId}` : pane.profileId, live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
+      extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
-        let persona = resolve(model.profiles, tabById(model, tabId).pane.profileId, 'Profile').device
+        let persona = tabById(model, tabId).pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
         live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
+        let shape = persona ? deviceScreenShape(persona, fitted) : undefined
+        live.view.setBorderRadius(shape ? Math.round(shape.radius) : 0)
+        if (shape) {
+          if (!live.camera) {
+            live.camera = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+            void live.camera.webContents.loadURL('about:blank').catch(reportError)
+            live.camera.setBackgroundColor('#080808')
+            live.parent.contentView.addChildView(live.camera)
+          }
+          let camera = shape.camera
+          live.camera.setBounds({ x: fitted.x + Math.round(camera.x), y: fitted.y + Math.round(camera.y), width: Math.max(1, Math.round(camera.width)), height: Math.max(1, Math.round(camera.height)) })
+          live.camera.setBorderRadius(Math.round(Math.min(camera.width, camera.height) / 2))
+        }
+        if (!shape && live.camera) {
+          live.parent.contentView.removeChildView(live.camera)
+          live.camera.webContents.close()
+          live.camera = undefined
+        }
         if (persona && live.deviceScale !== fitted.scale) {
           live.deviceScale = fitted.scale
-          void live.ready.then(() => applyDeviceMetrics(live.contents, persona, fitted.scale)).catch(error => { crashes[tabId] = `Device viewport failed: ${errorText(error)}`; publish() })
+          void live.ready.then(() => {
+            if (!live.disposed && live.deviceScale === fitted.scale) return applyDeviceMetrics(live.contents, persona, fitted.scale)
+          }).catch(error => {
+            if (live.disposed || live.deviceScale !== fitted.scale) return
+            live.deviceScale = undefined
+            reportError(error)
+          })
         }
       }
       let remoteSize = remoteSizes.get(tabId)
@@ -1357,7 +1472,7 @@ export let createRuntime = (dataDirectory: string) => {
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
-        if (page?.parent === live.window) ordered.push(page.view)
+        if (page?.parent === live.window) { ordered.push(page.view); if (page.camera) ordered.push(page.camera) }
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
@@ -1365,8 +1480,10 @@ export let createRuntime = (dataDirectory: string) => {
         let page = tabs.get(paneById(model, placement.paneId).pane.id)
         if (page?.parent === live.window) {
           ordered.push(page.view)
+          if (page.camera) ordered.push(page.camera)
         }
       }
+      if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
     }
@@ -1387,6 +1504,23 @@ export let createRuntime = (dataDirectory: string) => {
         }
       }
     }
+    if (permissionFocusTarget) {
+      // A split pane's bounds arrive after the permission UI selects its window.
+      if (!client || client.id !== permissionFocusTarget.clientId || client.paneId !== permissionFocusTarget.paneId || !clients.get(client.id)?.window.isFocused()) permissionFocusTarget = undefined
+      else if (owner) {
+        let page = tabs.get(permissionFocusTarget.paneId)
+        if (page?.parent === owner.window) { permissionFocusTarget = undefined; page.contents.focus() }
+      }
+    }
+    if (pageFocusTarget) {
+      // Closing a picker can precede the new pane's first usable layout bounds.
+      // Complete that explicit focus request when its native view is attached.
+      if (!client || client.id !== pageFocusTarget.clientId || client.paneId !== pageFocusTarget.paneId || !clients.get(client.id)?.window.isFocused()) pageFocusTarget = undefined
+      else if (owner) {
+        let page = tabs.get(pageFocusTarget.paneId)
+        if (page?.parent === owner.window) { pageFocusTarget = undefined; page.contents.focus() }
+      }
+    }
     publish()
   }
   let scheduleVisuals = () => {
@@ -1405,6 +1539,8 @@ export let createRuntime = (dataDirectory: string) => {
     return true
   }
   let createClient = async (sessionId: string, restored?: Client, activate = true, windowId?: string) => {
+    let trace = (stage: string) => { if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') console.error(`bmux client startup: ${stage}`) }
+    trace('creating window')
     let session = resolve(model.sessions, sessionId, 'Session')
     let selectedWindow = session.windows.find(window => window.id === windowId) ?? session.windows[0]
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: selectedWindow.id, paneId: selectedWindow.panes[0]?.id ?? null, width: 1280, height: 850 }
@@ -1420,8 +1556,15 @@ export let createRuntime = (dataDirectory: string) => {
     let linkPreview = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     linkPreview.setVisible(false)
     window.contentView.addChildView(linkPreview)
-    let resizeChrome = () => { clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let tabTooltip = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+    tabTooltip.setVisible(false)
+    window.contentView.addChildView(tabTooltip)
+    if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') for (let [name, view] of [['chrome', chrome], ['permissions', permissionPopup], ['link preview', linkPreview], ['tab tooltip', tabTooltip]] as const) {
+      view.webContents.on('did-finish-load', () => trace(`${name} loaded`))
+      view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
+    }
+    let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
+    let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
@@ -1429,7 +1572,8 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('focus', () => {
       focusedClientId = client.id
       lastFocusedClientId = client.id
-      save()
+      resizeChrome()
+      reclaimDesktopControl(client.sessionId)
       void scheduleVisuals().then(() => {
         // Reattaching views after a blur can leave AppKit with no web first responder.
         if (window.isDestroyed() || !window.isFocused()) return
@@ -1443,7 +1587,7 @@ export let createRuntime = (dataDirectory: string) => {
     window.on('hide', () => { void scheduleVisuals() })
     window.on('minimize', () => { void scheduleVisuals() })
     window.on('restore', () => { void scheduleVisuals() })
-    window.on('blur', () => { clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; void scheduleVisuals() } })
+    window.on('blur', () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; permissionFocusTarget = undefined; void scheduleVisuals() } })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
@@ -1453,6 +1597,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!permissionPopup.webContents.isDestroyed()) permissionPopup.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
+      if (!tabTooltip.webContents.isDestroyed()) tabTooltip.webContents.close()
       for (let frame of owner.floats.values()) if (!frame.webContents.isDestroyed()) frame.webContents.close()
       if (focusedClientId === client.id) focusedClientId = null
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
@@ -1463,16 +1608,44 @@ export let createRuntime = (dataDirectory: string) => {
     permissionPopup.webContents.on('will-navigate', event => event.preventDefault())
     linkPreview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     linkPreview.webContents.on('will-navigate', event => event.preventDefault())
+    tabTooltip.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    tabTooltip.webContents.on('will-navigate', event => event.preventDefault())
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
-    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview')])
-    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' })])
-    if (activate) { await app.dock?.show(); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
+    trace('loading renderers')
+    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview'), tabTooltip.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#tab-tooltip')])
+    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' }), tabTooltip.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'tab-tooltip' })])
+    if (activate) { trace('showing dock'); await app.dock?.show(); trace('showing window'); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
     else window.showInactive()
+    trace('window ready')
     save()
     return client
   }
   let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.permissionPopup.webContents.id === contentsId || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
+  let inspectAutomationPage = async (tabId: string, recover = false) => {
+    // Inspect the current document without awaiting a navigation that this command
+    // may need to interrupt. A crashed renderer has no document to inspect.
+    let previous = tabs.get(tabId)
+    if (previous && !previous.contents.isDestroyed() && previous.contents.isCrashed()) {
+      if (recover) return { url: previous.contents.getURL() || tabById(model, tabId).tab.url }
+      throw new Error('Page process crashed; reload to recover before automating')
+    }
+    let live = await ensureLiveTab(tabId, !recover)
+    let url = live.contents.getURL() || tabById(model, tabId).tab.url
+    if (live.contents.isCrashed()) {
+      if (recover) return { url }
+      throw new Error('Page process crashed; reload to recover before automating')
+    }
+    let debuggerApi = live.contents.debugger
+    if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+    let result = await debuggerApi.sendCommand('Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 })
+    if (result.exceptionDetails) throw new Error('Could not inspect page for automation warnings')
+    return { url: live.contents.getURL() || url, warning: result.result.value as AutomationWarning | undefined }
+  }
+  let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
+    if (!context.profileId || !context.paneId) return
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), targetUrl, pace)
+  }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
     if (!clientId || !Array.isArray(bounds)) return
@@ -1483,9 +1656,36 @@ export let createRuntime = (dataDirectory: string) => {
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
-    if (method === 'remote.reclaim' && sourceClientId) { controls.release(resolve(model.clients, sourceClientId, 'Client').sessionId); clearRemoteSizes(); publish(); return { released: true } }
+    if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
+    if (method === 'automation.safety') return automationSafety?.status()
+    if (method === 'profile.anti-bot.set') {
+      if (!sourceClientId) throw new Error('Change anti-bot protection in the profile view')
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
+      configuration?.update(['automation', 'safety', 'profiles', profile.id], args.enabled)
+      return { enabled: args.enabled }
+    }
+    if (method === 'profile.anti-bot.site.set' || method === 'profile.anti-bot.site.remove') {
+      if (!sourceClientId) throw new Error('Change site warning checks in the bmux UI')
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let host = required(args, 'host')
+      if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host)) throw new Error('host must be a hostname')
+      let previous = configuration?.automation.safety.sites?.[profile.id]?.[host]
+      let exclusion = method.endsWith('.remove') ? undefined : updateAutomationSiteExclusion(previous, args.enabled, args.durationMinutes)
+      configuration?.update(['automation', 'safety', 'sites', profile.id, host], exclusion)
+      return { exclusion }
+    }
+    if (method === 'automation.resume') {
+      if (!sourceClientId) throw new Error('Resume automation from the bmux command prompt')
+      let client = resolve(model.clients, sourceClientId, 'Client'), tabId = required(args, 'tab')
+      let { pane } = tabById(model, tabId)
+      if (client.paneId !== pane.id) throw new Error('Select the affected pane before resuming automation')
+      let page = await inspectAutomationPage(tabId)
+      if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
+      return automationSafety?.resume(pane.profileId, page)
+    }
     if (method === 'automation.acquire') {
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
       if (!automation) throw new Error('Automation policy unavailable')
@@ -1512,7 +1712,12 @@ export let createRuntime = (dataDirectory: string) => {
       if (args.history !== undefined && typeof args.history !== 'boolean') throw new Error('history must be a boolean')
       return memory.report(args.history === true)
     }
-    let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll'])
+    let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
+    if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
+      let { pane, session } = tabById(model, args.tab)
+      let targetUrl = automationTargetUrl(method, args)
+      await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined, paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
+    }
     if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab, session } = tabById(model, args.tab)
       let url = method === 'navigate' ? normalizeUrl(required(args, 'url'), searchAppForSession(session)) : tabs.get(args.tab)?.contents.getURL() || tab.url
@@ -1523,7 +1728,29 @@ export let createRuntime = (dataDirectory: string) => {
     if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
       let searchApp = method === 'new-window' ? searchAppForSession(resolve(model.sessions, args.session, 'Session')) : typeof args.pane === 'string' ? searchAppForSession(paneById(model, args.pane).session) : undefined
-      if (matchingAutomationGroup(configuration?.automation ?? { groups: {} }, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+      if (matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
+    }
+    if (!sourceClientId && !remoteActor.getStore() && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
+      let session = method === 'new-window' ? resolve(model.sessions, args.session, 'Session') : paneById(model, args.pane).session
+      let profileId = resolve(model.profiles, args.profile ?? (method === 'new-window' ? session.defaultProfileId : paneById(model, args.pane).pane.profileId), 'Profile').id
+      await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)))
+    }
+    if (method === 'window.audio.toggle') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let window = resolve(session.windows, args.window, 'Window')
+      let playing = window.panes.filter(pane => audio[pane.id]?.playing)
+      if (!playing.length) return null
+      let muted = playing.some(pane => !audio[pane.id]?.muted)
+      for (let pane of window.panes) {
+        let live = tabs.get(pane.id)
+        if (!live || live.disposed || live.contents.isDestroyed()) continue
+        live.contents.setAudioMuted(muted)
+        audio[pane.id] = { playing: audio[pane.id]?.playing ?? false, muted }
+      }
+      publish()
+      return { window: window.id, muted }
     }
     if (method === 'window.menu') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -1536,10 +1763,11 @@ export let createRuntime = (dataDirectory: string) => {
         { label: 'Open Window', enabled: client.windowId !== window.id, click: () => invoke('select-window', { client: client.id, window: window.id }) },
         { type: 'separator' },
         { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
+        { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
-        { label: 'Move Left', enabled: index > 0, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
-        { label: 'Move Right', enabled: index < session.windows.length - 1, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
+        { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
+        { label: 'Move Right', enabled: index < session.windows.length - 1 && !!session.windows[index + 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
         { type: 'separator' },
         { label: 'Close Window', click: () => invoke('kill-window', { window: window.id, confirm: true }) },
       ]).popup({ window: clients.get(client.id)!.window })
@@ -1563,9 +1791,11 @@ export let createRuntime = (dataDirectory: string) => {
       return placement
     }
     if (method.startsWith('extension.')) {
-      let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : undefined
+      let selected = sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
+      let tab = typeof args.tab === 'string' ? tabById(model, args.tab) : selected ? tabById(model, selected) : undefined
       let privateOwner = typeof args.session === 'string' ? model.sessions.find(item => item.id === args.session && item.private) : tab?.session.private ? tab.session : undefined
-      let profile = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
+      let owner = resolve(model.profiles, args.profile ?? tab?.pane.profileId, 'Profile')
+      let profile = connectionProfile(model, tab?.pane.profileId === owner.id ? paneConnectionId(tab.pane) : defaultConnectionId(owner))
       let extensionKey = privateOwner ? `private:${privateOwner.id}:${profile.id}` : profile.id
       browserSession(profile.id, privateOwner?.id)
       await profileNetworkReady.get(extensionKey)
@@ -1590,7 +1820,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (method === 'extension.open' || method === 'extension.options') {
         let client = sourceClientId ? model.clients.find(client => client.id === sourceClientId) : undefined
         let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
-        let activeTab = pane?.profileId === profile.id && (!privateOwner || paneById(model, pane.id).session.id === privateOwner.id) ? tabs.get(pane.id) : undefined
+        let activeTab = pane && paneConnectionId(pane) === profile.id && (!privateOwner || paneById(model, pane.id).session.id === privateOwner.id) ? tabs.get(pane.id) : undefined
         return extensions.open(extensionKey, required(args, 'id'), !!sourceClientId && sourceClientId === focusedClientId, activeTab && { contents: activeTab.contents, parent: activeTab.parent }, method === 'extension.options' ? 'options' : 'popup')
       }
       throw new Error('Unknown extension command')
@@ -1609,7 +1839,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'browser.status') return toolsState()
     if (method === 'bookmark.add') {
       let { tab, pane } = tabById(model, required(args, 'tab'))
-      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let profile = resolve(model.profiles, args.profile ?? pane.profileId, 'Profile')
       let url = tabs.get(tab.id)?.contents.getURL() || tab.url
       if (!/^(https?:|file:)/i.test(url)) throw new Error('Open a web page before bookmarking it')
       let title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : tabs.get(tab.id)?.contents.getTitle().trim() || tab.title || url
@@ -1619,7 +1849,7 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'bookmark.folder.add') {
       let { pane } = tabById(model, required(args, 'tab'))
-      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let profile = resolve(model.profiles, args.profile ?? pane.profileId, 'Profile')
       let title = required(args, 'title').trim()
       if (!title || title.length > 200) throw new Error('Folder name must be between 1 and 200 characters')
       let result = createBookmarkFolder(profile, { title, parentId: typeof args.parent === 'string' && args.parent ? args.parent : undefined }, () => id('bookmark-folder'))
@@ -1652,6 +1882,21 @@ export let createRuntime = (dataDirectory: string) => {
       save()
       return bookmark
     }
+    if (method === 'bookmark.remove') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let bookmarkId = required(args, 'bookmark')
+      let bookmark = bookmarkById(profile.bookmarks ?? [], bookmarkId)
+      if (!bookmark) throw new Error('Bookmark not found')
+      let removedIds = (item: typeof bookmark): string[] => [item.id, ...(item.children ?? []).flatMap(removedIds)]
+      let settings = { ...bookmarkParameters[profile.id] }
+      for (let id of removedIds(bookmark)) delete settings[id]
+      let next = { ...bookmarkParameters, [profile.id]: settings }
+      writeBookmarkParameters(parameterFile, next)
+      removeBookmark(profile, bookmarkId)
+      bookmarkParameters = next
+      save()
+      return { removed: true }
+    }
     if (method === 'bookmark.parameters.update') {
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let bookmark = bookmarkById(profile.bookmarks ?? [], required(args, 'bookmark'))
@@ -1675,6 +1920,17 @@ export let createRuntime = (dataDirectory: string) => {
       let tabId = required(args, 'tab'), { pane } = tabById(model, tabId)
       let url = tabs.get(tabId)?.contents.getURL() ?? '', origin = pageOrigin(url)
       let setting = required(args, 'setting'), scope = args.scope ?? 'site'
+      if (scope === 'pane') {
+        if (setting !== 'adblock') throw new Error('Pane scope supports adblock only')
+        let current = pane.adblock ?? siteSettings(browserSettings(), pane.profileId, url).adblock
+        let value = args.value === 'toggle' ? !current : args.value
+        if (value !== 'inherit' && typeof value !== 'boolean') throw new Error('Use a boolean or inherit for pane adblock')
+        if (value === 'inherit') delete pane.adblock; else pane.adblock = value
+        save()
+        await pageTools?.refresh(tabId)
+        publish()
+        return toolsState()
+      }
       if (!['adblock', 'darkMode'].includes(setting) || !['site', 'profile', 'global'].includes(String(scope))) throw new Error('Use adblock or darkMode with site, profile, or global scope')
       if (scope === 'site' && !origin) throw new Error('Open an http(s) page first')
       let current = scope === 'global' ? browserSettings() : siteSettings(browserSettings(), pane.profileId, scope === 'profile' ? '' : url)
@@ -1701,7 +1957,9 @@ export let createRuntime = (dataDirectory: string) => {
       return plugins.run(required(args, 'action'), { clientId: sourceClientId, paneId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
     }
     if (method === 'command-line') {
-      let command = parseCommandLine(required(args, 'line'), state(required(args, 'client')))
+      let clientId = args.client ?? sourceClientId ?? focusedClientId ?? model.clients[0]?.id
+      if (!clientId) throw new Error('Specify a client with -c CLIENT')
+      let command = parseCommandLine(required(args, 'line'), state(String(clientId)))
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
       return execute(command, sourceClientId)
     }
@@ -1727,6 +1985,8 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
+      if (permissionFocusTarget?.clientId === sourceClientId) permissionFocusTarget = undefined
+      if (pageFocusTarget?.clientId === sourceClientId) pageFocusTarget = undefined
       let owner = clients.get(sourceClientId)
       let chrome = typeof args.pane === 'string' ? owner?.floats.get(args.pane) ?? owner?.chrome : owner?.chrome
       if (sourceClientId === focusedClientId && owner?.window.isFocused()) chrome?.webContents.focus()
@@ -1738,8 +1998,11 @@ export let createRuntime = (dataDirectory: string) => {
       let live = client.paneId ? tabs.get(paneById(model, client.paneId).pane.id) : undefined
       if (client.id === focusedClientId) {
         let owner = clients.get(client.id)!
-        if (live?.parent === owner.window) live.contents.focus()
-        else owner.chrome.webContents.focus()
+        if (live?.parent === owner.window) { pageFocusTarget = undefined; live.contents.focus() }
+        else {
+          pageFocusTarget = client.paneId ? { clientId: client.id, paneId: client.paneId } : undefined
+          owner.chrome.webContents.focus()
+        }
       }
       return null
     }
@@ -1749,9 +2012,31 @@ export let createRuntime = (dataDirectory: string) => {
       return { active: await activateClickMode(clientId) }
     }
     if (method === 'state' || method === 'status') return state()
+    if (method === 'client.tooltip') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let live = clients.get(sourceClientId)
+      if (!live) return null
+      if (!args.visible) { live.tabTooltip.setVisible(false); return null }
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      let session = resolve(model.sessions, client.sessionId, 'Session')
+      let window = resolve(session.windows, args.window, 'Window')
+      let text = window.name
+      let bounds = live.window.getContentBounds()
+      let width = Math.min(800, bounds.width - 16, Math.max(32, Math.ceil(Number(args.width) || 32)))
+      let x = Math.max(8, Math.min(bounds.width - width - 8, Math.round(Number(args.x) || 0)))
+      let y = Math.max(0, Math.min(bounds.height - 28, Number(args.y) || 0))
+      live.tabTooltip.setBounds({ x: Math.round(x), y: Math.round(y), width: Math.ceil(width), height: 28 })
+      live.tabTooltip.webContents.send('link-preview', text)
+      live.window.contentView.addChildView(live.tabTooltip)
+      live.tabTooltip.setVisible(true)
+      return null
+    }
     if (method === 'client.overlay') {
       let client = resolve(model.clients, args.client, 'Client')
-      if (args.visible) { overlays.add(client.id) }
+      if (args.visible) {
+        if (pageFocusTarget?.clientId === client.id) pageFocusTarget = undefined
+        overlays.add(client.id); clients.get(client.id)?.tabTooltip.setVisible(false)
+      }
       else overlays.delete(client.id)
       await scheduleVisuals(); return { visible: !!args.visible }
     }
@@ -1787,103 +2072,94 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.profiles.some(item => item.id !== profile.id && item.name === name)) throw new Error('Profile name already exists')
       profile.name = name; save(); return profile
     }
+    if (method === 'profile.proxy.username') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = connectionProfile(model, String(args.profile))
+      return { username: profile.proxy?.authenticated ? proxyCredentials.get(profile.id)?.username ?? '' : '' }
+    }
     if (method === 'profile.proxy.set') {
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      let proxy = parseProfileProxy({ protocol: args.protocol, host: args.host, port: args.port, authenticated: args.authenticated })
-      let username = typeof args.username === 'string' ? args.username : '', password = typeof args.password === 'string' ? args.password : ''
-      if (!!username !== !!password) throw new Error('Enter both proxy username and password')
-      let replacement = username && password ? { username, password } : proxy.authenticated ? proxyCredentials.get(profile.id) : undefined
-      if (proxy.authenticated && !replacement) throw new Error('Proxy username and password are required')
-      let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
-      let recovering = blockedProfileNetworks.has(profile.id)
-      try {
-        await updateProfileNetwork(profile.id, proxy, replacement)
-        if (recovering) await verifyProfileProxy(profile.id)
-        proxyCredentials.set(profile.id, proxy.authenticated ? replacement : undefined)
-        profile.proxy = proxy
-        if (!recovering) delete profileProxyTests[profile.id]
-      } catch (error) {
-        try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }
-        throw error
-      }
-      save(); reloadProfileTabs(profile.id); return profile
+      let { proxy, replacement } = proxySettings(args, profile)
+      return saveDefaultConnection(profile, proxy, replacement)
     }
     if (method === 'profile.proxy.clear') {
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
-      let previousProxy = profile.proxy, previousCredentials = previousProxy?.authenticated ? proxyCredentials.get(profile.id) : undefined
-      try {
-        await updateProfileNetwork(profile.id)
-        proxyCredentials.set(profile.id); delete profile.proxy; delete profileProxyTests[profile.id]
-        if (profileProxyFailures[profile.id]) { let next = { ...profileProxyFailures }; delete next[profile.id]; profileProxyFailures = next }
-        releaseProfileNetwork(profile.id)
-      }
-      catch (error) { try { await updateProfileNetwork(profile.id, previousProxy, previousCredentials) } catch { /* Preserve the original error. */ }; throw error }
-      save(); reloadProfileTabs(profile.id); return profile
+      return saveDefaultConnection(resolve(model.profiles, args.profile, 'Profile'))
     }
     if (method === 'profile.proxy.test') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      if (!profile.proxy) throw new Error('Configure a proxy first')
-      delete profileProxyTests[profile.id]
-      publish()
-      browserSession(profile.id)
-      if (!blockedProfileNetworks.has(profile.id)) await profileNetworkReady.get(profile.id)
-      else if (!appliedProfileProxies.has(profile.id)) await applyProfileNetwork(profile.id)
-      return verifyProfileProxy(profile.id)
+      let connectionId = defaultConnectionId(profile)
+      let proxy = hostProxy ?? profile.proxy
+      let credentials = proxy?.authenticated ? proxyCredentials.get(connectionId) : undefined
+      let saved = true
+      if (args.host !== undefined && !hostProxy) {
+        let draft = proxySettings(args, profile)
+        saved = JSON.stringify(draft.proxy) === JSON.stringify(proxy) && (!draft.proxy.authenticated || draft.replacement?.username === credentials?.username && draft.replacement?.password === credentials?.password)
+        proxy = draft.proxy; credentials = draft.replacement
+      }
+      if (!proxy) throw new Error('Configure a proxy first')
+      if (saved) { delete profileProxyTests[connectionId]; publish() }
+      // A paused pane waits for successful verification, so tests must not await its readiness.
+      let probeId = id('profile')
+      try {
+        let relay = await proxyRelays.create(probeId, proxy, credentials)
+        let result = await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/')
+        if (saved) {
+          if (blockedProfileNetworks.has(connectionId) && !appliedProfileProxies.has(connectionId)) await applyProfileNetwork(connectionId)
+          acceptProfileProxyTest(connectionId, result)
+        }
+        return result
+      } finally { await proxyRelays.close(probeId) }
     }
     if (method === 'profile.device.set') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
+      let { pane, session } = paneById(model, required(args, 'pane'))
+      if (pane.profileId !== required(args, 'profile')) throw new Error('Pane profile changed')
       let device = parseDevicePersona(args.device)
-      let previous = profile.device
-      try {
-        configureSessionIdentity(profile.id, device)
-        let liveTabs = [...tabs].filter(([tabId, live]) => !live.contents.isDestroyed() && tabById(model, tabId).pane.profileId === profile.id)
-        await Promise.all(liveTabs.map(([, live]) => applyDevicePersona(live.contents, device, live.deviceScale ?? 1)))
-        for (let [, live] of liveTabs) live.deviceScale = undefined
-        profile.device = device
-      } catch (error) {
-        configureSessionIdentity(profile.id, previous)
-        if (previous) {
-          try { await Promise.all([...tabs].filter(([tabId, live]) => !live.contents.isDestroyed() && tabById(model, tabId).pane.profileId === profile.id).map(([, live]) => applyDevicePersona(live.contents, previous, live.deviceScale ?? 1))) } catch { /* Preserve the original error. */ }
-        } else {
-          try { await recreateProfileTabs(profile.id) } catch { /* Preserve the original error. */ }
-        }
-        throw error
-      }
-      save(); reloadProfileTabs(profile.id); void scheduleVisuals(); return profile
+      let changed = JSON.stringify(pane.device) !== JSON.stringify(device)
+      pane.device = device
+      if (args.newPanes === true) session.device = device
+      else delete session.device
+      if (!changed) { save(); return pane }
+      delete snapshots[pane.id]
+      disposeTab(pane.id)
+      save(); await scheduleVisuals()
+      let live = tabs.get(pane.id)
+      await live?.ready
+      await live?.initialNavigation?.catch(() => undefined)
+      if (live) live.initialNavigation = undefined
+      return pane
     }
     if (method === 'profile.device.clear') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let profile = resolve(model.profiles, args.profile, 'Profile')
-      let previous = profile.device
-      try {
-        delete profile.device
-        configureSessionIdentity(profile.id)
-        await recreateProfileTabs(profile.id)
-      } catch (error) {
-        profile.device = previous
-        configureSessionIdentity(profile.id, previous)
-        try { await recreateProfileTabs(profile.id) } catch { /* Preserve the original error. */ }
-        throw error
-      }
-      save(); return profile
+      let { pane, session } = paneById(model, required(args, 'pane'))
+      if (pane.profileId !== required(args, 'profile')) throw new Error('Pane profile changed')
+      delete pane.device
+      delete session.device
+      delete snapshots[pane.id]
+      disposeTab(pane.id)
+      save(); await scheduleVisuals()
+      let live = tabs.get(pane.id)
+      await live?.ready
+      await live?.initialNavigation?.catch(() => undefined)
+      if (live) live.initialNavigation = undefined
+      return pane
     }
     if (method === 'profile.cache.status') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      let bytes = await browserSession(profile.id).getCacheSize(), limit = 256 * 1024 * 1024
+      let bytes = (await Promise.all(profileCacheSessions(profile.id).sessions.map(browser => browser.getCacheSize()))).reduce((sum, size) => sum + size, 0), limit = 256 * 1024 * 1024
       profileCaches = { ...profileCaches, [profile.id]: { bytes, limit, checkedAt: Date.now() } }; publish()
       return profileCaches[profile.id]
     }
     if (method === 'profile.cache.clear') {
       if (!sourceClientId) throw new Error('Trusted UI required')
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      await browserSession(profile.id).clearCache()
+      await Promise.all(profileCacheSessions(profile.id).sessions.map(browser => browser.clearCache()))
       lastCacheChecks.set(profile.id, Date.now())
       profileCaches = { ...profileCaches, [profile.id]: { bytes: 0, limit: 256 * 1024 * 1024, checkedAt: Date.now() } }; publish()
       return profileCaches[profile.id]
@@ -1897,7 +2173,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
       let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
       let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
-      let session = newSession(name, profile.id, args.private === true)
+      let session = newSession(name, profile.id, args.private === true, model)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
@@ -1909,7 +2185,7 @@ export let createRuntime = (dataDirectory: string) => {
       let panes = reassignablePanes(session)
       session.profileExplicit = true
       if (session.defaultProfileId === profile.id) { save(); return session }
-      for (let pane of panes ?? []) { disposeTab(pane.id); pane.profileId = profile.id }
+      for (let pane of panes ?? []) { disposeTab(pane.id); pane.profileId = profile.id; pane.connectionId = profile.connectionId }
       session.defaultProfileId = profile.id
       changed(); await visualQueue; return session
     }
@@ -1925,6 +2201,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (pane.profileId === profile.id) return pane
       disposeTab(pane.id)
       pane.profileId = profile.id
+      pane.connectionId = profile.connectionId
       changed(); await visualQueue; return pane
     }
     if (method === 'rename-session') {
@@ -1936,6 +2213,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (panes) {
         disposeTab(panes[0].id)
         panes[0].profileId = previousProfileId!
+        panes[0].connectionId = model.profiles.find(profile => profile.id === previousProfileId)?.connectionId
         session.defaultProfileId = previousProfileId!
       }
       session.name = name
@@ -1988,7 +2266,10 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
-      client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0]?.id ?? null
+      let windowId = client.sessionId === session.id ? client.windowId : client.windowHistory?.find(id => session.windows.some(window => window.id === id))
+      let window = session.windows.find(window => window.id === windowId) ?? session.windows[0]
+      if (client.windowId !== window.id) client.paneId = window.panes[0]?.id ?? null
+      client.sessionId = session.id; client.windowId = window.id
       changed(); await visualQueue; return client
     }
     if (method === 'list-windows') return resolve(model.sessions, args.session, 'Session').windows
@@ -1999,7 +2280,8 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'new-window') {
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
-      let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName)
+      let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
+      if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
         tab.url = normalizeUrl(String(args.url), searchAppForSession(session))
@@ -2012,7 +2294,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'duplicate-window') {
       let original = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = resolve(model.sessions, model.sessions.find(item => item.windows.includes(original))?.id, 'Session')
-      let copy = cloneWindow(original)
+      let copy = cloneWindow(original, model)
       copy.name = `${original.name} copy`
       copy.automaticName = false
       session.windows.splice(session.windows.indexOf(original) + 1, 0, copy)
@@ -2030,6 +2312,7 @@ export let createRuntime = (dataDirectory: string) => {
         let session = model.sessions.find(session => session.id === closed.sessionId)
           ?? (client ? resolve(model.sessions, client.sessionId, 'Session') : undefined)
         if (!session) throw new Error('No session available for the closed window')
+        reassignConflictingPaneIds(closed.window, model)
         session.windows.splice(Math.min(closed.index, session.windows.length), 0, closed.window)
         if (client) { client.sessionId = session.id; client.windowId = closed.window.id; client.paneId = closed.window.panes[0]?.id ?? null }
         closedTabs.pop()
@@ -2038,6 +2321,8 @@ export let createRuntime = (dataDirectory: string) => {
       let window = resolve(model.sessions.flatMap(session => session.windows), closed.windowId, 'Window')
       let session = model.sessions.find(session => session.windows.includes(window))!
       let sameLayout = window.panes.length === closed.remainingPaneIds.length && window.panes.every(pane => closed.remainingPaneIds.includes(pane.id))
+      let restored = reassignConflictingPaneIds({ id: window.id, name: window.name, panes: [closed.pane], layout: closed.layout, floating: closed.floating }, model)
+      closed.layout = restored.layout; closed.floating = restored.floating
       window.panes.splice(Math.min(closed.index, window.panes.length), 0, closed.pane)
       if (sameLayout) { window.layout = closed.layout; window.floating = closed.floating }
       else window.layout = splitLayout(window.layout, window.panes.find(pane => pane.id !== closed.pane.id)?.id ?? '', closed.pane.id, 'horizontal')
@@ -2045,19 +2330,16 @@ export let createRuntime = (dataDirectory: string) => {
       closedTabs.pop()
       changed(); await visualQueue; return closed.pane
     }
-    if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
-    if (method === 'move-window') {
-      let client = resolve(model.clients, args.client, 'Client')
-      let session = resolve(model.sessions, client.sessionId, 'Session')
-      let index = session.windows.findIndex(window => window.id === client.windowId)
-      let position = args.position
-      let destination = position === 'first' ? 0 : position === 'last' ? session.windows.length - 1 : Number(position) - 1
-      if (!Number.isInteger(destination) || destination < 0 || destination >= session.windows.length) throw new Error(`Window index must be between 1 and ${session.windows.length}`)
-      if (index === destination) return session.windows[index]
-      let [window] = session.windows.splice(index, 1)
-      session.windows.splice(destination, 0, window)
+    if (method === 'toggle-window-pin') {
+      let window = toggleWindowPin(model, args.window)
       changed(); await visualQueue; return window
     }
+    if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
+    if (method === 'move-window') {
+      let window = moveWindow(model, args)
+      changed(); await visualQueue; return window
+    }
+    if (method === 'renumber-windows') return resolve(model.sessions, args.session, 'Session').windows
     if (method === 'reorder-window') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
@@ -2074,12 +2356,18 @@ export let createRuntime = (dataDirectory: string) => {
       changed(); await visualQueue; return window
     }
     if (method === 'swap-window') {
+      if (args.destination !== undefined) {
+        let window = swapWindows(model, args)
+        changed(); await visualQueue; return window
+      }
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let index = session.windows.findIndex(window => window.id === client.windowId)
       let direction = Number(args.direction)
       if (![-1, 1].includes(direction)) throw new Error('Window direction must be -1 or 1')
-      let destination = (index + direction + session.windows.length) % session.windows.length
+      let group = session.windows.filter(window => !!window.pinned === !!session.windows[index].pinned)
+      let groupIndex = group.indexOf(session.windows[index])
+      let destination = session.windows.indexOf(group[(groupIndex + direction + group.length) % group.length])
       if (destination === index) return session.windows[index]
       let [window] = session.windows.splice(index, 1)
       session.windows.splice(destination, 0, window)
@@ -2089,16 +2377,17 @@ export let createRuntime = (dataDirectory: string) => {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let index = session.windows.findIndex(window => window.id === client.windowId)
-      let window = method === 'select-window' ? resolve(session.windows, args.window, 'Window') : session.windows[(index + Number(args.direction ?? 1) + session.windows.length) % session.windows.length]
+      let window = method === 'select-window' ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : session.windows[(index + Number(args.direction ?? 1) + session.windows.length) % session.windows.length]
+      client.sessionId = model.sessions.find(session => session.windows.includes(window))!.id
       client.windowId = window.id; client.paneId = window.panes[0]?.id ?? null
       changed(); await visualQueue; return client
     }
     if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {
       let client = resolve(model.clients, args.client, 'Client')
       let previousPaneId = client.paneId
-      let window = resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
+      let window = method === 'select-pane' ? paneById(model, args.pane).window : resolve(resolve(model.sessions, client.sessionId, 'Session').windows, client.windowId, 'Window')
       let index = window.panes.findIndex(pane => pane.id === client.paneId)
-      if (method === 'select-pane') client.paneId = resolve(window.panes, args.pane, 'Pane').id
+      if (method === 'select-pane') { client.sessionId = model.sessions.find(session => session.windows.includes(window))!.id; client.windowId = window.id; client.paneId = resolve(window.panes, args.pane, 'Pane').id }
       else if (method === 'cycle-pane') client.paneId = window.panes[(index + 1) % window.panes.length]?.id ?? null
       else {
         let direction = required(args, 'direction')
@@ -2129,8 +2418,12 @@ export let createRuntime = (dataDirectory: string) => {
     }
     if (method === 'break-pane' && args.floating !== true) {
       let parent = paneById(model, args.pane)
-      if (parent.window.panes.length === 1) throw new Error('Pane is already the only pane in its window')
-      return execute({ method: 'move-pane', args: { ...args, session: parent.session.id } })
+      if (parent.window.panes.length === 1 && args.session === undefined) throw new Error('Pane is already the only pane in its window')
+      return execute({ method: 'move-pane', args: { ...args, session: args.session ?? parent.session.id } })
+    }
+    if (method === 'swap-pane' || method === 'rotate-window') {
+      let result = method === 'swap-pane' ? swapPanes(model, args) : rotatePanes(model, args)
+      changed(); await visualQueue; return result
     }
     if (method === 'new-pane' || method === 'break-pane') {
       let parent = args.pane ? paneById(model, args.pane) : undefined
@@ -2138,7 +2431,8 @@ export let createRuntime = (dataDirectory: string) => {
       let client = model.clients.find(client => client.id === args.client) ?? model.clients.find(client => client.windowId === window.id)
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
-      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
+      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
+      if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
       if (args.client && args.background !== true) {
@@ -2156,12 +2450,13 @@ export let createRuntime = (dataDirectory: string) => {
       let parent = args.pane ? paneById(model, args.pane) : undefined
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
-      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined)
+      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
+      if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
       window.panes.push(pane)
-      if (args.client) resolve(model.clients, args.client, 'Client').paneId = pane.id
+      if (args.client && args.background !== true) { let selected = resolve(model.clients, args.client, 'Client'); selected.sessionId = session.id; selected.windowId = window.id; selected.paneId = pane.id }
       changed(); await visualQueue; return pane
     }
     if (method === 'resize-pane') {
@@ -2191,27 +2486,31 @@ export let createRuntime = (dataDirectory: string) => {
         changed(); await visualQueue; return placement
       }
       let targetSession = args.session ? resolve(model.sessions, args.session, 'Session') : undefined
-      let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true)
+      let to = targetSession ? newWindow(from.panes.length === 1 ? from.name : `window-${targetSession.windows.length + 1}`, pane.profileId, from.panes.length === 1 ? from.automaticName : true, model)
         : args.destination ? paneById(model, args.destination).window : args.window ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : from
       let destinationSession = targetSession ?? model.sessions.find(session => session.windows.includes(to))!
-      if (destinationSession.id !== fromSession.id && (fromSession.private || destinationSession.private)) throw new Error('Cannot move panes between private and other sessions')
-      if (to === from && !placement) throw new Error('Choose another internal window or a floating pane')
-      if (args.destination && !layoutPaneIds(to.layout).includes(String(args.destination))) throw new Error('Destination must be a tiled pane')
+      checkSessionTransfer(fromSession, destinationSession)
+      let destination = args.destination ? String(args.destination) : args.window ? selectedPane(state(String(args.client ?? focusedClientId ?? model.clients[0]?.id ?? '')), to).id : undefined
+      if (placement && destination === pane.id) destination = undefined
+      if (to === from && !placement && (!destination || destination === pane.id)) throw new Error('Source and destination panes must be different')
+      if (destination && !layoutPaneIds(to.layout).includes(destination)) throw new Error('Destination must be a tiled pane')
+      let position = targetSession ? insertionIndex(targetSession, args.position, args.before === true, args.after === true) : undefined
       forgetPlacement(from, pane.id)
       if (to !== from) {
         from.panes = from.panes.filter(item => item.id !== pane.id)
         if (targetSession) {
           to.panes = [pane]; to.layout = { kind: 'pane', paneId: pane.id }
-          if (to.automaticName) updateAutomaticWindowName(to, pane.id)
-          targetSession.windows.push(to)
+          if (args.name !== undefined) { to.name = String(args.name); to.automaticName = false }
+          else if (to.automaticName) updateAutomaticWindowName(to, pane.id)
+          targetSession.windows.splice(position!, 0, to)
         } else to.panes.push(pane)
       }
-      if (!targetSession) dockPane(to, pane.id, to === from ? placement : undefined, args.destination ? String(args.destination) : undefined, args.axis === 'vertical' ? 'vertical' : args.axis === 'horizontal' ? 'horizontal' : undefined)
+      if (!targetSession) dockPane(to, pane.id, to === from ? placement : undefined, destination, args.axis === 'vertical' ? 'vertical' : args.axis === 'horizontal' ? 'horizontal' : undefined, args.before === undefined ? undefined : args.before === true)
       if (!from.panes.length) {
         fromSession.windows = fromSession.windows.filter(window => window !== from)
         if (!fromSession.windows.length) removeSession(model, fromSession)
       }
-      if (args.client) {
+      if (args.client && args.background !== true) {
         let selected = resolve(model.clients, args.client, 'Client')
         selected.sessionId = model.sessions.find(session => session.windows.includes(to))!.id; selected.windowId = to.id; selected.paneId = pane.id; selected.zoomedPaneId = null
       }
@@ -2262,7 +2561,7 @@ export let createRuntime = (dataDirectory: string) => {
       if (!saved) throw new Error('Saved layout not found')
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
-      let replacement = cloneWindow(saved.window)
+      let replacement = cloneWindow(saved.window, model)
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
       changed(); await visualQueue; return window
     }
@@ -2277,7 +2576,7 @@ export let createRuntime = (dataDirectory: string) => {
     if (method === 'tab.create') {
       let { session, pane } = paneById(model, args.pane)
       let client = args.client === true ? focusedClientId : args.client
-      let window = await execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: args.url, ...(client ? { client } : {}) } }) as InternalWindow
+      let window = await execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: args.url, ...(client ? { client } : {}) } }, sourceClientId) as InternalWindow
       return window.panes[0]
     }
     if (method === 'tab.select') {
@@ -2296,6 +2595,20 @@ export let createRuntime = (dataDirectory: string) => {
       if (!Array.isArray(args.ids)) throw new Error('Permission IDs required')
       for (let requestId of args.ids) if (typeof requestId === 'string' && permissions.has(requestId)) owner.dismissedPermissions.add(requestId)
       publish(); return null
+    }
+    if (method === 'permission.visit') {
+      if (!sourceClientId) throw new Error('Trusted permission UI required')
+      let request = permissions.get(required(args, 'id'))
+      if (!request) throw new Error('Permission request no longer exists')
+      checkControl(method, { pane: request.paneId })
+      let { session, window, pane } = paneById(model, request.paneId)
+      let client = resolve(model.clients, sourceClientId, 'Client')
+      client.sessionId = session.id; client.windowId = window.id; client.paneId = pane.id; client.zoomedPaneId = null
+      raisePane(window, pane.id)
+      if (pointerTarget?.clientId === client.id) pointerTarget = undefined
+      if (client.id === focusedClientId) permissionFocusTarget = { clientId: client.id, paneId: pane.id }
+      changed(); await visualQueue
+      return { sessionId: session.id, windowId: window.id, paneId: pane.id }
     }
     if (method === 'permission.list') return state().permissions
     if (method === 'permission.respond') {
@@ -2355,27 +2668,59 @@ export let createRuntime = (dataDirectory: string) => {
       findResults[tabId] = { requestId, text, matches: repeat ? current.matches : 0, activeMatchOrdinal: repeat ? current.activeMatchOrdinal : 0, finalUpdate: false }
       publish(); return { text, requestId }
     }
-    if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
+    if (method === 'site-data.clear') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
       let contents = (await ensureLiveTab(tabId)).contents
+      let url = new URL(contents.getURL())
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Open a website to clear its data')
+      if (url.origin !== required(args, 'origin')) throw new Error('The page changed. Reopen Site information and try again')
+      await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
+      if (!contents.isDestroyed() && contents.getURL() === url.href) contents.reload()
+      return { origin: url.origin }
+    }
+    if (method === 'reload' || method === 'hard-reload') {
+      let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)
+      delete crashes[tabId]; loading[tabId] = true; publish()
+      try {
+        // A reload must be able to interrupt an unfinished initial navigation.
+        let live = await ensureLiveTab(tabId, false), contents = live.contents
+        live.initialNavigation = undefined
+        contents.stop()
+        loading[tabId] = true; publish()
+        if (!contents.getURL() || contents.getURL() === 'about:blank' && tab.url !== 'about:blank') void contents.loadURL(tab.url).catch(reportError)
+        else if (method === 'hard-reload') contents.reloadIgnoringCache()
+        else contents.reload()
+      } catch (error) { delete loading[tabId]; publish(); throw error }
+      return { pane: tabId }
+    }
+    if (['stop', 'back', 'forward'].includes(method)) {
+      let tabId = required(args, 'tab'); tabById(model, tabId)
+      let contents = (await ensureLiveTab(tabId)).contents
+      if (method !== 'stop' && args.newWindow === true) {
+        let history = contents.navigationHistory
+        let entry = history.getEntryAtIndex(history.getActiveIndex() + (method === 'back' ? -1 : 1))
+        if (!entry || entry.url === 'about:blank') return { pane: tabId }
+        let { pane, session } = tabById(model, tabId)
+        return execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: entry.url } }, sourceClientId)
+      }
       delete crashes[tabId]
       if (method === 'stop') { contents.stop(); delete loading[tabId] }
-      if (method === 'reload') { contents.stop(); contents.reload() }
-      if (method === 'hard-reload') contents.reloadIgnoringCache()
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
         else {
           let { pane, window } = paneById(model, tabId)
-          let opener = pane.openerPaneId ? walkPanes(model).find(item => item.pane.id === pane.openerPaneId) : undefined
+          let opener = backOpener(model, pane)
           if (opener) {
-            let affected = model.clients.filter(client => client.windowId === window.id).map(client => client.id)
+            let affected = model.clients.filter(client => client.windowId === window.id && client.paneId === pane.id).map(client => client.id)
             let result = await execute({ method: 'kill-pane', args: { pane: pane.id } }) as { cancelled?: string }
             if (result.cancelled) return result
+            if (!walkPanes(model).some(item => item.pane === opener.pane)) return { closed: tabId }
             for (let clientId of affected) {
               let client = model.clients.find(client => client.id === clientId)
               if (client) { client.sessionId = opener.session.id; client.windowId = opener.window.id; client.paneId = opener.pane.id }
             }
             changed(); await visualQueue
+            if (focusedClientId && affected.includes(focusedClientId)) await execute({ method: 'focus-page', args: { client: focusedClientId } })
             return { closed: tabId, pane: opener.pane.id }
           }
         }
@@ -2412,7 +2757,7 @@ export let createRuntime = (dataDirectory: string) => {
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.ready.then(() => { checkControl(method, args); if (!live.disposed) return live.contents.loadURL(url) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return loadPage(live.contents, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url && (live.disposed || live.contents.isDestroyed() || !live.contents.isLoading())) live.pendingUrl = undefined
@@ -2427,6 +2772,7 @@ export let createRuntime = (dataDirectory: string) => {
     await visualQueue
     return serializeTab(tabId, async () => {
       checkControl(method, args)
+      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane, session } = tabById(model, tabId)
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
@@ -2437,15 +2783,18 @@ export let createRuntime = (dataDirectory: string) => {
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
+        // The renderer owns swipe recognition, so disable it before dispatching
+        // automation input rather than waiting for a native mouse notification.
+        if (syntheticInput) await live.refreshSwipe?.()
         if (method === 'navigate') {
-          let failures = proxyRelays.get(pane.profileId)?.failures ?? 0
+          let failures = proxyRelays.get(paneConnectionId(pane))?.failures ?? 0
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
           try { await contents.loadURL(normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
           finally { contents.off('did-navigate', response) }
-          if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(pane.profileId)?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
+          if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(paneConnectionId(pane))?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
           return { id: tab.id, url: contents.getURL() }
         }
         if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
@@ -2461,7 +2810,7 @@ export let createRuntime = (dataDirectory: string) => {
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true }, undefined, true)
           return { pane: tabId, url: contents.getURL(), content: result.result.value }
         }
-        if (method === 'cdp') return cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined)
+        if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined)
         if (method === 'screenshot') {
           let target = path.resolve(required(args, 'output'))
           let params: Record<string, unknown> = { format: 'png', fromSurface: true, captureBeyondViewport: args.fullPage !== false }
@@ -2519,7 +2868,14 @@ export let createRuntime = (dataDirectory: string) => {
           for (let type of ['keyDown', 'keyUp']) await cdp(tabId, 'Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(type === 'keyDown' && command ? { commands: [command] } : {}), ...(type === 'keyDown' && key === 'Enter' && !modifiers ? { text: '\r' } : {}) })
           return { pane: tabId }
         }
-      } finally { lastTabUse.set(tabId, Date.now()); if (syntheticInput) automatedContents.delete(contents.id); if (!contents.isDestroyed()) { if (syntheticInput) contents.setIgnoreMenuShortcuts(false); contents.setBackgroundThrottling(!background) } }
+      } finally {
+        lastTabUse.set(tabId, Date.now())
+        if (syntheticInput) automatedContents.delete(contents.id)
+        if (!contents.isDestroyed()) {
+          if (syntheticInput) { contents.setIgnoreMenuShortcuts(false); await live.refreshSwipe?.() }
+          contents.setBackgroundThrottling(!background)
+        }
+      }
       return null
     })
   }
@@ -2527,21 +2883,29 @@ export let createRuntime = (dataDirectory: string) => {
     await settingsReady
     await fs.rm(privateStorageRoot, { recursive: true, force: true })
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
-    if (configuration.memory.lazyRestore) for (let { pane } of walkPanes(model)) if (!resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
+    for (let { session, pane } of walkPanes(model)) {
+      // Inactive restored panes need their icons before they have WebContents.
+      let cachedIcon = faviconCache.get(pane.profileId, pane.url, session.private ? session.id : undefined)
+      if (cachedIcon) favicons[pane.id] = cachedIcon
+      if (configuration.memory.lazyRestore && !resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
+    }
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       if (!entry || entry[1].contents.isDestroyed()) return undefined
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
-      return { tabId: entry[0], url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
+      return { tabId: entry[0], adblock: tabById(model, entry[0]).pane.adblock, url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
-    pageTools = createPageTools({ visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
+    pageTools = createPageTools({ adblock: contentsId => {
+      let entry = [...tabs].find(([, live]) => !live.contents.isDestroyed() && live.contents.id === contentsId)
+      return entry ? tabById(model, entry[0]).pane.adblock : undefined
+    }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
-    restoringTabs = false
     let recordMemory = () => { try { memory.record() } catch (error) { reportError(error) } }
     recordMemory()
     memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)
@@ -2558,6 +2922,7 @@ export let createRuntime = (dataDirectory: string) => {
     await app.dock?.show(); last?.window.show(); last?.window.focus()
   }
   let shutdown = () => {
+    if (shuttingDown) return
     shuttingDown = true
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
@@ -2573,6 +2938,7 @@ export let createRuntime = (dataDirectory: string) => {
     automation?.close()
     configuration?.close()
     clearTimeout(persistTimer); clearTimeout(publishTimer)
+    faviconCache.close()
     writeModel(dataDirectory, model, bookmarkFile)
     for (let tabId of tabs.keys()) disposeTab(tabId)
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
@@ -2626,5 +2992,5 @@ export let createRuntime = (dataDirectory: string) => {
       return remoteViewport(pane)
     },
   }
-  return { execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, setBounds, createClient, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

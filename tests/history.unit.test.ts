@@ -11,6 +11,32 @@ test('history keeps a page title across later URL-only updates', () => {
   expect(searchHistory(history, 'Node')).toEqual(history)
 })
 
+test('history groups matching titled pages across query changes and trailing slashes', () => {
+  let base = 'https://gfn.example.test/d/k8s_views_nodes/kubernetes-views-nodes'
+  let first = `${base}?orgId=1&from=now-1h`
+  let latest = `${base}/?orgId=1&from=now-6h`
+  let title = 'Kubernetes / Views / Nodes - Grafana'
+  let history = recordHistory([], first, title, 1)
+  history = recordHistory(history, latest, title, 2)
+  expect(history).toEqual([{ url: latest, title, visitedAt: 2 }])
+  expect(searchHistory(history, 'kubernetes views nodes')).toEqual(history)
+  expect(compactHistory([
+    { url: latest, title, visitedAt: 2 },
+    { url: first, title, visitedAt: 1 },
+  ])).toEqual(history)
+})
+
+test('history keeps different titled pages on the same path and matching titles on other hosts', () => {
+  let first = 'https://example.test/search?q=one'
+  let second = 'https://example.test/search?q=two'
+  let otherHost = 'https://other.test/search?q=two'
+  let history = recordHistory([], first, 'One', 1)
+  history = recordHistory(history, second, 'Two', 2)
+  history = recordHistory(history, otherHost, 'Two', 3)
+  expect(history.map(entry => entry.url)).toEqual([otherHost, second, first])
+  expect(compactHistory(history)).toEqual(history)
+})
+
 test('Google Maps keeps one reopenable entry per place and ignores map movement', () => {
   let first = 'https://www.google.com/maps/place/City+Park/@40.1,-73.2,17z/data=!4m2'
   let moved = 'https://www.google.com/maps/place/City+Park/@40.2,-73.3,18z/data=!4m3?entry=ttu'
@@ -24,7 +50,7 @@ test('Google Maps keeps one reopenable entry per place and ignores map movement'
   expect(searchHistory(history, 'maps city')).toEqual(history)
 })
 
-test('Google Maps place IDs survive query URL changes; other sites retain meaningful queries', () => {
+test('Google Maps place IDs survive query URL changes; differently titled searches stay distinct', () => {
   let one = 'https://www.google.com/maps/search/?api=1&query=park&query_place_id=abc'
   let two = 'https://maps.google.com/maps/search/?query_place_id=abc&api=1&query=park'
   let history = recordHistory([], one, 'Park', 1)

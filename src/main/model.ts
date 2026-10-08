@@ -4,17 +4,29 @@ import { parseProfileProxy } from './profile-proxy'
 import { parseDevicePersona } from './device-persona'
 
 export let id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`
-export let newPane = (profileId: string, url = 'about:blank'): Pane => ({ id: id('pane'), profileId, url, title: url === 'about:blank' ? 'New window' : url, zoom: 1 })
-export let newWindow = (name: string, profileId: string, automaticName = false): InternalWindow => {
-  let pane = newPane(profileId)
+export let nextPaneId = (model: Model, reserved: Iterable<string> = []) => {
+  let used = new Set([...model.profiles.map(profile => profile.id), ...model.sessions.flatMap(session => [session.id, ...session.windows.flatMap(window => [window.id, ...window.panes.map(pane => pane.id)])]), ...reserved])
+  let number = 1
+  while (used.has(`%${number}`)) number++
+  return `%${number}`
+}
+export let newPane = (profileId: string, url = 'about:blank', model?: Model): Pane => {
+  let connectionId = model?.profiles.find(profile => profile.id === profileId)?.connectionId
+  return { id: model ? nextPaneId(model) : id('pane'), profileId, ...(connectionId ? { connectionId } : {}), url, title: url === 'about:blank' ? 'New window' : url, zoom: 1 }
+}
+export let newWindow = (name: string, profileId: string, automaticName = false, model?: Model): InternalWindow => {
+  let pane = newPane(profileId, 'about:blank', model)
   return { id: id('win'), name, automaticName, panes: [pane], layout: { kind: 'pane', paneId: pane.id } }
 }
-export let newSession = (name: string, profileId: string, privateSession = false): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, ...(privateSession ? { private: true } : {}), windows: [newWindow('main', profileId, true)] })
+export let newSession = (name: string, profileId: string, privateSession = false, model?: Model): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, ...(privateSession ? { private: true } : {}), windows: [newWindow('main', profileId, true, model)] })
 export let initialModel = (): Model => {
   let profiles: Profile[] = [{ id: 'profile_default', name: 'default', background: false }, { id: 'profile_bot', name: 'bot', background: true }]
-  return { version: 2, profiles, sessions: [newSession('main', profiles[0].id)], clients: [], layouts: [] }
+  let model: Model = { version: 2, profiles, sessions: [], clients: [], layouts: [] }
+  model.sessions.push(newSession('main', profiles[0].id, false, model))
+  return model
 }
 export let walkPanes = (model: Model) => model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => ({ session, window, pane }))))
+export let orderPinnedWindows = (session: WorkspaceSession) => session.windows.sort((first, second) => Number(second.pinned === true) - Number(first.pinned === true))
 let domainName = (url: string) => {
   try { return new URL(url).hostname.replace(/^www\./, '') }
   catch { return '' }
@@ -23,7 +35,8 @@ export let updateAutomaticWindowName = (window: InternalWindow, paneId = window.
   let automatic = window.automaticName === true || (window.automaticName === undefined && /^(main|window-\d+)$/.test(window.name))
   if (!automatic) return false
   let pane = window.panes.find(pane => pane.id === paneId) ?? window.panes[0]
-  let name = pane ? domainName(pane.url) : 'empty'
+  let title = pane?.title.replace(/\s+/g, ' ').trim()
+  let name = pane ? (pane.url !== 'about:blank' && title && title !== pane.url && title !== 'New window' ? title : domainName(pane.url)) : 'empty'
   if (!name) name = /^(main|window-\d+)$/.test(window.name) ? window.name : pane?.url.startsWith('file:') ? 'file' : 'new-window'
   if (window.name === name && window.automaticName === true) return false
   window.name = name; window.automaticName = true
@@ -126,19 +139,34 @@ export let removePane = (layout: Layout | null, paneId: string): Layout | null =
   if (!second) return first
   return { ...layout, first, second }
 }
-export let cloneWindow = (window: InternalWindow): InternalWindow => {
+export let cloneWindow = (window: InternalWindow, model?: Model): InternalWindow => {
   let copy = structuredClone(window)
   let paneIds = new Map<string, string>()
   copy.id = id('win')
   for (let pane of copy.panes) {
-    let paneId = id('pane')
+    let paneId = model ? nextPaneId(model, paneIds.values()) : id('pane')
     paneIds.set(pane.id, paneId)
     pane.id = paneId
+    if (model) pane.connectionId = model.profiles.find(profile => profile.id === pane.profileId)?.connectionId
   }
   for (let pane of copy.panes) if (pane.openerPaneId) pane.openerPaneId = paneIds.get(pane.openerPaneId)
   copy.layout = mapLayout(copy.layout, node => node.kind === 'pane' ? { ...node, paneId: paneIds.get(node.paneId)! } : { ...node, id: id('split') })
   copy.floating = copy.floating?.map(item => ({ ...item, paneId: paneIds.get(item.paneId)!, dock: item.dock ? { ...item.dock, siblingIds: item.dock.siblingIds.flatMap(id => paneIds.has(id) ? [paneIds.get(id)!] : []) } : undefined }))
   return copy
+}
+export let reassignConflictingPaneIds = (window: InternalWindow, model: Model) => {
+  let used = new Set(walkPanes(model).map(item => item.pane.id))
+  let replacements = new Map<string, string>()
+  for (let pane of window.panes) if (used.has(pane.id)) {
+    let replacement = nextPaneId(model, [...window.panes.map(item => item.id), ...replacements.values()])
+    replacements.set(pane.id, replacement)
+    pane.id = replacement
+  }
+  if (!replacements.size) return window
+  for (let pane of window.panes) if (pane.openerPaneId) pane.openerPaneId = replacements.get(pane.openerPaneId) ?? pane.openerPaneId
+  window.layout = mapLayout(window.layout, node => node.kind === 'pane' ? { ...node, paneId: replacements.get(node.paneId) ?? node.paneId } : node)
+  window.floating = window.floating?.map(item => ({ ...item, paneId: replacements.get(item.paneId) ?? item.paneId, dock: item.dock ? { ...item.dock, siblingIds: item.dock.siblingIds.map(id => replacements.get(id) ?? id) } : undefined }))
+  return window
 }
 type LegacyTab = { id: string; url: string; title: string; zoom: number; openerTabId?: string; keepAlive?: boolean }
 type LegacyPane = { id: string; profileId: string; tabs: LegacyTab[]; activeTabId: string }
@@ -198,10 +226,24 @@ export let validateModel = (value: unknown): Model => {
     checkId(profile.id)
     if (typeof profile.name !== 'string' || typeof profile.background !== 'boolean') throw new Error('Invalid profile')
     if (profile.proxy !== undefined) profile.proxy = parseProfileProxy(profile.proxy)
+    if (profile.connections !== undefined) {
+      if (!Array.isArray(profile.connections)) throw new Error('Invalid profile connections')
+      let connectionIds = new Set<string>()
+      for (let connection of profile.connections) {
+        if (!/^profile_[a-zA-Z0-9_-]+$/.test(connection.id) || connectionIds.has(connection.id)) throw new Error('Invalid connection ID')
+        connectionIds.add(connection.id)
+        if (connection.id !== profile.id) checkId(connection.id)
+        if (connection.proxy !== undefined) connection.proxy = parseProfileProxy(connection.proxy)
+      }
+      if (!connectionIds.has(profile.id) || !connectionIds.has(profile.connectionId ?? profile.id)) throw new Error('Missing profile connection')
+      for (let connection of profile.connections) if (connection.seedFrom !== undefined && (!connectionIds.has(connection.seedFrom) || connection.seedFrom === connection.id)) throw new Error('Invalid cookie source')
+      if (JSON.stringify(profile.proxy) !== JSON.stringify(profile.connections.find(connection => connection.id === (profile.connectionId ?? profile.id))?.proxy)) throw new Error('Invalid default connection')
+    } else if (profile.connectionId !== undefined) throw new Error('Missing profile connections')
     if (profile.device !== undefined) profile.device = parseDevicePersona(profile.device)
   }
   for (let session of model.sessions) {
     checkId(session.id)
+    if (session.device !== undefined) session.device = parseDevicePersona(session.device)
     if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
     if (session.profileExplicit !== undefined && typeof session.profileExplicit !== 'boolean') throw new Error('Invalid explicit profile setting')
     delete (session as WorkspaceSession & { searchApp?: string }).searchApp
@@ -209,6 +251,7 @@ export let validateModel = (value: unknown): Model => {
     for (let window of session.windows) {
       checkId(window.id)
       if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
+      if (window.pinned !== undefined && typeof window.pinned !== 'boolean') throw new Error('Invalid pinned window setting')
       let leaves: string[] = []
       mapLayout(window.layout, node => {
         if (node.kind === 'pane') leaves.push(node.paneId)
@@ -226,17 +269,26 @@ export let validateModel = (value: unknown): Model => {
       if (leaves.length !== window.panes.length || new Set(leaves).size !== leaves.length) throw new Error('Invalid layout leaves')
       for (let pane of window.panes) {
         checkId(pane.id)
+        if (pane.device !== undefined) pane.device = parseDevicePersona(pane.device)
+        else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
+        if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
-        if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean')) throw new Error('Invalid pane page')
+        if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.backToOpener !== undefined && typeof pane.backToOpener !== 'boolean') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }
     }
   }
+  for (let profile of model.profiles) delete profile.device
+  for (let session of model.sessions) orderPinnedWindows(session)
   if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
   if (model.newSessionProfileId !== undefined && !model.profiles.some(profile => profile.id === model.newSessionProfileId)) throw new Error('Invalid new session profile')
   return model
 }
 
 export let repairClientSelections = (model: Model) => {
+  for (let session of model.sessions) orderPinnedWindows(session)
+  let panes = walkPanes(model).map(item => item.pane), paneIds = new Set(panes.map(pane => pane.id))
+  // Pane numbers can be reused after closure. Never return to an unrelated page.
+  for (let pane of panes) if (pane.backToOpener && !paneIds.has(pane.openerPaneId!)) pane.backToOpener = false
   let existingSessions = new Set(model.sessions.map(session => session.id))
   let existingWindows = new Set(model.sessions.flatMap(session => session.windows.map(window => window.id)))
   for (let client of model.clients) {
@@ -260,8 +312,8 @@ export let removeSession = (model: Model, session: WorkspaceSession) => {
   let index = model.sessions.indexOf(session)
   if (index < 0) throw new Error(`Session '${session.id}' not found`)
   if (!session.private) model.closedSessionProfiles = Object.fromEntries([...Object.entries(model.closedSessionProfiles ?? {}).filter(([name]) => name !== session.name), [session.name, session.defaultProfileId]].slice(-50))
-  let next = model.sessions.length === 1 ? newSession('main', session.defaultProfileId) : model.sessions[(index + 1) % model.sessions.length]
   model.sessions = model.sessions.filter(item => item !== session)
+  let next = model.sessions.length ? model.sessions[index % model.sessions.length] : newSession('main', session.defaultProfileId, false, model)
   if (!model.sessions.length) model.sessions.push(next)
   for (let client of model.clients.filter(client => client.sessionId === session.id)) {
     client.sessionId = next.id

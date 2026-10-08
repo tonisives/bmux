@@ -50,11 +50,16 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     await fs.writeFile(`${file}.tmp`, JSON.stringify(entries.map(({ profile, path, id, name, version, enabled }) => ({ profile, path, id, name, version, enabled: enabled !== false })), null, 2), { mode: 0o600 })
     await fs.rename(`${file}.tmp`, file)
   }
-  let attach = (profile: string, session: Session) => {
+  let attach = (profile: string, session: Session, sourceProfile?: string) => {
     let existing = pending.get(profile)
     if (existing) return existing
     sessions.set(profile, session)
     let loading = ready.then(async () => {
+      if (sourceProfile && sourceProfile !== profile) await serial(async () => {
+        if (entries.some(entry => entry.profile === profile)) return
+        let inherited = entries.filter(entry => entry.profile === sourceProfile).map(entry => ({ ...entry, profile }))
+        if (inherited.length) { entries.push(...inherited); await persist() }
+      })
       if (entries.some(entry => entry.profile === profile && entry.enabled !== false)) ensureCompatibility(profile, session)
       for (let entry of entries.filter(entry => entry.profile === profile && entry.enabled !== false)) {
         try {
@@ -159,6 +164,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (session) for (let entry of privateEntries.get(key) ?? []) unload(session, entry)
     privateEntries.delete(key)
     sessions.delete(key)
+    compatibility.get(key)?.dispose()
     compatibility.delete(key)
     for (let [contents, tab] of tracked) if (tab.profile === key) tracked.delete(contents)
   }
@@ -276,6 +282,11 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (activate) { window.show(); window.focus() } else window.showInactive()
     return { opened: extension.id }
   }
-  let close = () => { for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy(); popups.clear() }
+  let close = () => {
+    for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy()
+    popups.clear()
+    for (let host of compatibility.values()) host.dispose()
+    compatibility.clear()
+  }
   return { attach, attachPrivate, list, listPrivate, load, enable, enablePrivate, disable, disablePrivate, remove, open, close, closePrivate, track }
 }

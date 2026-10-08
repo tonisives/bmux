@@ -10,6 +10,16 @@ on:
         description: Run matching Electron tests; leave empty for the full suite
         required: false
         type: string
+      repeat_each:
+        description: Repeat each matching test (1-32); use with test_pattern
+        required: false
+        default: 1
+        type: number
+      trace:
+        description: Capture profile test traces to investigate input or timing failures
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -19,9 +29,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+
   check:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,12 +44,23 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm check
+      - name: Keep crash dialogs from obscuring later GUI tests
+        run: defaults write com.apple.CrashReporter DialogType none
       - name: Electron tests
+        # Keep a bounded suite budget separate from individual test deadlines.
+        # The full suite includes real idle-unload waits and runs serially.
+        timeout-minutes: 20
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
+          REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
+          BMUX_TEST_TRACE: ${{ inputs.trace && '1' || '0' }}
         run: |
           if [ -n "$TEST_PATTERN" ]; then
-            pnpm test:electron --grep "$TEST_PATTERN"
+            case "$REPEAT_EACH" in
+              [1-9]|[12][0-9]|3[0-2]) ;;
+              *) echo "repeat_each must be between 1 and 32"; exit 1 ;;
+            esac
+            pnpm test:electron --grep "$TEST_PATTERN" --repeat-each "$REPEAT_EACH"
           else
             pnpm test:electron
           fi
@@ -44,5 +68,7 @@ jobs:
         if: failure()
         with:
           name: electron-test-results
-          path: test-results/
+          path: |
+            test-results/
+            ~/Library/Logs/DiagnosticReports/
           if-no-files-found: ignore

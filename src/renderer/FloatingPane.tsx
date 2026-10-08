@@ -5,6 +5,7 @@ import type { Bridge, FloatingPane as Placement, PublicState } from '../shared/t
 import { clampFloat } from '../shared/floating'
 import css from './FloatingPane.module.css'
 import { CloseButton } from './CloseButton'
+import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -12,6 +13,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
+  let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
   let tab = pane
@@ -48,8 +50,8 @@ export let FloatingPane = () => {
   let keys = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') { editing.current = false; setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? ''); void run('focus-page') } }
   let menu = (event: MouseEvent) => { event.preventDefault(); void run('pane.menu') }
   let close = () => { void run('pane.close') }
-  let back = () => { if (tab) void run('back', { tab: tab.id }) }
-  let forward = () => { if (tab) void run('forward', { tab: tab.id }) }
+  let back = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('back', { tab: tab.id, newWindow: event.metaKey }) }
+  let forward = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('forward', { tab: tab.id, newWindow: event.metaKey }) }
   let reload = () => { if (tab) void run('reload', { tab: tab.id }) }
   let siteInfo = () => { void run('site-info.open') }
   let focusPage = () => { void run('select-pane') }
@@ -61,14 +63,16 @@ export let FloatingPane = () => {
       <button type="button" onClick={back} aria-label="Back" disabled={!navigation || navigation.activeIndex <= 0}>←</button>
       <button type="button" onClick={forward} aria-label="Forward" disabled={!navigation || navigation.activeIndex >= navigation.entries.length - 1}>→</button>
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
-      {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-      <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+      <div className={css.urlBar}>
+        {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
+        <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+      </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
       <div className={css.dragAbove} onPointerDown={drag} data-drag-above aria-hidden="true" />
       <CloseButton label="Close floating pane" onClick={close} />
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
-      {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : <span>{tab?.url === 'about:blank' ? 'Enter a URL above' : 'Loading…'}</span>}
+      {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
     </div>
     {edges.map(edge => <div key={edge} className={css.edge} data-edge={edge} onPointerDown={drag} role="separator" aria-label={`Resize floating pane ${edge}`} />)}
   </section>

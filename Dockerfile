@@ -17,10 +17,13 @@ WORKDIR /opt/bmux
 ENV BMUX_DATA_DIR=/data
 
 FROM base AS test
+RUN apt-get update && apt-get install -y --no-install-recommends openbox x11-utils gdb libcap2-bin \
+    && rm -rf /var/lib/apt/lists/* \
+    && setcap cap_sys_ptrace=ep /usr/bin/gdb
 COPY --from=build /opt/bmux /opt/bmux
 RUN chown root:root node_modules/electron/dist/chrome-sandbox && chmod 4755 node_modules/electron/dist/chrome-sandbox
 USER node
-ENTRYPOINT ["tini", "--", "xvfb-run", "-a"]
+ENTRYPOINT ["tini", "--", "xvfb-run", "-a", "-s", "-screen 0 1280x900x24 -nolisten tcp", "sh", "scripts/linux-test-desktop.sh"]
 
 FROM build AS packaged
 RUN pnpm exec electron-builder --linux --dir --publish never && node scripts/stage-linux.mjs

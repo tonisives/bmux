@@ -36,6 +36,12 @@ test('typed command arguments and URL navigation remain literal', () => {
   for (let value of ['brtls', 'browser tools', 'dark mode', 'tracker blocking', 'zzzzunmatched']) expect(literalCommand(value)).toBe(false)
 })
 
+test('movew is discoverable and runs typed targets literally', () => {
+  expect(searchCommands(commandEntries(DEFAULT_KEYBOARD), 'movew')[0]).toMatchObject({ command: 'movew', usage: 'movew -t INDEX', control: 'move-window' })
+  expect(literalCommand('movew')).toBe(true)
+  expect(literalCommand('movew -t 2')).toBe(true)
+})
+
 test('command search describes conditional shortcut contexts', () => {
   let keyboard = structuredClone(DEFAULT_KEYBOARD)
   keyboard.shortcuts['Cmd+Z'] = { action: 'toggle-pane-zoom', when: 'pane-not-editing' }
