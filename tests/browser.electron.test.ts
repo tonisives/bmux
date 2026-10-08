@@ -2252,6 +2252,7 @@ test('address suggestions prefer base URLs over saved paths and page state', asy
   await expect(website.locator('header')).toBeVisible()
   await displayed.click()
   await expect(address).toBeFocused()
+  await address.fill('')
   await address.fill(`${url}/maps`)
   await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'history')
   await expect(chrome.getByRole('button', { name: `Remove ${url}/maps from history`, exact: true })).toBeVisible()
