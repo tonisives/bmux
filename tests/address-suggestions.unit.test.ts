@@ -1,7 +1,34 @@
 import { describe, expect, test } from 'vitest'
-import { inlineUrlCompletion, prioritizeInlineHistory } from '../src/shared/address-suggestions'
+import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory } from '../src/shared/address-suggestions'
 
 describe('address suggestions', () => {
+  test.each(['translate', 'translate.google.com', 'translate.google.com/'])('prefers the translation homepage for %s', input => {
+    expect(baseUrlCompletion(input, 'https://translate.google.com/?sl=en&tl=et&text=previous+translation')).toEqual({
+      value: input.endsWith('/') ? 'translate.google.com/' : 'translate.google.com', url: 'https://translate.google.com/',
+    })
+  })
+
+  test.each(['google.com/ma', 'google.com/maps'])('prefers the Maps entry point for %s', input => {
+    expect(baseUrlCompletion(input, 'https://google.com/maps/place/Bangkok/@13,100,12z?entry=ttu#saved')).toEqual({ value: 'google.com/maps', url: 'https://google.com/maps' })
+  })
+
+  test('preserves explicit deeper paths, schemes, ports, and typed casing', () => {
+    expect(baseUrlCompletion('HTTP://LOCALHOST:8080/do', 'http://localhost:8080/docs/page?state=old')).toEqual({ value: 'HTTP://LOCALHOST:8080/docs', url: 'http://localhost:8080/docs' })
+    expect(baseUrlCompletion('www.ex', 'https://www.example.com/docs')).toEqual({ value: 'www.example.com', url: 'https://www.example.com/' })
+    expect(baseUrlCompletion('example.com/docs/pa', 'https://example.com/docs/page/section?state=old')).toEqual({ value: 'example.com/docs/page', url: 'https://example.com/docs/page' })
+    expect(baseUrlCompletion('example.com', 'https://example.com?state=old')).toEqual({ value: 'example.com', url: 'https://example.com/' })
+    expect(baseUrlCompletion('example.com/docs', 'https://example.com/docs?state=old')).toEqual({ value: 'example.com/docs', url: 'https://example.com/docs' })
+    expect(baseUrlCompletion('example.com/', 'https://example.com/docs/page')).toEqual({ value: 'example.com/', url: 'https://example.com/' })
+  })
+
+  test('leaves search terms and explicit query or fragment completion to history', () => {
+    for (let input of ['', 'example search', 'unrelated.com', 'example.com/docs?q=', 'example.com/docs#']) {
+      expect(baseUrlCompletion(input, 'https://example.com/docs?q=old#section')).toBeUndefined()
+    }
+    expect(baseUrlCompletion('file', 'file:///tmp/example')).toBeUndefined()
+    expect(baseUrlCompletion('example', 'invalid')).toBeUndefined()
+  })
+
   test('completes URL prefixes while preserving exactly what the user typed', () => {
     expect(inlineUrlCompletion('exa', 'https://example.com/docs')).toEqual({ value: 'example.com/docs', url: 'https://example.com/docs' })
     expect(inlineUrlCompletion('HTTPS://EXA', 'https://example.com/docs')).toEqual({ value: 'HTTPS://EXAmple.com/docs', url: 'https://example.com/docs' })
