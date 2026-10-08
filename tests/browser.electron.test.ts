@@ -23,6 +23,7 @@ let heldResponses = new Set<http.ServerResponse>()
 let heldRequests = 0
 let slowFixture = 0
 let pendingPages = new Set<http.ServerResponse>()
+let deferredLinkRequests = new Map<string, { count: number; referrer?: string }>()
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
   let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
@@ -92,6 +93,10 @@ let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-electron-'))
   server = http.createServer((request, response) => {
+    if (request.url?.startsWith('/deferred-link?')) {
+      let previous = deferredLinkRequests.get(request.url)
+      deferredLinkRequests.set(request.url, { count: (previous?.count ?? 0) + 1, referrer: request.headers.referer })
+    }
     if (request.url === '/pending-tab') { pendingPages.add(response); response.on('close', () => pendingPages.delete(response)); return }
     if (request.url === '/tab-icon.svg') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#588e73"/></svg>'); return }
     if (request.url?.startsWith('/cached-favicon/')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(fixture.replace('</head>', '<link rel="icon" href="/tab-icon.svg" type="image/svg+xml"></head>')); return }
@@ -597,9 +602,10 @@ test('links show their target, offer browser actions, and open popups in bmux wi
   }
 })
 
-test('middle and Command clicks load links in background bmux windows', async ({}, info) => {
-  let session = await cli('new-session', { name: 'background-links' })
+for (let mobile of [false, true]) test(`middle and Command clicks defer background links until activation on ${mobile ? 'mobile' : 'desktop'}`, async ({}, info) => {
+  let session = await cli('new-session', { name: `background-links-${mobile}` })
   let source = session.windows[0].panes[0]
+  if (mobile) await cli('profile.device.set', { pane: source.id, profile: source.profileId, newPanes: true, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
   await cli('navigate', { tab: source.id, url: `${url}/background-links` })
   let client = await cli('attach-session', { session: session.id })
   let failed = false
@@ -607,17 +613,31 @@ test('middle and Command clicks load links in background bmux windows', async ({
     await cli('activate-client', { client: client.id })
     let website = application.context().pages().find(page => page.url() === `${url}/background-links`)!
     for (let click of [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
+      let destination = `/deferred-link?device=${mobile}&click=${click.button ?? 'command'}`
+      await website.locator('#background-link').evaluate((element, target) => element.setAttribute('href', target), destination)
       let before = await cli('list-windows', { session: session.id })
       await website.locator('#background-link').click(click)
       await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
       let opened = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((item: { id: string }) => item.id === window.id))
       let tab = opened.panes[0]
-      await expect.poll(async () => (await cli('tab.list')).find((item: { id: string }) => item.id === tab.id)?.url).toBe(`${url}/popup`)
-      await cli('wait', { tab: tab.id, selector: '#text' })
+      expect(tab.url).toBe(`${url}${destination}`)
       expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(session.windows[0].id)
+      // Give queued popup work a chance to run without loading the tab via RPC.
+      await website.waitForTimeout(300)
+      expect(deferredLinkRequests.has(destination)).toBe(false)
+      expect(application.context().pages().some(page => page.url() === `${url}${destination}`)).toBe(false)
+      await cli('select-window', { client: client.id, window: opened.id })
+      await expect.poll(() => application.context().pages().some(page => page.url() === `${url}${destination}`)).toBe(true)
+      let loaded = application.context().pages().find(page => page.url() === `${url}${destination}`)!
+      await expect(loaded.locator('#text')).toBeVisible()
+      expect(deferredLinkRequests.get(destination)).toEqual({ count: 1, referrer: `${url}/background-links` })
       expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(false)
       await cli('back', { tab: tab.id })
       expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
+      await cli('select-window', { client: client.id, window: session.windows[0].id })
+      await cli('select-window', { client: client.id, window: opened.id })
+      expect(deferredLinkRequests.get(destination)?.count).toBe(1)
+      await cli('select-window', { client: client.id, window: session.windows[0].id })
     }
   } catch (error) {
     failed = true

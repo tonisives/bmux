@@ -155,6 +155,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
   let deferredTabs = new Set<string>()
+  let deferredLinkLoads = new Map<string, Electron.LoadURLOptions>()
   let idleUnloaded = new Set<string>()
   let idleHistory = new Map<string, { entries: Electron.NavigationEntry[]; index: number }>()
   let idleClosing = new Set<string>()
@@ -823,6 +824,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
     let { tab, pane, session } = tabById(model, tabId)
     let initialUrl = tab.url
+    let initialLoadOptions = deferredLinkLoads.get(tabId)
+    deferredLinkLoads.delete(tabId)
     let cachedIcon = faviconCache.get(pane.profileId, initialUrl, session.private ? session.id : undefined)
     if (cachedIcon) favicons[tabId] = cachedIcon
     let profile = resolve(model.profiles, pane.profileId, 'Profile')
@@ -1002,6 +1005,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       session.windows.push(created)
       let owner = model.clients.find(client => client.id === focusedClientId && visiblePaneIds(client).includes(pane.id))
       if (activate && owner) { owner.sessionId = session.id; owner.windowId = created.id; owner.paneId = created.panes[0].id }
+      if (!activate && !options) {
+        deferredTabs.add(added.id)
+        if (loadOptions) deferredLinkLoads.set(added.id, loadOptions)
+        changed(); return undefined
+      }
       if (!options) {
         if (pane.device || loadOptions) {
           let popup = createLiveTab(added.id, false)
@@ -1015,7 +1023,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return popup.contents
     }
     contents.setWindowOpenHandler(details => {
-      if (pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
+      // Chromium loads allowed background popups before their tab is selected.
+      // Keep only their destination until activation creates the page instead.
+      if (details.disposition === 'background-tab' || pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
         setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab') }, 100)
         return { action: 'deny' }
       }
@@ -1098,7 +1108,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (!isLiveTabOpen(live)) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
         if (savedHistory?.entries.length) await settlePageNavigation(contents, contents.navigationHistory.restore(savedHistory))
-        else await loadPage(contents, initialUrl)
+        else await loadPage(contents, initialUrl, initialLoadOptions)
       }
       let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
       live.initialNavigation = result
@@ -1357,6 +1367,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
     for (let tabId of Object.keys(favicons)) if (!liveIds.has(tabId)) delete favicons[tabId]
     for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
+    for (let tabId of deferredLinkLoads.keys()) if (!liveIds.has(tabId)) deferredLinkLoads.delete(tabId)
     for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
     let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
     let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
