@@ -11,7 +11,7 @@ import { promisify } from 'node:util'
 
 let exec = promisify(execFile)
 
-for (let picker of ['input', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
+for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
   test.setTimeout(60_000)
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-native-file-picker-'))
   let uploads = await fs.mkdtemp(path.join(os.homedir(), 'Downloads', 'bmux-upload-fixture-'))
@@ -31,9 +31,17 @@ for (let picker of ['input', 'showOpenFilePicker']) test(`native image upload vi
     if (url.pathname === '/error') pickerError = url.searchParams.get('message') ?? ''
     if (url.pathname === '/clicked') clicks++
     response.setHeader('Content-Type', 'text/html')
+    if (url.pathname === '/fixture' && picker === 'input-frame-popup') {
+      response.end('<!doctype html><title>Review opener</title><button id="image" style="position:fixed;inset:0" onclick="fetch(\'/clicked\');window.open(\'/popup\')">Open review</button>')
+      return
+    }
+    if ((url.pathname === '/fixture' || url.pathname === '/popup') && picker.startsWith('input-frame')) {
+      response.end('<!doctype html><title>Embedded review upload</title><iframe name="review" src="/frame" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>')
+      return
+    }
     response.end(`<!doctype html><title>Native image upload</title>
       <style>button{position:fixed;inset:0;font:32px sans-serif;background:#e8eef8}</style>
-      <button id="image">Image</button><input id="file" type="file" accept="image/*" multiple hidden>
+      <button id="image">Image</button><input id="file" type="file" accept="${picker === 'input-frame-media' ? 'image/*,video/*' : 'image/*'}" multiple hidden>
       <script>
         let reportError = error => fetch('/error?message=' + encodeURIComponent(error.name + ': ' + error.message));
         let upload = async (file, writePermission = '') => fetch('/selected?' + new URLSearchParams({name: file.name, writePermission}), {method: 'POST', body: await file.arrayBuffer()});
@@ -72,6 +80,7 @@ for (let picker of ['input', 'showOpenFilePicker']) test(`native image upload vi
   let executable = packaged ? path.join(process.cwd(), 'build/bmux.app/Contents/MacOS/bmux') : createRequire(import.meta.url)('electron')
   let child = spawn(executable, packaged ? [] : [process.cwd()], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
   let errors = ''
+  let pickerLookupError = ''
   child.stderr.on('data', chunk => { errors += String(chunk) })
   let apple = (source: string) => exec('/usr/bin/osascript', ['-e', source], { timeout: 5000 })
   try {
@@ -80,22 +89,44 @@ for (let picker of ['input', 'showOpenFilePicker']) test(`native image upload vi
     await rpc('activate-client', { client: state.model.clients[0].id })
     await apple(`tell application "System Events"\nkeystroke "l" using command down\ndelay 0.2\nkeystroke "${url}"\nkey code 36\nend tell`)
     await expect.poll(() => rpc('state').then(state => state.model.sessions[0].windows[0].panes[0].url)).toBe(url)
-    await rpc('wait', { tab: state.model.sessions[0].windows[0].panes[0].id, selector: '#image' })
+    let paneId = state.model.sessions[0].windows[0].panes[0].id
+    let frameReady = '!!document.querySelector("iframe")?.contentDocument?.querySelector("#image")'
+    await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : '!!document.querySelector("#image")' })
     await apple('delay 0.3')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('before-image-click.png')])
     let mouse = `ObjC.import('CoreGraphics'); let process=Application('System Events').processes.whose({unixId:${child.pid}})[0]; let window=process.windows[0]; let p=window.position(),s=window.size(); let point=$.CGPointMake(p[0]+80,p[1]+s[1]-100); [5,1,2].forEach(type=>{$.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,point,0));delay(0.08)});`
     await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', mouse], { timeout: 5000 })
-    await expect.poll(() => clicks).toBe(1)
+    if (picker === 'input-frame-popup') {
+      await expect.poll(() => rpc('state').then(current => current.model.clients[0].paneId)).not.toBe(paneId)
+      paneId = (await rpc('state')).model.clients[0].paneId
+      await rpc('wait', { tab: paneId, expression: frameReady })
+      await rpc('focus-page', { client: state.model.clients[0].id })
+      await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
+      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', mouse], { timeout: 5000 })
+    }
+    await expect.poll(() => clicks).toBe(picker === 'input-frame-popup' ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker.png')])
     await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\nend tell`)
-    let pickerProcess = `tell application "System Events" to tell first application process whose unix id is ${child.pid}`
-    await expect.poll(() => apple(`${pickerProcess} to get enabled of button "Open" of sheet 1 of window 1`).then(result => result.stdout.trim()).catch(() => 'false')).toBe('true')
-    await apple(`${pickerProcess} to click button "Open" of sheet 1 of window 1`)
+    let openButton = (action: 'enabled' | 'click') => apple(`tell application "System Events"
+      tell first application process whose unix id is ${child.pid}
+        set panel to sheet 1 of window 1
+        if exists button "Open" of panel then
+          set openControl to button "Open" of panel
+        else
+          set openControl to button "Open" of splitter group 1 of panel
+        end if
+        ${action === 'enabled' ? 'get enabled of openControl' : 'click openControl'}
+      end tell
+    end tell`)
+    await expect.poll(() => openButton('enabled').then(result => result.stdout.trim()).catch(error => { pickerLookupError = String(error); return 'false' })).toBe('true')
+    await openButton('click')
     await expect.poll(() => pickerError || selected).toBe('sample.png')
     await expect.poll(() => uploaded.equals(png)).toBe(true)
     if (picker === 'showOpenFilePicker') expect(writePermission).toBe('denied')
   } catch (error) {
+    await fs.writeFile(info.outputPath('picker-lookup-error.txt'), pickerLookupError)
+    await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get entire contents of window 1`).then(result => fs.writeFile(info.outputPath('picker-accessibility.txt'), result.stdout)).catch(() => undefined)
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker-failure.png')]).catch(() => undefined)
     throw error
   } finally {
