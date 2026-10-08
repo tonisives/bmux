@@ -694,6 +694,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (['browser-tools', 'plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
+    if (action === 'new-private-session') { invoke({ method: 'new-session', args: { client: client.id, private: true } }); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { invoke({ method: action, args: { tab } }); return }
     if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
     if (action.startsWith('zoom-') && tab) {

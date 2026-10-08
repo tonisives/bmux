@@ -261,6 +261,37 @@ test('session picker creates a private session with an indicator', async () => {
   await rpc('session.new-profile.set', { profile: model.profiles[0].id })
 })
 
+for (let focus of ['browser controls', 'page content']) test(`Command+Shift+N creates and selects a private session from ${focus}`, async () => {
+  let before = await state(), client = before.clientId
+  await rpc(focus === 'page content' ? 'focus-page' : 'focus-ui', { client })
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(focus === 'page content' ? `${url}/fixture` : chrome.url())
+  await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta', 'shift'] }])
+  await expect.poll(async () => (await state()).model.sessions.length).toBe(before.model.sessions.length + 1)
+  let current = await state(), selected = current.model.clients.find((item: { id: string }) => item.id === client)
+  let created = current.model.sessions.find((item: { id: string }) => item.id === selected.sessionId)
+  expect(before.model.sessions.some((item: { id: string }) => item.id === created.id)).toBe(false)
+  expect(created.private).toBe(true)
+  expect(created.defaultProfileId).toBe(model.profiles[0].id)
+  expect(current.model.clients.map((item: { id: string }) => item.id)).toEqual(before.model.clients.map((item: { id: string }) => item.id))
+  expect(selected.windowId).toBe(created.windows[0].id)
+  expect(selected.paneId).toBe(created.windows[0].panes[0].id)
+  await expect(chrome.getByRole('button', { name: 'Sessions', exact: true }).getByRole('img', { name: 'Private session' })).toBeVisible()
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(address).toBeFocused()
+  await address.pressSequentially(`${url}/private-shortcut`)
+  await address.press('Enter')
+  await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/private-shortcut`)).toBe(true)
+  let privatePage = application.context().pages().find(page => page.url() === `${url}/private-shortcut`)!
+  await expect(privatePage.locator('h1')).toHaveText('Search fixture')
+  await expect.poll(() => application.evaluate(({ BaseWindow }, target) => {
+    let view = BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)
+    let bounds = view?.getBounds()
+    return !!bounds && bounds.width > 0 && bounds.height > 0
+  }, `${url}/private-shortcut`)).toBe(true)
+  await rpc('kill-session', { session: created.id, confirm: true })
+})
+
 test('general search app choices apply to normal and private sessions', async () => {
   await open('settings')
   let settings = chrome.getByRole('dialog', { name: 'Settings', exact: true })

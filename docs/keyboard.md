@@ -28,6 +28,8 @@ Common direct shortcuts:
 | Shortcut | Action |
 | --- | --- |
 | Command+1–9 | Select internal window 1–9 |
+| Command+N | Open another native browser window |
+| Command+Shift+N | Create a private session and switch to it |
 | Command+L | Open the selected pane's address bar |
 | Command+T / Command+W | New / close internal window; closing a session's last window removes the session |
 | Command+Shift+T (macOS) / Control+Shift+T (Linux and Windows) | Reopen the most recently closed internal window |
@@ -126,6 +128,7 @@ keyboard:
     Cmd+Shift+R: hard-reload
     Cmd+L: address
     Cmd+N: new-client
+    Cmd+Shift+N: new-private-session
     Cmd+T: new-window
     Cmd+W: close-window
     Cmd+Shift+W: detach
