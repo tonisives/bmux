@@ -102,7 +102,9 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
       await rpc('wait', { tab: paneId, expression: frameReady })
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
-      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', mouse], { timeout: 5000 })
+      // Move onto the new native view rather than reusing the opener's pointer
+      // position. AppKit may still route an unmoved pointer to the old view.
+      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', mouse.replace('p[0]+80,p[1]+s[1]-100', 'p[0]+s[0]/2,p[1]+s[1]/2')], { timeout: 5000 })
     }
     await expect.poll(() => clicks).toBe(picker === 'input-frame-popup' ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
@@ -125,6 +127,11 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
     await expect.poll(() => uploaded.equals(png)).toBe(true)
     if (picker === 'showOpenFilePicker') expect(writePermission).toBe('denied')
   } catch (error) {
+    await rpc('state').then(async current => {
+      let tab = current.model.clients[0].paneId
+      let state = await rpc('eval', { tab, expression: '({visible:document.visibilityState,focused:document.hasFocus(),width:innerWidth,height:innerHeight,outerWidth,outerHeight,frame:document.querySelector("iframe")?.getBoundingClientRect().toJSON()})' })
+      await fs.writeFile(info.outputPath('popup-page-state.json'), JSON.stringify(state, null, 2))
+    }).catch(() => undefined)
     await fs.writeFile(info.outputPath('picker-lookup-error.txt'), pickerLookupError)
     await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get entire contents of window 1`).then(result => fs.writeFile(info.outputPath('picker-accessibility.txt'), result.stdout)).catch(() => undefined)
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker-failure.png')]).catch(() => undefined)
