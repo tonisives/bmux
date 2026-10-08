@@ -602,7 +602,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
   }
 })
 
-for (let mobile of [false, true]) test(`middle and Command clicks defer background links until activation on ${mobile ? 'mobile' : 'desktop'}`, async ({}, info) => {
+for (let mobile of [false, true]) test(`background links defer loading until activation on ${mobile ? 'mobile' : 'desktop'}`, async ({}, info) => {
   let session = await cli('new-session', { name: `background-links-${mobile}` })
   let source = session.windows[0].panes[0]
   await cli('navigate', { tab: source.id, url: `${url}/background-links` })
@@ -616,7 +616,9 @@ for (let mobile of [false, true]) test(`middle and Command clicks defer backgrou
       await cli('wait', { tab: source.id, selector: '#background-link' })
     }
     let website = application.context().pages().find(page => page.url() === `${url}/background-links`)!
-    for (let click of [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
+    // Touch emulation opens target=_blank links with a normal tap.
+    if (mobile) await website.locator('#background-link').evaluate(element => element.setAttribute('target', '_blank'))
+    for (let click of mobile ? [{ button: 'left' as const }] : [{ button: 'middle' as const }, { modifiers: ['Meta' as const] }]) {
       let destination = `/deferred-link?device=${mobile}&click=${click.button ?? 'command'}`
       await website.locator('#background-link').evaluate((element, target) => element.setAttribute('href', target), destination)
       let before = await cli('list-windows', { session: session.id })
@@ -635,9 +637,11 @@ for (let mobile of [false, true]) test(`middle and Command clicks defer backgrou
       let loaded = application.context().pages().find(page => page.url() === `${url}${destination}`)!
       await expect(loaded.locator('#text')).toBeVisible()
       expect(deferredLinkRequests.get(destination)).toEqual({ count: 1, referrer: `${url}/background-links` })
-      expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(false)
-      await cli('back', { tab: tab.id })
-      expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
+      expect((await cli('tab.list')).find((item: { id: string }) => item.id === tab.id).backToOpener).toBe(mobile)
+      if (!mobile) {
+        await cli('back', { tab: tab.id })
+        expect((await cli('list-windows', { session: session.id })).some((item: { id: string }) => item.id === opened.id)).toBe(true)
+      }
       await cli('select-window', { client: client.id, window: session.windows[0].id })
       await cli('select-window', { client: client.id, window: opened.id })
       expect(deferredLinkRequests.get(destination)?.count).toBe(1)
