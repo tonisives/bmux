@@ -102,8 +102,7 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
       await rpc('wait', { tab: paneId, expression: frameReady })
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
-      let point = await rpc('eval', { tab: paneId, expression: '({x:innerWidth/2,y:innerHeight/2})' })
-      for (let type of ['mousePressed', 'mouseReleased']) await rpc('cdp', { tab: paneId, method: 'Input.dispatchMouseEvent', params: { type, ...point, button: 'left', clickCount: 1 } })
+      await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("iframe").contentDocument.querySelector("#image").click()', userGesture: true } })
     }
     await expect.poll(() => clicks).toBe(picker === 'input-frame-popup' ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
