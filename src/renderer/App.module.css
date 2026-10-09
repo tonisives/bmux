@@ -466,3 +466,5 @@
 .profilePanel .siteChecks select { min-width: 125px; min-height: 32px; }
 .profilePanel .antiBotStatus button, .profileSection > button { padding: 6px 10px; border: 1px solid #505a66; color: #eceef2; }
 @media (max-width: 650px) { .profilePanel .panelBody { padding: 14px 16px; } .profilePanel .panelTabs { top: -14px; } .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; } .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; } }
+
+.app .overlay:has(.profilePanel) { position: absolute; inset: 0; }

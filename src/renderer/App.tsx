@@ -139,12 +139,12 @@ export let App = () => {
   ]
   let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}</main>
+    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
-    {panel && <Panel key={panel} type={panel} />}
+    {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
 }
 
