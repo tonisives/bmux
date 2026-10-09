@@ -468,3 +468,10 @@
 @media (max-width: 650px) { .profilePanel .panelBody { padding: 14px 16px; } .profilePanel .panelTabs { top: -14px; } .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; } .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; } }
 
 .app .overlay:has(.profilePanel) { position: absolute; inset: 0; }
+
+.profileSectionHeading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; }
+.profileSectionHeading h2 { margin: 0; }
+.profileSectionHeading small { color: #8e98a4; }
+.antiBotSections { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .7fr); column-gap: 28px; }
+.antiBotSections > section:first-child, .antiBotSections > section:last-child { grid-column: 1 / -1; }
+@media (max-width: 650px) { .antiBotSections { grid-template-columns: 1fr; } }

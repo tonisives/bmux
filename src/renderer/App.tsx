@@ -1550,7 +1550,7 @@ let useDeviceAutoSave = ({ current, sessionDevice, draft, newPanes, busy, form, 
   let queueField = (event: ChangeEvent<HTMLFormElement>) => { editingText.current = event.target instanceof HTMLInputElement && event.target.type !== 'checkbox' }
   return { commitField, queueField }
 }
-let ProfileSection = ({ title, children }: { title: string; children: ReactNode }) => <section className={css.profileSection} aria-label={title}><h2>{title}</h2>{children}</section>
+let ProfileSection = ({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) => <section className={css.profileSection} aria-label={title}><div className={css.profileSectionHeading}><h2>{title}</h2>{hint && <small>{hint}</small>}</div>{children}</section>
 
 let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) => {
   let { run, onMessage } = useUI()
@@ -1856,7 +1856,7 @@ let AutomationLimitInput = ({ setting, label, description, value, scale = 1, max
 let AutomationLimitsEditor = () => {
   let { state } = useUI()
   let limits = state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety
-  return <ProfileSection title="Limits (all profiles)"><p>Enter or leave a field to save.</p><div className={css.antiBotLimitFields}>
+  return <ProfileSection title="Limits (all profiles)" hint="Enter or leave a field to save"><div className={css.antiBotLimitFields}>
     <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
     <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
     <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
@@ -1903,7 +1903,7 @@ let ProfileAntiBotSettings = () => {
   }
   let exclusions: { host: string; exclusion?: AutomationSiteExclusion }[] = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule) }))
   if (host && !exclusions.some(item => item.host === host)) exclusions.unshift({ host })
-  return <div className={css.profileSections} role="tabpanel" aria-label="Anti-bot settings">
+  return <div className={css.antiBotSections} role="tabpanel" aria-label="Anti-bot settings">
     <AutomationLimitsEditor />
     <ProfileSection title="Protection">
       <p>Limits and warning checks apply to automation. Manual browsing is unaffected.</p>
