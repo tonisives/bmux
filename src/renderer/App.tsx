@@ -1242,7 +1242,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     let arrow = event.key === 'ArrowUp' || event.key === 'ArrowDown'
     let nextIndex = arrow && rows.length ? (next + rows.length) % rows.length : Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
-    let panel = ref.current?.closest<HTMLElement>('[role="dialog"]')
+    let panel = ref.current?.querySelector<HTMLElement>('[data-session-list]') ?? ref.current?.closest<HTMLElement>('[role="dialog"]')
     if (panel && nextIndex === 0) panel.scrollTop = 0
     else if (panel && nextIndex === rows.length - 1) panel.scrollTop = panel.scrollHeight
   }
@@ -1255,10 +1255,11 @@ let SessionPicker = () => {
   let [creatingProfile, setCreatingProfile] = useState(false)
   let [newProfileName, setNewProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
-  let count = useRef('')
+  let [count, setCount] = useState(''), [mode, setMode] = useState('NORMAL')
   let normalRow = useRef<HTMLButtonElement | null>(null)
   let [now, setNow] = useState(Date.now)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  let focusMode = (event: FocusEvent<HTMLDivElement>) => setMode(event.target === input.current ? 'INSERT' : 'NORMAL')
   useLayoutEffect(() => {
     let picker = ref.current!
     let updateNumbers = () => {
@@ -1281,28 +1282,28 @@ let SessionPicker = () => {
     let editing = target === input.current
     let index = rows.indexOf(target as HTMLButtonElement)
     let focus = (position: number) => { let row = rows[Math.max(0, Math.min(rows.length - 1, position))]; row?.focus(); row?.scrollIntoView({ block: 'nearest' }) }
-    if (event.key === 'Escape' && (editing || count.current)) {
-      event.preventDefault(); event.stopPropagation(); count.current = ''
+    if (event.key === 'Escape' && (editing || count)) {
+      event.preventDefault(); event.stopPropagation(); setCount('')
       if (editing) { if (normalRow.current?.isConnected) normalRow.current.focus(); else focus(0) }
       return
     }
-    if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); count.current = (count.current + event.key).slice(0, 6); return }
+    if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); setCount((count + event.key).slice(0, 6)); return }
     if ((!editing && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
       event.preventDefault()
       let direction = ['j', 'n', 'f'].includes(event.key) ? 1 : -1
-      focus(Math.max(0, index) + direction * (event.ctrlKey ? ['f', 'b'].includes(event.key) ? 10 : 1 : Number(count.current || 1)))
-      count.current = ''; return
+      focus(Math.max(0, index) + direction * (event.ctrlKey ? ['f', 'b'].includes(event.key) ? 10 : 1 : Number(count || 1)))
+      setCount(''); return
     }
     if ((!editing && event.key === 'x') || (event.ctrlKey && event.key === 'x')) {
-      event.preventDefault(); count.current = ''
+      event.preventDefault(); setCount('')
       let row = editing ? rows[0] : target
-      row?.closest('[data-session-target]')?.querySelector<HTMLButtonElement>('[data-picker-action]')?.click()
+      row?.closest('[data-session-target]')?.querySelector<HTMLButtonElement>('button[aria-label^="Close "]')?.click()
       return
     }
     if (!editing && !event.ctrlKey && ['i', 'a', '/'].includes(event.key)) {
-      event.preventDefault(); normalRow.current = target as HTMLButtonElement; count.current = ''; input.current?.focus(); return
+      event.preventDefault(); normalRow.current = target as HTMLButtonElement; setCount(''); input.current?.focus(); return
     }
-    count.current = ''
+    setCount('')
     keys(event)
   }
   let client = selection(state).client
@@ -1332,19 +1333,46 @@ let SessionPicker = () => {
     setBusy(false)
   }
   let profileKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
-  return <div ref={ref} className={css.sessionPicker} onKeyDown={sessionKeys} role="group" aria-label="Choose session">
-    <SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />
+  return <div ref={ref} className={css.sessionPicker} onKeyDown={sessionKeys} onFocusCapture={focusMode} role="group" aria-label="Choose session">
+    <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /></div>
+    <div className={css.sessionList} data-session-list>
     <div className={css.sessionProfilePreference}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={profileKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
     {!query.trim() && backRow}
-    {sessions.map(({ session, windows, matched }) => <div key={session.id}>
-      {matched ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
-      {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
-    </div>)}
+    {sessions.map(result => <SessionTree key={result.session.id} result={result} now={now} query={query} />)}
     {!!query.trim() && backRow}
+    {!backSession && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
+    </div>
+    <div className={css.sessionFooter}>
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}><SessionNumber />new session</button>
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><SessionNumber /><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
-    {!backSession && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
+    </div>
+  </div>
+}
+let SessionTree = ({ result: { session, windows, matched }, now, query }: { result: ReturnType<typeof searchSessions>[number]; now: number; query: string }) => {
+  let [expanded, setExpanded] = useState(true)
+  let ref = useRef<HTMLDivElement>(null)
+  useEffect(() => setExpanded(true), [query])
+  let changeExpanded = (value: boolean) => {
+    if (!value && ref.current?.querySelector('[data-session-windows]')?.contains(document.activeElement)) ref.current.querySelector<HTMLButtonElement>('[data-session-row], [data-session-toggle]')?.focus({ preventScroll: true })
+    setExpanded(value)
+  }
+  let toggle = () => changeExpanded(!expanded)
+  let toggleMouse = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof HTMLElement && event.target.closest('[role="alertdialog"]')) return; event.preventDefault(); toggle() }
+  let treeKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey || !(event.target instanceof HTMLElement) || event.target.closest('[role="alertdialog"], input, [data-picker-action]')) return
+    if (!['ArrowRight', 'ArrowLeft', 'h', 'l'].includes(event.key)) return
+    event.preventDefault(); event.stopPropagation()
+    changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
+  }
+  return <div ref={ref} data-session-tree={session.id} onKeyDown={treeKeys} onContextMenu={toggleMouse}>
+    <div className={css.sessionTreeHeader}>
+      {matched ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
+      <button className={css.sessionToggle} data-picker-action data-session-toggle onClick={toggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} windows in ${session.name}`} aria-expanded={expanded}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+    </div>
+    {expanded && <div className={css.sessionWindows} data-session-windows role="group" aria-label={`Windows in ${session.name}`}>
+      {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
+    </div>}
   </div>
 }
 let RemoteSessionPicker = () => {
@@ -1398,7 +1426,7 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
     await run('kill-session', { session: id, confirm: true }); setBusy(false); cancel()
   }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><SessionNumber /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
@@ -1416,7 +1444,7 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} aria-hidden="true" /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       <span className={css.sessionWindowActivity}>{window.panes.filter(pane => pane.lastActivityAt).map(pane => <time key={pane.id} title={`${pane.title || pane.url || 'Blank page'} · ${new Date(pane.lastActivityAt!).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>)}</span>
     </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
