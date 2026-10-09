@@ -27,7 +27,7 @@ export let createFrameCosmetics = (options: Options) => {
   sessions.set('', root)
   let current = (session: Session) => !closed && !options.contents.isDestroyed() && sessions.get(session.id ?? '') === session
   let initialize = (session: Session): Promise<void> => session.ready ??= (async () => {
-    await options.send('Page.enable', {}, session.id)
+    await options.send('Page.enable', { enableFileChooserOpenedEvent: true }, session.id)
     await options.send('DOM.enable', {}, session.id)
     await options.send('CSS.enable', {}, session.id)
     if (!session.id) session.targetId = (await options.send('Target.getTargetInfo')).targetInfo.targetId

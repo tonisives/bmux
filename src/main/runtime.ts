@@ -1,5 +1,6 @@
 import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
 import { copyConnectionCookies } from './connection-cookies'
+import { createFilePickers } from './file-pickers'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
@@ -169,6 +170,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let previouslyVisibleTabs = new Set<string>()
   let idleCheckRunning = false
   let hosts = new Map<string, BaseWindow>()
+  let filePickers = createFilePickers(() => { void scheduleVisuals() })
   let memoryTimer: ReturnType<typeof setInterval> | undefined
   let idleUnloadTimer: ReturnType<typeof setInterval> | undefined
   let memory = createMemoryDiagnostics(previous => {
@@ -400,6 +402,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let host = hosts.get(profileId)
     if (host && !host.isDestroyed()) return host
     host = new BaseWindow({ show: false, focusable: false, width: 1280, height: 900, hiddenInMissionControl: true })
+    filePickers.watchWindow(host)
     hosts.set(profileId, host)
     return host
   }
@@ -618,7 +621,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    return debuggerApi.sendCommand(method, params, sessionId)
+    let result = await debuggerApi.sendCommand(method, params, sessionId)
+    if (method === 'Page.setInterceptFileChooserDialog') filePickers.interception(tabId, params, sessionId)
+    return result
   }
   let applyDeviceMetrics = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
     let debuggerApi = contents.debugger
@@ -840,6 +845,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
+    filePickers.watchPage(tabId, contents, () => !isLiveTabOpen(live) || live.parent.isDestroyed() ? { visible: false } : { windowId: live.parent.id, visible: live.parent.isVisible() && !live.parent.isMinimized() && view.getVisible() })
     let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) }), {
       available: () => !!backOpener(model, pane),
       navigate: () => { void execute({ method: 'back', args: { tab: tabId } }).catch(reportError).finally(() => installSwipe?.cancel()) },
@@ -1434,9 +1440,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let bounds = viewer?.bounds
       // The first navigation needs a native focus target before its URL commits.
       let target = viewer && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || live.pendingNavigation) ? viewer.live.window : parkHost(tabById(model, tabId).pane.profileId)
+      // A chooser can open after selection changes. Hide its page in the client
+      // until the sheet closes so Electron cannot attach it to a parking host.
+      let retainPickerOwner = process.platform === 'darwin' && target !== viewer?.live.window && !live.parent.isDestroyed() && filePickers.keepsOwner(tabId, live.parent.id) && [...clients.values()].some(client => client.window === live.parent)
+      if (retainPickerOwner) target = live.parent
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
+      live.view.setVisible(!retainPickerOwner)
+      live.camera?.setVisible(!retainPickerOwner)
       let { session, pane } = tabById(model, tabId)
       extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
@@ -1558,6 +1570,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!restored) model.clients.push(client)
     repairClients()
     let window = new BaseWindow({ title: process.env.BMUX_DEBUG === '1' || process.env.BROWMUX_DEBUG === '1' ? 'bmux Debug' : 'bmux', width: client.width, height: client.height, minWidth: 640, minHeight: 400, show: false, backgroundColor: '#111318', titleBarStyle: 'hidden' })
+    filePickers.watchWindow(window)
     if (process.platform === 'darwin') window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
@@ -2278,7 +2291,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       owner.chrome.webContents.focus()
       return client
     }
-    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
