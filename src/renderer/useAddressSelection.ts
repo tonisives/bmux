@@ -39,7 +39,10 @@ export let useAddressSelection = () => {
     let x = event.clientX, y = event.clientY, frame = 0
     let select = () => {
       let bounds = input.getBoundingClientRect()
-      let cursor = y < bounds.top ? 0 : y > bounds.bottom ? input.value.length : position(x)
+      let outside = y < bounds.top || y > bounds.bottom
+      // A diagonal drag follows its horizontal direction; only a vertical drag follows y.
+      let towardStart = x < event.clientX || (x === event.clientX && y < bounds.top)
+      let cursor = outside ? towardStart ? 0 : input.value.length : position(x)
       input.setSelectionRange(Math.min(anchor, cursor), Math.max(anchor, cursor), cursor < anchor ? 'backward' : 'forward')
     }
     input.focus({ preventScroll: true })
