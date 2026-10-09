@@ -1643,7 +1643,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
     if (!context.profileId || !context.paneId) return
-    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), targetUrl, pace, { paneId: context.paneId, agentId: context.agentId ?? paneById(model, context.paneId).pane.agentId })
+    let { pane, session } = paneById(model, context.paneId)
+    let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, { paneId: context.paneId, agentId: context.agentId ?? pane.agentId })
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
@@ -2804,9 +2806,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     await visualQueue
     return serializeTab(tabId, async () => {
       checkControl(method, args)
-      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId, tabId, automationTargetUrl(method, args) ?? tabById(model, tabId).tab.url)
-      if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane, session } = tabById(model, tabId)
+      let destination = automationTargetUrl(method, args)
+      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(pane.profileId, tabId, destination ? normalizeUrl(destination, searchAppForSession(session)) : tab.url)
+      if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
       checkControl(method, args)
       let contents = live.contents
