@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { automationSiteExclusion, automationWarningEnabled, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -18,6 +18,34 @@ let fixture = () => {
   return { policy: create(), file, settings, sleeps, changes: () => changes, advance: (ms: number) => { time += ms }, restart: create }
 }
 let instagram = async () => ({ url: 'https://www.instagram.com/' })
+
+test('limit edits validate existing bounds and cannot change protection or exclusion settings', () => {
+  let settings = structuredClone(DEFAULT_AUTOMATION.safety), original = structuredClone(settings)
+  expect(updateAutomationSafetyLimit(settings, 'maxSessionMinutes', 1440)).toBe(1440)
+  expect(updateAutomationSafetyLimit(settings, 'cooldownMinutes', 1)).toBe(1)
+  expect(updateAutomationSafetyLimit(settings, 'socialDelayMs', 1250)).toBe(1250)
+  for (let key of ['maxSessionMinutes', 'cooldownMinutes', 'socialDelayMs']) {
+    for (let value of [undefined, null, 0, -1, 1.5, '2', true, Infinity, 30_001]) expect(() => updateAutomationSafetyLimit(settings, key, value)).toThrow()
+  }
+  for (let key of ['enabled', 'profiles', 'sites', 'unknown', undefined]) expect(() => updateAutomationSafetyLimit(settings, key, false)).toThrow()
+  expect(settings).toEqual(original)
+})
+
+test('edited session, break, and pacing limits take effect in the running policy', async () => {
+  let { policy, settings, advance, sleeps } = fixture()
+  await policy.before('bot', instagram)
+  settings.maxSessionMinutes = updateAutomationSafetyLimit(settings, 'maxSessionMinutes', 20)
+  settings.cooldownMinutes = updateAutomationSafetyLimit(settings, 'cooldownMinutes', 5)
+  settings.socialDelayMs = updateAutomationSafetyLimit(settings, 'socialDelayMs', 750)
+  for (let minutes of [4, 4, 3]) { advance(minutes * 60_000); await policy.before('bot', instagram) }
+  await policy.before('bot', instagram)
+  expect(sleeps).toEqual([750])
+  advance(9 * 60_000 - 750)
+  expect(() => policy.assertAvailable('bot')).toThrow('retry after 2026-10-01T00:25:00.000Z')
+  advance(5 * 60_000)
+  await policy.before('bot', instagram)
+  expect(policy.status().profiles[0].retryAfter).toBeNull()
+})
 
 test('old and new configs enable global safety without optional groups', () => {
   expect(parseAutomationSettings(undefined).safety).toEqual(DEFAULT_AUTOMATION.safety)

@@ -11,6 +11,7 @@ export type AutomationGroup = {
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
 export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
 export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
 export type AutomationSettings = { safety: AutomationSafety; groups: Record<string, AutomationGroup> }
@@ -58,6 +59,10 @@ let limits = (value: unknown, name: string): AutomationLimits => {
     result[key as keyof AutomationLimits] = Number(amount)
   }
   return result
+}
+export let updateAutomationSafetyLimit = (settings: AutomationSafety, key: unknown, value: unknown) => {
+  if (key !== 'maxSessionMinutes' && key !== 'cooldownMinutes' && key !== 'socialDelayMs') throw new Error('Choose a session, break, or social site delay limit')
+  return parseAutomationSettings({ safety: { ...settings, [key]: value } }).safety[key]
 }
 export let parseAutomationSettings = (value: unknown): AutomationSettings => {
   if (value === undefined) return structuredClone(DEFAULT_AUTOMATION)

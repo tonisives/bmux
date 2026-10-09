@@ -54,7 +54,7 @@ import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
-import { updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
 import { automationWarningScript, createAutomationSafety } from './automation-safety'
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
@@ -1671,6 +1671,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()
+    if (method === 'automation.safety.set') {
+      if (!sourceClientId) throw new Error('Change anti-bot limits in the bmux UI')
+      let value = updateAutomationSafetyLimit(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, args.key, args.value)
+      configuration?.update(['automation', 'safety', String(args.key)], value)
+      return { value }
+    }
     if (method === 'profile.anti-bot.set') {
       if (!sourceClientId) throw new Error('Change anti-bot protection in the profile view')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
