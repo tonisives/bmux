@@ -504,9 +504,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
     let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
+    let permissionScope = privateSessionId ? `private:${privateSessionId}:${ownerId}` : ownerId
     filters?.attach(session, ownerId)
     session.setPermissionCheckHandler((_contents, permission, origin, details) => {
-      let known = permissionGrants.get(`${key}|${origin}|${permission}`)
+      let normalizedOrigin = URL.canParse(origin) ? new URL(origin).origin : origin
+      let known = permissionGrants.get(`${permissionScope}|${normalizedOrigin}|${permission}`)
       if (known !== undefined) return known
       // A native file handle requires user selection. Reading an individual
       // upload must not grant directory access or permission to modify files.
@@ -514,7 +516,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
       let origin = details.requestingUrl ? new URL(details.requestingUrl).origin : new URL(contents.getURL()).origin
-      let grantKey = `${key}|${origin}|${permission}`
+      let grantKey = `${permissionScope}|${origin}|${permission}`
       let known = permissionGrants.get(grantKey)
       if (known !== undefined) { reply(known); return }
       let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''

@@ -211,8 +211,9 @@ let automationWebsiteHost = (url?: string) => {
 
 let permissionNotices = (state: PublicState, run: UIContext['run']): Notification[] => state.permissions.filter(request => !state.dismissedPermissions?.includes(request.id)).map(request => {
   let label = permissionPaneLabel(state.model, request.paneId) ?? request.paneId
-  return { id: request.id, text: `${label} requests ${request.permission} on ${request.origin}.`, actions: [
-    { label: 'Go to pane', title: label, run: () => { void run('permission.visit', { id: request.id }) } },
+  let selected = selection(state).pane?.id === request.paneId
+  return { id: request.id, text: `${selected ? 'This pane' : label} requests ${request.permission} on ${request.origin}.`, actions: [
+    ...(selected ? [] : [{ label: 'Go to pane', title: label, run: () => { void run('permission.visit', { id: request.id }) } }]),
     { label: 'Deny', run: () => { void run('permission.respond', { id: request.id, allow: false }) } },
     { label: 'Allow', run: () => { void run('permission.respond', { id: request.id, allow: true }) } },
   ], dismiss: () => { void run('permission.dismiss', { ids: [request.id] }) } }
@@ -235,7 +236,7 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let selectedPane = selection(state).pane
   let pane = actors.find(actor => actor.paneId === selectedPane?.id)?.pane ?? actors[0]?.pane ?? panes.find(pane => pane.profileId === usage.profileId)
   let settings = pane ? () => { void show('profiles', pane.id) } : undefined
-  let actions = actors.map(actor => {
+  let actions = actors.filter(actor => actor.paneId !== selectedPane?.id).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
     return { label: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, title: actor.pane.title, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
   })
@@ -2233,10 +2234,11 @@ let HistoryRow = ({ entry }: { entry: HistoryEntry }) => {
 let PermissionRow = ({ permission }: { permission: Permission }) => {
   let { state, run, dismiss } = useUI()
   let paneLabel = permissionPaneLabel(state.model, permission.paneId)
+  let selected = selection(state).pane?.id === permission.paneId
   let visit = async () => { if (await run('permission.visit', { id: permission.id, pane: permission.paneId }) !== undefined) dismiss() }
   let deny = () => { void run('permission.respond', { id: permission.id, allow: false }) }
   let allow = () => { void run('permission.respond', { id: permission.id, allow: true }) }
-  return <div className={css.row}>{permission.origin}: {permission.permission}<div><button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button><button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
+  return <div className={css.row}>{permission.origin}: {permission.permission}<div>{!selected && <button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button>}<button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
 }
 let downloadSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 let DownloadManager = () => {

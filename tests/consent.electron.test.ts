@@ -94,6 +94,8 @@ test('permission notice and Activity visit the requesting pane across sessions w
   }
   await expectSource()
   await expect(popup).toBeVisible()
+  await expect(visit).toHaveCount(0)
+  await expect(popup).not.toContainText(pane.id)
   await source.locator('#text').fill('Request is still pending')
   await rpc('switch-client', { client: observer.id, session: observer.sessionId })
   await expectAttached(`${url}/observer`)
@@ -105,6 +107,7 @@ test('permission notice and Activity visit the requesting pane across sessions w
   await expectSource()
   await expect(source.locator('#text')).toHaveValue('Request is still pending')
   await chrome.getByRole('button', { name: 'Activity', exact: true }).click()
+  await expect(activity.getByRole('button', { name: 'Go to pane', exact: true })).toHaveCount(0)
   await activity.getByRole('button', { name: 'Deny', exact: true }).click()
   await expect.poll(() => source.evaluate(() => (window as any).permissionResult)).toBe('denied')
   await activity.getByRole('button', { name: 'Close', exact: true }).click()
