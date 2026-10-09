@@ -128,6 +128,7 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
       }
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
+      await fs.writeFile(info.outputPath('background-restored-diagnostics.json'), JSON.stringify((await rpc('diagnostics')).filePickers, null, 2))
     }
     await apple('delay 0.3')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('before-image-click.png')])
@@ -169,9 +170,10 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await expect.poll(() => uploaded.equals(png)).toBe(true)
     if (picker === 'showOpenFilePicker') expect(writePermission).toBe('denied')
   } catch (error) {
+    await rpc('diagnostics').then(current => fs.writeFile(info.outputPath('failed-picker-diagnostics.json'), JSON.stringify(current.filePickers, null, 2))).catch(() => undefined)
     await rpc('state').then(async current => {
       let tab = current.model.clients[0].paneId
-      let state = await rpc('eval', { tab, expression: '({visible:document.visibilityState,focused:document.hasFocus(),width:innerWidth,height:innerHeight,outerWidth,outerHeight,frame:document.querySelector("iframe")?.getBoundingClientRect().toJSON()})' })
+      let state = await rpc('eval', { tab, expression: '({visible:document.visibilityState,focused:document.hasFocus(),open:document.querySelector("#file")?.matches(":open"),width:innerWidth,height:innerHeight,outerWidth,outerHeight,frame:document.querySelector("iframe")?.getBoundingClientRect().toJSON()})' })
       await fs.writeFile(info.outputPath('popup-page-state.json'), JSON.stringify(state, null, 2))
     }).catch(() => undefined)
     await fs.writeFile(info.outputPath('picker-lookup-error.txt'), pickerLookupError)
