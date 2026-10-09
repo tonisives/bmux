@@ -58,7 +58,7 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
         document.querySelector('#file').onchange = event => upload(event.target.files[0]).catch(reportError);
       </script>`)
   })
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Cmd+L: address\nbrowser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'accessibility: true\nkeyboard:\n  shortcuts:\n    Cmd+L: address\nbrowser:\n  autoUpdateFilters: false\n')
   let file = path.join(uploads, 'sample.png')
   await fs.writeFile(file, png)
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
