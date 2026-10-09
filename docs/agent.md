@@ -111,13 +111,16 @@ Permission requests use the same notice bar with the requesting pane and
 leaves it pending; dismissed requests remain available in **Activity**.
 **Warning checks** in website warning notices shows the blocking website's
 saved state: **Enabled** or **Disabled**. The Anti-bot tab lists the current
-website and saved exclusions with the same dropdown and a remove action.
+website and saved preferences with the same Enabled/Disabled dropdown.
+The current website is labeled **Current site**.
 Choosing **Disabled** keeps checks off until you choose **Enabled**, including
 after restarting bmux. It skips warning detection for that exact hostname in
 this profile and releases its existing pause. Other sites and session limits
 still apply. Older temporary exclusions remain listed with their expiry;
 disabling checks again makes the exclusion permanent.
-**Limits (all profiles)** has editable session minutes, break minutes, and
+The enlarged Profile view groups every tab into titled sections. Anti-bot
+shows **Limits (all profiles)** first, followed by **Protection**,
+**Automation status**, and **Website warning checks**. Limits has editable session minutes, break minutes, and
 social site delay in seconds. Press Enter or leave a field to save it. These
 limits apply to every profile and update immediately without clearing usage.
 The alert's X dismisses

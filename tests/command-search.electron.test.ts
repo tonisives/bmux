@@ -492,6 +492,15 @@ test('profile icon has no visible label and opens details for the selected pane'
   await expect(panel).toContainText(`Session${session.name}`)
   await expect(panel).toContainText(`Window${window.name}`)
   await expect(panel).toContainText(`Pane${pane.id}`)
+  expect((await panel.boundingBox())!.width).toBeGreaterThan(800)
+  await expect(panel.getByRole('heading')).toHaveText(['Current pane', 'New windows', 'HTTP cache'])
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-overview-sections.png') })
+  await panel.getByRole('tab', { name: 'Connection' }).click()
+  await expect(panel.getByRole('heading')).toHaveText(['Current pane connection', 'Proxy for new panes'])
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-connection-sections.png') })
+  await panel.getByRole('tab', { name: 'Device' }).click()
+  await expect(panel.getByRole('heading')).toHaveText(['Device emulation', 'Screen', 'Language and location', 'New panes', 'Emulation details'])
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-device-sections.png') })
 })
 
 test('profile popup renames default and custom profiles without changing pane identity', async () => {

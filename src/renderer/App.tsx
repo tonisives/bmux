@@ -10,7 +10,7 @@ import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject } from 'react'
+import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
 import css from './App.module.css'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
@@ -139,12 +139,12 @@ export let App = () => {
   ]
   let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}</main>
+    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
-    {panel && <Panel key={panel} type={panel} />}
+    {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
   </div></Context.Provider>
 }
 
@@ -1023,7 +1023,7 @@ let Panel = ({ type }: { type: Control }) => {
   let sessionPicker = type === 'sessions' || type === 'remote-sessions'
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'proxy' ? css.proxyPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
+  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
       <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
@@ -1560,6 +1560,8 @@ let useDeviceAutoSave = ({ current, sessionDevice, draft, newPanes, busy, form, 
   let queueField = (event: ChangeEvent<HTMLFormElement>) => { editingText.current = event.target instanceof HTMLInputElement && event.target.type !== 'checkbox' }
   return { commitField, queueField }
 }
+let ProfileSection = ({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) => <section className={css.profileSection} aria-label={title}><div className={css.profileSectionHeading}><h2>{title}</h2>{hint && <small>{hint}</small>}</div>{children}</section>
+
 let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) => {
   let { run, onMessage } = useUI()
   let form = useRef<HTMLFormElement>(null)
@@ -1613,14 +1615,10 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
     finally { setBusy(false) }
   }
   let preventSubmit = (event: FormEvent) => { event.preventDefault(); if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur() }
-  return <form ref={form} className={css.deviceSettings} onSubmit={preventSubmit} onBlur={commitField} onChange={queueField}>
-    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={active} onChange={changeActive} disabled={busy} />Mobile device</label>
-    <fieldset className={css.deviceFields} disabled={busy}>
-    <div className={css.profileDeviceGrid}>
+  let deviceFields = <fieldset className={css.deviceFields} disabled={busy}>
+    <ProfileSection title="Screen"><div className={css.profileDeviceGrid}>
       <label>Device<DevicePresetSelect value={preset} onChange={changePreset} /></label>
       <label>Orientation<DeviceOrientationSelect value={orientation} onChange={changeOrientation} /></label>
-      <label>Locale<input className={css.pluginInput} value={locale} onChange={changeLocale} required spellCheck={false} /></label>
-      <label>Timezone<input className={css.pluginInput} value={timezone} onChange={changeTimezone} required spellCheck={false} /></label>
     </div>
     {preset === 'custom' && <div className={css.profileDeviceGrid}>
       <label>Platform<DevicePlatformSelect value={platform} onChange={changePlatform} /></label>
@@ -1628,11 +1626,21 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
       <label>Height<input className={css.pluginInput} type="number" min="320" max="2560" value={height} onChange={changeHeight} required /></label>
       <label>DPR<input className={css.pluginInput} type="number" min="1" max="4" step="0.125" value={dpr} onChange={changeDpr} required /></label>
     </div>}
+    </ProfileSection>
+    <ProfileSection title="Language and location"><div className={css.profileDeviceGrid}>
+      <label>Locale<input className={css.pluginInput} value={locale} onChange={changeLocale} required spellCheck={false} /></label>
+      <label>Timezone<input className={css.pluginInput} value={timezone} onChange={changeTimezone} required spellCheck={false} /></label>
+    </div>
     <label className={css.profileProxyAuthentication}><input type="checkbox" checked={locationEnabled} onChange={changeLocationEnabled} />Set geolocation</label>
     {locationEnabled && <div className={css.profileDeviceLocation}><label>Latitude<input className={css.pluginInput} type="number" min="-90" max="90" step="any" value={latitude} onChange={changeLatitude} required /></label><label>Longitude<input className={css.pluginInput} type="number" min="-180" max="180" step="any" value={longitude} onChange={changeLongitude} required /></label><label>Accuracy<input className={css.pluginInput} type="number" min="0" max="100000" step="any" value={accuracy} onChange={changeAccuracy} required /></label></div>}
-    <label className={css.profileProxyAuthentication}><input type="checkbox" checked={newPanes} onChange={changeNewPanes} />Enable for all new panes</label>
+    </ProfileSection>
+    <ProfileSection title="New panes"><label className={css.profileProxyAuthentication}><input type="checkbox" checked={newPanes} onChange={changeNewPanes} />Enable for all new panes</label></ProfileSection>
     </fieldset>
-    {draft.device && <DeviceEmulationDetails device={draft.device} active={!!current} />}
+  return <form ref={form} className={css.deviceSettings} onSubmit={preventSubmit} onBlur={commitField} onChange={queueField}>
+    <ProfileSection title="Device emulation"><label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={active} onChange={changeActive} disabled={busy} />Mobile device</label>
+    </ProfileSection>
+    {deviceFields}
+    {draft.device && <ProfileSection title="Emulation details"><DeviceEmulationDetails device={draft.device} active={!!current} /></ProfileSection>}
   </form>
 }
 
@@ -1776,8 +1784,8 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
       if (result && revision === testRevision.current) setTested(result as { ip: string; region?: string })
     } finally { setTesting(false) }
   }
-  return <form ref={form} className={css.profileProxy} onSubmit={preventSubmit}>
-      <h2>New panes</h2>
+  return <form ref={form} className={`${css.profileProxy} ${css.profileSection}`} aria-label="Proxy for new panes" onSubmit={preventSubmit}>
+      <h2>Proxy for new panes</h2>
       <div className={css.proxyFields}>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Used for new panes. {paneCount} existing pane{paneCount === 1 ? ' keeps' : 's keep'} their current connection.</p>
       {savedProfiles.length > 0 && <label className={css.savedProxy}>Saved proxies (all profiles)<select aria-label="Saved proxies" value="" onChange={changeSavedProxy}><option value="" disabled>Choose a saved proxy</option>{savedProfiles.map(item => <option key={item.id} value={item.id}>{item.name} · {item.proxy!.protocol}://{item.proxy!.host}:{item.proxy!.port}</option>)}</select></label>}
@@ -1831,18 +1839,13 @@ let SiteChecksSelect = ({ profileId, host }: { profileId: string; host: string }
   return <label className={css.siteChecks}><span>Warning checks</span><select className={css.notificationAction} aria-label={`Website warning checks for ${host}`} aria-description={host} value={enabled ? 'enabled' : 'disabled'} onChange={change} disabled={busy}><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
 }
 
-let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion?: AutomationSiteExclusion }) => {
-  let { run } = useUI(), [busy, setBusy] = useState(false)
+let SiteExclusionRow = ({ profileId, host, exclusion, current }: { profileId: string; host: string; exclusion?: AutomationSiteExclusion; current: boolean }) => {
   let active = !!exclusion && automationExclusionActive(exclusion)
   let status = exclusion?.enabled && exclusion.expiresAt !== null ? active ? `Temporary · Until ${new Date(exclusion.expiresAt).toLocaleString()}` : 'Temporary · Expired' : undefined
-  let remove = async () => {
-    setBusy(true)
-    try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
-  }
-  return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{status && <small>{status}</small>}</span><SiteChecksSelect profileId={profileId} host={host} />{exclusion && <button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button>}</div>
+  return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{current && <small>Current site</small>}{status && <small>{status}</small>}</span><SiteChecksSelect profileId={profileId} host={host} /></div>
 }
 
-let AutomationLimitInput = ({ setting, label, value, scale = 1, maximum }: { setting: AutomationSafetyLimitKey; label: string; value: number; scale?: number; maximum: number }) => {
+let AutomationLimitInput = ({ setting, label, description, value, scale = 1, maximum }: { setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
   let { run } = useUI(), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
   useEffect(() => { setText(String(value / scale)) }, [value, scale])
   let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
@@ -1857,17 +1860,17 @@ let AutomationLimitInput = ({ setting, label, value, scale = 1, maximum }: { set
     if (event.key !== 'Enter') return
     event.preventDefault(); event.currentTarget.blur()
   }
-  return <label>{label}<input className={css.pluginInput} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} aria-description="Saved on Enter or when you leave the field" required /></label>
+  return <label><span>{label}<small>{description}</small></span><input className={css.pluginInput} aria-label={label} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} aria-description="Saved on Enter or when you leave the field" required /></label>
 }
 
 let AutomationLimitsEditor = () => {
   let { state } = useUI()
   let limits = state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety
-  return <details className={css.antiBotLimits}><summary>Limits (all profiles)</summary><div className={css.antiBotLimitFields}>
-    <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" value={limits.maxSessionMinutes} maximum={1440} />
-    <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" value={limits.cooldownMinutes} maximum={1440} />
-    <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" value={limits.socialDelayMs} scale={1000} maximum={30} />
-  </div></details>
+  return <ProfileSection title="Limits (all profiles)" hint="Enter or leave a field to save"><div className={css.antiBotLimitFields}>
+    <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
+    <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
+    <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
+  </div></ProfileSection>
 }
 
 let ProfileAntiBotSettings = () => {
@@ -1887,7 +1890,7 @@ let ProfileAntiBotSettings = () => {
   let host = warning?.warningHost ?? automationWebsiteHost(pane?.url)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
-  let status = !paneEnabled ? 'Off for this pane' : safety?.error ? 'Unavailable' : warning ? `${labels[warning.warning!]} · ${warning.warningHost}` : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
+  let status = !enabled ? 'Off for this profile' : !paneEnabled ? 'Off for this pane' : safety?.error ? 'Unavailable' : warning ? `${labels[warning.warning!]} · ${warning.warningHost}` : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setEnabled(next); setBusy(true)
@@ -1910,15 +1913,23 @@ let ProfileAntiBotSettings = () => {
   }
   let exclusions: { host: string; exclusion?: AutomationSiteExclusion }[] = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule) }))
   if (host && !exclusions.some(item => item.host === host)) exclusions.unshift({ host })
-  return <div className={css.deviceSettings} role="tabpanel" aria-label="Anti-bot settings">
-    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Anti-bot protection</label>
-    {pane && <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={paneEnabled} onChange={togglePane} disabled={busy} />Enable checks for this pane</label>}
-    {pane && <p>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</p>}
-    <p>Automation limits are shared by protected panes in this profile. Manual browsing is unaffected.</p>
-    <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
-    {paneEnabled && safety?.error && <p>{safety.error}</p>}
-    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Website warning checks</h3><p>Session limits still apply when site checks are disabled.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
+  return <div className={css.antiBotSections} role="tabpanel" aria-label="Anti-bot settings">
     <AutomationLimitsEditor />
+    <ProfileSection title="Protection">
+      <p>Limits and warning checks apply to automation. Manual browsing is unaffected.</p>
+      <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Anti-bot protection" checked={enabled} onChange={toggle} disabled={busy} /></label>
+      {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable checks for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></label>}
+    </ProfileSection>
+    <ProfileSection title="Automation status">
+      <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
+      {paneEnabled && cooldown && <p>Reset starts a new session now, ending the break for this profile.</p>}
+      {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
+      {paneEnabled && safety?.error && <p>{safety.error}</p>}
+    </ProfileSection>
+    <ProfileSection title="Website warning checks">
+      <p>Enabled pauses automation on site warnings. Disabled stays off until you enable it; session limits still apply.</p>
+      {exclusions.length > 0 ? <><div className={css.siteChecksHeading} aria-hidden="true"><span>Website</span><span>Warning checks</span></div>{exclusions.map(({ host: siteHost, exclusion }) => <SiteExclusionRow key={siteHost} profileId={profile.id} host={siteHost} exclusion={exclusion} current={siteHost === automationWebsiteHost(pane?.url)} />)}</> : <p>Open a website to change its warning checks.</p>}
+    </ProfileSection>
   </div>
 }
 
@@ -1968,6 +1979,7 @@ let ProfileInfo = () => {
   let cache = state.profileCaches[profile.id]
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
   let openProxy = () => show('proxy')
+  let currentProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   let canChangeProfile = !!session && !session.private
   let changeProfile = async (event: ChangeEvent<HTMLSelectElement>) => {
     if (!session || busy) return
@@ -1976,22 +1988,22 @@ let ProfileInfo = () => {
     setBusy(false)
   }
   let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
-  return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
-    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
-    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}>Anti-bot</button></div>
-    {tab === 'overview' && <div role="tabpanel" aria-label="Profile overview"><dl>
+  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview"><ProfileSection title="Current pane"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
       <div><dt>Window</dt><dd>{window?.name}</dd></div>
       <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
-    </dl>{canChangeProfile && <label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-    <section className={css.profileProxy}>
-      <h2>HTTP cache</h2>
+    </dl></ProfileSection>{canChangeProfile && <ProfileSection title="New windows"><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></ProfileSection>}
+    <ProfileSection title="HTTP cache">
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
-    </section></div>}
+    </ProfileSection></div>
+  return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
+    <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}>Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}>Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}>Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}>Anti-bot</button></div>
+    {tab === 'overview' && overviewContent}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
-    {tab === 'connection' && <div role="tabpanel" aria-label="Connection settings"><button type="button" onClick={openProxy}>Connection details</button><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p><button type="button" onClick={openProxy}>Connection details</button></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
     {tab === 'anti-bot' && <ProfileAntiBotSettings />}
   </section>
 }
