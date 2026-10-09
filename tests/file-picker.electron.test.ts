@@ -11,7 +11,7 @@ import { promisify } from 'node:util'
 
 let exec = promisify(execFile)
 
-for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
+for (let picker of ['input', 'input-background', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
   test.setTimeout(60_000)
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-native-file-picker-'))
   let uploads = await fs.mkdtemp(path.join(os.homedir(), 'Downloads', 'bmux-upload-fixture-'))
@@ -92,6 +92,17 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
     let paneId = state.model.sessions[0].windows[0].panes[0].id
     let frameReady = 'typeof document.querySelector("iframe")?.contentDocument?.querySelector("#image")?.onclick === "function"'
     await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : '!!document.querySelector("#image")' })
+    if (picker === 'input-background') {
+      let other = await rpc('new-window', { session: state.model.sessions[0].id, url: 'about:blank' })
+      await rpc('select-window', { client: state.model.clients[0].id, window: other.id })
+      await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "hidden"' })
+      await rpc('click', { tab: paneId, selector: '#image' })
+      await expect.poll(() => clicks).toBe(1)
+      await fs.writeFile(info.outputPath('background-picker.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
+      await rpc('select-pane', { client: state.model.clients[0].id, pane: paneId })
+      await rpc('focus-page', { client: state.model.clients[0].id })
+      await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
+    }
     await apple('delay 0.3')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('before-image-click.png')])
     let mouse = `ObjC.import('CoreGraphics'); let process=Application('System Events').processes.whose({unixId:${child.pid}})[0]; let window=process.windows[0]; let p=window.position(),s=window.size(); let point=$.CGPointMake(p[0]+80,p[1]+s[1]-100); [5,1,2].forEach(type=>{$.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,point,0));delay(0.08)});`
@@ -104,7 +115,7 @@ for (let picker of ['input', 'input-frame', 'input-frame-media', 'input-frame-po
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
       await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("iframe").contentDocument.querySelector("#image").click()', userGesture: true } })
     }
-    await expect.poll(() => clicks).toBe(picker === 'input-frame-popup' ? 2 : 1)
+    await expect.poll(() => clicks).toBe(['input-frame-popup', 'input-background'].includes(picker) ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker.png')])
     await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\nend tell`)
