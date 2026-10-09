@@ -1362,6 +1362,7 @@ let SessionPicker = () => {
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
+  let backFirst = !!backSession && !!query.trim() && (!!fuzzyMatch(query, 'back') || query.trim().toLowerCase() === 'go back')
   let sessions = searchSessions(state.model.sessions, query)
   let windows = recent ? searchRecentWindows(state.model.sessions, query, client) : []
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
@@ -1388,10 +1389,10 @@ let SessionPicker = () => {
   return <div ref={ref} className={css.sessionPicker} onKeyDown={sessionKeys} onFocusCapture={focusMode} role="group" aria-label="Choose session">
     <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list data-session-recent={recent || undefined}>
-    {!recent && !query.trim() && backRow}
+    {(backFirst || (!recent && !query.trim())) && backRow}
     {recent ? windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />) : sessions.map(result => <SessionTree key={result.session.id} result={result} now={now} query={query} />)}
-    {!recent && !!query.trim() && backRow}
-    {!!query && (recent ? !windows.length : !backSession && !sessions.length) && <p role="status">{recent ? 'No matching windows.' : 'No matching sessions.'}</p>}
+    {!recent && !!query.trim() && !backFirst && backRow}
+    {!!query && (recent ? !backFirst && !windows.length : !backSession && !sessions.length) && <p role="status">{recent ? 'No matching windows.' : 'No matching sessions.'}</p>}
     </div>
     <div className={css.sessionFooter}>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
