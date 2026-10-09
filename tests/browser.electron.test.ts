@@ -2681,6 +2681,8 @@ test('dragging over a floating pane URL keeps its address input focused', async 
   await floating.mouse.move(bounds.x + 210, bounds.y + bounds.height + 60, { steps: 3 })
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
   await floating.mouse.move(bounds.x + 35, bounds.y + bounds.height + 60, { steps: 5 })
+  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: selected.start })
+  await floating.mouse.move(bounds.x + 210, bounds.y + bounds.height + 60, { steps: 5 })
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
   await floating.mouse.up()
   await expect(address).toBeFocused()
