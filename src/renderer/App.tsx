@@ -5,7 +5,7 @@ import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
 import { automationExclusionActive, automationSiteExclusion, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
-import type { AutomationSiteExclusion, AutomationSafetyState } from '../shared/automation'
+import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -22,7 +22,7 @@ import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keybo
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
 import { commandTargetSuggestions } from '../shared/command-completion'
-import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
 import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
@@ -299,7 +299,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionButton {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteChecksSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -1332,8 +1332,9 @@ let SessionPicker = () => {
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
-  let sessions = state.model.sessions.map(session => ({ session, windows: session.windows.filter(window => fuzzyMatch(query, `${session.name} ${window.name} ${window.panes.map(pane => `${pane.title} ${pane.url}`).join(' ')}`)) })).filter(({ session, windows }) => fuzzyMatch(query, session.name) || windows.length)
+  let sessions = searchSessions(state.model.sessions, query)
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
+  let backRow = backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><SessionNumber /><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>
   let create = async (privateSession: boolean) => {
     if (busy) return
     setBusy(true)
@@ -1359,11 +1360,12 @@ let SessionPicker = () => {
     <SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />
     <div className={css.sessionProfilePreference}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={profileKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
-    {backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><SessionNumber /><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>}
-    {sessions.map(({ session, windows }) => <div key={session.id}>
-      {fuzzyMatch(query, session.name) ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
+    {!query.trim() && backRow}
+    {sessions.map(({ session, windows, matched }) => <div key={session.id}>
+      {matched ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
       {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
     </div>)}
+    {!!query.trim() && backRow}
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}><SessionNumber />new session</button>
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><SessionNumber /><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
     {!backSession && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
@@ -1424,6 +1426,8 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
+  let pane = window.panes.find(pane => pane.id === selection(state).client?.paneId) ?? window.panes[0]
+  let name = window.automaticName === true ? pane?.title || pane?.url || window.name : window.name.trim() || pane?.title || pane?.url || 'Blank page'
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null)
   let confirmButton = useRef<HTMLButtonElement>(null)
@@ -1433,12 +1437,12 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => { if (busy) return; setBusy(true); await run('kill-window', { window: window.id, confirm: true }); setBusy(false); setConfirming(false) }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
-  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${window.name}?`}><span>Close window "{window.name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionWindowName} title={window.name}>{window.name}</span>
-      <span className={css.sessionWindowPanes}>{window.panes.map(pane => <span key={pane.id} className={css.sessionPaneActivity}><span title={pane.title || pane.url || 'Blank page'}>{pane.title || pane.url || 'Blank page'}</span>{!!pane.lastActivityAt && <time title={new Date(pane.lastActivityAt).toLocaleString()}>{activityLabel(pane.lastActivityAt, now)}</time>}</span>)}</span>
-    </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${window.name}`}>x</button>
+      <SessionNumber /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <span className={css.sessionWindowActivity}>{window.panes.filter(pane => pane.lastActivityAt).map(pane => <time key={pane.id} title={`${pane.title || pane.url || 'Blank page'} · ${new Date(pane.lastActivityAt!).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>)}</span>
+    </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
@@ -1741,32 +1745,56 @@ let useAutomationExpiry = (safety?: AutomationSafetyState) => {
   }, [safety, now])
 }
 
-let SiteExclusionButton = ({ profileId, host }: { profileId: string; host: string }) => {
+let SiteChecksSelect = ({ profileId, host }: { profileId: string; host: string }) => {
   let { state, run } = useUI(), [busy, setBusy] = useState(false)
   let exclusion = automationSiteExclusion(state.automationSafety?.limits.sites?.[profileId]?.[host])
-  let active = !!exclusion && automationExclusionActive(exclusion)
-  let toggle = async () => {
-    setBusy(true)
-    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: active }) } finally { setBusy(false) }
+  let savedEnabled = !exclusion || !automationExclusionActive(exclusion), [enabled, setEnabled] = useState(savedEnabled)
+  useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profileId, host])
+  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
+    let next = event.target.value === 'enabled'
+    setEnabled(next); setBusy(true)
+    try { if (!await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: next })) setEnabled(savedEnabled) } finally { setBusy(false) }
   }
-  return <button type="button" className={css.notificationAction} aria-description={host} onClick={toggle} disabled={busy}>{active ? 'Enable site checks' : 'Exclude this site'}</button>
+  return <label className={css.siteChecks}><span>Warning checks</span><select className={css.notificationAction} aria-label={`Website warning checks for ${host}`} aria-description={host} value={enabled ? 'enabled' : 'disabled'} onChange={change} disabled={busy}><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion?: AutomationSiteExclusion }) => {
   let { run } = useUI(), [busy, setBusy] = useState(false)
-  let savedActive = !!exclusion && automationExclusionActive(exclusion), [active, setActive] = useState(savedActive)
-  useEffect(() => { setActive(savedActive) }, [savedActive])
+  let active = !!exclusion && automationExclusionActive(exclusion)
   let status = exclusion?.enabled && exclusion.expiresAt !== null ? active ? `Temporary · Until ${new Date(exclusion.expiresAt).toLocaleString()}` : 'Temporary · Expired' : undefined
-  let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
-    let next = event.target.checked
-    setActive(next); setBusy(true)
-    try { if (!await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: !next })) setActive(savedActive) } finally { setBusy(false) }
-  }
   let remove = async () => {
     setBusy(true)
     try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
   }
-  return <div className={css.siteExclusion} role="group" aria-label={host}><label><input className={css.proxyToggle} type="checkbox" role="switch" aria-label={`Exclude ${host}`} checked={active} onChange={toggle} disabled={busy} /><span>{host}{status && <small>{status}</small>}</span></label>{exclusion && <button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button>}</div>
+  return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{status && <small>{status}</small>}</span><SiteChecksSelect profileId={profileId} host={host} />{exclusion && <button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button>}</div>
+}
+
+let AutomationLimitInput = ({ setting, label, value, scale = 1, maximum }: { setting: AutomationSafetyLimitKey; label: string; value: number; scale?: number; maximum: number }) => {
+  let { run } = useUI(), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
+  useEffect(() => { setText(String(value / scale)) }, [value, scale])
+  let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
+  let save = async (event: FocusEvent<HTMLInputElement>) => {
+    if (!event.currentTarget.reportValidity()) return
+    let next = Math.round(Number(text) * scale)
+    if (next === value) return
+    setBusy(true)
+    try { await run('automation.safety.set', { key: setting, value: next }) } finally { setBusy(false) }
+  }
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault(); event.currentTarget.blur()
+  }
+  return <label>{label}<input className={css.pluginInput} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} aria-description="Saved on Enter or when you leave the field" required /></label>
+}
+
+let AutomationLimitsEditor = () => {
+  let { state } = useUI()
+  let limits = state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety
+  return <details className={css.antiBotLimits}><summary>Limits (all profiles)</summary><div className={css.antiBotLimitFields}>
+    <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" value={limits.maxSessionMinutes} maximum={1440} />
+    <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" value={limits.cooldownMinutes} maximum={1440} />
+    <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" value={limits.socialDelayMs} scale={1000} maximum={30} />
+  </div></details>
 }
 
 let ProfileAntiBotSettings = () => {
@@ -1816,8 +1844,8 @@ let ProfileAntiBotSettings = () => {
     <p>Automation limits are shared by protected panes in this profile. Manual browsing is unaffected.</p>
     <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
     {paneEnabled && safety?.error && <p>{safety.error}</p>}
-    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Website exclusions</h3><p>Skips website warnings. Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
-    <details className={css.antiBotLimits}><summary>Limits</summary><dl><div><dt>Session</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl></details>
+    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Website warning checks</h3><p>Session limits still apply when site checks are disabled.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
+    <AutomationLimitsEditor />
   </div>
 }
 
