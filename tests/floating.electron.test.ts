@@ -420,10 +420,11 @@ test('selected page text translates plain text, links, editable text and iframe 
   await address.fill(`${url}/translate-selection`); await address.press('Enter')
   await rpc('wait', { tab: pane.id, selector: '#lookup-text' })
   let page = application.context().pages().find(page => page.url() === `${url}/translate-selection`)!
-  let text = 'Tere & head päeva? #1 + 你好\nTeine rida'
+  let text = 'Tere & head päeva? #1 + 你好'
+  let multiline = `${text}\nTeine rida`
   await page.locator('#lookup-text').evaluate((element, text) => { element.textContent = text; (element as HTMLElement).style.minHeight = '24px' }, text)
   await page.locator('a').evaluate((element, text) => { element.textContent = text }, text)
-  await page.locator('#spelling').fill(text)
+  await page.locator('#spelling').fill(multiline)
   await page.evaluate(src => { let frame = document.createElement('iframe'); frame.src = src; document.body.append(frame) }, `${url}/translate-frame`)
   let iframeText = page.frameLocator('iframe').locator('#lookup-text')
   await expect(iframeText).toHaveText('dictionary text')
@@ -439,7 +440,7 @@ test('selected page text translates plain text, links, editable text and iframe 
     }
   })
   try {
-    for (let [selected, expected] of [[page.locator('#lookup-text'), text], [page.locator('a'), text], [page.locator('#spelling'), text], [iframeText, 'dictionary text']] as const) {
+    for (let [selected, expected] of [[page.locator('#lookup-text'), text], [page.locator('a'), text], [page.locator('#spelling'), multiline], [iframeText, 'dictionary text']] as const) {
       await expect.poll(async () => (await views()).flatMap(window => window.children).some(view => view.url === `${url}/translate-selection` && view.visible)).toBe(true)
       await selected.evaluate(element => {
         if (element instanceof HTMLTextAreaElement) { element.focus(); element.select(); return }
