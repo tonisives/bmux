@@ -247,7 +247,7 @@ test('session picker highlights go back for back letters and abbreviations in bo
       if ((await toggle.getAttribute('aria-pressed')) !== String(recent)) await toggle.click()
       for (let query of ['b', 'a', 'c', 'k', 'ba', 'bac', 'bk', 'back', ' BACK ', 'go back']) {
         await search.fill(query)
-        await expect(group.locator('button:not([data-picker-action])').first()).toHaveAttribute('data-session-back', '')
+        await expect(group.locator('button:not([data-picker-action])').first()).toHaveAttribute('data-session-back', 'true')
         await expect(back).toHaveAttribute('data-search-selected', 'true')
         await expect(back.locator('[data-session-number]')).toHaveText('0')
         await expect(back).toHaveAttribute('title', `go back: ${previous.name}`)
