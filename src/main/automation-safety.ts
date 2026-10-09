@@ -54,7 +54,10 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     ensureLedger()
     let value = usage[profileId]
     if (value?.warning && automationWarningEnabled(options.settings(), profileId, value.warningHost!, now())) throw safetyError(`Automation paused: ${value.warning} on ${value.warningHost}. Open the UI alert or Profile > Anti-bot to resolve, resume, or disable warning checks for this site`)
-    if (value && now() >= value.startedAt + options.settings().maxSessionMinutes * 60_000 && now() < retryAt(value)) throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(value)).toISOString()}`)
+    if (value && now() >= value.startedAt + options.settings().maxSessionMinutes * 60_000 && now() < retryAt(value)) {
+      options.changed?.()
+      throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(value)).toISOString()}. Open the UI alert or Profile > Anti-bot to reset the session`)
+    }
   }
   let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true) => {
     if (!automationSafetyEnabled(options.settings(), profileId)) return
@@ -83,5 +86,11 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     return { resumed: true }
   }
   let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.entries(usage).map(([profileId, value]) => ({ profileId, ...value, retryAfter: now() >= value.startedAt + options.settings().maxSessionMinutes * 60_000 && now() < retryAt(value) ? new Date(retryAt(value)).toISOString() : null })) })
-  return { before, assertAvailable, resume, status }
+  let resetSession = (profileId: string) => {
+    ensureLedger()
+    let value = usage[profileId]
+    if (value) { value.startedAt = now(); value.lastUsed = value.startedAt; persist() }
+    return { reset: true }
+  }
+  return { before, assertAvailable, resume, resetSession, status }
 }

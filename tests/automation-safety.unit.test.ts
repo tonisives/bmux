@@ -13,8 +13,9 @@ let fixture = () => {
   directories.push(directory)
   let time = Date.parse('2026-10-01T00:00:00Z'), settings = { ...DEFAULT_AUTOMATION.safety }, sleeps: number[] = []
   let file = path.join(directory, 'usage.json')
-  let create = () => createAutomationSafety({ file, settings: () => settings, now: () => time, sleep: async ms => { sleeps.push(ms); time += ms } })
-  return { policy: create(), file, settings, sleeps, advance: (ms: number) => { time += ms }, restart: create }
+  let changes = 0
+  let create = () => createAutomationSafety({ file, settings: () => settings, now: () => time, sleep: async ms => { sleeps.push(ms); time += ms }, changed: () => { changes++ } })
+  return { policy: create(), file, settings, sleeps, changes: () => changes, advance: (ms: number) => { time += ms }, restart: create }
 }
 let instagram = async () => ({ url: 'https://www.instagram.com/' })
 
@@ -63,6 +64,31 @@ test('warnings latch across restarts and other sites until a human resolves the 
   next.resume('bot', { url: 'https://instagram.com/' })
   await next.before('bot', instagram)
   expect(next.status().profiles[0].warning).toBeUndefined()
+})
+
+test('hitting the session limit publishes the cooldown without extending its deadline', async () => {
+  let { policy, advance, changes } = fixture()
+  await policy.before('bot', instagram)
+  let previous = changes()
+  advance(10 * 60_000)
+  expect(() => policy.assertAvailable('bot')).toThrow('Open the UI alert or Profile > Anti-bot')
+  expect(changes()).toBe(previous + 1)
+  expect(policy.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
+})
+
+test('a human session reset persists fresh usage for only that profile and preserves warning pauses', async () => {
+  let { policy, advance, restart } = fixture()
+  await policy.before('bot', instagram)
+  await policy.before('other', instagram)
+  advance(10 * 60_000)
+  policy.resetSession('bot')
+  let next = restart()
+  await next.before('bot', instagram)
+  await expect(next.before('other', instagram)).rejects.toThrow('session limit')
+  expect(next.status().profiles.find(item => item.profileId === 'bot')).toMatchObject({ startedAt: Date.parse('2026-10-01T00:10:00Z'), retryAfter: null })
+  await expect(next.before('bot', async () => ({ url: 'https://instagram.com/', warning: 'account-warning' }))).rejects.toThrow('Automation paused')
+  next.resetSession('bot')
+  await expect(restart().before('bot', instagram)).rejects.toThrow('Automation paused')
 })
 
 test('a page change during the delay is checked again before dispatch', async () => {

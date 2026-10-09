@@ -100,6 +100,12 @@ the current notice without changing checks or resuming automation. The CLI canno
 warning pause or change these toggles. Resuming does not clear session usage or
 bypass a cooldown.
 
+Reaching the session limit shows a UI alert with the retry time. Wait for that
+time, or choose **Reset session** in the alert or the profile's **Anti-bot** tab
+to start a fresh session. Resetting applies to all panes using that profile and
+keeps account warnings and site exclusions. The CLI cannot reset a session.
+Dismissal hides the current alert without resetting the session.
+
 ```sh
 bmux automation safety
 ```
