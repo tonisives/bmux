@@ -31,9 +31,11 @@ test('distinguishes picker requests, native sheets, and shared CDP interception'
   window.emit('sheet-begin')
   window.emit('closed')
   expect(trace.snapshot().sheets).toEqual([])
-  contents.emit('destroyed')
-  expect(contents.debugger.listenerCount('message')).toBe(0)
-  expect(contents.debugger.listenerCount('detach')).toBe(0)
+  let debuggerApi = contents.debugger
+  Object.defineProperty(contents, 'debugger', { get: () => { throw new Error('WebContents destroyed') } })
+  expect(() => contents.emit('destroyed')).not.toThrow()
+  expect(debuggerApi.listenerCount('message')).toBe(0)
+  expect(debuggerApi.listenerCount('detach')).toBe(0)
 })
 
 test('bounds picker history and returns independent snapshots', () => {

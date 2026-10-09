@@ -94,10 +94,10 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await expect.poll(() => rpc('state').then(state => state.model.sessions[0].windows[0].panes[0].url)).toBe(url)
     let paneId = state.model.sessions[0].windows[0].panes[0].id
     let frameReady = 'typeof document.querySelector("iframe")?.contentDocument?.querySelector("#image")?.onclick === "function"'
-    await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : '!!document.querySelector("#image")' })
+    await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : 'typeof document.querySelector("#image")?.onclick === "function"' })
     if (picker === 'input-interception') {
       await rpc('cdp', { tab: paneId, method: 'Page.setInterceptFileChooserDialog', params: { enabled: true } })
-      await rpc('click', { tab: paneId, selector: '#image' })
+      await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("#image").click()', userGesture: true } })
       await expect.poll(() => clicks).toBe(1)
       expect((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim()).toBe('false')
       await rpc('cdp', { tab: paneId, method: 'Page.setInterceptFileChooserDialog', params: { enabled: false } })

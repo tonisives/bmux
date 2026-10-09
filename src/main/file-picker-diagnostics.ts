@@ -19,15 +19,16 @@ export let createFilePickerDiagnostics = () => {
     watchPage: (paneId: string, contents: WebContents, owner: () => Owner) => {
       // Page.enable opts into notifications without intercepting native pickers.
       // Retain only browser identities and state, never paths or page contents.
+      let debuggerApi = contents.debugger
       let message = (_event: Electron.Event, method: string) => {
         if (method === 'Page.fileChooserOpened') record({ event: 'request', paneId, ...owner() })
       }
       let detached = () => record({ event: 'debugger-detached', paneId })
-      contents.debugger.on('message', message)
-      contents.debugger.on('detach', detached)
+      debuggerApi.on('message', message)
+      debuggerApi.on('detach', detached)
       contents.once('destroyed', () => {
-        contents.debugger.off('message', message)
-        contents.debugger.off('detach', detached)
+        debuggerApi.off('message', message)
+        debuggerApi.off('detach', detached)
       })
     },
     interception: (paneId: string, params: Record<string, unknown>, sessionId?: string) => record({ event: 'cdp-interception', paneId, enabled: params.enabled === true, cancel: params.cancel === true, ...(sessionId ? { sessionId } : {}) }),
