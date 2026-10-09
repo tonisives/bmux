@@ -205,15 +205,21 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
   return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
 
+let automationWebsiteHost = (url?: string) => {
+  try { let parsed = new URL(url ?? ''); return /^https?:$/.test(parsed.protocol) && /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(parsed.hostname) ? parsed.hostname : undefined } catch { return undefined }
+}
+
 let automationWarningNotices = (state: PublicState, window: InternalWindow, show: UIContext['show'], run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
-  let pane = window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
+  let selectedPane = selection(state).pane
+  let pane = selectedPane?.profileId === usage.profileId ? selectedPane : window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
   if (!pane || !automationSafetyEnabled(state.automationSafety!.limits, usage.profileId)) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   if (usage.warning && host && automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host)) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${profile?.name ?? usage.profileId}: ${usage.warning} on ${host}. All panes using this profile are affected.`, actions: [
     { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
   ] }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, text: `Automation session limit reached for ${profile?.name ?? usage.profileId}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()} or reset the session. All panes using this profile are affected.`, actions: [
+  let currentHost = automationWebsiteHost(pane.url)
+  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, ...(currentHost ? { siteExclusion: { profileId: usage.profileId, host: currentHost } } : {}), text: `Automation session limit reached for ${profile?.name ?? usage.profileId}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()} or reset the session. All panes using this profile are affected.`, actions: [
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
     { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
   ] }]
@@ -1702,7 +1708,7 @@ let SiteExclusionSelect = ({ profileId, host }: { profileId: string; host: strin
     setBusy(true)
     try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
   }
-  return <select className={css.notificationAction} aria-label="Disable checks for this site" value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
+  return <select className={css.notificationAction} aria-label="Disable checks for this site" aria-description={host} value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
@@ -1733,6 +1739,7 @@ let ProfileAntiBotSettings = () => {
   useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
   if (!profile) return null
   let usage = safety?.profiles.find(item => item.profileId === profile.id)
+  let host = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? usage.warningHost : automationWebsiteHost(pane?.url)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
   let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? labels[usage.warning] : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
@@ -1757,7 +1764,8 @@ let ProfileAntiBotSettings = () => {
     <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
     {enabled && safety?.error && <p>{safety.error}</p>}
     {enabled && cooldown && <><p>Wait until {new Date(usage!.retryAfter!).toLocaleTimeString()} or reset the session to continue.</p><button type="button" onClick={resetSession} disabled={busy}>Reset session</button></>}
-    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button><SiteExclusionSelect profileId={profile.id} host={usage.warningHost!} /></>}
+    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button></>}
+    {enabled && host && <section aria-label="Website checks"><h3>{host}</h3><SiteExclusionSelect profileId={profile.id} host={host} /></section>}
     {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Site exclusions</h3><p>Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
   </div>
 }
