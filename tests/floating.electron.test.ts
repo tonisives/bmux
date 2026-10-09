@@ -408,6 +408,82 @@ test('selected page text offers macOS Look Up on plain text and links', async ()
   } finally { await application.evaluate(() => (globalThis as any).restoreLookUpMenu()) }
 })
 
+test('selected page text translates plain text, links, editable text and iframe text in a new window', async () => {
+  let current = await state(), client = current.model.clients[0]
+  let session = await rpc('new-session', { name: 'translate-selection', profile: 'bot' })
+  let source = session.windows[0]
+  let pane = source.panes[0]
+  await rpc('select-window', { client: client.id, window: source.id })
+  await rpc('activate-client', { client: client.id })
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.fill(`${url}/translate-selection`); await address.press('Enter')
+  await rpc('wait', { tab: pane.id, selector: '#lookup-text' })
+  let page = application.context().pages().find(page => page.url() === `${url}/translate-selection`)!
+  let text = 'Tere & head päeva? #1 + 你好\nTeine rida'
+  await page.locator('#lookup-text').evaluate((element, text) => { element.textContent = text; (element as HTMLElement).style.minHeight = '24px' }, text)
+  await page.locator('a').evaluate((element, text) => { element.textContent = text }, text)
+  await page.locator('#spelling').fill(text)
+  await page.evaluate(src => { let frame = document.createElement('iframe'); frame.src = src; document.body.append(frame) }, `${url}/translate-frame`)
+  let iframeText = page.frameLocator('iframe').locator('#lookup-text')
+  await expect(iframeText).toHaveText('dictionary text')
+  await application.context().route('https://translate.google.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Translation fixture</title><h1>Translation fixture</h1>' }))
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restoreTranslateMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      ;(globalThis as any).translateMenu = menu
+      menu.popup = () => undefined
+      return menu
+    }
+  })
+  try {
+    for (let [selected, expected] of [[page.locator('#lookup-text'), text], [page.locator('a'), text], [page.locator('#spelling'), text], [iframeText, 'dictionary text']] as const) {
+      await selected.evaluate(element => {
+        if (element instanceof HTMLTextAreaElement) { element.focus(); element.select(); return }
+        let range = document.createRange()
+        range.selectNodeContents(element)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+      })
+      await application.evaluate(() => { (globalThis as any).translateMenu = undefined })
+      await selected.click({ button: 'right', position: { x: 10, y: 12 } })
+      await expect.poll(() => application.evaluate(() => (globalThis as any).translateMenu?.items.some((item: any) => item.label === 'Translate'))).toBe(true)
+      await application.evaluate(() => (globalThis as any).translateMenu.items.find((item: any) => item.label === 'Translate').click())
+      await expect.poll(async () => (await state()).model.sessions.find((item: any) => item.id === session.id).windows.length).toBe(2)
+      let translation = (await state()).model.sessions.find((item: any) => item.id === session.id).windows.find((item: any) => item.id !== source.id)
+      let destination = new URL(translation.panes[0].url)
+      expect(destination.origin).toBe('https://translate.google.com')
+      expect(Object.fromEntries(destination.searchParams)).toEqual({ sl: 'auto', tl: 'en', text: expected, op: 'translate' })
+      expect(translation.panes[0].profileId).toBe(pane.profileId)
+      await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(translation.id)
+      await rpc('wait', { tab: translation.panes[0].id, selector: 'h1' })
+      expect(await rpc('eval', { tab: pane.id, expression: 'location.href' })).toBe(`${url}/translate-selection`)
+      await rpc('select-window', { client: client.id, window: source.id })
+      await rpc('kill-window', { window: translation.id, confirm: true })
+    }
+    for (let empty of ['', '   ']) {
+      await page.locator('#lookup-text').evaluate((element, text) => {
+        element.textContent = text
+        let range = document.createRange()
+        range.selectNodeContents(element)
+        window.getSelection()!.removeAllRanges()
+        window.getSelection()!.addRange(range)
+      }, empty)
+      await application.evaluate(() => { (globalThis as any).translateMenu = undefined })
+      await page.locator('#lookup-text').click({ button: 'right', position: { x: 10, y: 12 } })
+      await expect.poll(() => application.evaluate(() => !!(globalThis as any).translateMenu)).toBe(true)
+      expect(await application.evaluate(() => (globalThis as any).translateMenu.items.some((item: any) => item.label === 'Translate'))).toBe(false)
+    }
+  } finally {
+    await application.evaluate(() => (globalThis as any).restoreTranslateMenu())
+    await application.context().unroute('https://translate.google.com/**')
+    await rpc('select-window', { client: client.id, window: current.model.clients[0].windowId })
+    await rpc('kill-session', { session: session.id, confirm: true })
+  }
+})
+
 test('reopens a closed float at its remembered position and adapts after window resizing', async () => {
   let current = await state(), client = current.model.clients[0], session = current.model.sessions.find((item: any) => item.id === client.sessionId)
   let originalWindowId = client.windowId

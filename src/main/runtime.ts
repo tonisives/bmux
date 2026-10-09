@@ -1074,8 +1074,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (linkUrl && !selectionText && params.frame && !params.frame.isDestroyed()) void params.frame.executeJavaScript('globalThis.getSelection()?.removeAllRanges()').catch(reportError)
         if (contents.isDestroyed() || owner.window.isDestroyed()) return
         let template: Electron.MenuItemConstructorOptions[] = []
-        if (process.platform === 'darwin' && selectionText) template.push(
-          { label: 'Look Up', click: () => contents.showDefinitionForSelection() },
+        if (selectionText) template.push(
+          ...(process.platform === 'darwin' ? [{ label: 'Look Up', click: () => contents.showDefinitionForSelection() }] : []),
+          { label: 'Translate', click: () => { openLinkWindow(`https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(selectionText)}&op=translate`, true) } },
           { type: 'separator' },
         )
         if (params.isEditable && params.misspelledWord) {
