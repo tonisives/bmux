@@ -1303,7 +1303,6 @@ let useSessionNavigation = (toggleSort: () => void) => {
     if (target.closest('[role="alertdialog"], select') || (target.tagName === 'INPUT' && target !== input.current)) return
     let editing = target === input.current
     if (!editing && !event.ctrlKey && event.key === 's') { event.preventDefault(); setCount(''); pendingG.current = false; toggleSort(); return }
-    if (target.closest('[data-picker-action]')) return
     let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')]
     let index = rows.indexOf(target as HTMLButtonElement)
     let focus = (position: number) => {
@@ -1324,6 +1323,7 @@ let useSessionNavigation = (toggleSort: () => void) => {
     }
     pendingG.current = false
     if (!editing && !event.ctrlKey && event.key === 'G') { event.preventDefault(); focus(count ? Number(count) - 1 : rows.length - 1); setCount(''); return }
+    if (target.closest('[data-picker-action]')) return
     if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); setCount((count + event.key).slice(0, 6)); return }
     if ((!editing && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
       event.preventDefault()

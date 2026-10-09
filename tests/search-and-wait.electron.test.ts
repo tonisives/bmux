@@ -544,6 +544,8 @@ test('session picker recent sorting lists individual windows across sessions and
     await open('sessions'); await expect(windows.first()).toHaveAttribute('data-window-row', older.id)
     await toggle.click(); await expect(toggle).toHaveAttribute('aria-pressed', 'false')
     await chrome.keyboard.press('s'); await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await chrome.keyboard.press('G'); await expect(group.getByRole('button', { name: 'new private session', exact: true })).toBeFocused()
+    await chrome.keyboard.press('g'); await chrome.keyboard.press('g'); await expect(windows.first()).toBeFocused()
     await chrome.keyboard.press('s'); await expect(toggle).toHaveAttribute('aria-pressed', 'false')
     await expect(sessionRows.first()).toHaveAttribute('title', first.name)
     await expect(firstTree.locator('[data-window-row]').first()).toHaveAttribute('data-window-row', first.windows[0].id)
