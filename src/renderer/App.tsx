@@ -1275,11 +1275,18 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
 }
 let PrivateIcon = () => <svg className={`${css.statusIcon} ${css.privateIcon}`} viewBox="0 0 20 20" aria-label="Private session" role="img"><rect x="5" y="9" width="10" height="8" rx="1" /><path d="M7 9V6a3 3 0 0 1 6 0v3" /></svg>
 let useSessionNavigation = (toggleSort: () => void) => {
-  let { ref, keys, input, query, change } = usePickerNavigation()
+  let { ref, keys, input, query, setQuery, change } = usePickerNavigation(undefined, '', undefined, false)
   let [count, setCount] = useState(''), [mode, setMode] = useState('NORMAL')
   let normalRow = useRef<HTMLButtonElement | null>(null)
   let pendingG = useRef(false)
+  let restoreNormalFocus = useRef(false)
   let focusMode = (event: FocusEvent<HTMLDivElement>) => { pendingG.current = false; setMode(event.target === input.current ? 'INSERT' : 'NORMAL') }
+  useLayoutEffect(() => {
+    if (!restoreNormalFocus.current) return
+    restoreNormalFocus.current = false
+    let row = normalRow.current?.isConnected ? normalRow.current : ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')
+    row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+  }, [query])
   useLayoutEffect(() => {
     let picker = ref.current!
     let updateNumbers = () => {
@@ -1316,6 +1323,9 @@ let useSessionNavigation = (toggleSort: () => void) => {
       event.preventDefault(); event.stopPropagation(); setCount(''); pendingG.current = false
       if (editing) { if (normalRow.current?.isConnected) normalRow.current.focus(); else focus(0) }
       return
+    }
+    if (event.key === 'Escape' && query) {
+      event.preventDefault(); event.stopPropagation(); restoreNormalFocus.current = true; setQuery(''); return
     }
     if (!editing && !event.ctrlKey && event.key === 'g') {
       event.preventDefault()

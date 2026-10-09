@@ -535,6 +535,33 @@ test('session tree collapses with keyboard and mouse while search and creation s
   }
 })
 
+test('session picker Escape clears search without returning to insert mode', async () => {
+  try {
+    for (let recent of [false, true]) {
+      await chrome.evaluate(value => localStorage.setItem('session-sort-recent', String(value)), recent)
+      for (let query of ['docs', 'no-such-session-escape']) {
+        await open('sessions')
+        let group = chrome.getByRole('group', { name: 'Choose session', exact: true })
+        let search = group.getByRole('textbox', { name: 'Search sessions', exact: true })
+        let mode = group.locator('[data-session-mode]')
+        await search.fill(query); await expect(mode).toHaveText('INSERT>')
+        await search.press('Escape')
+        await expect(group).toBeVisible(); await expect(mode).toHaveText('NORMAL>')
+        await expect(search).toHaveValue(query); await expect(search).not.toBeFocused()
+        await chrome.keyboard.press('Escape')
+        await expect(group).toBeVisible(); await expect(search).toHaveValue('')
+        await expect(mode).toHaveText('NORMAL>'); await expect(search).not.toBeFocused()
+        await expect(group.locator('button:not([data-picker-action])').first()).toBeFocused()
+        await chrome.keyboard.press('Escape'); await expect(group).toHaveCount(0)
+      }
+    }
+  } finally {
+    let panel = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+    if (await panel.count()) await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await chrome.evaluate(() => localStorage.removeItem('session-sort-recent'))
+  }
+})
+
 test('session picker recent sorting lists individual windows across sessions and keeps exact matches first', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let first = await rpc('new-session', { client: client.id, name: 'recent-visit' })
