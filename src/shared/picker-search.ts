@@ -1,4 +1,4 @@
-import type { Bookmark, HistoryEntry, InternalWindow, WorkspaceSession } from './types'
+import type { Bookmark, Client, HistoryEntry, InternalWindow, WorkspaceSession } from './types'
 import { fuzzyMatch } from './command-search'
 
 type BookmarkMatch = { priority: number; score: number }
@@ -14,6 +14,14 @@ let fieldMatch = (query: string, value: string, priority: number): BookmarkMatch
 let compareMatches = (a: BookmarkMatch, b: BookmarkMatch) => b.priority - a.priority || b.score - a.score
 let bestMatch = (matches: (BookmarkMatch | undefined)[]) => matches.filter((match): match is BookmarkMatch => !!match).sort(compareMatches)[0]
 type SessionSearchResult = { session: WorkspaceSession; windows: InternalWindow[]; matched: boolean }
+
+export let sortSessionsByRecentVisit = (sessions: WorkspaceSession[], client?: Pick<Client, 'sessionHistory' | 'windowHistory'>): WorkspaceSession[] => {
+  let sortByHistory = <T extends { id: string }>(items: T[], history: string[] = []) => {
+    let positions = new Map(history.map((id, index) => [id, index]))
+    return [...items].sort((a, b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity))
+  }
+  return sortByHistory(sessions, client?.sessionHistory).map(session => ({ ...session, windows: sortByHistory(session.windows, client?.windowHistory) }))
+}
 
 export let searchSessions = (sessions: WorkspaceSession[], query: string): SessionSearchResult[] => {
   if (!query.trim()) return sessions.map(session => ({ session, windows: session.windows, matched: true }))

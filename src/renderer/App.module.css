@@ -415,6 +415,9 @@
 .sessionSearch:focus-within { border-bottom-color: #627766; }
 .sessionSearch > input { flex: 1; min-width: 0; border-bottom: 0; }
 .sessionMode { flex-shrink: 0; padding-left: 8px; color: #bdc9b4; }
+.sessionSort { flex-shrink: 0; padding: 0 8px; color: #8995a3; }
+.sessionSort[aria-pressed="true"] { color: #bdc9b4; }
+.sessionSort kbd { color: #8995a3; font: inherit; }
 .sessionList { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
 .sessionFooter { flex-shrink: 0; padding-top: 4px; border-top: 1px solid #363c45; }
 .panel .sessionPicker .listRow { display: flex; align-items: center; gap: 8px; padding: 3px 8px; overflow-wrap: normal; white-space: nowrap; }

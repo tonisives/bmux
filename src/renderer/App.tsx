@@ -22,7 +22,7 @@ import { DEFAULT_KEYBOARD, shortcutAction, shortcutLabel } from '../shared/keybo
 import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS, searchCommands } from '../shared/command-search'
 import type { CommandEntry } from '../shared/command-search'
 import { commandTargetSuggestions } from '../shared/command-completion'
-import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions } from '../shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, sortSessionsByRecentVisit } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
 import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
@@ -1249,16 +1249,10 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
   return { ref, keys, input, query, setQuery, change }
 }
 let PrivateIcon = () => <svg className={`${css.statusIcon} ${css.privateIcon}`} viewBox="0 0 20 20" aria-label="Private session" role="img"><rect x="5" y="9" width="10" height="8" rx="1" /><path d="M7 9V6a3 3 0 0 1 6 0v3" /></svg>
-let SessionPicker = () => {
-  let { state, run } = useUI()
-  let [busy, setBusy] = useState(false)
-  let [creatingProfile, setCreatingProfile] = useState(false)
-  let [newProfileName, setNewProfileName] = useState('')
+let useSessionNavigation = (toggleSort: () => void) => {
   let { ref, keys, input, query, change } = usePickerNavigation()
   let [count, setCount] = useState(''), [mode, setMode] = useState('NORMAL')
   let normalRow = useRef<HTMLButtonElement | null>(null)
-  let [now, setNow] = useState(Date.now)
-  useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   let focusMode = (event: FocusEvent<HTMLDivElement>) => setMode(event.target === input.current ? 'INSERT' : 'NORMAL')
   useLayoutEffect(() => {
     let picker = ref.current!
@@ -1268,11 +1262,14 @@ let SessionPicker = () => {
       if (selected < 0) selected = document.activeElement === input.current ? 0 : rows.findIndex(row => row.dataset.active === 'true')
       rows.forEach((row, index) => {
         let number = row.querySelector<HTMLElement>('[data-session-number]')
-        if (number) number.textContent = String(Math.abs(index - Math.max(0, selected)))
+        let value = String(Math.abs(index - Math.max(0, selected)))
+        if (number && number.textContent !== value) number.textContent = value
       })
     }
+    let observer = new MutationObserver(changes => { if (changes.some(change => !(change.target instanceof Element) || !change.target.closest('[data-session-number]'))) updateNumbers() })
+    observer.observe(picker, { childList: true, subtree: true })
     picker.addEventListener('focusin', updateNumbers); updateNumbers()
-    return () => picker.removeEventListener('focusin', updateNumbers)
+    return () => { observer.disconnect(); picker.removeEventListener('focusin', updateNumbers) }
   })
   let sessionKeys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.metaKey || event.altKey) return
@@ -1287,6 +1284,7 @@ let SessionPicker = () => {
       if (editing) { if (normalRow.current?.isConnected) normalRow.current.focus(); else focus(0) }
       return
     }
+    if (!editing && !event.ctrlKey && event.key === 's') { event.preventDefault(); setCount(''); toggleSort(); return }
     if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); setCount((count + event.key).slice(0, 6)); return }
     if ((!editing && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
       event.preventDefault()
@@ -1306,10 +1304,22 @@ let SessionPicker = () => {
     setCount('')
     keys(event)
   }
+  return { ref, input, query, change, sessionKeys, focusMode, mode, count }
+}
+let SessionPicker = () => {
+  let { state, run } = useUI()
+  let [busy, setBusy] = useState(false)
+  let [creatingProfile, setCreatingProfile] = useState(false)
+  let [newProfileName, setNewProfileName] = useState('')
+  let [recent, setRecent] = useState(() => localStorage.getItem('session-sort-recent') === 'true')
+  let toggleSort = () => { setRecent(!recent); localStorage.setItem('session-sort-recent', String(!recent)) }
+  let { ref, input, query, change, sessionKeys, focusMode, mode, count } = useSessionNavigation(toggleSort)
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
-  let sessions = searchSessions(state.model.sessions, query)
+  let sessions = searchSessions(recent ? sortSessionsByRecentVisit(state.model.sessions, client) : state.model.sessions, query)
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
   let backRow = backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><SessionNumber /><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>
   let create = async (privateSession: boolean) => {
@@ -1334,7 +1344,7 @@ let SessionPicker = () => {
   }
   let profileKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
   return <div ref={ref} className={css.sessionPicker} onKeyDown={sessionKeys} onFocusCapture={focusMode} role="group" aria-label="Choose session">
-    <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /></div>
+    <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list>
     <div className={css.sessionProfilePreference}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={profileKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
