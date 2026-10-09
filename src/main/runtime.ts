@@ -1,6 +1,6 @@
 import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
 import { copyConnectionCookies } from './connection-cookies'
-import { createFilePickerDiagnostics } from './file-picker-diagnostics'
+import { createFilePickers } from './file-pickers'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
 import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
@@ -170,7 +170,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let previouslyVisibleTabs = new Set<string>()
   let idleCheckRunning = false
   let hosts = new Map<string, BaseWindow>()
-  let filePickers = createFilePickerDiagnostics()
+  let filePickers = createFilePickers(() => { void scheduleVisuals() })
   let memoryTimer: ReturnType<typeof setInterval> | undefined
   let idleUnloadTimer: ReturnType<typeof setInterval> | undefined
   let memory = createMemoryDiagnostics(previous => {
@@ -1440,9 +1440,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let bounds = viewer?.bounds
       // The first navigation needs a native focus target before its URL commits.
       let target = viewer && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || live.pendingNavigation) ? viewer.live.window : parkHost(tabById(model, tabId).pane.profileId)
+      // A chooser can open after selection changes. Hide its page in the client
+      // until the sheet closes so Electron cannot attach it to a parking host.
+      let retainPickerOwner = target !== viewer?.live.window && !live.parent.isDestroyed() && filePickers.keepsOwner(tabId, live.parent.id) && [...clients.values()].some(client => client.window === live.parent)
+      if (retainPickerOwner) target = live.parent
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
       moveView(live, target)
+      live.view.setVisible(!retainPickerOwner)
+      live.camera?.setVisible(!retainPickerOwner)
       let { session, pane } = tabById(model, tabId)
       extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {

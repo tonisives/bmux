@@ -113,6 +113,12 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
       await expect.poll(() => clicks).toBe(1)
       await fs.writeFile(info.outputPath('background-picker.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
       await rpc('select-pane', { client: state.model.clients[0].id, pane: paneId })
+      // Wait for asynchronous native presentation or Chromium cancellation before
+      // dismissing the first request and attempting a second real mouse click.
+      await expect.poll(async () => {
+        if ((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim() === 'true') return true
+        return rpc('eval', { tab: paneId, expression: '!document.querySelector("#file").matches(":open")' })
+      }).toBe(true)
       if ((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim() === 'true') {
         await apple(`tell application "System Events"
           tell first application process whose unix id is ${child.pid}
@@ -126,6 +132,7 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
         end tell`)
         await expect.poll(async () => (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim()).toBe('false')
       }
+      await rpc('wait', { tab: paneId, expression: '!document.querySelector("#file").matches(":open")' })
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
       await fs.writeFile(info.outputPath('background-restored-diagnostics.json'), JSON.stringify((await rpc('diagnostics')).filePickers, null, 2))
@@ -144,9 +151,11 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     }
     await expect.poll(() => clicks).toBe(['input-frame-popup', 'input-interception', 'input-background', 'input-switch-race'].includes(picker) ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
-    let pickerTrace = (await rpc('diagnostics')).filePickers
+    let diagnostics = await rpc('diagnostics')
+    let pickerTrace = diagnostics.filePickers
     expect(pickerTrace.events).toContainEqual(expect.objectContaining({ event: 'request', paneId, visible: true }))
     expect(pickerTrace.events).toContainEqual(expect.objectContaining({ event: 'sheet-begin', visible: true }))
+    expect(pickerTrace.events.filter((event: { event: string }) => event.event === 'sheet-begin').every((event: { windowId: number }) => diagnostics.windows.some((window: { nativeId: number }) => window.nativeId === event.windowId))).toBe(true)
     if (picker === 'input-interception') {
       expect(pickerTrace.events.filter((event: { event: string }) => event.event === 'cdp-interception').map((event: { enabled: boolean }) => event.enabled)).toEqual([true, false])
     }
