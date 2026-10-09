@@ -362,7 +362,7 @@ test('session tree shows pane activity and supports counted vim navigation and w
   expect((await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(second.id)
   await open('sessions'); await secondRow.focus(); await chrome.keyboard.press('x')
   let confirmation = group.getByRole('alertdialog', { name: 'Close window tree-second?' })
-  await expect(confirmation).toBeVisible(); await chrome.keyboard.press('Escape')
+  await expect(confirmation.getByRole('button', { name: 'yes', exact: true })).toBeFocused(); await chrome.keyboard.press('Escape')
   await expect(secondRow).toBeFocused(); await chrome.keyboard.press('x'); await chrome.keyboard.press('y')
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).some((item: any) => item.id === second.id)).toBe(false)
   if (await group.count()) await chrome.keyboard.press('Escape')

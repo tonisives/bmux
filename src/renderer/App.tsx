@@ -1363,6 +1363,8 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   let active = selection(state).client?.sessionId === id
   let select = async () => { if (await run('switch-client', { client: state.clientId, session: id }) && active) dismiss() }
   let row = useRef<HTMLButtonElement>(null)
+  let confirmButton = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
   let ask = () => setConfirming(true)
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
@@ -1371,19 +1373,21 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
     setBusy(true)
     await run('kill-session', { session: id, confirm: true }); setBusy(false); cancel()
   }
-  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action autoFocus onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null)
+  let confirmButton = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
   let select = async () => { if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
   let ask = () => setConfirming(true)
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => { if (busy) return; setBusy(true); await run('kill-window', { window: window.id, confirm: true }); setBusy(false); setConfirming(false) }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
-  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${window.name}?`}><span>Close window "{window.name}"?</span><button data-picker-action autoFocus onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${window.name}?`}><span>Close window "{window.name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={`${css.sessionRow} ${css.sessionWindow}`} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
       <span>{window.name}</span>
