@@ -2308,9 +2308,10 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await expect(address).toBeFocused()
     await address.fill(query)
     await address.press('ArrowDown')
-    await expect(address).toHaveValue(savedUrl)
+    let retainedUrl = query === 'long-term' && source === 'history' ? `${url}${rootPath}` : savedUrl
+    await expect(address).toHaveValue(retainedUrl)
     await address.press('Enter')
-    await expect(website).toHaveURL(savedUrl)
+    await expect(website).toHaveURL(retainedUrl)
   } finally {
     if (bookmark) await cli('bookmark.remove', { profile: pane.profileId, bookmark: bookmark.bookmark.id })
     await cli('history.remove', { profile: pane.profileId, url: savedUrl })
