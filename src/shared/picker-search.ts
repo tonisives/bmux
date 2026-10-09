@@ -15,14 +15,6 @@ let compareMatches = (a: BookmarkMatch, b: BookmarkMatch) => b.priority - a.prio
 let bestMatch = (matches: (BookmarkMatch | undefined)[]) => matches.filter((match): match is BookmarkMatch => !!match).sort(compareMatches)[0]
 type SessionSearchResult = { session: WorkspaceSession; windows: InternalWindow[]; matched: boolean }
 
-export let sortSessionsByRecentVisit = (sessions: WorkspaceSession[], client?: Pick<Client, 'sessionHistory' | 'windowHistory'>): WorkspaceSession[] => {
-  let sortByHistory = <T extends { id: string }>(items: T[], history: string[] = []) => {
-    let positions = new Map(history.map((id, index) => [id, index]))
-    return [...items].sort((a, b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity))
-  }
-  return sortByHistory(sessions, client?.sessionHistory).map(session => ({ ...session, windows: sortByHistory(session.windows, client?.windowHistory) }))
-}
-
 export let searchSessions = (sessions: WorkspaceSession[], query: string): SessionSearchResult[] => {
   if (!query.trim()) return sessions.map(session => ({ session, windows: session.windows, matched: true }))
   let search = (literal: boolean) => sessions.flatMap(session => {
@@ -41,6 +33,12 @@ export let searchSessions = (sessions: WorkspaceSession[], query: string): Sessi
   }).sort((a, b) => compareMatches(a.match, b.match))
   let literal = search(true)
   return (literal.length ? literal : search(false)).map(({ session, windows, matched }) => ({ session, windows, matched }))
+}
+
+export let searchRecentWindows = (sessions: WorkspaceSession[], query: string, client?: Pick<Client, 'windowHistory'>): InternalWindow[] => {
+  let positions = new Map(client?.windowHistory?.map((id, index) => [id, index]))
+  let matches = searchSessions(sessions, query).flatMap(({ session, windows }) => windows.map(window => ({ window, exactSession: !!query.trim() && session.name.toLocaleLowerCase() === query.trim().toLocaleLowerCase() })))
+  return matches.sort((a, b) => Number(b.exactSession) - Number(a.exactSession) || (positions.get(a.window.id) ?? Infinity) - (positions.get(b.window.id) ?? Infinity)).map(({ window }) => window)
 }
 
 let pageMatch = (bookmark: Bookmark, query: string) => bestMatch([

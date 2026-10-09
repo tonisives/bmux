@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, sortSessionsByRecentVisit } from '../src/shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, searchRecentWindows } from '../src/shared/picker-search'
 import { newSession, newWindow } from '../src/main/model'
 import { waitOptions } from '../src/main/wait'
 import type { Bookmark } from '../src/shared/types'
@@ -9,17 +9,19 @@ let bookmarks: Bookmark[] = [{ id: 'work', title: 'Work', children: [
   { id: 'notes', title: 'Notes', url: 'https://example.test/notes' },
 ] }, { id: 'personal', title: 'Personal', children: [{ id: 'recipe', title: 'Recipes', url: 'https://food.test/' }] }]
 
-test('recent session sorting uses visits for sessions and windows while preserving unvisited order and exact search matches', () => {
+test('recent windows interleave sessions by window visits, retain unvisited order, and prioritize exact session searches', () => {
   let gp = newSession('gp', 'profile'), tools = newSession('gp-tools', 'profile'), unseen = newSession('unvisited', 'profile')
   let first = newWindow('first', 'profile'), second = newWindow('second', 'profile'), third = newWindow('third', 'profile')
   gp.windows = [first, second, third]
   first.panes[0].lastActivityAt = Date.now()
   let sessions = [gp, tools, unseen], before = structuredClone(sessions)
-  let sorted = sortSessionsByRecentVisit(sessions, { sessionHistory: [tools.id, 'deleted-session', gp.id], windowHistory: [second.id, 'deleted-window'] })
-  expect(sorted.map(session => session.id)).toEqual([tools.id, gp.id, unseen.id])
-  expect(sorted[1].windows.map(window => window.id)).toEqual([second.id, first.id, third.id])
-  expect(searchSessions(sorted, 'gp')[0].session.id).toBe(gp.id)
-  expect(sortSessionsByRecentVisit(sessions)).toEqual(sessions)
+  let visits = { windowHistory: [second.id, tools.windows[0].id, first.id, 'deleted-window'] }
+  let sorted = searchRecentWindows(sessions, '', visits)
+  expect(sorted.map(window => window.id)).toEqual([second.id, tools.windows[0].id, first.id, third.id, unseen.windows[0].id])
+  expect(searchRecentWindows(sessions, 'gp', visits).map(window => window.id)).toEqual([second.id, first.id, third.id, tools.windows[0].id])
+  expect(searchRecentWindows(sessions, 'first', visits)).toEqual([first])
+  expect(searchRecentWindows(sessions, 'zzzz', visits)).toEqual([])
+  expect(searchRecentWindows(sessions, '')).toEqual(sessions.flatMap(session => session.windows))
   expect(sessions).toEqual(before)
 })
 
