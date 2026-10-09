@@ -2117,7 +2117,8 @@ test('permission notice leaves the native page interactive and reopens for new r
   let popup = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: /requests (notifications|geolocation)/ })
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('notifications')
-  await expect(popup).toContainText(tab.id)
+  await expect(popup).toContainText('This pane')
+  await expect(popup.getByRole('button', { name: 'Go to pane', exact: true })).toHaveCount(0)
   let placement = await application.evaluate(({ BaseWindow }, fixtureUrl) => {
     let window = BaseWindow.getAllWindows().find(window => window.isFocused())!
     let views = window.contentView.children as Electron.WebContentsView[]
