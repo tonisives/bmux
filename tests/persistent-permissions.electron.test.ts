@@ -70,6 +70,7 @@ for (let savedConnection of [false, true]) for (let allowed of [true, false]) te
     await expect(privatePage.getByRole('heading')).toHaveText('Storage permission fixture')
     expect(await privatePage.evaluate(() => navigator.storage.persisted())).toBe(false)
     await privatePage.evaluate(() => { navigator.storage.persist().then(value => { (window as any).storageResult = value }) })
+    notice = chrome!.getByLabel('Notifications').getByRole('status').filter({ hasText: 'requests persistent-storage' })
     await expect(notice).toBeVisible()
     await notice.getByRole('button', { name: 'Allow', exact: true }).click()
     await expect.poll(() => privatePage.evaluate(() => (window as any).storageResult)).toBe(true)
