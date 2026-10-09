@@ -396,3 +396,11 @@
 .siteExclusion { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #333; }
 .siteExclusion label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .siteExclusion small { display: block; margin-top: 4px; color: #999; }
+
+.sessionWindow { margin-left: 20px; }
+.sessionPaneActivity { display: flex; gap: 12px; color: #8995a3; font-size: 12px; margin-top: 3px; }
+.sessionPaneActivity > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sessionPaneActivity time { flex-shrink: 0; }
+.sessionKeys { color: #8995a3; font-size: 12px; }
+
+.sessionSearchParent { padding: 8px; color: #8995a3; }

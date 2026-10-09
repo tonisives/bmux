@@ -1879,7 +1879,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   await shortcut('s')
   await expect(picker.getByRole('button', { name: 'keyboard-renamed', exact: true })).toBeFocused()
   await chrome.keyboard.press('ArrowDown')
-  await expect(picker.getByRole('button', { name: 'keyboard-gamma', exact: true })).toBeFocused()
+  await expect(picker.locator(`button[data-window-row="${beta.windows[0].id}"]`)).toBeFocused()
   await chrome.keyboard.press('ArrowUp')
   await expect(picker.getByRole('button', { name: 'keyboard-renamed', exact: true })).toBeFocused()
   await chrome.keyboard.press('End')

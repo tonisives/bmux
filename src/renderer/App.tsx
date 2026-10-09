@@ -1,3 +1,4 @@
+import { activityLabel } from '../shared/pane-activity'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -1238,10 +1239,46 @@ let SessionPicker = () => {
   let [creatingProfile, setCreatingProfile] = useState(false)
   let [newProfileName, setNewProfileName] = useState('')
   let { ref, keys, input, query, change } = usePickerNavigation()
+  let count = useRef('')
+  let normalRow = useRef<HTMLButtonElement | null>(null)
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  let sessionKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.metaKey || event.altKey) return
+    let target = event.target as HTMLElement
+    if (target.closest('[role="alertdialog"], select, [data-picker-action]') || (target.tagName === 'INPUT' && target !== input.current)) return
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')]
+    let editing = target === input.current
+    let index = rows.indexOf(target as HTMLButtonElement)
+    let focus = (position: number) => { let row = rows[Math.max(0, Math.min(rows.length - 1, position))]; row?.focus(); row?.scrollIntoView({ block: 'nearest' }) }
+    if (event.key === 'Escape' && (editing || count.current)) {
+      event.preventDefault(); event.stopPropagation(); count.current = ''
+      if (editing) { if (normalRow.current?.isConnected) normalRow.current.focus(); else focus(0) }
+      return
+    }
+    if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); count.current = (count.current + event.key).slice(0, 6); return }
+    if ((!editing && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
+      event.preventDefault()
+      let direction = ['j', 'n', 'f'].includes(event.key) ? 1 : -1
+      focus(Math.max(0, index) + direction * (event.ctrlKey ? ['f', 'b'].includes(event.key) ? 10 : 1 : Number(count.current || 1)))
+      count.current = ''; return
+    }
+    if ((!editing && event.key === 'x') || (event.ctrlKey && event.key === 'x')) {
+      event.preventDefault(); count.current = ''
+      let row = editing ? rows[0] : target
+      row?.closest('[data-session-target]')?.querySelector<HTMLButtonElement>('[data-picker-action]')?.click()
+      return
+    }
+    if (!editing && !event.ctrlKey && ['i', 'a', '/'].includes(event.key)) {
+      event.preventDefault(); normalRow.current = target as HTMLButtonElement; count.current = ''; input.current?.focus(); return
+    }
+    count.current = ''
+    keys(event)
+  }
   let client = selection(state).client
   let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
-  let sessions = state.model.sessions.filter(session => fuzzyMatch(query, session.name))
+  let sessions = state.model.sessions.map(session => ({ session, windows: session.windows.filter(window => fuzzyMatch(query, `${session.name} ${window.name} ${window.panes.map(pane => `${pane.title} ${pane.url}`).join(' ')}`)) })).filter(({ session, windows }) => fuzzyMatch(query, session.name) || windows.length)
   let goBack = () => { if (client && previousSession) void run('switch-client', { client: client.id, session: previousSession.id }) }
   let create = async (privateSession: boolean) => {
     if (busy) return
@@ -1264,12 +1301,16 @@ let SessionPicker = () => {
     setBusy(false)
   }
   let profileKeys = (event: KeyboardEvent<HTMLSelectElement>) => { if (event.key !== 'Escape') event.stopPropagation() }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose session">
+  return <div ref={ref} onKeyDown={sessionKeys} role="group" aria-label="Choose session">
     <SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} />
     <div className={css.sessionProfilePreference}><label htmlFor="new-session-profile">Profile for new regular sessions</label><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={changeNewSessionProfile} onKeyDown={profileKeys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={openNewProfile}>New profile</button></div>
     {creatingProfile && <form className={css.sessionCreate} onSubmit={createProfile} aria-label="Create profile"><label>Profile name<input value={newProfileName} onChange={changeNewProfileName} autoFocus required /></label><div className={css.sessionCreateActions}><button type="submit" data-picker-action disabled={busy || !newProfileName.trim()}>Create profile</button><button type="button" data-picker-action onClick={cancelNewProfile}>Cancel</button></div></form>}
     {backSession && <button className={`${css.listRow} ${css.sessionBack} ${css.sessionLabelRow}`} data-session-back onClick={goBack} title={`go back: ${backSession.name}`}><span className={css.sessionLabelText}>go back: {backSession.name}</span>{backSession.private && <PrivateIcon />}</button>}
-    {sessions.map(session => <SessionRow key={session.id} id={session.id} name={session.name} privateSession={session.private === true} />)}
+    {sessions.map(({ session, windows }) => <div key={session.id}>
+      {fuzzyMatch(query, session.name) ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
+      {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
+    </div>)}
+    <p className={css.sessionKeys}>j/k move · 3j/3k move by count · / search · x close · Esc back</p>
     <button className={`${css.listRow} ${css.newSession}`} onClick={createRegular} disabled={busy}>new session</button>
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
     {!backSession && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
@@ -1313,15 +1354,34 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let active = selection(state).client?.sessionId === id
   let select = async () => { if (await run('switch-client', { client: state.clientId, session: id }) && active) dismiss() }
+  let row = useRef<HTMLButtonElement>(null)
   let ask = () => setConfirming(true)
-  let cancel = () => setConfirming(false)
+  let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
+  let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   let close = async () => {
     if (busy) return
     setBusy(true)
-    if (await run('kill-session', { session: id, confirm: true }) === undefined) setBusy(false)
+    await run('kill-session', { session: id, confirm: true }); setBusy(false); cancel()
   }
-  if (confirming) return <div className={css.sessionConfirm} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow}><button className={`${css.listRow} ${css.sessionLabelRow}`} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button data-picker-action autoFocus onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+}
+let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
+  let { state, run, dismiss } = useUI()
+  let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
+  let row = useRef<HTMLButtonElement>(null)
+  let select = async () => { if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
+  let ask = () => setConfirming(true)
+  let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
+  let close = async () => { if (busy) return; setBusy(true); await run('kill-window', { window: window.id, confirm: true }); setBusy(false); setConfirming(false) }
+  let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
+  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${window.name}?`}><span>Close window "{window.name}"?</span><button data-picker-action autoFocus onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  return <div className={`${css.sessionRow} ${css.sessionWindow}`} data-session-target>
+    <button ref={row} className={css.listRow} data-window-row={window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
+      <span>{window.name}</span>
+      {window.panes.map(pane => <span key={pane.id} className={css.sessionPaneActivity}><span>{pane.title || pane.url || 'Blank page'}</span><time title={pane.lastActivityAt ? new Date(pane.lastActivityAt).toLocaleString() : 'No recorded activity'}>{activityLabel(pane.lastActivityAt, now)}</time></span>)}
+    </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${window.name}`}>x</button>
+  </div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
 let DevicePresetSelect = ({ value, onChange }: { value: DevicePreset; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Device" value={value} onChange={onChange}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select>
