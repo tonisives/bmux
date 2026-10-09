@@ -2291,6 +2291,11 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await expect(address).toHaveValue(query)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}${rootPath}`)
     await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}${rootPath}`)
+    await expect.poll(async () => {
+      let root = await chrome.getByRole('option').first().locator('span').last().boundingBox()
+      let saved = await chrome.locator(`[role="option"][data-value="${savedUrl}"]`).locator('span').last().boundingBox()
+      return root && saved ? Math.abs(root.x - saved.x) : undefined
+    }).toBeLessThan(1)
     await expect(chrome.getByRole('option').first().locator('strong')).toHaveText(query === 'long-term' ? source === 'bookmark' ? `Saved page - ${query}` : 'bmux fixture' : `${url.replace(/^http:\/\//, '')}${rootPath}`)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(address).toHaveAttribute('aria-activedescendant', 'address-suggestion-0')
