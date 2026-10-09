@@ -1,7 +1,20 @@
 import { describe, expect, test } from 'vitest'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination } from '../src/shared/address-suggestions'
+import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../src/shared/address-suggestions'
 
 describe('address suggestions', () => {
+  test('uses the saved title for the same clean page without borrowing titles from deeper pages', () => {
+    let entries = [
+      { title: 'Issue details', url: 'https://github.com/acme/bmux/issues/1' },
+      { title: 'Long term metrics - Grafana', url: 'https://metrics.test/d/id/long-term-metrics?orgId=1&from=now-1y#chart' },
+      { title: 'Repository', url: 'https://github.com/acme/bmux/' },
+    ]
+    expect(urlDestinationTitle('https://metrics.test/d/id/long-term-metrics', entries)).toBe('Long term metrics - Grafana')
+    expect(urlDestinationTitle('https://github.com/acme/bmux', entries)).toBe('Repository')
+    expect(urlDestinationTitle('https://github.com/acme', entries)).toBeUndefined()
+    expect(urlDestinationTitle('https://other.test/d/id/long-term-metrics', entries)).toBeUndefined()
+    expect(urlDestinationTitle('https://metrics.test/', [{ title: '', url: 'https://metrics.test/?old' }])).toBeUndefined()
+  })
+
   test.each(['google maps', 'maps google', '  GOOGLE   MAPS  ', 'maps'])('offers the clean Maps URL for the text search %s', query => {
     let urls = [
       'https://www.google.com/maps/place/Be+Live+Residence/@8,98,12z/data=previous',
