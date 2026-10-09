@@ -941,6 +941,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
+    let recordActivity = () => {
+      if (live.disposed || internalBootstrap()) return
+      let now = Date.now()
+      if (now - (tab.lastActivityAt ?? 0) < 1000) return
+      tab.lastActivityAt = now
+      save()
+    }
+    contents.on('before-input-event', (_event, input) => { if (input.type === 'keyDown') recordActivity() })
+    contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseWheel') recordActivity() })
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       // Bootstrap and new-window blanks must never become a Back destination.
@@ -948,6 +957,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       while (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === 'about:blank') {
         if (!history.removeEntryAtIndex(0)) break
       }
+      tab.lastActivityAt = Date.now()
       tab.url = contents.getURL() || tab.url
       tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New window' : tab.url)
       if (!session.private && /^https?:\/\//.test(tab.url)) {
