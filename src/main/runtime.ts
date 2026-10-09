@@ -370,6 +370,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     persistTimer = setTimeout(() => { if (!shuttingDown) writeModel(dataDirectory, model, bookmarkFile) }, 150)
     publish()
   }
+  let recordWindowVisit = (clientId: string) => {
+    let client = model.clients.find(client => client.id === clientId)
+    if (!client || clientId !== focusedClientId || !clients.get(clientId)?.window.isFocused()) return
+    let window = model.sessions.find(session => session.id === client.sessionId)?.windows.find(window => window.id === client.windowId)
+    if (!window || Date.now() - (window.lastVisitedAt ?? 0) < 1000) return
+    window.lastVisitedAt = Date.now()
+    save()
+  }
   let serializeTab = <T>(tabId: string, operation: () => Promise<T>): Promise<T> => {
     let prior = tabQueues.get(tabId) ?? Promise.resolve()
     let next = prior.catch(() => undefined).then(operation)
@@ -929,7 +937,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let recordActivity = () => {
-      if (live.disposed || internalBootstrap()) return
+      if (live.disposed || internalBootstrap() || automatedContents.has(contents.id)) return
+      let client = model.clients.find(client => client.id === focusedClientId)
+      if (!client || clients.get(client.id)?.window !== live.parent || !live.parent?.isFocused() || !visiblePaneIds(client).includes(tabId)) return
+      recordWindowVisit(client.id)
       let now = Date.now()
       if (now - (tab.lastActivityAt ?? 0) < 1000) return
       tab.lastActivityAt = now
@@ -944,7 +955,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       while (history.getActiveIndex() > 0 && history.getEntryAtIndex(0)?.url === 'about:blank') {
         if (!history.removeEntryAtIndex(0)) break
       }
-      tab.lastActivityAt = Date.now()
       tab.url = contents.getURL() || tab.url
       tab.title = pageTitle || contents.getTitle() || (tab.url === 'about:blank' ? 'New window' : tab.url)
       if (!session.private && /^https?:\/\//.test(tab.url)) {
@@ -1653,7 +1663,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     void scheduleVisuals()
   }
 
-  let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
+  let execute = async (command: Command, sourceClientId?: string): Promise<unknown> => {
+    let client = model.clients.find(client => client.id === sourceClientId)
+    let previousWindow = client?.windowId, previousPane = client?.paneId
+    let result = await perform(command, sourceClientId)
+    if (client && sourceClientId) {
+      let selection = ['select-window', 'cycle-window', 'switch-client', 'select-pane', 'cycle-pane', 'select-pane-direction', 'focus-page'].includes(command.method)
+      let navigation = ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(command.method) && (command.args?.pane ?? command.args?.tab) === client.paneId
+      if (selection || navigation || previousWindow !== client.windowId || previousPane !== client.paneId) recordWindowVisit(sourceClientId)
+    }
+    return result
+  }
+  let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     if (args.agentId !== undefined && (typeof args.agentId !== 'string' || !args.agentId.trim() || args.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(args.agentId))) throw new Error('agentId must be a nonempty identifier of at most 128 characters')
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }

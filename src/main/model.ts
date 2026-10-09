@@ -250,6 +250,7 @@ export let validateModel = (value: unknown): Model => {
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
     for (let window of session.windows) {
       checkId(window.id)
+      if (window.lastVisitedAt !== undefined && (!Number.isFinite(window.lastVisitedAt) || window.lastVisitedAt < 0)) throw new Error('Invalid window visit time')
       if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
       if (window.pinned !== undefined && typeof window.pinned !== 'boolean') throw new Error('Invalid pinned window setting')
       let leaves: string[] = []

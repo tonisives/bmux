@@ -1,3 +1,7 @@
+import type { InternalWindow } from './types'
+
+export let windowVisitTime = (window: Pick<InternalWindow, 'lastVisitedAt' | 'panes'>) => window.lastVisitedAt ?? (Math.max(0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)) || undefined)
+
 export let activityLabel = (when: number | undefined, now = Date.now()) => {
   if (!when) return ''
   let age = Math.max(0, now - when) / 1000

@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { parseDocument } from 'yaml'
 import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
+import { initialModel, newPane, newWindow } from '../src/main/model'
 
 let exec = promisify(execFile)
 let root = process.cwd()
@@ -3067,6 +3068,69 @@ test('restores cached favicons for inactive windows and sessions without loading
   await cli('kill-window', { window: inactiveWindow.id })
   expect((await cli('state')).favicons[inactive.id]).toBeUndefined()
   await cli('detach-client', { client: client.id })
+})
+
+test('window last visits survive startup and background loads and update on real visits', async () => {
+  let sharedDirectory = directory
+  await closeTestApplication(application)
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-window-visits-'))
+  let oldVisit = Date.now() - 2 * 86400000, legacyVisit = oldVisit - 2 * 86400000
+  let model = initialModel(), session = model.sessions[0], window = session.windows[0]
+  let secondPane = newPane(window.panes[0].profileId)
+  window.panes.push(secondPane)
+  window.layout = { kind: 'split', id: 'visit-split', axis: 'horizontal', ratio: .5, first: window.layout!, second: { kind: 'pane', paneId: secondPane.id } }
+  window.lastVisitedAt = oldVisit
+  window.panes.forEach((pane, index) => { pane.url = `${url}/visits-${index}`; pane.lastActivityAt = legacyVisit + index * 60000 })
+  let legacy = newWindow('Legacy visit', window.panes[0].profileId)
+  legacy.panes[0].url = `${url}/visits-legacy`; legacy.panes[0].lastActivityAt = legacyVisit
+  session.windows.push(legacy)
+  await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: false\n')
+  let savedWindow = async (id = window.id) => (await cli('list-windows', { session: session.id })).find((item: { id: string }) => item.id === id)
+  try {
+    await launch()
+    await cli('wait', { tab: secondPane.id, selector: '#inc' })
+    await cli('wait', { tab: legacy.panes[0].id, selector: '#inc' })
+    expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
+    expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
+    let client = await cli('attach-session', { session: session.id })
+    let chrome = await rendererForClient(client.id)
+    await cli('activate-client', { client: client.id })
+    await cli('navigate', { tab: secondPane.id, url: `${url}/visits-background` })
+    await cli('eval', { tab: secondPane.id, expression: 'document.title = "Background title update"' })
+    await cli('reload', { tab: legacy.panes[0].id })
+    await cli('wait', { tab: legacy.panes[0].id, selector: '#inc' })
+    expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
+    expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
+    let openSessions = async () => {
+      await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+      let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+      await command.fill('sessions'); await command.press('Enter')
+      return chrome.getByRole('group', { name: 'Choose session', exact: true })
+    }
+    let picker = await openSessions()
+    await expect(picker.locator(`[data-window-row="${window.id}"] time`)).toHaveCount(1)
+    await expect(picker.locator(`[data-window-row="${window.id}"] time`)).toHaveText('2d ago')
+    await expect(picker.locator(`[data-window-row="${legacy.id}"] time`)).toHaveText('4d ago')
+    await chrome.getByRole('dialog', { name: 'Sessions', exact: true }).screenshot({ path: test.info().outputPath('window-last-visits.png') })
+    await picker.locator(`[data-window-row="${legacy.id}"]`).click()
+    await expect(picker).toHaveCount(0)
+    await expect.poll(async () => (await savedWindow(legacy.id)).lastVisitedAt).toBeGreaterThan(oldVisit)
+    await cli('select-window', { client: client.id, window: window.id })
+    await cli('focus-page', { client: client.id })
+    let page = application.context().pages().find(page => page.url() === window.panes[0].url)!
+    await page.getByRole('button', { name: 'Increment', exact: true }).click()
+    await expect.poll(async () => (await savedWindow()).lastVisitedAt).toBeGreaterThan(oldVisit)
+    let visited = (await savedWindow()).lastVisitedAt
+    await closeTestApplication(application); await launch()
+    await cli('wait', { tab: secondPane.id, selector: '#inc' })
+    expect((await savedWindow()).lastVisitedAt).toBe(visited)
+  } finally {
+    await closeTestApplication(application)
+    await fs.rm(directory, { recursive: true, force: true })
+    directory = sharedDirectory
+    await launch()
+  }
 })
 
 test('session picker shows live sound for background windows in tree and recent views', async () => {

@@ -405,7 +405,7 @@ test('session picker creates by keyboard and confirms session closing', async ()
   await expect.poll(async () => (await state()).model.sessions.some((session: { id: string }) => session.id === created.id)).toBe(false)
 })
 
-test('session tree shows pane activity and supports counted vim navigation and window closing', async () => {
+test('session tree shows window visits and supports counted vim navigation and window closing', async () => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   let first = await rpc('new-window', { session: client.sessionId, name: `tree-first ${'long window name '.repeat(15)}`, url: `${url}/tree-first` })
   let second = await rpc('new-window', { session: client.sessionId, name: 'tree-second' })
@@ -414,7 +414,7 @@ test('session tree shows pane activity and supports counted vim navigation and w
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === unnamed.id)?.panes[0].title).toBe('Unnamed page title '.repeat(30).trim())
   await rpc('split-window', { pane: first.panes[0].id, client: client.id })
   await rpc('select-window', { client: client.id, window: first.id })
-  await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === first.id)?.panes[0].lastActivityAt).toBeGreaterThan(0)
+  await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === first.id)?.lastVisitedAt).toBeGreaterThan(0)
   await open('sessions')
   let group = chrome.getByRole('group', { name: 'Choose session', exact: true })
   let rows = group.locator('button:not([data-picker-action])')
@@ -426,7 +426,8 @@ test('session tree shows pane activity and supports counted vim navigation and w
   await expect(unnamedRow.locator('[data-window-label]')).toHaveText('Unnamed page title '.repeat(30).trim())
   await expect(unnamedRow.locator('[data-window-label]')).toHaveCount(1)
   expect(await unnamedRow.locator('[data-window-label]').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
-  await expect(firstRow.locator('time').first()).toHaveText('just now')
+  await expect(firstRow.locator('time')).toHaveCount(1)
+  await expect(firstRow.locator('time')).toHaveText('just now')
   await expect(group).not.toContainText('No activity yet')
   await expect(group).not.toContainText('j/k move')
   let panel = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
@@ -1147,7 +1148,7 @@ test('bookmark command searches and creates folders while Command+D updates and 
   expect(bookmarks.at(-1)).toMatchObject({ title: 'Updated fixture', url: `${url}/fixture` })
 })
 
-test('bookmark folders and sessions use the same full-row selection style', async () => {
+test('bookmark folders keep selection styling while sessions highlight only the active window subtly', async () => {
   await open('bookmark')
   let bookmark = chrome.getByRole('dialog', { name: 'Bookmark', exact: true })
   let folder = bookmark.locator('button[data-bookmark-folder][aria-pressed="true"]')
@@ -1159,11 +1160,14 @@ test('bookmark folders and sessions use the same full-row selection style', asyn
   expect(selectedStyle.shadow).toBe('none')
   await bookmark.getByRole('button', { name: 'Close', exact: true }).click()
   await open('sessions')
-  let session = chrome.getByRole('dialog', { name: 'Sessions', exact: true }).locator('button[data-session-row][data-active="true"]')
-  expect(await session.evaluate(element => {
+  let sessions = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+  await expect(sessions.locator('button[data-session-row][data-active="true"], button[data-session-row][aria-current]')).toHaveCount(0)
+  let window = sessions.locator('button[data-window-row][data-active="true"]')
+  await expect(window).toHaveCount(1)
+  expect(await window.evaluate(element => {
     let style = getComputedStyle(element)
     return { background: style.backgroundColor, shadow: style.boxShadow, weight: style.fontWeight }
-  })).toEqual(selectedStyle)
+  })).toEqual({ background: 'rgb(37, 45, 52)', shadow: 'none', weight: '400' })
 })
 
 test('find reports counts, moves in both directions, and stays responsive during an agent wait', async () => {
