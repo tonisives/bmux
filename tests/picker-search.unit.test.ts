@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
-import { searchBookmarkPages, searchBookmarks, searchHistory } from '../src/shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions } from '../src/shared/picker-search'
+import { newSession, newWindow } from '../src/main/model'
 import { waitOptions } from '../src/main/wait'
 import type { Bookmark } from '../src/shared/types'
 
@@ -7,6 +8,25 @@ let bookmarks: Bookmark[] = [{ id: 'work', title: 'Work', children: [
   { id: 'docs', title: 'Documentation', children: [{ id: 'api', title: 'API reference', url: 'https://example.test/api' }] },
   { id: 'notes', title: 'Notes', url: 'https://example.test/notes' },
 ] }, { id: 'personal', title: 'Personal', children: [{ id: 'recipe', title: 'Recipes', url: 'https://food.test/' }] }]
+
+test('session search ranks session names first and omits loose matches when direct matches exist', () => {
+  let bot = newSession('bot', 'profile'), gp = newSession('gp', 'profile'), tskr = newSession('bot-tskr', 'profile')
+  let studio = newWindow('TikTok Studio', 'profile')
+  studio.panes[0].title = 'TikTok Studio'; studio.panes[0].url = 'https://www.tiktok.com/tiktokstudio/creator'
+  let audit = newWindow('tskr-backlink-audit', 'profile'), gpWindow = newWindow('gp-tools', 'profile')
+  bot.windows = [studio, audit, gpWindow]
+  let sessions = [bot, tskr, gp], before = structuredClone(sessions)
+  let results = searchSessions(sessions, 'tskr')
+  expect(results.map(result => result.session.id)).toEqual([tskr.id, bot.id])
+  expect(results[1].windows.map(window => window.id)).toEqual([audit.id])
+  expect(results[1].matched).toBe(false)
+  expect(searchSessions(sessions, 'GP')[0].session.id).toBe(gp.id)
+  expect(searchSessions(sessions, 'GP')[0].matched).toBe(true)
+  expect(searchSessions(sessions, 'tk std')[0].windows[0].id).toBe(studio.id)
+  expect(searchSessions(sessions, 'zzzz')).toEqual([])
+  expect(searchSessions(sessions, '   ').map(result => result.session)).toEqual(sessions)
+  expect(sessions).toEqual(before)
+})
 
 test('bookmark search preserves folder context without including unrelated siblings', () => {
   let before = structuredClone(bookmarks)
