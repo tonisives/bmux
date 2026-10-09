@@ -1272,11 +1272,14 @@ let useSessionNavigation = (toggleSort: () => void) => {
     return () => { observer.disconnect(); picker.removeEventListener('focusin', updateNumbers) }
   })
   let sessionKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) { setCount(''); return }
     if (event.nativeEvent.isComposing || event.metaKey || event.altKey) return
     let target = event.target as HTMLElement
-    if (target.closest('[role="alertdialog"], select, [data-picker-action]') || (target.tagName === 'INPUT' && target !== input.current)) return
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')]
+    if (target.closest('[role="alertdialog"], select') || (target.tagName === 'INPUT' && target !== input.current)) return
     let editing = target === input.current
+    if (!editing && !event.ctrlKey && event.key === 's') { event.preventDefault(); setCount(''); toggleSort(); return }
+    if (target.closest('[data-picker-action]')) return
+    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([data-picker-action])')]
     let index = rows.indexOf(target as HTMLButtonElement)
     let focus = (position: number) => { let row = rows[Math.max(0, Math.min(rows.length - 1, position))]; row?.focus(); row?.scrollIntoView({ block: 'nearest' }) }
     if (event.key === 'Escape' && (editing || count)) {
@@ -1284,7 +1287,6 @@ let useSessionNavigation = (toggleSort: () => void) => {
       if (editing) { if (normalRow.current?.isConnected) normalRow.current.focus(); else focus(0) }
       return
     }
-    if (!editing && !event.ctrlKey && event.key === 's') { event.preventDefault(); setCount(''); toggleSort(); return }
     if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); setCount((count + event.key).slice(0, 6)); return }
     if ((!editing && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
       event.preventDefault()
@@ -1367,12 +1369,12 @@ let SessionTree = ({ result: { session, windows, matched }, now, query }: { resu
     if (!value && ref.current?.querySelector('[data-session-windows]')?.contains(document.activeElement)) ref.current.querySelector<HTMLButtonElement>('[data-session-row], [data-session-toggle]')?.focus({ preventScroll: true })
     setExpanded(value)
   }
-  let toggle = () => changeExpanded(!expanded)
+  let toggle = () => { changeExpanded(!expanded); ref.current?.querySelector<HTMLButtonElement>('[data-session-row]')?.focus({ preventScroll: true }) }
   let toggleMouse = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof HTMLElement && event.target.closest('[role="alertdialog"]')) return; event.preventDefault(); toggle() }
   let treeKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey || !(event.target instanceof HTMLElement) || event.target.closest('[role="alertdialog"], input, [data-picker-action]')) return
+    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey || !(event.target instanceof HTMLElement) || event.target.closest('[role="alertdialog"], input, [data-picker-action]:not([data-session-toggle])')) return
     if (!['ArrowRight', 'ArrowLeft', 'h', 'l'].includes(event.key)) return
-    event.preventDefault(); event.stopPropagation()
+    event.preventDefault()
     changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
   }
   return <div ref={ref} data-session-tree={session.id} onKeyDown={treeKeys} onContextMenu={toggleMouse}>
