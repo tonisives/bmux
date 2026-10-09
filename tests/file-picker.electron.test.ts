@@ -114,7 +114,17 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
       await fs.writeFile(info.outputPath('background-picker.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
       await rpc('select-pane', { client: state.model.clients[0].id, pane: paneId })
       if ((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim() === 'true') {
-        await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to click button "Cancel" of sheet 1 of window 1`)
+        await apple(`tell application "System Events"
+          tell first application process whose unix id is ${child.pid}
+            set panel to sheet 1 of window 1
+            if exists button "Cancel" of panel then
+              click button "Cancel" of panel
+            else
+              click button "Cancel" of splitter group 1 of panel
+            end if
+          end tell
+        end tell`)
+        await expect.poll(async () => (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim()).toBe('false')
       }
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
