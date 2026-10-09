@@ -2173,6 +2173,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await address.fill('127')
   await expect(address).toHaveValue(url.replace(/^http:\/\//, ''))
   await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}/`)
+  await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}/`)
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(1)
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length })
   await address.press('Backspace')
@@ -2256,7 +2257,7 @@ test('address suggestions prefer base URLs over saved paths and page state', asy
   await address.fill('')
   await address.fill(`${url}/maps`)
   await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'history')
-  await expect(chrome.getByRole('button', { name: `Remove ${url}/maps from history`, exact: true })).toBeVisible()
+  await expect(chrome.locator(`[role="option"][data-value="${url}/maps"]`).locator('..').getByRole('button', { name: 'Remove bmux fixture from history', exact: true })).toBeVisible()
   await address.press('ArrowDown')
   await expect(address).toHaveValue(savedUrl)
   await address.press('Enter')
@@ -2264,13 +2265,13 @@ test('address suggestions prefer base URLs over saved paths and page state', asy
   await cli('detach-client', { client: client.id })
 })
 
-for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps' }, { query: 'github bmux', rootPath: '/github/acme/bmux' }]) for (let source of ['history', 'bookmark']) test(`address suggestions select the clean root for ${query} from ${source}`, async () => {
+for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps' }, { query: 'github bmux', rootPath: '/github/acme/bmux' }, { query: 'long-term', rootPath: '/d/dashboard/long-term-metrics' }]) for (let source of ['history', 'bookmark']) test(`address suggestions select the clean root for ${query} from ${source}`, async () => {
   let profile = await cli('profile.create', { name: `clean-${source}-${query.replaceAll(' ', '-')}` })
   let session = await cli('new-session', { name: `Clean ${source} ${query}`, profile: profile.id })
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
   await cli('activate-client', { client: client.id })
-  let savedUrl = `${url}${rootPath}/saved/${source}?entry=old#saved`
+  let savedUrl = `${url}${rootPath}${query === 'long-term' ? '' : `/saved/${source}`}?entry=old#saved`
   await cli('navigate', { tab: pane.id, url: savedUrl })
   await cli('wait', { tab: pane.id, selector: '#text' })
   await expect.poll(async () => {
@@ -2289,6 +2290,8 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await address.fill(query)
     await expect(address).toHaveValue(query)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}${rootPath}`)
+    await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}${rootPath}`)
+    await expect(chrome.getByRole('option').first().locator('strong')).toHaveText(query === 'long-term' ? source === 'bookmark' ? `Saved page - ${query}` : 'bmux fixture' : `${url.replace(/^http:\/\//, '')}${rootPath}`)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(address).toHaveAttribute('aria-activedescendant', 'address-suggestion-0')
     await address.press('Backspace')
@@ -2305,9 +2308,10 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await expect(address).toBeFocused()
     await address.fill(query)
     await address.press('ArrowDown')
-    await expect(address).toHaveValue(savedUrl)
+    let retainedUrl = query === 'long-term' && source === 'history' ? `${url}${rootPath}` : savedUrl
+    await expect(address).toHaveValue(retainedUrl)
     await address.press('Enter')
-    await expect(website).toHaveURL(savedUrl)
+    await expect(website).toHaveURL(retainedUrl)
   } finally {
     if (bookmark) await cli('bookmark.remove', { profile: pane.profileId, bookmark: bookmark.bookmark.id })
     await cli('history.remove', { profile: pane.profileId, url: savedUrl })
