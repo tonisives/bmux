@@ -423,6 +423,7 @@
 .sessionNewRow > .listRow { flex: 1; min-width: 0; }
 .sessionList[data-session-recent] .sessionBranch { display: none; }
 .panel .sessionPicker .listRow { display: flex; align-items: center; gap: 8px; padding: 3px 8px; overflow-wrap: normal; white-space: nowrap; }
+.panel .sessionPicker .listRow[data-window-row][data-active="true"] { background: #252d34; color: inherit; font-weight: 400; }
 .sessionPicker .sessionClose { align-self: center; height: 1lh; min-height: 0; padding: 0 8px; }
 .sessionPicker .sessionConfirm { gap: 8px; padding: 3px 8px; }
 .sessionPicker .sessionConfirm span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -439,8 +440,7 @@
 .sessionBranch::after { content: ''; position: absolute; left: 7px; top: -3px; bottom: -3px; border-left: 1px solid #505a66; }
 .sessionWindows > :last-child .sessionBranch::after { bottom: 50%; }
 .sessionWindowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.sessionWindowActivity { display: flex; flex: 0 1 auto; min-width: 0; gap: 12px; overflow: hidden; color: #8995a3; font-weight: 400; }
-.sessionWindowActivity time { flex-shrink: 0; }
+.sessionWindowActivity { flex-shrink: 0; color: #8995a3; font-weight: 400; }
 .sessionAudio { display: flex; align-items: center; flex: 0 0 15px; color: #a7c88d; }
 .sessionAudio[data-muted="true"] { color: #77818d; }
 .sessionAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }

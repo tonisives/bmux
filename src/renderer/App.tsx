@@ -1,4 +1,4 @@
-import { activityLabel } from '../shared/pane-activity'
+import { activityLabel, windowVisitTime } from '../shared/pane-activity'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -1503,10 +1503,11 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
     await run('kill-session', { session: id, confirm: true }); setBusy(false); cancel()
   }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} data-active={active} aria-current={active ? 'true' : undefined} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}<SessionAudio panes={state.model.sessions.find(session => session.id === id)?.windows.flatMap(window => window.panes) ?? []} /></button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}<SessionAudio panes={state.model.sessions.find(session => session.id === id)?.windows.flatMap(window => window.panes) ?? []} /></button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
+  let visitedAt = windowVisitTime(window)
   let pane = window.panes.find(pane => pane.id === selection(state).client?.paneId) ?? window.panes[0]
   let name = window.automaticName === true ? pane?.title || pane?.url || window.name : window.name.trim() || pane?.title || pane?.url || 'Blank page'
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
@@ -1523,7 +1524,7 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
     <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
       <SessionNumber /><span className={css.sessionBranch} aria-hidden="true" /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       <SessionAudio panes={window.panes} />
-      <span className={css.sessionWindowActivity}>{window.panes.filter(pane => pane.lastActivityAt).map(pane => <time key={pane.id} title={`${pane.title || pane.url || 'Blank page'} · ${new Date(pane.lastActivityAt!).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>)}</span>
+      {visitedAt && <time className={css.sessionWindowActivity} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
 }
