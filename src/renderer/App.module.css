@@ -398,8 +398,6 @@
 .siteExclusion { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #333; }
 .siteExclusion > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .siteExclusion small { display: block; margin-top: 4px; color: #999; }
-.siteChecks { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-.siteExclusion .siteChecks > span { display: none; }
 .antiBotStatus { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .antiBotLimitFields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 12px; }
 .antiBotLimitFields label { display: grid; gap: 6px; }
@@ -465,8 +463,6 @@
 .profileControl { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 0; }
 .profileControl small { display: block; color: #8e98a4; }
 .profileControl input { flex-shrink: 0; }
-.siteChecksHeading { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; color: #8e98a4; border-bottom: 1px solid #363c45; }
-.profilePanel .siteChecks select { min-width: 125px; min-height: 32px; }
 .profilePanel .antiBotStatus button, .profileSection > button { padding: 6px 10px; border: 1px solid #505a66; color: #eceef2; }
 @media (max-width: 650px) { .profilePanel .panelBody { padding: 14px 16px; } .profilePanel .panelTabs { top: -14px; } .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; } .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; } }
 
@@ -474,7 +470,14 @@
 
 .profileSectionHeading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; }
 .profileSectionHeading h2 { margin: 0; }
-.profileSectionHeading small { color: #8e98a4; }
 .antiBotSections { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .7fr); column-gap: 28px; }
 .antiBotSections > section:first-child, .antiBotSections > section:last-child { grid-column: 1 / -1; }
 @media (max-width: 650px) { .antiBotSections { grid-template-columns: 1fr; } }
+
+.profilePanel .panelTabs button { display: inline-flex; align-items: center; gap: 7px; }
+.profileTabIcon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.siteExclusionAdd { display: flex; align-items: flex-end; gap: 12px; margin: 14px 0; }
+.siteExclusionAdd label { display: grid; flex: 1; gap: 6px; }
+.siteExclusionAdd input { width: 100%; }
+.siteExclusionAdd button, .siteExclusion button { padding: 6px 12px; border: 1px solid #505a66; color: #eceef2; }
+.antiBotSections[data-paused="false"] > section:nth-child(2) { grid-column: 1 / -1; }

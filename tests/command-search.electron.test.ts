@@ -493,6 +493,7 @@ test('profile icon has no visible label and opens details for the selected pane'
   await expect(panel).toContainText(`Window${window.name}`)
   await expect(panel).toContainText(`Pane${pane.id}`)
   expect((await panel.boundingBox())!.width).toBeGreaterThan(800)
+  await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(4)
   await expect(panel.getByRole('heading')).toHaveText(['Current pane', 'New windows', 'HTTP cache'])
   await chrome.screenshot({ path: path.resolve('artifacts/profile-overview-sections.png') })
   await panel.getByRole('tab', { name: 'Connection' }).click()

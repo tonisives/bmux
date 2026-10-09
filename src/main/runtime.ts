@@ -1669,8 +1669,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'automation.safety.set') {
       if (!sourceClientId) throw new Error('Change anti-bot limits in the bmux UI')
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let value = updateAutomationSafetyLimit(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, args.key, args.value)
-      configuration?.update(['automation', 'safety', String(args.key)], value)
+      configuration?.update(['automation', 'safety', 'profileLimits', profile.id, String(args.key)], value)
       return { value }
     }
     if (method === 'profile.anti-bot.set') {
@@ -1681,7 +1682,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return { enabled: args.enabled }
     }
     if (method === 'profile.anti-bot.site.set' || method === 'profile.anti-bot.site.remove') {
-      if (!sourceClientId) throw new Error('Change site warning checks in the bmux UI')
+      if (!sourceClientId) throw new Error('Change excluded websites in the bmux UI')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let host = required(args, 'host')
       if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host)) throw new Error('host must be a hostname')
@@ -2803,7 +2804,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     await visualQueue
     return serializeTab(tabId, async () => {
       checkControl(method, args)
-      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId, tabId)
+      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId, tabId, automationTargetUrl(method, args) ?? tabById(model, tabId).tab.url)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane, session } = tabById(model, tabId)
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)

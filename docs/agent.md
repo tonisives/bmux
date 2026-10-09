@@ -109,23 +109,23 @@ automation time or waits for a cooldown, including in the same profile.
 Permission requests use the same notice bar with the requesting pane and
 **Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
 leaves it pending; dismissed requests remain available in **Activity**.
-**Warning checks** in website warning notices shows the blocking website's
-saved state: **Enabled** or **Disabled**. The Anti-bot tab lists the current
-website and saved preferences with the same Enabled/Disabled dropdown.
-The current website is labeled **Current site**.
-Choosing **Disabled** keeps checks off until you choose **Enabled**, including
-after restarting bmux. It skips warning detection for that exact hostname in
-this profile and releases its existing pause. Other sites and session limits
-still apply. Older temporary exclusions remain listed with their expiry;
-disabling checks again makes the exclusion permanent.
-The enlarged Profile view groups every tab into titled sections. Anti-bot
-shows **Limits (all profiles)** first, followed by **Protection**,
-**Automation status**, and **Website warning checks**. Limits has editable session minutes, break minutes, and
-social site delay in seconds. Press Enter or leave a field to save it. These
-limits apply to every profile and update immediately without clearing usage.
+**Exclude website** in a warning notice adds its hostname to this profile's
+**Excluded websites** list. Add a hostname or URL in that list to turn off
+anti-bot for that exact hostname: session limits, social-site pacing, and warning
+checks are skipped. Other profiles and websites retain their protection.
+Exclusions persist until you remove them. Older temporary rules show their
+expiry and offer **Keep excluded** to make them permanent.
+The Profile tabs have icons and titled sections. Anti-bot shows **Limits** first,
+then **Protection** and **Excluded websites**. **Paused automation** appears only
+when a warning, break, or safety error needs attention. Its action resumes after
+a resolved warning or resets a session to end a break.
+Session minutes, break minutes, and social site delay are editable for the
+selected profile. Press Enter or leave the field to save. Changes apply
+immediately and preserve existing usage. Existing config values remain the
+defaults for profiles without overrides; editing one profile leaves others alone.
 The alert's X dismisses
 the current notice without changing checks or resuming automation. The CLI cannot resume a
-warning pause or change these toggles. Resuming does not clear session usage or
+warning pause or change these settings. Resuming does not clear session usage or
 bypass a cooldown.
 
 Reaching the session limit shows a UI alert with the retry time. Wait for that

@@ -4,7 +4,7 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
-import { automationExclusionActive, automationSiteExclusion, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import { automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
@@ -223,7 +223,7 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
   return (usage.actors ?? []).flatMap(actor => {
     let pane = panes.find(pane => pane.id === actor.paneId && pane.profileId === usage.profileId)
-    return pane && automationSafetyEnabled(state.automationSafety!.limits, usage.profileId, pane.id) ? [{ ...actor, pane }] : []
+    return pane && automationSiteEnabled(state.automationSafety!.limits, usage.profileId, pane.url, Date.now(), pane.id) ? [{ ...actor, pane }] : []
   })
 }
 
@@ -300,7 +300,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteChecksSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteButton {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -1569,7 +1569,7 @@ let useDeviceAutoSave = ({ current, sessionDevice, draft, newPanes, busy, form, 
   let queueField = (event: ChangeEvent<HTMLFormElement>) => { editingText.current = event.target instanceof HTMLInputElement && event.target.type !== 'checkbox' }
   return { commitField, queueField }
 }
-let ProfileSection = ({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) => <section className={css.profileSection} aria-label={title}><div className={css.profileSectionHeading}><h2>{title}</h2>{hint && <small>{hint}</small>}</div>{children}</section>
+let ProfileSection = ({ title, children }: { title: string; children: ReactNode }) => <section className={css.profileSection} aria-label={title}><div className={css.profileSectionHeading}><h2>{title}</h2></div>{children}</section>
 
 let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) => {
   let { run, onMessage } = useUI()
@@ -1835,27 +1835,56 @@ let useAutomationExpiry = (safety?: AutomationSafetyState) => {
   }, [safety, now])
 }
 
-let SiteChecksSelect = ({ profileId, host }: { profileId: string; host: string }) => {
-  let { state, run } = useUI(), [busy, setBusy] = useState(false)
-  let exclusion = automationSiteExclusion(state.automationSafety?.limits.sites?.[profileId]?.[host])
-  let savedEnabled = !exclusion || !automationExclusionActive(exclusion), [enabled, setEnabled] = useState(savedEnabled)
-  useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profileId, host])
-  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
-    let next = event.target.value === 'enabled'
-    setEnabled(next); setBusy(true)
-    try { if (!await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: next })) setEnabled(savedEnabled) } finally { setBusy(false) }
+let ExcludeWebsiteButton = ({ profileId, host }: { profileId: string; host: string }) => {
+  let { run } = useUI(), [busy, setBusy] = useState(false)
+  let exclude = async () => {
+    setBusy(true)
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false }) } finally { setBusy(false) }
   }
-  return <label className={css.siteChecks}><span>Warning checks</span><select className={css.notificationAction} aria-label={`Website warning checks for ${host}`} aria-description={host} value={enabled ? 'enabled' : 'disabled'} onChange={change} disabled={busy}><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+  return <button type="button" className={css.notificationAction} onClick={exclude} disabled={busy} aria-label={`Exclude ${host}`}>Exclude website</button>
 }
 
-let SiteExclusionRow = ({ profileId, host, exclusion, current }: { profileId: string; host: string; exclusion?: AutomationSiteExclusion; current: boolean }) => {
-  let active = !!exclusion && automationExclusionActive(exclusion)
-  let status = exclusion?.enabled && exclusion.expiresAt !== null ? active ? `Temporary · Until ${new Date(exclusion.expiresAt).toLocaleString()}` : 'Temporary · Expired' : undefined
-  return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{current && <small>Current site</small>}{status && <small>{status}</small>}</span><SiteChecksSelect profileId={profileId} host={host} /></div>
+let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
+  let { run } = useUI(), [busy, setBusy] = useState(false)
+  let temporary = exclusion.expiresAt !== null
+  let status = temporary ? automationExclusionActive(exclusion) ? `Temporary · Until ${new Date(exclusion.expiresAt!).toLocaleString()}` : 'Expired · Anti-bot is on' : undefined
+  let remove = async () => {
+    setBusy(true)
+    try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
+  }
+  let keep = async () => {
+    setBusy(true)
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false }) } finally { setBusy(false) }
+  }
+  return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{status && <small>{status}</small>}</span>{temporary && <button type="button" onClick={keep} disabled={busy} aria-label={`Keep ${host} excluded`}>Keep excluded</button>}<button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button></div>
+}
+
+let ProfileExcludedWebsites = () => {
+  let { state, run } = useUI(), { profile, pane } = selection(state)
+  let [website, setWebsite] = useState(() => automationWebsiteHost(pane?.url) ?? ''), [busy, setBusy] = useState(false)
+  if (!profile) return null
+  let exclusions = Object.entries(state.automationSafety?.limits.sites?.[profile.id] ?? {}).flatMap(([host, entry]) => {
+    let exclusion = automationSiteExclusion(entry)
+    return exclusion?.enabled ? [{ host, exclusion }] : []
+  })
+  let change = (event: ChangeEvent<HTMLInputElement>) => { setWebsite(event.target.value); event.target.setCustomValidity('') }
+  let add = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    let input = event.currentTarget.elements.namedItem('website') as HTMLInputElement
+    let host = automationWebsiteHost(website.includes('://') ? website.trim() : `https://${website.trim()}`)
+    if (!host || !/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(host)) { input.setCustomValidity('Enter a website hostname or URL'); input.reportValidity(); return }
+    setBusy(true)
+    try { if (await run('profile.anti-bot.site.set', { profile: profile.id, host, enabled: false })) setWebsite('') } finally { setBusy(false) }
+  }
+  return <ProfileSection title="Excluded websites">
+    <p>Anti-bot is off for these websites in this profile.</p>
+    <form className={css.siteExclusionAdd} onSubmit={add}><label>Website<input className={css.pluginInput} name="website" value={website} onChange={change} placeholder="example.com" disabled={busy} required /></label><button type="submit" disabled={busy || !website.trim()}>Add</button></form>
+    {exclusions.length ? exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />) : <p>No excluded websites.</p>}
+  </ProfileSection>
 }
 
 let AutomationLimitInput = ({ setting, label, description, value, scale = 1, maximum }: { setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
-  let { run } = useUI(), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
+  let { state, run } = useUI(), { profile } = selection(state), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
   useEffect(() => { setText(String(value / scale)) }, [value, scale])
   let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let save = async (event: FocusEvent<HTMLInputElement>) => {
@@ -1863,19 +1892,21 @@ let AutomationLimitInput = ({ setting, label, description, value, scale = 1, max
     let next = Math.round(Number(text) * scale)
     if (next === value) return
     setBusy(true)
-    try { await run('automation.safety.set', { key: setting, value: next }) } finally { setBusy(false) }
+    try { await run('automation.safety.set', { profile: profile!.id, key: setting, value: next }) } finally { setBusy(false) }
   }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return
     event.preventDefault(); event.currentTarget.blur()
   }
-  return <label><span>{label}<small>{description}</small></span><input className={css.pluginInput} aria-label={label} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} aria-description="Saved on Enter or when you leave the field" required /></label>
+  return <label><span>{label}<small>{description}</small></span><input className={css.pluginInput} aria-label={label} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} required /></label>
 }
 
 let AutomationLimitsEditor = () => {
   let { state } = useUI()
-  let limits = state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety
-  return <ProfileSection title="Limits (all profiles)" hint="Enter or leave a field to save"><div className={css.antiBotLimitFields}>
+  let { profile } = selection(state)
+  if (!profile) return null
+  let limits = automationProfileLimits(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id)
+  return <ProfileSection title="Limits"><div className={css.antiBotLimitFields}>
     <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
     <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
     <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
@@ -1896,10 +1927,10 @@ let ProfileAntiBotSettings = () => {
   if (!profile) return null
   let usage = safety?.profiles.find(item => item.profileId === profile.id)
   let warning = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!, Date.now(), pane?.id) ? usage : undefined
-  let host = warning?.warningHost ?? automationWebsiteHost(pane?.url)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
-  let status = !enabled ? 'Off for this profile' : !paneEnabled ? 'Off for this pane' : safety?.error ? 'Unavailable' : warning ? `${labels[warning.warning!]} · ${warning.warningHost}` : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
+  let paused = paneEnabled && automationSiteEnabled(limits, profile.id, pane?.url, Date.now(), pane?.id) && (!!warning || cooldown || !!safety?.error)
+  let status = safety?.error ? safety.error : warning ? `${labels[warning.warning!]} on ${warning.warningHost}` : cooldown ? `Session limit reached · Break ends at ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : ''
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setEnabled(next); setBusy(true)
@@ -1920,25 +1951,19 @@ let ProfileAntiBotSettings = () => {
     setPaneEnabled(next); setBusy(true)
     try { if (!await run('pane.anti-bot.set', { pane: pane.id, enabled: next })) setPaneEnabled(savedPaneEnabled) } finally { setBusy(false) }
   }
-  let exclusions: { host: string; exclusion?: AutomationSiteExclusion }[] = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule) }))
-  if (host && !exclusions.some(item => item.host === host)) exclusions.unshift({ host })
-  return <div className={css.antiBotSections} role="tabpanel" aria-label="Anti-bot settings">
-    <AutomationLimitsEditor />
+  return <div className={css.antiBotSections} data-paused={paused} role="tabpanel" aria-label="Anti-bot settings">
+    <AutomationLimitsEditor key={profile.id} />
     <ProfileSection title="Protection">
       <p>Limits and warning checks apply to automation. Manual browsing is unaffected.</p>
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Anti-bot protection" checked={enabled} onChange={toggle} disabled={busy} /></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable checks for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></label>}
     </ProfileSection>
-    <ProfileSection title="Automation status">
+    {paused && <ProfileSection title="Paused automation">
       <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
       {paneEnabled && cooldown && <p>Reset starts a new session now, ending the break for this profile.</p>}
       {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
-      {paneEnabled && safety?.error && <p>{safety.error}</p>}
-    </ProfileSection>
-    <ProfileSection title="Website warning checks">
-      <p>Enabled pauses automation on site warnings. Disabled stays off until you enable it; session limits still apply.</p>
-      {exclusions.length > 0 ? <><div className={css.siteChecksHeading} aria-hidden="true"><span>Website</span><span>Warning checks</span></div>{exclusions.map(({ host: siteHost, exclusion }) => <SiteExclusionRow key={siteHost} profileId={profile.id} host={siteHost} exclusion={exclusion} current={siteHost === automationWebsiteHost(pane?.url)} />)}</> : <p>Open a website to change its warning checks.</p>}
-    </ProfileSection>
+    </ProfileSection>}
+    <ProfileExcludedWebsites key={profile.id} />
   </div>
 }
 
@@ -1974,10 +1999,21 @@ let ProfileNameEditor = () => {
   </form>
 }
 
+type ProfileTab = 'overview' | 'device' | 'connection' | 'anti-bot'
+let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
+  let paths: Record<ProfileTab, string> = {
+    overview: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+    device: 'M7 2h10v20H7zM10 18h4',
+    connection: 'M8 2v5M16 2v5M6 7h12v3a6 6 0 0 1-12 0zM12 16v6',
+    'anti-bot': 'M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6zM8 12l3 3 5-6',
+  }
+  return <svg className={css.profileTabIcon} data-profile-tab-icon={tab} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[tab]} /></svg>
+}
+
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
   let { session, window, pane, profile } = selection(state)
-  let [tab, setTab] = useState<'overview' | 'device' | 'connection' | 'anti-bot'>(() => {
+  let [tab, setTab] = useState<ProfileTab>(() => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
     return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
   })

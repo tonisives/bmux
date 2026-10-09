@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { updateAutomationSafetyLimit, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { updateAutomationSafetyLimit, automationProfileLimits, automationSiteEnabled, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -280,4 +280,51 @@ test('turning exclusions on stays permanent, including previously timed and expi
   let sites = { bot: { 'example.com': rule, localhost: false } }
   expect(parseAutomationSettings({ safety: { sites } }).safety.sites).toEqual(sites)
   for (let invalid of [{ ...rule, expiresAt: null }, { ...rule, expiresAt: Infinity }, { ...rule, durationMinutes: 30 }, { ...rule, durationMinutes: null }, { ...rule, enabled: 'false' }, { ...rule, unknown: true }]) expect(() => parseAutomationSettings({ safety: { sites: { bot: { 'example.com': invalid } } } })).toThrow()
+})
+
+
+test('profile limits validate, inherit old defaults, and isolate pacing and cooldowns across restarts', async () => {
+  let { settings, policy, advance, sleeps, restart } = fixture()
+  settings.profileLimits = { bot: { maxSessionMinutes: 2, cooldownMinutes: 3, socialDelayMs: 500 }, other: { maxSessionMinutes: 20, cooldownMinutes: 10, socialDelayMs: 1500 } }
+  expect(parseAutomationSettings({ safety: settings }).safety.profileLimits).toEqual(settings.profileLimits)
+  expect(automationProfileLimits(settings, 'default')).toEqual({ maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000 })
+  for (let entry of [{ unknown: 1 }, { maxSessionMinutes: 0 }, { cooldownMinutes: '3' }, { socialDelayMs: 30001 }, false]) expect(() => parseAutomationSettings({ safety: { profileLimits: { bot: entry } } })).toThrow()
+  await policy.before('bot', instagram)
+  await policy.before('bot', instagram)
+  await policy.before('other', instagram)
+  await policy.before('other', instagram)
+  expect(sleeps).toEqual([500, 1500])
+  advance(2 * 60_000 - 2000)
+  let next = restart()
+  await expect(next.before('bot', instagram)).rejects.toThrow('00:05:00')
+  await next.before('other', instagram)
+  expect(next.status().profiles.find(item => item.profileId === 'other')!.retryAfter).toBeNull()
+  settings.profileLimits.bot.maxSessionMinutes = 4
+  expect(() => next.assertAvailable('bot')).not.toThrow()
+  settings.profileLimits.bot.maxSessionMinutes = 2
+  advance(3 * 60_000)
+  await next.before('bot', instagram)
+})
+
+test('excluded websites skip session limits, pacing, and warnings only in their profile', async () => {
+  let { settings, policy, advance, sleeps, restart } = fixture()
+  await policy.before('bot', instagram)
+  await policy.before('other', instagram)
+  let before = policy.status().profiles.find(item => item.profileId === 'bot')
+  settings.sites = { bot: { 'www.instagram.com': updateAutomationSiteExclusion(undefined, false, undefined) } }
+  await policy.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'challenge' }))
+  expect(sleeps).toEqual([])
+  expect(policy.status().profiles.find(item => item.profileId === 'bot')).toEqual(before)
+  advance(10 * 60_000)
+  let next = restart()
+  expect(automationSiteEnabled(settings, 'bot', 'https://www.instagram.com/')).toBe(false)
+  expect(automationSiteEnabled(settings, 'bot', 'https://instagram.com/')).toBe(true)
+  expect(() => next.assertAvailable('bot', undefined, 'https://www.instagram.com/')).not.toThrow()
+  await next.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'challenge' }))
+  await next.before('bot', async () => ({ url: 'about:blank' }), 'https://www.instagram.com/')
+  await expect(next.before('bot', async () => ({ url: 'https://www.instagram.com/' }), 'https://x.com/')).rejects.toThrow('session limit')
+  await expect(next.before('bot', async () => ({ url: 'https://x.com/' }))).rejects.toThrow('session limit')
+  await expect(next.before('other', instagram)).rejects.toThrow('session limit')
+  delete settings.sites.bot['www.instagram.com']
+  await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
 })
