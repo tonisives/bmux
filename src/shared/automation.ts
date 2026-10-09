@@ -25,7 +25,7 @@ export let automationWarningEnabled = (settings: AutomationSafety, profileId: st
 }
 export let updateAutomationSiteExclusion = (previous: AutomationSiteRule | undefined, enabled: unknown, durationMinutes: unknown, now = Date.now()): AutomationSiteExclusion => {
   if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')
-  let duration = durationMinutes === undefined ? automationSiteExclusion(previous)?.durationMinutes ?? null : durationMinutes
+  let duration = durationMinutes ?? null
   if (duration !== null && duration !== 15 && duration !== 60) throw new Error('durationMinutes must be 15, 60, or null')
   return { enabled: !enabled, durationMinutes: duration, expiresAt: duration === null ? null : !enabled ? now + duration * 60_000 : automationSiteExclusion(previous)?.expiresAt ?? now }
 }
