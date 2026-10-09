@@ -66,6 +66,7 @@ export let FloatingPane = () => {
       <div className={css.urlBar}>
         {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
         <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+        <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
       <div className={css.dragAbove} onPointerDown={drag} data-drag-above aria-hidden="true" />

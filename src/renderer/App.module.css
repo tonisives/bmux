@@ -100,6 +100,7 @@
 .navigationMenu span { color: #8e98a4; }
 .urlBar { display: flex; align-items: center; flex: 1; min-width: 0; height: 24px; gap: 4px; padding: 0 4px; border-radius: 4px; background: #262c35; }
 .urlBar:focus-within { background: #2d3540; outline: 1px solid #627766; outline-offset: -1px; }
+.paneId { flex-shrink: 0; color: #8e98a4; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .location { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .location:hover { background: transparent; color: #f0f2f5; }
 .clickModeActions { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 3px; overflow: hidden; color: #f4f5f6; white-space: nowrap; }
