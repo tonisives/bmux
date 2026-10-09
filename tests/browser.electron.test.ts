@@ -3085,10 +3085,12 @@ test('window last visits survive startup and background loads and update on real
   legacy.panes[0].url = `${url}/visits-legacy`; legacy.panes[0].lastActivityAt = legacyVisit
   session.windows.push(legacy)
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: false\n')
   let savedWindow = async (id = window.id) => (await cli('list-windows', { session: session.id })).find((item: { id: string }) => item.id === id)
   try {
     await launch()
+    expect((await cli('state')).configError).toBeNull()
+    await expect.poll(() => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), secondPane.url)).toBe(true)
     await cli('wait', { tab: secondPane.id, selector: '#inc' })
     await cli('wait', { tab: legacy.panes[0].id, selector: '#inc' })
     expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
