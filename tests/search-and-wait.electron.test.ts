@@ -67,7 +67,7 @@ test.beforeAll(async () => {
       return
     }
     response.writeHead(200, { 'Content-Type': 'text/html' })
-    let title = request.url === '/docs' ? 'Documentation' : request.url === '/notes' ? 'Research notes' : 'Search fixture'
+    let title = request.url === '/docs' ? 'Documentation' : request.url === '/notes' ? 'Research notes' : request.url === '/tree-unnamed' ? 'Unnamed page title '.repeat(30).trim() : 'Search fixture'
     response.end(`<!doctype html><title>${title}</title><style>body{font:24px sans-serif;background:#e8eef8;color:#173353;padding:30px}p{margin:32px 0}</style><h1>${title}</h1><p>First lantern</p><p>Second lantern</p><p>Third lantern</p><div id="ready" hidden>Ready</div><div id="offscreen" style="position:absolute;top:3000px">Offscreen</div><div data-label="a'b">Quoted selector</div>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
@@ -152,6 +152,36 @@ test('session picker creates and attaches sessions with default names', async ()
   await chrome.getByRole('group', { name: 'Choose session', exact: true }).getByRole('button', { name: 'new session', exact: true }).click()
   current = await state(); client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   expect(current.model.sessions.find((item: { id: string; name: string }) => item.id === client?.sessionId)?.name).toBe('session-2')
+})
+
+test('session search puts exact names first and excludes unrelated fuzzy window matches', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let bot = await rpc('new-session', { name: 'Search bot' })
+  let studio = await rpc('new-window', { session: bot.id, name: 'TikTok Studio', url: `${url}/tiktokstudio/creator` })
+  let audit = await rpc('new-window', { session: bot.id, name: 'tskr-backlink-audit' })
+  await rpc('new-window', { session: bot.id, name: 'gp-tools' })
+  let gp = await rpc('new-session', { name: 'gp' })
+  let tskr = await rpc('new-session', { name: 'tskr' })
+  await rpc('switch-client', { client: client.id, session: gp.id })
+  await rpc('switch-client', { client: client.id, session: client.sessionId })
+  await open('sessions')
+  let group = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search sessions' })
+  await search.fill('gp')
+  await expect(group.locator('button:not([data-picker-action])').first()).toHaveAttribute('title', 'gp')
+  await expect(group.locator('button[data-session-back]')).toHaveCount(1)
+  await search.press('Enter')
+  await expect(group).toHaveCount(0)
+  expect((await state()).model.clients.find((item: any) => item.id === client.id).sessionId).toBe(gp.id)
+  await open('sessions'); await search.fill('tskr')
+  await expect(group.locator('button:not([data-picker-action])').first()).toHaveAttribute('title', 'tskr')
+  await expect(group.locator(`button[data-window-row="${audit.id}"]`)).toBeVisible()
+  await expect(group.locator(`button[data-window-row="${studio.id}"]`)).toHaveCount(0)
+  await search.press('Enter')
+  await expect(group).toHaveCount(0)
+  expect((await state()).model.clients.find((item: any) => item.id === client.id).sessionId).toBe(tskr.id)
+  await rpc('switch-client', { client: client.id, session: client.sessionId })
+  for (let session of [bot, gp, tskr]) await rpc('kill-session', { session: session.id, confirm: true })
 })
 
 test('remote sessions open from the sessions popup title bar', async () => {
@@ -344,6 +374,9 @@ test('session tree shows pane activity and supports counted vim navigation and w
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   let first = await rpc('new-window', { session: client.sessionId, name: `tree-first ${'long window name '.repeat(15)}`, url: `${url}/tree-first` })
   let second = await rpc('new-window', { session: client.sessionId, name: 'tree-second' })
+  let unnamed = await rpc('new-window', { session: client.sessionId, url: `${url}/tree-unnamed` })
+  await rpc('select-window', { client: client.id, window: unnamed.id })
+  await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === unnamed.id)?.panes[0].title).toBe('Unnamed page title '.repeat(30).trim())
   await rpc('split-window', { pane: first.panes[0].id, client: client.id })
   await rpc('select-window', { client: client.id, window: first.id })
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === first.id)?.panes[0].lastActivityAt).toBeGreaterThan(0)
@@ -352,6 +385,12 @@ test('session tree shows pane activity and supports counted vim navigation and w
   let rows = group.locator('button:not([data-picker-action])')
   let firstRow = group.locator(`button[data-window-row="${first.id}"]`)
   let secondRow = group.locator(`button[data-window-row="${second.id}"]`)
+  let unnamedRow = group.locator(`button[data-window-row="${unnamed.id}"]`)
+  await expect(firstRow.locator('[data-window-label]')).toHaveText(first.name)
+  await expect(firstRow).not.toContainText('Search fixture')
+  await expect(unnamedRow.locator('[data-window-label]')).toHaveText('Unnamed page title '.repeat(30).trim())
+  await expect(unnamedRow.locator('[data-window-label]')).toHaveCount(1)
+  expect(await unnamedRow.locator('[data-window-label]').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
   await expect(firstRow.locator('time').first()).toHaveText('just now')
   await expect(group).not.toContainText('No activity yet')
   await expect(group).not.toContainText('j/k move')
@@ -363,6 +402,7 @@ test('session tree shows pane activity and supports counted vim navigation and w
     return { height: element.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(element).lineHeight), truncated: name.scrollWidth > name.clientWidth, numberLeft: number.getBoundingClientRect().left, nameLeft: name.getBoundingClientRect().left }
   })
   expect(windowLayout.height).toBeLessThan(windowLayout.lineHeight * 2)
+  expect(windowLayout.height).toBeLessThanOrEqual(windowLayout.lineHeight + 8)
   expect(windowLayout.truncated).toBe(true)
   expect(windowLayout.numberLeft).toBeLessThan(windowLayout.nameLeft)
   await panel.screenshot({ path: test.info().outputPath('sessions-view.png') })
@@ -386,6 +426,7 @@ test('session tree shows pane activity and supports counted vim navigation and w
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).some((item: any) => item.id === second.id)).toBe(false)
   if (await group.count()) await chrome.keyboard.press('Escape')
   await rpc('kill-window', { window: first.id, confirm: true })
+  await rpc('kill-window', { window: unnamed.id, confirm: true })
 })
 
 test('picker arrows wrap between the first and last rows', async () => {
