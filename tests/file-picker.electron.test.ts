@@ -93,7 +93,9 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await apple('tell application "System Events" to keystroke "l" using command down')
     let addressAttribute = (name: 'role' | 'value') => apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get ${name} of (value of attribute "AXFocusedUIElement")`)
     await expect.poll(() => addressAttribute('role').then(result => result.stdout.trim()).catch(() => '')).toBe('AXTextField')
-    await apple(`tell application "System Events"\nkeystroke "a" using command down\nkeystroke "${url}"\nend tell`)
+    // Paste atomically so macOS cannot drop leading characters immediately after
+    // the Command shortcut. This is the disposable test desktop's clipboard.
+    await apple(`set the clipboard to "${url}"\ntell application "System Events"\nkeystroke "a" using command down\nkeystroke "v" using command down\nend tell`)
     await expect.poll(() => addressAttribute('value').then(result => result.stdout.trim()).catch(() => '')).toBe(url)
     await apple('tell application "System Events" to key code 36')
     await expect.poll(() => rpc('state').then(state => state.model.sessions[0].windows[0].panes[0].url)).toBe(url)
