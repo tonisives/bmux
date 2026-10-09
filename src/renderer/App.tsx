@@ -152,8 +152,8 @@ let useIgnoredAutomationWarnings = (state: PublicState | null) => {
   let [ignoredWarnings, setIgnoredWarnings] = useState<string[]>([])
   useAutomationExpiry(state?.automationSafety)
   let warningKeys = (state?.automationSafety?.profiles ?? []).flatMap(item => [
-    ...(item.warning && automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!) ? [`${item.profileId}:${item.warningHost}:${item.warning}`] : []),
-    ...(automationSafetyEnabled(state!.automationSafety!.limits, item.profileId) && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:session:${item.retryAfter}`] : []),
+    ...(item.warning && (automationActors(state!, item).some(actor => automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!, Date.now(), actor.paneId)) || !item.actors?.length && automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!)) ? [`${item.profileId}:${item.warningHost}:${item.warning}`] : []),
+    ...((automationActors(state!, item).length > 0 || !item.actors?.length && automationSafetyEnabled(state!.automationSafety!.limits, item.profileId)) && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:session:${item.retryAfter}`] : []),
   ]).join('|')
   useEffect(() => { setIgnoredWarnings(current => current.filter(key => warningKeys.split('|').includes(key))) }, [warningKeys])
   return { ignoredWarnings, setIgnoredWarnings }
@@ -218,13 +218,18 @@ let permissionNotices = (state: PublicState, run: UIContext['run']): Notificatio
   ], dismiss: () => { void run('permission.dismiss', { ids: [request.id] }) } }
 })
 
+let automationActors = (state: PublicState, usage: AutomationSafetyState['profiles'][number]) => {
+  let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
+  return (usage.actors ?? []).flatMap(actor => {
+    let pane = panes.find(pane => pane.id === actor.paneId && pane.profileId === usage.profileId)
+    return pane && automationSafetyEnabled(state.automationSafety!.limits, usage.profileId, pane.id) ? [{ ...actor, pane }] : []
+  })
+}
+
 let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
+  let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
-  let actors = (usage.actors ?? []).flatMap(actor => {
-    let pane = panes.find(pane => pane.id === actor.paneId && pane.profileId === usage.profileId)
-    return pane && automationSafetyEnabled(limits, usage.profileId, pane.id) ? [{ ...actor, pane }] : []
-  })
   if (!actors.length && (usage.actors?.length || !automationSafetyEnabled(limits, usage.profileId))) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
@@ -294,7 +299,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionButton {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionButton {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -1770,9 +1775,11 @@ let ProfileAntiBotSettings = () => {
   let [busy, setBusy] = useState(false)
   let safety = state.automationSafety, limits = safety?.limits ?? DEFAULT_AUTOMATION.safety
   let savedEnabled = profile ? automationSafetyEnabled(limits, profile.id) : true
-  let paneEnabled = !!pane && automationSafetyEnabled(limits, pane.profileId, pane.id)
+  let savedPaneEnabled = !!pane && automationSafetyEnabled(limits, pane.profileId, pane.id)
+  let [paneEnabled, setPaneEnabled] = useState(savedPaneEnabled)
   let [enabled, setEnabled] = useState(savedEnabled)
   useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
+  useEffect(() => { setPaneEnabled(savedPaneEnabled) }, [savedPaneEnabled, pane?.id])
   if (!profile) return null
   let usage = safety?.profiles.find(item => item.profileId === profile.id)
   let warning = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!, Date.now(), pane?.id) ? usage : undefined
@@ -1796,8 +1803,9 @@ let ProfileAntiBotSettings = () => {
   }
   let togglePane = async (event: ChangeEvent<HTMLInputElement>) => {
     if (!pane) return
-    setBusy(true)
-    try { await run('pane.anti-bot.set', { pane: pane.id, enabled: event.target.checked }) } finally { setBusy(false) }
+    let next = event.target.checked
+    setPaneEnabled(next); setBusy(true)
+    try { if (!await run('pane.anti-bot.set', { pane: pane.id, enabled: next })) setPaneEnabled(savedPaneEnabled) } finally { setBusy(false) }
   }
   let exclusions: { host: string; exclusion?: AutomationSiteExclusion }[] = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule) }))
   if (host && !exclusions.some(item => item.host === host)) exclusions.unshift({ host })
