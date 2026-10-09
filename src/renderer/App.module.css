@@ -402,8 +402,8 @@
 .panel .sessionPicker .listRow { display: flex; align-items: center; gap: 12px; overflow-wrap: normal; white-space: nowrap; }
 .sessionNumber { flex: 0 0 3ch; color: #8995a3; text-align: right; font-weight: 400; }
 .sessionWindowName { flex: 0 1 auto; min-width: 0; max-width: 40%; padding-left: 20px; overflow: hidden; text-overflow: ellipsis; }
-.sessionWindowPanes { display: flex; flex: 1; min-width: 0; gap: 16px; }
-.sessionPaneActivity { display: flex; flex: 1; min-width: 0; gap: 8px; color: #8995a3; font-size: 12px; }
+.sessionWindowPanes { display: flex; flex: 1; min-width: 0; gap: 16px; overflow: hidden; }
+.sessionPaneActivity { display: flex; flex: 1; min-width: 0; gap: 8px; overflow: hidden; color: #8995a3; font-size: 12px; }
 .sessionPaneActivity > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sessionPaneActivity time { flex-shrink: 0; }
 
