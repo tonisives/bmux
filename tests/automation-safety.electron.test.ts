@@ -305,6 +305,8 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     expect((await cli(['rpc', 'profile.anti-bot.site.remove', JSON.stringify({ profile: pane.profileId, host: '127.0.0.1' })])).ok).toBe(false)
     await expect(antiBot).toContainText('Account warning')
     await chrome.screenshot({ path: path.resolve('artifacts/anti-bot-profile.png') })
+    await antiBot.getByRole('region', { name: 'Website warning checks' }).scrollIntoViewIfNeeded()
+    await chrome.screenshot({ path: path.resolve('artifacts/anti-bot-sites.png') })
     await expect(antiBot.getByRole('region', { name: 'Limits (all profiles)' })).toBeVisible()
     let sessionLimit = antiBot.getByRole('spinbutton', { name: 'Session limit (minutes)' }), breakLength = antiBot.getByRole('spinbutton', { name: 'Break (minutes)' }), delay = antiBot.getByRole('spinbutton', { name: 'Social site delay (seconds)' })
     await expect(sessionLimit).toHaveValue('10')
