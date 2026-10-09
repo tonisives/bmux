@@ -124,7 +124,7 @@ export let createPageTools = (options: Options) => {
     // Preserve unchanged registrations so navigation never sees a needless gap.
     if (target.registeredSources === sources) return
     target.registeredSources = undefined
-    await send(target, 'Page.enable')
+    await send(target, 'Page.enable', { enableFileChooserOpenedEvent: true })
     await target.frames?.start()
     // Keep ownership until Chromium acknowledges removal. A failed refresh must
     // not leave an old userscript installed but absent from our next cleanup.
