@@ -92,12 +92,14 @@ Human browser controls remain available. Session usage and warning pauses surviv
 restarts. A pause applies to the profile across websites. Resolve the warning on
 the affected website manually, then use **Resume automation** in the Anti-bot
 tab. The UI alert names the blocking website and links to Anti-bot settings.
-**Disable checks for this site** is available in both warning and session-limit
-alerts, and in the Anti-bot tab for the current website even when no warning is
-present. It offers 15 minutes, 1 hour, or forever. It skips
-warning detection for that exact hostname in this profile and releases its
-existing pause. Other sites and session limits still apply. Anti-bot settings lists exclusions with their expiry, a toggle, and a remove
-action. Re-enabling a timed exclusion starts a fresh timer. The alert’s X dismisses
+**Exclude this site** is available in warning and session-limit alerts.
+The Anti-bot tab lists the current website and saved exclusions with on/off
+switches and a remove action. Turning an exclusion on keeps it on until you
+turn it off, including after restarting bmux. It skips warning detection for
+that exact hostname in this profile and releases its existing pause. Other
+sites and session limits still apply. Older temporary exclusions remain listed
+with their expiry; turning one on makes it permanent. Session and pacing
+details are under **Limits**. The alert’s X dismisses
 the current notice without changing checks or resuming automation. The CLI cannot resume a
 warning pause or change these toggles. Resuming does not clear session usage or
 bypass a cooldown.

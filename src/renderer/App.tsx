@@ -275,7 +275,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <SiteExclusionButton {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -1717,22 +1717,22 @@ let useAutomationExpiry = (safety?: AutomationSafetyState) => {
   }, [safety, now])
 }
 
-let SiteExclusionSelect = ({ profileId, host }: { profileId: string; host: string }) => {
-  let { run } = useUI(), [busy, setBusy] = useState(false)
-  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
-    let durationMinutes = event.target.value === 'forever' ? null : Number(event.target.value)
+let SiteExclusionButton = ({ profileId, host }: { profileId: string; host: string }) => {
+  let { state, run } = useUI(), [busy, setBusy] = useState(false)
+  let exclusion = automationSiteExclusion(state.automationSafety?.limits.sites?.[profileId]?.[host])
+  let active = !!exclusion && automationExclusionActive(exclusion)
+  let toggle = async () => {
     setBusy(true)
-    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: active }) } finally { setBusy(false) }
   }
-  return <select className={css.notificationAction} aria-label="Disable checks for this site" aria-description={host} value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
+  return <button type="button" className={css.notificationAction} aria-description={host} onClick={toggle} disabled={busy}>{active ? 'Enable site checks' : 'Exclude this site'}</button>
 }
 
-let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
+let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion?: AutomationSiteExclusion }) => {
   let { run } = useUI(), [busy, setBusy] = useState(false)
-  let savedActive = automationExclusionActive(exclusion), [active, setActive] = useState(savedActive)
+  let savedActive = !!exclusion && automationExclusionActive(exclusion), [active, setActive] = useState(savedActive)
   useEffect(() => { setActive(savedActive) }, [savedActive])
-  let duration = exclusion.durationMinutes === null ? 'Forever' : exclusion.durationMinutes === 15 ? '15 minutes' : '1 hour'
-  let status = !exclusion.enabled ? `${duration} · Off` : exclusion.expiresAt === null ? 'Forever' : active ? `Until ${new Date(exclusion.expiresAt).toLocaleString()}` : `${duration} · Expired`
+  let status = exclusion?.enabled && exclusion.expiresAt !== null ? active ? `Temporary · Until ${new Date(exclusion.expiresAt).toLocaleString()}` : 'Temporary · Expired' : undefined
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setActive(next); setBusy(true)
@@ -1742,7 +1742,7 @@ let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; hos
     setBusy(true)
     try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
   }
-  return <div className={css.siteExclusion} role="group" aria-label={host}><label><input className={css.proxyToggle} type="checkbox" role="switch" aria-label={`Exclude ${host}`} checked={active} onChange={toggle} disabled={busy} /><span>{host}<small>{status}</small></span></label><button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button></div>
+  return <div className={css.siteExclusion} role="group" aria-label={host}><label><input className={css.proxyToggle} type="checkbox" role="switch" aria-label={`Exclude ${host}`} checked={active} onChange={toggle} disabled={busy} /><span>{host}{status && <small>{status}</small>}</span></label>{exclusion && <button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button>}</div>
 }
 
 let ProfileAntiBotSettings = () => {
@@ -1755,10 +1755,11 @@ let ProfileAntiBotSettings = () => {
   useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
   if (!profile) return null
   let usage = safety?.profiles.find(item => item.profileId === profile.id)
-  let host = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? usage.warningHost : automationWebsiteHost(pane?.url)
+  let warning = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? usage : undefined
+  let host = warning?.warningHost ?? automationWebsiteHost(pane?.url)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
-  let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? labels[usage.warning] : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
+  let status = safety?.error ? 'Unavailable' : warning ? `${labels[warning.warning!]} · ${warning.warningHost}` : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setEnabled(next); setBusy(true)
@@ -1773,16 +1774,14 @@ let ProfileAntiBotSettings = () => {
     setBusy(true)
     try { await run('automation.reset-session', { profile: profile.id }) } finally { setBusy(false) }
   }
-  let exclusions = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule)! }))
+  let exclusions: { host: string; exclusion?: AutomationSiteExclusion }[] = Object.entries(limits.sites?.[profile.id] ?? {}).map(([host, rule]) => ({ host, exclusion: automationSiteExclusion(rule) }))
+  if (host && !exclusions.some(item => item.host === host)) exclusions.unshift({ host })
   return <div className={css.deviceSettings} role="tabpanel" aria-label="Anti-bot settings">
-    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Enable anti-bot protection</label>
-    <p>Pauses automation on account warnings and limits session length.</p>
-    <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
+    <label className={css.deviceActive}><input className={css.proxyToggle} type="checkbox" role="switch" checked={enabled} onChange={toggle} disabled={busy} />Anti-bot protection</label>
+    {enabled && <div className={css.antiBotStatus} role="status"><span>{status}</span>{cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>}
     {enabled && safety?.error && <p>{safety.error}</p>}
-    {enabled && cooldown && <><p>Wait until {new Date(usage!.retryAfter!).toLocaleTimeString()} or reset the session to continue.</p><button type="button" onClick={resetSession} disabled={busy}>Reset session</button></>}
-    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button></>}
-    {enabled && host && <section aria-label="Website checks"><h3>{host}</h3><SiteExclusionSelect profileId={profile.id} host={host} /></section>}
-    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Site exclusions</h3><p>Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
+    {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Website exclusions</h3><p>Skips website warnings. Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
+    <details className={css.antiBotLimits}><summary>Limits</summary><dl><div><dt>Session</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl></details>
   </div>
 }
 
