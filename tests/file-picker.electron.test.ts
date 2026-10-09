@@ -63,15 +63,17 @@ for (let picker of ['input', 'input-background', 'input-frame', 'input-frame-med
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/fixture`
   let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
+  let commands: string[] = []
   let rpc = (method: string, args: Record<string, unknown> = {}) => new Promise<any>((resolve, reject) => {
+    commands.push(`start ${method} ${JSON.stringify(args)}`)
     let connection = net.createConnection(socket), response = ''
     connection.setEncoding('utf8'); connection.setTimeout(5000)
     connection.on('connect', () => connection.write(JSON.stringify({ method, args }) + '\n'))
     connection.on('data', chunk => { response += chunk })
-    connection.on('timeout', () => connection.destroy(new Error('Fixture browser did not respond')))
+    connection.on('timeout', () => connection.destroy(new Error(`Fixture browser did not respond to ${method}`)))
     connection.on('error', reject)
     connection.on('end', () => {
-      try { let result = JSON.parse(response); if (!result.ok) throw new Error(result.error); resolve(result.result) }
+      try { let result = JSON.parse(response); if (!result.ok) throw new Error(result.error); commands.push(`done ${method}`); resolve(result.result) }
       catch (error) { reject(error) }
     })
   })
@@ -95,7 +97,7 @@ for (let picker of ['input', 'input-background', 'input-frame', 'input-frame-med
     if (picker === 'input-background') {
       let other = await rpc('new-window', { session: state.model.sessions[0].id, url: 'about:blank' })
       await rpc('select-window', { client: state.model.clients[0].id, window: other.id })
-      await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "hidden"' })
+      await fs.writeFile(info.outputPath('background-before-click.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
       await rpc('click', { tab: paneId, selector: '#image' })
       await expect.poll(() => clicks).toBe(1)
       await fs.writeFile(info.outputPath('background-picker.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
@@ -147,6 +149,7 @@ for (let picker of ['input', 'input-background', 'input-frame', 'input-frame-med
     throw error
   } finally {
     await fs.writeFile(info.outputPath('browser-stderr.txt'), errors)
+    await fs.writeFile(info.outputPath('commands.json'), JSON.stringify(commands, null, 2))
     child.kill('SIGTERM')
     await new Promise<void>(resolve => { if (child.exitCode !== null) return resolve(); let timer = setTimeout(() => { child.kill('SIGKILL'); resolve() }, 3000); child.once('exit', () => { clearTimeout(timer); resolve() }) })
     server.closeAllConnections()
