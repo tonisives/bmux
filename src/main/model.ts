@@ -273,6 +273,7 @@ export let validateModel = (value: unknown): Model => {
         else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
+        if (pane.agentId !== undefined && (typeof pane.agentId !== 'string' || !pane.agentId.trim() || pane.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(pane.agentId))) throw new Error('Invalid pane agent identifier')
         if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.backToOpener !== undefined && typeof pane.backToOpener !== 'boolean') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }
     }

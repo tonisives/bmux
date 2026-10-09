@@ -9,6 +9,16 @@ Use `bmux` for bmux pages. The existing c-cdp Chrome instance is separate.
 
 ## Start a bot session
 
+Identify each agent with its tmux pane ID. Set this once in the agent's shell,
+or pass `--agent-id "$TMUX_PANE"` to individual commands:
+
+```sh
+export BMUX_AGENT_ID="$TMUX_PANE"
+```
+
+The identifier stays attached to panes created or used by the agent and appears
+in automation pause notices. Outside tmux, use a stable name of your own.
+
 ```sh
 bmux new-session -s agents --profile bot
 bmux list-windows -t agents
@@ -76,7 +86,8 @@ a lease before agent commands can access selected websites.
 ## Anti-bot protection
 
 Open the profile view's **Anti-bot** tab to check protection, limits, and pauses,
-or disable it for that profile. Changes are saved and take effect immediately.
+or disable it for a profile or individual pane. Pane toggles override the profile
+default. Changes are saved and take effect immediately.
 The CLI and plugin browser API share the guard; site-specific plugins are not
 needed for these defaults:
 
@@ -91,9 +102,15 @@ needed for these defaults:
 Human browser controls remain available. Session usage and warning pauses survive
 restarts. A pause applies to the profile across websites. Resolve the warning on
 the affected website manually, then use **Resume automation** in the Anti-bot
-tab. The UI alert names the blocking website and links to Anti-bot settings.
-**Disable checks for this site** is available in both warning and session-limit
-alerts, and in the Anti-bot tab for the current website even when no warning is
+tab. The notice names the blocking website and provides links to affected
+automation panes, including their agent identifiers. The gear at the far right
+opens Anti-bot settings for an affected pane. Manual browsing never consumes
+automation time or waits for a cooldown, including in the same profile.
+Permission requests use the same notice bar with the requesting pane and
+**Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
+leaves it pending; dismissed requests remain available in **Activity**.
+**Disable checks for this site** is available in warning notices
+and in the Anti-bot tab for the current website even when no warning is
 present. It offers 15 minutes, 1 hour, or forever. It skips
 warning detection for that exact hostname in this profile and releases its
 existing pause. Other sites and session limits still apply. Anti-bot settings lists exclusions with their expiry, a toggle, and a remove

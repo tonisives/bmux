@@ -60,7 +60,7 @@
 .prompt .error { color: #e6a69c; }
 .notifications { position: relative; z-index: 101; order: -1; flex: 0 0 auto; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app[data-status-bar="bottom"] .notifications { order: 2; }
-.notification { display: flex; align-items: center; min-height: 28px; gap: 12px; padding: 4px 8px 4px 12px; border-top: 1px solid #493638; border-bottom: 1px solid #493638; background: #2a2022; color: #e6a69c; }
+.notification { display: flex; flex-wrap: wrap; align-items: center; min-height: 28px; gap: 8px; padding: 4px 8px 4px 12px; border-top: 1px solid #493638; border-bottom: 1px solid #493638; background: #2a2022; color: #e6a69c; }
 .notification span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .notification button { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #b98d89; }
 .notification button:hover { color: #f2c1bb; }

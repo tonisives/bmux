@@ -66,7 +66,7 @@ test.afterAll(async () => {
   if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-test('permission popup and Activity visit the requesting pane across sessions without answering', async () => {
+test('permission notice and Activity visit the requesting pane across sessions without answering', async () => {
   await open(`${url}/observer`)
   let observer = await client()
   let profile = await rpc('profile.create', { name: 'consent-requester', background: true }) as any
@@ -78,13 +78,12 @@ test('permission popup and Activity visit the requesting pane across sessions wi
   await source.evaluate(() => { Notification.requestPermission().then(result => { (window as any).permissionResult = result }) })
   await expect.poll(async () => (await rpc('permission.list') as any[]).length).toBe(1)
   expect(await client()).toEqual(observer)
-  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#permissions'))).toBe(true)
-  let permissionPage = application.context().pages().find(page => page.url().endsWith('#permissions'))!
-  let popup = permissionPage.getByRole('dialog', { name: 'Permissions', exact: true })
+  let popup = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'requests notifications' })
   await expect(popup).toBeVisible()
+  await expect(popup).toContainText(`requests:2 · ${pane.id}`)
   let visit = popup.getByRole('button', { name: 'Go to pane', exact: true })
   await expect(visit).toHaveAttribute('title', `requests:2 · ${pane.id}`)
-  await permissionPage.screenshot({ path: path.resolve('artifacts/consent-go-to-pane.png') })
+  await chrome.screenshot({ path: path.resolve('artifacts/consent-go-to-pane.png') })
   await visit.click()
   let expectSource = async () => {
     await expect.poll(async () => { let current = await client(); return { id: current.id, sessionId: current.sessionId, windowId: current.windowId, paneId: current.paneId, zoomedPaneId: current.zoomedPaneId } }).toEqual({ id: observer.id, sessionId: session.id, windowId: window.id, paneId: pane.id, zoomedPaneId: null })
@@ -98,7 +97,7 @@ test('permission popup and Activity visit the requesting pane across sessions wi
   await source.locator('#text').fill('Request is still pending')
   await rpc('switch-client', { client: observer.id, session: observer.sessionId })
   await expectAttached(`${url}/observer`)
-  await popup.getByRole('button', { name: 'Close', exact: true }).click()
+  await popup.getByRole('button', { name: 'Dismiss notification', exact: true }).click()
   await chrome.getByRole('button', { name: 'Activity', exact: true }).click()
   let activity = chrome.getByRole('dialog', { name: 'Activity', exact: true })
   await activity.getByRole('button', { name: 'Go to pane', exact: true }).click()

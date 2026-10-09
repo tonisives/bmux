@@ -64,7 +64,7 @@ import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation> }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; permissionPopup: WebContentsView; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
 let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
@@ -309,7 +309,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!tabId) return { clientId: client?.id }
     let { tab, pane, window, session } = tabById(model, tabId)
     let contents = tabs.get(tabId)?.contents
-    return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
+    return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, agentId: target.agentId ?? pane.agentId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
   }
   let pluginSelected = (context: PluginContext) => {
     let client = model.clients.find(client => client.id === context.clientId)
@@ -328,28 +328,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ automationSafety: automationSafety?.status(), remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
-  let updatePermissionPopup = (clientId: string, live: LiveClient, current: PublicState) => {
-    live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
-    let pending = current.permissions.filter(request => !live.dismissedPermissions.has(request.id))
-    let visible = pending.length > 0 && focusedClientId === clientId && !overlays.has(clientId) && !current.pluginPrompt
-    live.permissionPopup.webContents.send('state', { ...current, permissions: visible ? pending : [] })
-    if (!visible) {
-      if (live.permissionPopup.webContents.isFocused() && live.window.isFocused()) {
-        let client = model.clients.find(client => client.id === clientId)
-        let tab = client?.paneId ? tabs.get(paneById(model, client.paneId).pane.id) : undefined
-        if (tab?.parent === live.window && !overlays.has(clientId)) tab.contents.focus()
-        else live.chrome.webContents.focus()
-      }
-      live.permissionPopup.setVisible(false)
-      return
-    }
-    let bounds = live.window.getContentBounds()
-    let width = Math.min(340, bounds.width - 24), y = current.statusBar === 'bottom' ? 40 : 68
-    live.permissionPopup.setBounds({ x: bounds.width - width - 12, y, width, height: Math.min(210, bounds.height - y - 40) })
-    if (live.window.contentView.children.at(-1) !== live.permissionPopup) live.window.contentView.addChildView(live.permissionPopup)
-    live.permissionPopup.setVisible(true)
-  }
+  let state = (clientId = ''): PublicState => ({ automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -369,10 +348,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     publishTimer = setTimeout(() => {
       publishTimer = undefined
       for (let [clientId, live] of clients) if (!live.chrome.webContents.isDestroyed()) {
+        live.dismissedPermissions = new Set([...live.dismissedPermissions].filter(id => permissions.has(id)))
         let current = state(clientId)
         live.chrome.webContents.send('state', current)
         for (let frame of live.floats.values()) if (!frame.webContents.isDestroyed()) frame.webContents.send('state', current)
-        updatePermissionPopup(clientId, live, current)
         updateLinkPreview(clientId, live)
       }
     }, 30)
@@ -751,7 +730,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (automatedContents.has(contents.id)) { contents.setIgnoreMenuShortcuts(true); return }
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
-      if (!focused || (focused.chrome.webContents !== contents && focused.permissionPopup.webContents !== contents && ![...focused.floats.values()].some(frame => frame.webContents === contents) && ![...tabs.values()].some(tab => tab.contents === contents && tab.parent === focused.window))) return
+      if (!focused || (focused.chrome.webContents !== contents && ![...focused.floats.values()].some(frame => frame.webContents === contents) && ![...tabs.values()].some(tab => tab.contents === contents && tab.parent === focused.window))) return
       if (clickMode.handle(focusedClientId, input)) { event.preventDefault(); return }
       let clickSettings = configuration?.clickMode ?? DEFAULT_CLICK_MODE
       let selected = model.clients.find(client => client.id === focusedClientId)?.paneId
@@ -806,7 +785,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('before-mouse-event', (event, mouse) => {
       if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') {
-        let client = [...clients].find(([, live]) => live.window.isFocused() && (live.chrome.webContents === contents || live.permissionPopup.webContents === contents || [...live.floats.values()].some(frame => frame.webContents === contents) || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === live.window)))
+        let client = [...clients].find(([, live]) => live.window.isFocused() && (live.chrome.webContents === contents || [...live.floats.values()].some(frame => frame.webContents === contents) || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === live.window)))
         if (client) clickMode.cancelClient(client[0])
       }
       if (!automatedContents.has(contents.id) && mouse.type === 'mouseDown') pointerTarget = undefined
@@ -1561,21 +1540,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (process.platform === 'darwin') window.setWindowButtonVisibility(false)
     let chrome = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     window.contentView.addChildView(chrome)
-    let permissionPopup = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
-    permissionPopup.setVisible(false)
-    window.contentView.addChildView(permissionPopup)
     let linkPreview = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     linkPreview.setVisible(false)
     window.contentView.addChildView(linkPreview)
     let tabTooltip = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
     tabTooltip.setVisible(false)
     window.contentView.addChildView(tabTooltip)
-    if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') for (let [name, view] of [['chrome', chrome], ['permissions', permissionPopup], ['link preview', linkPreview], ['tab tooltip', tabTooltip]] as const) {
+    if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') for (let [name, view] of [['chrome', chrome], ['link preview', linkPreview], ['tab tooltip', tabTooltip]] as const) {
       view.webContents.on('did-finish-load', () => trace(`${name} loaded`))
       view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
     }
     let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), permissionPopup, linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let owner: LiveClient = { window, chrome, floats: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
@@ -1606,7 +1582,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     window.on('closed', () => {
       clients.delete(client.id)
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
-      if (!permissionPopup.webContents.isDestroyed()) permissionPopup.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
       if (!tabTooltip.webContents.isDestroyed()) tabTooltip.webContents.close()
       for (let frame of owner.floats.values()) if (!frame.webContents.isDestroyed()) frame.webContents.close()
@@ -1614,9 +1589,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
     })
     installKeys(chrome.webContents)
-    installKeys(permissionPopup.webContents)
-    permissionPopup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    permissionPopup.webContents.on('will-navigate', event => event.preventDefault())
     linkPreview.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     linkPreview.webContents.on('will-navigate', event => event.preventDefault())
     tabTooltip.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -1624,15 +1596,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     chrome.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     chrome.webContents.on('will-navigate', event => event.preventDefault())
     trace('loading renderers')
-    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), permissionPopup.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#permissions'), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview'), tabTooltip.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#tab-tooltip')])
-    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), permissionPopup.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'permissions' }), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' }), tabTooltip.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'tab-tooltip' })])
+    if (process.env.ELECTRON_RENDERER_URL) await Promise.all([chrome.webContents.loadURL(process.env.ELECTRON_RENDERER_URL), linkPreview.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#link-preview'), tabTooltip.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#tab-tooltip')])
+    else await Promise.all([chrome.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html')), linkPreview.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'link-preview' }), tabTooltip.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'tab-tooltip' })])
     if (activate) { trace('showing dock'); await app.dock?.show(); trace('showing window'); app.focus({ steal: true }); window.show(); await focusWindow(window); chrome.webContents.focus() }
     else window.showInactive()
     trace('window ready')
     save()
     return client
   }
-  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.permissionPopup.webContents.id === contentsId || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
+  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
   let inspectAutomationPage = async (tabId: string, recover = false) => {
     // Inspect the current document without awaiting a navigation that this command
     // may need to interrupt. A crashed renderer has no document to inspect.
@@ -1655,7 +1627,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
     if (!context.profileId || !context.paneId) return
-    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), targetUrl, pace)
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), targetUrl, pace, { paneId: context.paneId, agentId: context.agentId ?? paneById(model, context.paneId).pane.agentId })
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
@@ -1667,10 +1639,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
 
   let execute = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
+    if (args.agentId !== undefined && (typeof args.agentId !== 'string' || !args.agentId.trim() || args.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(args.agentId))) throw new Error('agentId must be a nonempty identifier of at most 128 characters')
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()
+    if (method === 'pane.anti-bot.set') {
+      if (!sourceClientId) throw new Error('Change pane anti-bot protection in the bmux UI')
+      let { pane } = paneById(model, required(args, 'pane'))
+      if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
+      configuration?.update(['automation', 'safety', 'panes', pane.id], args.enabled)
+      return { enabled: args.enabled }
+    }
     if (method === 'profile.anti-bot.set') {
       if (!sourceClientId) throw new Error('Change anti-bot protection in the profile view')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
@@ -1704,6 +1684,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'automation.acquire') {
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
+      if (typeof args.agentId === 'string' && pane.agentId !== args.agentId) { pane.agentId = args.agentId; save(); publish() }
       if (!automation) throw new Error('Automation policy unavailable')
       let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url'), searchAppForSession(session)) })
       tabAutomation.set(tabId, lease.token)
@@ -1729,6 +1710,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return memory.report(args.history === true)
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
+    if (!sourceClientId && typeof args.agentId === 'string' && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
+      let { pane } = tabById(model, args.tab)
+      if (pane.agentId !== args.agentId) { pane.agentId = args.agentId; save(); publish() }
+    }
     if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, session } = tabById(model, args.tab)
       let targetUrl = automationTargetUrl(method, args)
@@ -1977,6 +1962,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!clientId) throw new Error('Specify a client with -c CLIENT')
       let command = parseCommandLine(required(args, 'line'), state(String(clientId)))
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
+      if (args.agentId !== undefined) command.args = { ...command.args, agentId: args.agentId }
       return execute(command, sourceClientId)
     }
     if (method === 'settings.default-browser') {
@@ -2190,6 +2176,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
       let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true, model)
+      if (typeof args.agentId === 'string') session.windows[0].panes[0].agentId = args.agentId
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
@@ -2297,6 +2284,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
+      if (typeof args.agentId === 'string') window.panes[0].agentId = args.agentId
+      if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, agentId: window.panes[0].agentId })
       if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
@@ -2448,6 +2437,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
       let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
+      if (method === 'new-pane' && typeof args.agentId === 'string') pane.agentId = args.agentId
+      if (method === 'new-pane' && !sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId })
       if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
@@ -2467,6 +2458,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
+      if (typeof args.agentId === 'string') pane.agentId = args.agentId
+      if (!sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId })
       if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
@@ -2788,7 +2781,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     await visualQueue
     return serializeTab(tabId, async () => {
       checkControl(method, args)
-      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId)
+      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(tabById(model, tabId).pane.profileId, tabId)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let { tab, pane, session } = tabById(model, tabId)
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
