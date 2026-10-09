@@ -36,7 +36,8 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached for default' })
     await expect(alert).toBeVisible()
     await expect(alert).toContainText('Retry at')
-    await expect(alert).toContainText('All panes using this profile')
+    await expect(alert).toContainText('Manual browsing is unaffected')
+    await expect(alert.getByRole('button', { name: 'Anti-bot settings' }).locator('svg')).toBeVisible()
     await expect(alert.getByRole('combobox')).toHaveCount(0)
     if (action === 'expiry') {
       await alert.getByRole('button', { name: 'Anti-bot settings' }).click()
@@ -54,29 +55,12 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     let page = application.context().pages().find(page => page.url() === url)!
     await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
     let host = '127.0.0.1'
-    if (action === 'alert') {
-      // The second pane shares its profile but visits a different hostname.
-      // The exclusion must follow the selected pane rather than the first pane.
-      let pane = await chrome.evaluate(async ({ paneId, url }) => (window as any).bmux.command({ method: 'split-window', args: { pane: paneId, url } }), { paneId: client.paneId, url: url.replace('127.0.0.1', 'localhost') })
-      await chrome.evaluate(async ({ clientId, paneId }) => (window as any).bmux.command({ method: 'select-pane', args: { client: clientId, pane: paneId } }), { clientId: client.id, paneId: pane.id })
-      await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).model.clients.find((item: { id: string }) => item.id === client.id).paneId).toBe(pane.id)
-      host = 'localhost'
-    }
-    let excludeSite = alert.getByRole('combobox', { name: `Website warning checks for ${host}` })
-    await expect(excludeSite).toBeVisible()
-    await expect(excludeSite).toHaveAttribute('aria-description', host)
-    await expect(excludeSite).toHaveValue('enabled')
+    await expect(alert.getByRole('combobox')).toHaveCount(0)
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve(`artifacts/session-limit-${action}.png`) })
     expect(await cli(['dom', '-t', client.paneId])).toMatchObject({ ok: false, error: expect.stringContaining('Profile > Anti-bot') })
     expect(await cli(['rpc', 'automation.reset-session', JSON.stringify({ profile: 'profile_default' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
     if (action === 'alert') {
-      await excludeSite.selectOption('disabled')
-      await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.sites?.profile_default?.[host]).toEqual({ enabled: true, durationMinutes: null, expiresAt: null })
-      expect((await cli(['automation', 'safety'])).result.limits.sites.profile_default['127.0.0.1']).toBeUndefined()
-      await expect(excludeSite).toHaveValue('disabled')
-      await expect(alert).toBeVisible()
-      expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
       await alert.getByRole('button', { name: 'Reset session' }).click()
     }
     else {
@@ -115,7 +99,89 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
   }
 })
 
-test('default anti-bot protection blocks warnings across CLI and plugins, with persistent profile and website toggles', async () => {
+test('automation and permission notices identify agent panes while personal browsing stays available', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-notice-'))
+  let server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html')
+    response.end('<!doctype html><title>Agent notice fixture</title><main>Manual browsing</main>')
+  })
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    let url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
+    let startedAt = Date.now() - 11 * 60_000
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { startedAt, lastUsed: startedAt + 1000 } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
+    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let state = await chrome.evaluate(() => (window as any).bmux.state())
+    let personal = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
+    let cli = async (args: string[]) => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+        if (error.stdout) return { stdout: error.stdout }
+        throw error
+      })
+      return JSON.parse(result.stdout)
+    }
+    let agents = await command('new-session', { name: 'agents', profile: 'default' })
+    let first = (await cli(['new-window', '-t', agents.id, '-n', 'research', '--agent-id', '%45'])).result.panes[0]
+    let second = (await cli(['new-window', '-t', agents.id, '-n', 'review', '--agent-id', '%46'])).result.panes[0]
+    expect(first.agentId).toBe('%45')
+    for (let pane of [first, second]) expect((await cli(['dom', '-t', pane.id])).ok).toBe(false)
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.pressSequentially(url); await address.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
+    await expect(application.context().pages().find(page => page.url() === url)!.getByRole('main')).toHaveText('Manual browsing')
+    let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached' })
+    await expect(alert).toContainText('Manual browsing is unaffected')
+    await expect(alert.getByRole('combobox')).toHaveCount(0)
+    await expect(alert.getByRole('button', { name: `Go to pane agents:2 · ${first.id} (%45)`, exact: true })).toBeVisible()
+    await expect(alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true })).toBeVisible()
+    await expect(alert).not.toContainText(personal.paneId)
+    let usage = (await cli(['automation', 'safety'])).result.profiles[0]
+    expect(usage).toMatchObject({ startedAt, lastUsed: startedAt + 1000 })
+    expect(usage.actors.map((actor: { paneId: string }) => actor.paneId)).toEqual([first.id, second.id])
+    await command('navigate', { pane: first.id, url: `${url}?requester` })
+    await expect.poll(() => application!.context().pages().some(page => page.url() === `${url}?requester`)).toBe(true)
+    let requester = application.context().pages().find(page => page.url() === `${url}?requester`)!
+    await requester.evaluate(() => { Notification.requestPermission().then(value => { (window as any).permissionResult = value }) })
+    let permission = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'requests notifications' })
+    await expect(permission).toContainText(`agents:2 · ${first.id}`)
+    expect(await permission.getAttribute('class')).toBe(await alert.getAttribute('class'))
+    await permission.getByRole('button', { name: 'Go to pane', exact: true }).click()
+    await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(first.id)
+    expect(await requester.evaluate(() => (window as any).permissionResult)).toBeUndefined()
+    await permission.getByRole('button', { name: 'Deny', exact: true }).click()
+    await expect(permission).toHaveCount(0)
+    await alert.getByRole('button', { name: 'Anti-bot settings', exact: true }).click()
+    let antiBot = chrome.getByRole('tabpanel', { name: 'Anti-bot settings' })
+    await expect(antiBot).toContainText('Agent %45')
+    let toggle = antiBot.getByRole('switch', { name: 'Enable checks for this pane', exact: true })
+    await toggle.uncheck()
+    await expect.poll(async () => (await cli(['dom', '-t', first.id])).ok).toBe(true)
+    expect((await cli(['dom', '-t', second.id])).ok).toBe(false)
+    await expect(alert).not.toContainText('(%45)')
+    expect((await cli(['rpc', 'pane.anti-bot.set', JSON.stringify({ pane: second.id, enabled: false })])).ok).toBe(false)
+    await toggle.check()
+    await expect.poll(async () => (await cli(['dom', '-t', first.id])).ok).toBe(false)
+    await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+    await alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true }).click()
+    await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(second.id)
+    await alert.getByRole('button', { name: 'Anti-bot settings', exact: true }).click()
+    await expect(antiBot).toContainText('Agent %46')
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice.png') })
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('default anti-bot protection blocks warnings across CLI and plugins, with a persistent profile toggle', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-safety-ui-'))
   let server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
@@ -167,7 +233,8 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with p
     expect((await cli(['profile', 'anti-bot.set', '--profile', pane.profileId, '--enabled', 'false'])).ok).toBe(false)
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation paused for default' })
     await expect(alert).toContainText('127.0.0.1')
-    await expect(alert).toContainText('All panes using this profile')
+    await expect(alert).toContainText('Manual browsing is unaffected')
+    await expect(alert.getByRole('button', { name: 'Anti-bot settings' }).locator('svg')).toBeVisible()
     await alert.getByRole('combobox', { name: 'Website warning checks for 127.0.0.1' }).selectOption('disabled')
     await expect(alert).toHaveCount(0)
     expect((await cli(['dom', '-t', pane.id])).ok).toBe(true)

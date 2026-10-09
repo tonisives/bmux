@@ -10,18 +10,19 @@ export type AutomationGroup = {
 }
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
-export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationActor = { paneId: string; agentId?: string }
 export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
-export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
+export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
 export type AutomationSettings = { safety: AutomationSafety; groups: Record<string, AutomationGroup> }
 export let DEFAULT_AUTOMATION: AutomationSettings = { safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, profiles: {} }, groups: {} }
-export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string) => settings.profiles[profileId] ?? settings.enabled
+export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string, paneId?: string) => (paneId ? settings.panes?.[paneId] : undefined) ?? settings.profiles[profileId] ?? settings.enabled
 export let automationSiteExclusion = (rule: AutomationSiteRule | undefined): AutomationSiteExclusion | undefined => typeof rule === 'boolean' ? { enabled: !rule, durationMinutes: null, expiresAt: null } : rule
 export let automationExclusionActive = (rule: AutomationSiteExclusion, now = Date.now()) => rule.enabled && (rule.expiresAt === null || rule.expiresAt > now)
-export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string, now = Date.now()) => {
+export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string, now = Date.now(), paneId?: string) => {
   let exclusion = automationSiteExclusion(settings.sites?.[profileId]?.[host.toLowerCase()])
-  return automationSafetyEnabled(settings, profileId) && (!exclusion || !automationExclusionActive(exclusion, now))
+  return automationSafetyEnabled(settings, profileId, paneId) && (!exclusion || !automationExclusionActive(exclusion, now))
 }
 export let updateAutomationSiteExclusion = (previous: AutomationSiteRule | undefined, enabled: unknown, durationMinutes: unknown, now = Date.now()): AutomationSiteExclusion => {
   if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')
@@ -84,10 +85,10 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
       }
       safety.sites = sites as Record<string, Record<string, AutomationSiteRule>>; continue
     }
-    if (key === 'profiles') {
-      let profiles = mapping(value, 'automation.safety.profiles')
-      if (Object.values(profiles).some(enabled => typeof enabled !== 'boolean')) throw new Error('automation.safety.profiles must map profile IDs to true or false')
-      safety.profiles = profiles as Record<string, boolean>; continue
+    if (key === 'profiles' || key === 'panes') {
+      let entries = mapping(value, `automation.safety.${key}`)
+      if (Object.values(entries).some(enabled => typeof enabled !== 'boolean')) throw new Error(`automation.safety.${key} must map ${key === 'profiles' ? 'profile' : 'pane'} IDs to true or false`)
+      safety[key] = entries as Record<string, boolean>; continue
     }
     let maximum = key === 'socialDelayMs' ? 30_000 : 1440
     if (!['maxSessionMinutes', 'cooldownMinutes', 'socialDelayMs'].includes(key) || !Number.isInteger(value) || Number(value) < 1 || Number(value) > maximum) throw new Error(`Invalid automation.safety.${key}`)

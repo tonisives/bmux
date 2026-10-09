@@ -184,7 +184,7 @@ All plugin browser operations also use the default global [anti-bot guard](agent
 including direct evaluation and raw CDP. It spaces social-site commands, bounds
 automation sessions, and pauses a profile on known account warnings or challenges.
 A safety failure terminates the plugin invocation and reports the pause reason.
-The profile view's Anti-bot tab controls the guard for that profile. Configured
+The profile view's Anti-bot tab controls the guard for that profile or individual pane. Configured
 group leases and budgets remain separate and continue to apply when it is disabled.
 
 `browser.manage` allows `profile.list`, `list-sessions/windows/panes`,

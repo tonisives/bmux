@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { automationSiteExclusion, automationWarningEnabled, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { updateAutomationSafetyLimit, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -79,6 +79,35 @@ test('session limits and cooldown survive app restarts and failed retries do not
   advance(60_000)
   await next.before('bot', instagram)
   expect(next.status().profiles[0].startedAt).toBe(Date.parse('2026-10-01T00:30:00Z'))
+})
+
+test('records affected automation panes and agent IDs, including denied commands, without extending cooldown', async () => {
+  let { policy, advance, restart } = fixture()
+  await policy.before('bot', instagram, undefined, true, { paneId: '%1', agentId: '%42' })
+  advance(10 * 60_000)
+  await expect(policy.before('bot', instagram, undefined, true, { paneId: '%2', agentId: 'research' })).rejects.toThrow('session limit')
+  let next = restart()
+  expect(next.status().profiles[0]).toMatchObject({ actors: [{ paneId: '%1', agentId: '%42' }, { paneId: '%2', agentId: 'research' }], retryAfter: '2026-10-01T00:30:00.000Z' })
+  advance(20 * 60_000)
+  await next.before('bot', instagram, undefined, true, { paneId: '%3' })
+  expect(next.status().profiles[0].actors).toEqual([{ paneId: '%3' }])
+})
+
+test('pane toggles persist independently and bypass only the chosen pane', async () => {
+  let { policy, settings, advance, restart } = fixture()
+  await policy.before('bot', instagram, undefined, true, { paneId: '%1' })
+  advance(10 * 60_000)
+  settings.panes = { '%1': false, '%2': true }
+  expect(parseAutomationSettings({ safety: { panes: settings.panes } }).safety.panes).toEqual(settings.panes)
+  let next = restart()
+  await next.before('bot', async () => { throw new Error('Disabled pane must not inspect') }, undefined, true, { paneId: '%1' })
+  await expect(next.before('bot', instagram, undefined, true, { paneId: '%2' })).rejects.toThrow('session limit')
+  expect(() => next.assertAvailable('bot', '%1')).not.toThrow()
+  settings.enabled = false
+  expect(automationSafetyEnabled(settings, 'bot', '%1')).toBe(false)
+  expect(automationSafetyEnabled(settings, 'bot', '%2')).toBe(true)
+  expect(automationSafetyEnabled(settings, 'bot', '%3')).toBe(false)
+  expect(() => parseAutomationSettings({ safety: { panes: { '%1': 'false' } } })).toThrow('pane IDs')
 })
 
 test('warnings latch across restarts and other sites until a human resolves the affected site', async () => {

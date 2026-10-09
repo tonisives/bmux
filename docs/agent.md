@@ -9,6 +9,16 @@ Use `bmux` for bmux pages. The existing c-cdp Chrome instance is separate.
 
 ## Start a bot session
 
+Identify each agent with its tmux pane ID. Set this once in the agent's shell,
+or pass `--agent-id "$TMUX_PANE"` to individual commands:
+
+```sh
+export BMUX_AGENT_ID="$TMUX_PANE"
+```
+
+The identifier stays attached to panes created or used by the agent and appears
+in automation pause notices. Outside tmux, use a stable name of your own.
+
 ```sh
 bmux new-session -s agents --profile bot
 bmux list-windows -t agents
@@ -76,7 +86,8 @@ a lease before agent commands can access selected websites.
 ## Anti-bot protection
 
 Open the profile view's **Anti-bot** tab to check protection, limits, and pauses,
-or disable it for that profile. Changes are saved and take effect immediately.
+or disable it for a profile or individual pane. Pane toggles override the profile
+default. Changes are saved and take effect immediately.
 The CLI and plugin browser API share the guard; site-specific plugins are not
 needed for these defaults:
 
@@ -91,19 +102,25 @@ needed for these defaults:
 Human browser controls remain available. Session usage and warning pauses survive
 restarts. A pause applies to the profile across websites. Resolve the warning on
 the affected website manually, then use **Resume automation** in the Anti-bot
-tab. The UI alert names the blocking website and links to Anti-bot settings.
-**Warning checks** in warning and session-limit alerts shows the selected
-website's saved state: **Enabled** or **Disabled**. The Anti-bot tab lists
-the current website and saved exclusions with the same dropdown and a remove
-action. Choosing **Disabled** keeps checks off until you choose **Enabled**,
-including after restarting bmux. It skips warning detection for
-that exact hostname in this profile and releases its existing pause. Other
-sites and session limits still apply. Older temporary exclusions remain listed
-with their expiry; disabling checks again makes the exclusion permanent.
+tab. The notice names the blocking website and provides links to affected
+automation panes, including their agent identifiers. The gear at the far right
+opens Anti-bot settings for an affected pane. Manual browsing never consumes
+automation time or waits for a cooldown, including in the same profile.
+Permission requests use the same notice bar with the requesting pane and
+**Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
+leaves it pending; dismissed requests remain available in **Activity**.
+**Warning checks** in website warning notices shows the blocking website's
+saved state: **Enabled** or **Disabled**. The Anti-bot tab lists the current
+website and saved exclusions with the same dropdown and a remove action.
+Choosing **Disabled** keeps checks off until you choose **Enabled**, including
+after restarting bmux. It skips warning detection for that exact hostname in
+this profile and releases its existing pause. Other sites and session limits
+still apply. Older temporary exclusions remain listed with their expiry;
+disabling checks again makes the exclusion permanent.
 **Limits (all profiles)** has editable session minutes, break minutes, and
 social site delay in seconds. Press Enter or leave a field to save it. These
 limits apply to every profile and update immediately without clearing usage.
-The alert’s X dismisses
+The alert's X dismisses
 the current notice without changing checks or resuming automation. The CLI cannot resume a
 warning pause or change these toggles. Resuming does not clear session usage or
 bypass a cooldown.

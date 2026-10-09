@@ -2104,7 +2104,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
 })
 
 
-test('permission corner popup leaves the native page interactive and reopens for new requests', async () => {
+test('permission notice leaves the native page interactive and reopens for new requests', async () => {
   let profile = await cli('profile.create', { name: 'permission-popup', background: true })
   let session = await cli('new-session', { name: 'permission-popup', profile: profile.id })
   let tab = session.windows[0].panes[0]
@@ -2114,28 +2114,24 @@ test('permission corner popup leaves the native page interactive and reopens for
   await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.windows().find(window => window.url().endsWith('/renderer/index.html'))!
-  let permissionPage = application.context().pages().find(page => page.url().endsWith('#permissions'))!
-  let popup = permissionPage.getByRole('dialog', { name: 'Permissions', exact: true })
+  let popup = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: /requests (notifications|geolocation)/ })
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('notifications')
+  await expect(popup).toContainText(tab.id)
   let placement = await application.evaluate(({ BaseWindow }, fixtureUrl) => {
     let window = BaseWindow.getAllWindows().find(window => window.isFocused())!
     let views = window.contentView.children as Electron.WebContentsView[]
-    let popup = views.find(view => view.webContents.getURL().endsWith('#permissions'))!
-    return { popup: popup.getBounds(), width: window.getContentBounds().width, pageAttached: views.some(view => view.webContents.getURL() === fixtureUrl) }
+    return { pageAttached: views.some(view => view.webContents.getURL() === fixtureUrl && view.getBounds().height > 0) }
   }, `${url}/permission-popup`)
   expect(placement.pageAttached).toBe(true)
-  expect(placement.popup.width).toBe(340)
-  expect(placement.popup.x + placement.popup.width).toBe(placement.width - 12)
-  expect(placement.popup.y).toBe(68)
-  await permissionPage.screenshot({ path: path.join(root, 'artifacts/permission-popup.png') })
+  await chrome.screenshot({ path: path.join(root, 'artifacts/permission-notice.png') })
   let website = application.context().pages().find(page => page.url() === `${url}/permission-popup`)!
   await website.locator('#text').click()
   await website.locator('#text').fill('Keep browsing')
   await website.locator('#inc').click()
   await expect(website.locator('#count')).toHaveText('1')
   await expect(popup).toBeVisible()
-  await popup.getByRole('button', { name: 'Close', exact: true }).click()
+  await popup.getByRole('button', { name: 'Dismiss notification', exact: true }).click()
   await expect(popup).toBeHidden()
   await chrome.getByRole('button', { name: 'Activity', exact: true }).click()
   let activity = chrome.getByRole('dialog', { name: 'Activity', exact: true })
