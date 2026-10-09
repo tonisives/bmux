@@ -2431,9 +2431,9 @@ for (let editing of [false, true]) test(`URL selection reaches the start or end 
         await chrome.mouse.move(x, y + vertical, { steps: 3 })
         await expect.poll(selected).toEqual(outsideSelection)
         await chrome.mouse.move(x - 70, y + vertical, { steps: 5 })
-        await expect.poll(selected).toEqual(outsideSelection)
+        await expect.poll(selected).toEqual({ start: 0, end: anchor, direction: 'backward' })
         await chrome.mouse.move(x + 70, y + vertical, { steps: 5 })
-        await expect.poll(selected).toEqual(outsideSelection)
+        await expect.poll(selected).toEqual({ start: anchor, end: length, direction: 'forward' })
         await chrome.mouse.move(x - 70, y, { steps: 5 })
         await expect.poll(async () => (await selected()).start).toBeLessThan(anchor)
         expect(await selected()).toMatchObject({ end: anchor, direction: 'backward' })
@@ -2442,10 +2442,12 @@ for (let editing of [false, true]) test(`URL selection reaches the start or end 
         await expect.poll(async () => (await selected()).end).toBeGreaterThan(anchor)
         expect(await selected()).toMatchObject({ start: anchor, direction: 'forward' })
         expect((await selected()).end).toBeLessThan(target.length)
-        await chrome.mouse.move(x, y + vertical, { steps: 3 })
-        await expect.poll(selected).toEqual(outsideSelection)
+        // Release below and left of the anchor, still horizontally inside the input.
+        await chrome.mouse.move(x - 70, y + 60, { steps: 3 })
+        await expect.poll(selected).toEqual({ start: 0, end: anchor, direction: 'backward' })
       } finally { await chrome.mouse.up() }
       await expect(address).toBeFocused()
+      expect(await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, direction: (input as HTMLInputElement).selectionDirection }))).toEqual({ start: 0, direction: 'backward' })
       await chrome.getByRole('group', { name: 'Pane address', exact: true }).screenshot({ path: info.outputPath(`address-focus-${vertical}.png`) })
       await address.press('Escape')
     }
@@ -2523,7 +2525,7 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
       let toEnd = { start: inField.start, end: (await input.inputValue()).length }
       await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
       await mouse([{ type: 6, x: x + 35, y: y + 60 }])
-      await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
+      await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: inField.start })
     }
     selected = originalSelection ?? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
     await mouse([{ type: 2, x: x + (editing ? 210 : 35), y: y + 60 }])
