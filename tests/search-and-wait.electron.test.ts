@@ -230,6 +230,41 @@ test('session picker goes back to the previously selected session', async () => 
   expect((await state()).model.clients.find((item: { id: string }) => item.id === client).sessionId).toBe(previous.id)
 })
 
+test('session picker highlights go back for back letters and abbreviations in both list modes', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let previous = model.sessions[1], rivals: { id: string }[] = []
+  let panel = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+  let group = panel.getByRole('group', { name: 'Choose session', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search sessions', exact: true })
+  let back = group.locator('[data-session-back]')
+  try {
+    for (let name of ['b', 'a', 'c', 'k', 'back']) rivals.push(await rpc('new-session', { name }))
+    for (let recent of [false, true]) {
+      await rpc('switch-client', { client: client.id, session: previous.id })
+      await rpc('switch-client', { client: client.id, session: session.id })
+      await open('sessions')
+      let toggle = group.getByRole('button', { name: 'Sort by recently visited', exact: true })
+      if ((await toggle.getAttribute('aria-pressed')) !== String(recent)) await toggle.click()
+      for (let query of ['b', 'a', 'c', 'k', 'ba', 'bac', 'bk', 'back', ' BACK ', 'go back']) {
+        await search.fill(query)
+        await expect(group.locator('button:not([data-picker-action])').first()).toHaveAttribute('data-session-back', 'true')
+        await expect(back).toHaveAttribute('data-search-selected', 'true')
+        await expect(back.locator('[data-session-number]')).toHaveText('0')
+        await expect(back).toHaveAttribute('title', `go back: ${previous.name}`)
+        await expect(group.getByRole('status')).toHaveCount(0)
+        expect((await state()).model.clients.find((item: any) => item.id === client.id).sessionId).toBe(session.id)
+      }
+      await search.press('Enter'); await expect(panel).toHaveCount(0)
+      expect((await state()).model.clients.find((item: any) => item.id === client.id).sessionId).toBe(previous.id)
+    }
+  } finally {
+    if (await panel.count()) await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await chrome.evaluate(() => localStorage.removeItem('session-sort-recent'))
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    for (let rival of rivals) await rpc('kill-session', { session: rival.id, confirm: true })
+  }
+})
+
 test('session picker creates a private session with an indicator', async () => {
   let extensionPath = path.join(directory, 'private-layout-extension')
   await fs.mkdir(extensionPath)
