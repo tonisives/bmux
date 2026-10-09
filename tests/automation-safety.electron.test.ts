@@ -37,6 +37,7 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     await expect(alert).toBeVisible()
     await expect(alert).toContainText('Retry at')
     await expect(alert).toContainText('All panes using this profile')
+    await expect(alert.getByRole('combobox', { name: 'Disable checks for this site' })).toHaveCount(0)
     if (action === 'expiry') {
       await alert.getByRole('button', { name: 'Anti-bot settings' }).click()
       let antiBot = chrome.getByRole('tabpanel', { name: 'Anti-bot settings' })
@@ -52,11 +53,30 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
     let page = application.context().pages().find(page => page.url() === url)!
     await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
+    let host = '127.0.0.1'
+    if (action === 'alert') {
+      // The second pane shares its profile but visits a different hostname.
+      // The exclusion must follow the selected pane rather than the first pane.
+      let pane = await chrome.evaluate(async ({ paneId, url }) => (window as any).bmux.command({ method: 'split-window', args: { pane: paneId, url } }), { paneId: client.paneId, url: url.replace('127.0.0.1', 'localhost') })
+      await chrome.evaluate(async ({ clientId, paneId }) => (window as any).bmux.command({ method: 'select-pane', args: { client: clientId, pane: paneId } }), { clientId: client.id, paneId: pane.id })
+      await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).model.clients.find((item: { id: string }) => item.id === client.id).paneId).toBe(pane.id)
+      host = 'localhost'
+    }
+    let dropdown = alert.getByRole('combobox', { name: 'Disable checks for this site' })
+    await expect(dropdown).toBeVisible()
+    await expect(dropdown).toHaveAttribute('aria-description', host)
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve(`artifacts/session-limit-${action}.png`) })
     expect(await cli(['dom', '-t', client.paneId])).toMatchObject({ ok: false, error: expect.stringContaining('Profile > Anti-bot') })
     expect(await cli(['rpc', 'automation.reset-session', JSON.stringify({ profile: 'profile_default' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
-    if (action === 'alert') await alert.getByRole('button', { name: 'Reset session' }).click()
+    if (action === 'alert') {
+      await dropdown.selectOption('15')
+      await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.sites?.profile_default?.[host]).toMatchObject({ enabled: true, durationMinutes: 15 })
+      expect((await cli(['automation', 'safety'])).result.limits.sites.profile_default['127.0.0.1']).toBeUndefined()
+      await expect(alert).toBeVisible()
+      expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
+      await alert.getByRole('button', { name: 'Reset session' }).click()
+    }
     else {
       await alert.getByRole('button', { name: 'Dismiss notification' }).click()
       await expect(alert).toHaveCount(0)
@@ -64,8 +84,13 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
       let antiBot = chrome.getByRole('tabpanel', { name: 'Anti-bot settings' })
       await expect(antiBot).toContainText('Cooldown until')
+      await expect(antiBot.getByRole('region', { name: 'Website checks' })).toContainText(host)
+      await antiBot.getByRole('combobox', { name: 'Disable checks for this site' }).selectOption('60')
+      await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.sites?.profile_default?.[host]).toMatchObject({ enabled: true, durationMinutes: 60 })
+      expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
       await antiBot.getByRole('button', { name: 'Reset session' }).click()
       await expect(antiBot).toContainText('Ready')
+      await expect(antiBot.getByRole('combobox', { name: 'Disable checks for this site' })).toBeVisible()
       await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
     }
     await expect(alert).toHaveCount(0)
@@ -193,6 +218,8 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await antiBot.getByRole('button', { name: 'Resume automation' }).click()
     await expect.poll(async () => (await cli(['dom', '-t', pane.id])).ok).toBe(true)
     await expect(antiBot).toContainText('Ready')
+    await expect(antiBot.getByRole('region', { name: 'Website checks' })).toContainText('127.0.0.1')
+    await expect(antiBot.getByRole('combobox', { name: 'Disable checks for this site' })).toBeVisible()
     // Returning from the page inspection can change native focus. Activate this
     // client before the next click so Playwright receives compositor frames.
     expect((await cli(['rpc', 'activate-client', JSON.stringify({ client: state.clientId })])).ok).toBe(true)

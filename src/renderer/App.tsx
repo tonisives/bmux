@@ -204,15 +204,21 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
   return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
 
+let automationWebsiteHost = (url?: string) => {
+  try { let parsed = new URL(url ?? ''); return /^https?:$/.test(parsed.protocol) && /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(parsed.hostname) ? parsed.hostname : undefined } catch { return undefined }
+}
+
 let automationWarningNotices = (state: PublicState, window: InternalWindow, show: UIContext['show'], run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
-  let pane = window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
+  let selectedPane = selection(state).pane
+  let pane = selectedPane?.profileId === usage.profileId ? selectedPane : window.panes.find(item => item.profileId === usage.profileId), host = usage.warningHost
   if (!pane || !automationSafetyEnabled(state.automationSafety!.limits, usage.profileId)) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   if (usage.warning && host && automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host)) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${profile?.name ?? usage.profileId}: ${usage.warning} on ${host}. All panes using this profile are affected.`, actions: [
     { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
   ] }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, text: `Automation session limit reached for ${profile?.name ?? usage.profileId}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()} or reset the session. All panes using this profile are affected.`, actions: [
+  let currentHost = automationWebsiteHost(pane.url)
+  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, ...(currentHost ? { siteExclusion: { profileId: usage.profileId, host: currentHost } } : {}), text: `Automation session limit reached for ${profile?.name ?? usage.profileId}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()} or reset the session. All panes using this profile are affected.`, actions: [
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
     { label: 'Anti-bot settings', run: () => { void show('profiles', pane.id) } },
   ] }]
@@ -580,7 +586,7 @@ let useDismissAddressOnOutsideClick = (form: RefObject<HTMLFormElement | null>, 
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
-  let [index, setIndex] = useState(-1)
+  let [index, setIndex] = useState(-1), [preferRoot, setPreferRoot] = useState(true)
   let currentUrl = tab ? state.pendingUrls[tab.id] ?? tab.url : ''
   let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
   let [query, setQuery] = useState('')
@@ -608,8 +614,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
   ]
-  let selectedResult = results[index], selectedCompletion = selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
-  let previewText = selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || !!selectedResult?.value
+  let selectedIndex = index < 0 && preferRoot && baseUrl ? 0 : index, selectedResult = results[selectedIndex], selectedCompletion = index >= 0 && selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let previewText = index >= 0 && selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || index >= 0 && !!selectedResult?.value
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
@@ -624,7 +630,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
     let completion = deletion ? undefined : profileHistory.map(entry => baseUrlCompletion(value, entry.url) ?? inlineUrlCompletion(value, entry.url)).find(Boolean)
-    setQuery(value); setIndex(-1); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
+    setQuery(value); setIndex(-1); setPreferRoot(!deletion); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
   useDismissAddressOnOutsideClick(form, suggestionList, dismiss, finish)
@@ -663,17 +669,17 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
       return
     }
     if (event.key === 'Backspace' || event.key === 'Delete') deleting.current = true
-    if (event.key === 'ArrowRight' && (inlineUrl || selectedResult) && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === query.length && event.currentTarget.selectionEnd === previewText.length) {
+    if (event.key === 'ArrowRight' && (inlineUrl || index >= 0 && selectedResult) && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.currentTarget.selectionStart === query.length && event.currentTarget.selectionEnd === previewText.length) {
       event.preventDefault(); setQuery(previewText); setText(previewText); setIndex(-1); setInlineUrl(undefined); requestAnimationFrame(() => ref.current?.setSelectionRange(previewText.length, previewText.length)); return
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      if (results.length) setIndex(current => current < 0 ? (event.key === 'ArrowDown' ? 0 : results.length - 1) : (current + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
+      if (results.length) setIndex(selectedIndex < 0 ? (event.key === 'ArrowDown' ? 0 : results.length - 1) : (selectedIndex + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
     }
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${index}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === index} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl || selectedResult?.value) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
 
@@ -1639,7 +1645,7 @@ let SiteExclusionSelect = ({ profileId, host }: { profileId: string; host: strin
     setBusy(true)
     try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
   }
-  return <select className={css.notificationAction} aria-label="Disable checks for this site" value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
+  return <select className={css.notificationAction} aria-label="Disable checks for this site" aria-description={host} value="" onChange={change} disabled={busy}><option value="" disabled>Disable checks for this site</option><option value="15">15 minutes</option><option value="60">1 hour</option><option value="forever">Forever</option></select>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
@@ -1670,6 +1676,7 @@ let ProfileAntiBotSettings = () => {
   useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
   if (!profile) return null
   let usage = safety?.profiles.find(item => item.profileId === profile.id)
+  let host = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? usage.warningHost : automationWebsiteHost(pane?.url)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
   let status = !enabled ? 'Off' : safety?.error ? 'Unavailable' : usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) ? labels[usage.warning] : cooldown ? `Cooldown until ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : 'Ready'
@@ -1694,7 +1701,8 @@ let ProfileAntiBotSettings = () => {
     <dl><div><dt>Status</dt><dd>{status}</dd></div><div><dt>Session limit</dt><dd>{limits.maxSessionMinutes} minutes</dd></div><div><dt>Break between sessions</dt><dd>{limits.cooldownMinutes} minutes</dd></div><div><dt>Social site delay</dt><dd>{limits.socialDelayMs / 1000} seconds</dd></div></dl>
     {enabled && safety?.error && <p>{safety.error}</p>}
     {enabled && cooldown && <><p>Wait until {new Date(usage!.retryAfter!).toLocaleTimeString()} or reset the session to continue.</p><button type="button" onClick={resetSession} disabled={busy}>Reset session</button></>}
-    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button><SiteExclusionSelect profileId={profile.id} host={usage.warningHost!} /></>}
+    {enabled && usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!) && <><p>Resolve the warning on {usage.warningHost}, then resume.</p><button type="button" onClick={resume} disabled={busy}>Resume automation</button></>}
+    {enabled && host && <section aria-label="Website checks"><h3>{host}</h3><SiteExclusionSelect profileId={profile.id} host={host} /></section>}
     {exclusions.length > 0 && <section aria-label="Site exclusions"><h3>Site exclusions</h3><p>Session limits still apply.</p>{exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}</section>}
   </div>
 }
