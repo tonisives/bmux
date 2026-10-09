@@ -1442,7 +1442,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let target = viewer && !crashes[tabId] && (tabById(model, tabId).tab.url !== 'about:blank' || live.pendingNavigation) ? viewer.live.window : parkHost(tabById(model, tabId).pane.profileId)
       // A chooser can open after selection changes. Hide its page in the client
       // until the sheet closes so Electron cannot attach it to a parking host.
-      let retainPickerOwner = target !== viewer?.live.window && !live.parent.isDestroyed() && filePickers.keepsOwner(tabId, live.parent.id) && [...clients.values()].some(client => client.window === live.parent)
+      let retainPickerOwner = process.platform === 'darwin' && target !== viewer?.live.window && !live.parent.isDestroyed() && filePickers.keepsOwner(tabId, live.parent.id) && [...clients.values()].some(client => client.window === live.parent)
       if (retainPickerOwner) target = live.parent
       if (live.parent !== target && [...clients.values()].some(client => client.window === live.parent)) requestPreview(tabId, live)
       if (live.disposed) continue
