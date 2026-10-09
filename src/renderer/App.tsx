@@ -25,7 +25,7 @@ import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination } from '../shared/address-suggestions'
+import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
 import { deduplicateAddressEntries } from '../shared/address-result-deduplication'
 import { deleteWordBackward } from '../shared/text-edit'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
@@ -603,14 +603,15 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   useAddressFocus(ref, addressFocusVersion, takeSelection)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
   let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean) ?? searchUrlDestination(query, [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
+  let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : ''
   let inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
   let inlineBookmark = inlineHistory && bookmarkMatches.slice(0, 8).some(bookmark => bookmark.url === inlineHistory.url)
-  let preferredUrls = baseUrl ? [{ url: baseUrl.url, title: baseUrl.value }] : [], bookmarks = deduplicateAddressEntries(bookmarkMatches, preferredUrls).slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
+  let preferredUrls = baseUrl ? [{ url: baseUrl.url, title: baseTitle }] : [], bookmarks = deduplicateAddressEntries(bookmarkMatches, preferredUrls).slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = deduplicateAddressEntries(prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url), [...preferredUrls, ...bookmarks])
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
   let results = [
-    ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseUrl.value, detail: '' }] : []),
+    ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),

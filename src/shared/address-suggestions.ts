@@ -2,6 +2,11 @@ import type { HistoryEntry } from './types'
 
 export type InlineUrlCompletion = { value: string; url: string }
 
+export let urlDestinationTitle = (url: string, entries: { title: string; url?: string }[]): string | undefined => {
+  let pageUrl = (value: string) => value.split(/[?#]/)[0].replace(/\/$/, '')
+  return entries.find(entry => entry.title.trim() && entry.url && pageUrl(entry.url) === pageUrl(url))?.title
+}
+
 let urlVariants = (url: string) => {
   let withoutScheme = url.replace(/^https?:\/\//i, '')
   return [...new Set([url, withoutScheme, withoutScheme.replace(/^www\./i, '')])]
