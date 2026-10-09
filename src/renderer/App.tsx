@@ -1400,6 +1400,8 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
+  let pane = window.panes.find(pane => pane.id === selection(state).client?.paneId) ?? window.panes[0]
+  let name = window.automaticName === true ? pane?.title || pane?.url || window.name : window.name.trim() || pane?.title || pane?.url || 'Blank page'
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null)
   let confirmButton = useRef<HTMLButtonElement>(null)
@@ -1409,12 +1411,12 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => { if (busy) return; setBusy(true); await run('kill-window', { window: window.id, confirm: true }); setBusy(false); setConfirming(false) }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
-  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${window.name}?`}><span>Close window "{window.name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionWindowName} title={window.name}>{window.name}</span>
-      <span className={css.sessionWindowPanes}>{window.panes.map(pane => <span key={pane.id} className={css.sessionPaneActivity}><span title={pane.title || pane.url || 'Blank page'}>{pane.title || pane.url || 'Blank page'}</span>{!!pane.lastActivityAt && <time title={new Date(pane.lastActivityAt).toLocaleString()}>{activityLabel(pane.lastActivityAt, now)}</time>}</span>)}</span>
-    </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${window.name}`}>x</button>
+      <SessionNumber /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <span className={css.sessionWindowActivity}>{window.panes.filter(pane => pane.lastActivityAt).map(pane => <time key={pane.id} title={`${pane.title || pane.url || 'Blank page'} · ${new Date(pane.lastActivityAt!).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>)}</span>
+    </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
