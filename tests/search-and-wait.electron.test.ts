@@ -345,6 +345,7 @@ test('session tree shows pane activity and supports counted vim navigation and w
   let first = await rpc('new-window', { session: client.sessionId, name: `tree-first ${'long window name '.repeat(15)}`, url: `${url}/tree-first` })
   let second = await rpc('new-window', { session: client.sessionId, name: 'tree-second' })
   let unnamed = await rpc('new-window', { session: client.sessionId, url: `${url}/tree-unnamed` })
+  await rpc('select-window', { client: client.id, window: unnamed.id })
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === unnamed.id)?.panes[0].title).toBe('Unnamed page title '.repeat(30).trim())
   await rpc('split-window', { pane: first.panes[0].id, client: client.id })
   await rpc('select-window', { client: client.id, window: first.id })
