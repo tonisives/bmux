@@ -440,6 +440,7 @@ test('selected page text translates plain text, links, editable text and iframe 
   })
   try {
     for (let [selected, expected] of [[page.locator('#lookup-text'), text], [page.locator('a'), text], [page.locator('#spelling'), text], [iframeText, 'dictionary text']] as const) {
+      await expect.poll(async () => (await views()).flatMap(window => window.children).some(view => view.url === `${url}/translate-selection` && view.visible)).toBe(true)
       await selected.evaluate(element => {
         if (element instanceof HTMLTextAreaElement) { element.focus(); element.select(); return }
         let range = document.createRange()
@@ -459,6 +460,7 @@ test('selected page text translates plain text, links, editable text and iframe 
       expect(translation.panes[0].profileId).toBe(pane.profileId)
       await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(translation.id)
       await rpc('wait', { tab: translation.panes[0].id, selector: 'h1' })
+      await expect.poll(async () => (await views()).flatMap(window => window.children).some(view => view.url === destination.href && view.visible)).toBe(true)
       expect(await rpc('eval', { tab: pane.id, expression: 'location.href' })).toBe(`${url}/translate-selection`)
       await rpc('select-window', { client: client.id, window: source.id })
       await rpc('kill-window', { window: translation.id, confirm: true })
