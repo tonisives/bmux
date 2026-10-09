@@ -398,10 +398,13 @@
 .siteExclusion label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .siteExclusion small { display: block; margin-top: 4px; color: #999; }
 
-.sessionWindow { margin-left: 20px; }
-.sessionPaneActivity { display: flex; gap: 12px; color: #8995a3; font-size: 12px; margin-top: 3px; }
-.sessionPaneActivity > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sessionsPanel { width: min(960px, 94vw); }
+.panel .sessionPicker .listRow { display: flex; align-items: center; gap: 12px; overflow-wrap: normal; white-space: nowrap; }
+.sessionNumber { flex: 0 0 3ch; color: #8995a3; text-align: right; font-weight: 400; }
+.sessionWindowName { flex: 0 1 auto; min-width: 0; max-width: 40%; padding-left: 20px; overflow: hidden; text-overflow: ellipsis; }
+.sessionWindowPanes { display: flex; flex: 1; min-width: 0; gap: 16px; }
+.sessionPaneActivity { display: flex; flex: 1; min-width: 0; gap: 8px; color: #8995a3; font-size: 12px; }
+.sessionPaneActivity > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sessionPaneActivity time { flex-shrink: 0; }
-.sessionKeys { color: #8995a3; font-size: 12px; }
 
-.sessionSearchParent { padding: 8px; color: #8995a3; }
+.sessionSearchParent { padding: 8px 8px 8px calc(3ch + 20px); color: #8995a3; }
