@@ -203,11 +203,18 @@ test.each([15, 60] as const)('timed exclusions expire after %i minutes across re
   expect(() => restart().assertAvailable('bot')).toThrow('Automation paused')
 })
 
-test('exclusions retain duration while off, renew on enable, and support legacy and forever rules', () => {
+test('turning exclusions on stays permanent, including previously timed and expired rules', () => {
   let rule = updateAutomationSiteExclusion(undefined, false, 15, 1000)
   let off = updateAutomationSiteExclusion(rule, true, undefined, 2000)
-  expect(off).toEqual({ enabled: false, durationMinutes: 15, expiresAt: 901000 })
-  expect(updateAutomationSiteExclusion(off, false, undefined, 3000)).toEqual({ enabled: true, durationMinutes: 15, expiresAt: 903000 })
+  expect(off).toEqual({ enabled: false, durationMinutes: null, expiresAt: null })
+  let persistent = { enabled: true, durationMinutes: null, expiresAt: null }
+  for (let previous of [undefined, rule, off, false, true]) {
+    let on = updateAutomationSiteExclusion(previous, false, undefined, 1_000_000)
+    expect(on).toEqual(persistent)
+    let settings = parseAutomationSettings({ safety: { sites: { bot: { 'example.com': on } } } }).safety
+    expect(automationWarningEnabled(settings, 'bot', 'example.com', 100_000_000)).toBe(false)
+    expect(automationWarningEnabled(settings, 'other', 'example.com', 100_000_000)).toBe(true)
+  }
   expect(updateAutomationSiteExclusion(rule, false, null)).toEqual({ enabled: true, durationMinutes: null, expiresAt: null })
   expect(automationSiteExclusion(false)).toEqual({ enabled: true, durationMinutes: null, expiresAt: null })
   expect(automationSiteExclusion(true)?.enabled).toBe(false)
