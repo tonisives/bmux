@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type ElectronApplication } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
@@ -11,7 +12,7 @@ import { promisify } from 'node:util'
 
 let exec = promisify(execFile)
 
-for (let picker of ['input', 'input-background', 'input-switch-race', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
+for (let picker of ['input', 'input-interception', 'input-background', 'input-switch-race', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
   test.setTimeout(60_000)
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-native-file-picker-'))
   let uploads = await fs.mkdtemp(path.join(os.homedir(), 'Downloads', 'bmux-upload-fixture-'))
@@ -94,19 +95,27 @@ for (let picker of ['input', 'input-background', 'input-switch-race', 'input-fra
     let paneId = state.model.sessions[0].windows[0].panes[0].id
     let frameReady = 'typeof document.querySelector("iframe")?.contentDocument?.querySelector("#image")?.onclick === "function"'
     await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : '!!document.querySelector("#image")' })
+    if (picker === 'input-interception') {
+      await rpc('cdp', { tab: paneId, method: 'Page.setInterceptFileChooserDialog', params: { enabled: true } })
+      await rpc('click', { tab: paneId, selector: '#image' })
+      await expect.poll(() => clicks).toBe(1)
+      expect((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim()).toBe('false')
+      await rpc('cdp', { tab: paneId, method: 'Page.setInterceptFileChooserDialog', params: { enabled: false } })
+    }
     if (['input-background', 'input-switch-race'].includes(picker)) {
       let other = await rpc('new-window', { session: state.model.sessions[0].id, url: 'about:blank' })
       if (picker === 'input-background') await rpc('select-window', { client: state.model.clients[0].id, window: other.id })
       await fs.writeFile(info.outputPath('background-before-click.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
       if (picker === 'input-switch-race') {
-        await Promise.all([
-          rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("#image").click()', userGesture: true } }),
-          rpc('select-window', { client: state.model.clients[0].id, window: other.id }),
-        ])
+        await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("#image").click()', userGesture: true } })
+        await rpc('select-window', { client: state.model.clients[0].id, window: other.id })
       } else await rpc('click', { tab: paneId, selector: '#image' })
       await expect.poll(() => clicks).toBe(1)
       await fs.writeFile(info.outputPath('background-picker.json'), JSON.stringify(await rpc('eval', { tab: paneId, expression: '({open:document.querySelector("#file").matches(":open"),visible:document.visibilityState})' })))
       await rpc('select-pane', { client: state.model.clients[0].id, pane: paneId })
+      if ((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim() === 'true') {
+        await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to click button "Cancel" of sheet 1 of window 1`)
+      }
       await rpc('focus-page', { client: state.model.clients[0].id })
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
     }
@@ -122,8 +131,15 @@ for (let picker of ['input', 'input-background', 'input-switch-race', 'input-fra
       await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
       await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("iframe").contentDocument.querySelector("#image").click()', userGesture: true } })
     }
-    await expect.poll(() => clicks).toBe(['input-frame-popup', 'input-background', 'input-switch-race'].includes(picker) ? 2 : 1)
+    await expect.poll(() => clicks).toBe(['input-frame-popup', 'input-interception', 'input-background', 'input-switch-race'].includes(picker) ? 2 : 1)
     await expect.poll(async () => pickerError || (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim(), { timeout: 5000 }).toBe('true')
+    let pickerTrace = (await rpc('diagnostics')).filePickers
+    expect(pickerTrace.events).toContainEqual(expect.objectContaining({ event: 'request', paneId, visible: true }))
+    expect(pickerTrace.events).toContainEqual(expect.objectContaining({ event: 'sheet-begin', visible: true }))
+    if (picker === 'input-interception') {
+      expect(pickerTrace.events.filter((event: { event: string }) => event.event === 'cdp-interception').map((event: { enabled: boolean }) => event.enabled)).toEqual([true, false])
+    }
+    await fs.writeFile(info.outputPath('file-picker-diagnostics.json'), JSON.stringify(pickerTrace, null, 2))
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker.png')])
     await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\nend tell`)
     let openButton = (action: 'enabled' | 'click') => apple(`tell application "System Events"
@@ -155,8 +171,8 @@ for (let picker of ['input', 'input-background', 'input-switch-race', 'input-fra
   } finally {
     await fs.writeFile(info.outputPath('browser-stderr.txt'), errors)
     await fs.writeFile(info.outputPath('commands.json'), JSON.stringify(commands, null, 2))
-    child.kill('SIGTERM')
-    await new Promise<void>(resolve => { if (child.exitCode !== null) return resolve(); let timer = setTimeout(() => { child.kill('SIGKILL'); resolve() }, 3000); child.once('exit', () => { clearTimeout(timer); resolve() }) })
+    // Normal launch still uses the shared bounded process shutdown.
+    await closeTestApplication({ process: () => child, close: async () => { child.kill('SIGTERM') } } as ElectronApplication)
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })
