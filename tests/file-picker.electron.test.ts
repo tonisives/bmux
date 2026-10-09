@@ -90,7 +90,12 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await expect.poll(() => rpc('diagnostics').then(state => state.pid).catch(() => null), { timeout: 20_000 }).toBe(child.pid)
     let state = await rpc('state')
     await rpc('activate-client', { client: state.model.clients[0].id })
-    await apple(`tell application "System Events"\nkeystroke "l" using command down\ndelay 0.2\nkeystroke "${url}"\nkey code 36\nend tell`)
+    await apple('tell application "System Events" to keystroke "l" using command down')
+    let addressAttribute = (name: 'role' | 'value') => apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get ${name} of (value of attribute "AXFocusedUIElement")`)
+    await expect.poll(() => addressAttribute('role').then(result => result.stdout.trim()).catch(() => '')).toBe('AXTextField')
+    await apple(`tell application "System Events"\nkeystroke "a" using command down\nkeystroke "${url}"\nend tell`)
+    await expect.poll(() => addressAttribute('value').then(result => result.stdout.trim()).catch(() => '')).toBe(url)
+    await apple('tell application "System Events" to key code 36')
     await expect.poll(() => rpc('state').then(state => state.model.sessions[0].windows[0].panes[0].url)).toBe(url)
     let paneId = state.model.sessions[0].windows[0].panes[0].id
     let frameReady = 'typeof document.querySelector("iframe")?.contentDocument?.querySelector("#image")?.onclick === "function"'
