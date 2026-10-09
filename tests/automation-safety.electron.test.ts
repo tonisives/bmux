@@ -8,6 +8,78 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { parse, stringify } from 'yaml'
 
+for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert supports ${action} without allowing a CLI reset`, async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-session-limit-'))
+  let server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html')
+    response.end('<!doctype html><title>Session limit fixture</title><main>Visible session limit fixture</main>')
+  })
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    let url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
+    let startedAt = Date.now() - (action === 'expiry' ? 30 * 60_000 - 15_000 : 11 * 60_000)
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { startedAt, lastUsed: startedAt + 1000 } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
+    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let state = await chrome.evaluate(() => (window as any).bmux.state())
+    let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
+    let cli = async (args: string[]) => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+        if (error.stdout) return { stdout: error.stdout }
+        throw error
+      })
+      return JSON.parse(result.stdout)
+    }
+    let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached for default' })
+    await expect(alert).toBeVisible()
+    await expect(alert).toContainText('Retry at')
+    await expect(alert).toContainText('All panes using this profile')
+    if (action === 'expiry') {
+      await alert.getByRole('button', { name: 'Anti-bot settings' }).click()
+      let antiBot = chrome.getByRole('tabpanel', { name: 'Anti-bot settings' })
+      await expect(antiBot).toContainText('Cooldown until')
+      await expect(alert).toHaveCount(0, { timeout: 20000 })
+      await expect(antiBot).toContainText('Ready')
+      await expect(antiBot.getByRole('button', { name: 'Reset session' })).toHaveCount(0)
+      return
+    }
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.pressSequentially(url); await address.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
+    let page = application.context().pages().find(page => page.url() === url)!
+    await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await chrome.screenshot({ path: path.resolve(`artifacts/session-limit-${action}.png`) })
+    expect(await cli(['dom', '-t', client.paneId])).toMatchObject({ ok: false, error: expect.stringContaining('Profile > Anti-bot') })
+    expect(await cli(['rpc', 'automation.reset-session', JSON.stringify({ profile: 'profile_default' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
+    if (action === 'alert') await alert.getByRole('button', { name: 'Reset session' }).click()
+    else {
+      await alert.getByRole('button', { name: 'Dismiss notification' }).click()
+      await expect(alert).toHaveCount(0)
+      expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
+      await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
+      let antiBot = chrome.getByRole('tabpanel', { name: 'Anti-bot settings' })
+      await expect(antiBot).toContainText('Cooldown until')
+      await antiBot.getByRole('button', { name: 'Reset session' }).click()
+      await expect(antiBot).toContainText('Ready')
+      await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+    }
+    await expect(alert).toHaveCount(0)
+    expect((await cli(['dom', '-t', client.paneId])).ok).toBe(true)
+    let usage = (await cli(['automation', 'safety'])).result.profiles.find((item: { profileId: string }) => item.profileId === 'profile_default')
+    expect(usage.retryAfter).toBeNull()
+    expect(usage.startedAt).toBeGreaterThan(startedAt)
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('default anti-bot protection blocks warnings across CLI and plugins, with a persistent profile toggle', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-safety-ui-'))
   let server = http.createServer((request, response) => {

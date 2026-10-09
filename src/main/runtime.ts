@@ -1688,6 +1688,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       configuration?.update(['automation', 'safety', 'sites', profile.id, host], exclusion)
       return { exclusion }
     }
+    if (method === 'automation.reset-session') {
+      if (!sourceClientId) throw new Error('Reset the automation session in the bmux UI alert or Profile > Anti-bot')
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      return automationSafety?.resetSession(profile.id)
+    }
     if (method === 'automation.resume') {
       if (!sourceClientId) throw new Error('Resume automation from the bmux command prompt')
       let client = resolve(model.clients, sourceClientId, 'Client'), tabId = required(args, 'tab')
