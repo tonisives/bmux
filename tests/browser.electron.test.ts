@@ -2777,6 +2777,8 @@ test('status plus button opens and selects a new tab with a focused URL prompt',
   let client = await cli('attach-session', { session: session.id })
   let chrome = await rendererForClient(client.id)
   try {
+    await cli('activate-client', { client: client.id })
+    await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id)
     let list = chrome.locator('[data-window-list]')
     let button = chrome.getByRole('button', { name: 'New tab', exact: true })
     await expect(button).toBeVisible()
@@ -2798,7 +2800,7 @@ test('status plus button opens and selects a new tab with a focused URL prompt',
     await chrome.screenshot({ path: 'artifacts/status-new-tab.png' })
   } finally {
     await cli('detach-client', { client: client.id })
-    await cli('kill-session', { session: session.id })
+    await cli('kill-session', { session: session.id, confirm: true })
   }
 })
 
