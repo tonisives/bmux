@@ -408,7 +408,7 @@ test('selected page text offers macOS Look Up on plain text and links', async ()
   } finally { await application.evaluate(() => (globalThis as any).restoreLookUpMenu()) }
 })
 
-test('selected page text translates plain text, links, editable text and iframe text in a new window', async () => {
+test('selected page text translates in a popup without pane controls or changing the source window', async () => {
   let current = await state(), client = current.model.clients[0]
   let session = await rpc('new-session', { name: 'translate-selection', profile: 'bot' })
   let source = session.windows[0]
@@ -452,19 +452,56 @@ test('selected page text translates plain text, links, editable text and iframe 
       await application.evaluate(() => { (globalThis as any).translateMenu = undefined })
       await selected.click({ button: 'right', position: { x: 10, y: 12 } })
       await expect.poll(() => application.evaluate(() => (globalThis as any).translateMenu?.items.some((item: any) => item.label === 'Translate'))).toBe(true)
-      await application.evaluate(() => (globalThis as any).translateMenu.items.find((item: any) => item.label === 'Translate').click())
-      await expect.poll(async () => (await state()).model.sessions.find((item: any) => item.id === session.id).windows.length).toBe(2)
-      let translation = (await state()).model.sessions.find((item: any) => item.id === session.id).windows.find((item: any) => item.id !== source.id)
-      let destination = new URL(translation.panes[0].url)
+      let labels = await application.evaluate(() => (globalThis as any).translateMenu.items.map((item: any) => item.label))
+      expect(labels).not.toContain('Close Pane')
+      expect(labels).not.toContain('Float Pane')
+      expect(labels).not.toContain('Keep Page Loaded')
+      expect(labels).toContain('Copy')
+      await application.evaluate(() => {
+        let action = (globalThis as any).translateMenu.items.find((item: any) => item.label === 'Translate').click
+        ;(globalThis as any).translateLastAction = action
+        action()
+      })
+      await expect.poll(() => application.context().pages().some(page => page.url().startsWith('https://translate.google.com/'))).toBe(true)
+      let translation = application.context().pages().find(page => page.url().startsWith('https://translate.google.com/'))!
+      let destination = new URL(translation.url())
       expect(destination.origin).toBe('https://translate.google.com')
       expect(Object.fromEntries(destination.searchParams)).toEqual({ sl: 'auto', tl: 'en', text: expected, op: 'translate' })
-      expect(translation.panes[0].profileId).toBe(pane.profileId)
-      await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(translation.id)
-      await rpc('wait', { tab: translation.panes[0].id, selector: 'h1' })
-      await expect.poll(async () => (await views()).flatMap(window => window.children).some(view => view.url === destination.href && view.visible)).toBe(true)
+      await expect(translation.locator('h1')).toHaveText('Translation fixture')
+      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()))).toBe(true)
+      let popup = await application.evaluate(({ BrowserWindow, webContents }, sourceUrl) => {
+        let window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().startsWith('https://translate.google.com/'))!
+        let source = webContents.getAllWebContents().find(contents => contents.getURL() === sourceUrl)!
+        return { sameSession: window.webContents.session === source.session, parent: !!window.getParentWindow() }
+      }, `${url}/translate-selection`)
+      expect(popup).toEqual({ sameSession: true, parent: true })
+      let after = await state()
+      expect(after.model.sessions.find((item: any) => item.id === session.id).windows).toHaveLength(1)
+      expect(after.model.clients.find((item: any) => item.id === client.id).windowId).toBe(source.id)
       expect(await rpc('eval', { tab: pane.id, expression: 'location.href' })).toBe(`${url}/translate-selection`)
-      await rpc('select-window', { client: client.id, window: source.id })
-      await rpc('kill-window', { window: translation.id, confirm: true })
+      await application.evaluate(() => (globalThis as any).translateLastAction())
+      await expect.poll(() => translation.isClosed()).toBe(true)
+      await expect.poll(() => application.context().pages().some(page => page.url() === destination.href)).toBe(true)
+      translation = application.context().pages().find(page => page.url() === destination.href)!
+      await expect(translation.locator('h1')).toHaveText('Translation fixture')
+      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()).length)).toBe(1)
+      await translation.screenshot({ path: path.resolve('artifacts/translation-popup.png') })
+      await promisify(execFile)('/usr/sbin/screencapture', ['-x', path.resolve('artifacts/translation-popup-desktop.png')])
+      await application.evaluate(({ BrowserWindow }, url) => {
+        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!
+        popup.focus(); popup.webContents.focus()
+      }, destination.href)
+      await expect.poll(() => application.evaluate(({ BrowserWindow }, url) => {
+        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)
+        return popup?.isFocused() && popup.webContents.isFocused()
+      }, destination.href)).toBe(true)
+      await application.evaluate(({ BrowserWindow }, url) => {
+        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!
+        popup.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+        if (!popup.isDestroyed()) popup.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      }, destination.href)
+      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
+      await rpc('activate-client', { client: client.id })
     }
     for (let empty of ['', '   ']) {
       await page.locator('#lookup-text').evaluate((element, text) => {
@@ -478,12 +515,18 @@ test('selected page text translates plain text, links, editable text and iframe 
       await page.locator('#lookup-text').click({ button: 'right', position: { x: 10, y: 12 } })
       await expect.poll(() => application.evaluate(() => !!(globalThis as any).translateMenu)).toBe(true)
       expect(await application.evaluate(() => (globalThis as any).translateMenu.items.some((item: any) => item.label === 'Translate'))).toBe(false)
+      let labels = await application.evaluate(() => (globalThis as any).translateMenu.items.map((item: any) => item.label))
+      expect(labels).toContain('Close Pane')
+      expect(labels).not.toContain('Keep Page Loaded')
     }
+    await application.evaluate(() => (globalThis as any).translateLastAction())
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()))).toBe(true)
   } finally {
     await application.evaluate(() => (globalThis as any).restoreTranslateMenu())
     await application.context().unroute('https://translate.google.com/**')
     await rpc('select-window', { client: client.id, window: current.model.clients[0].windowId })
     await rpc('kill-session', { session: session.id, confirm: true })
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
   }
 })
 
