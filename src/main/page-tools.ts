@@ -9,7 +9,12 @@ import { createKeyboardFocus } from './keyboard-focus'
 import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
 
 type Script = UserScript & { source: string; error?: string }
-type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
+let styleDocument = () => {
+  let resolve: () => void = () => undefined
+  let promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; styleDocument: ReturnType<typeof styleDocument>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
 type Options = { directory: string; settings: () => BrowserSettings; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
@@ -89,10 +94,30 @@ export let createPageTools = (options: Options) => {
         if (!target.closed && target.version === version) target.styles[kind] = { css, key }
         return
       }
-      let key = css ? await target.contents.insertCSS(css, { cssOrigin: 'user' }) : undefined
-      if (target.closed || target.version !== version) { if (key && !target.contents.isDestroyed()) await target.contents.removeInsertedCSS(key); return }
+      // Electron's renderer IPC can lose a reply during navigation. Do not let
+      // an outgoing document hold the style queue or later script refreshes.
+      let document = target.styleDocument, abandoned = false, cleaned = false
+      let waitForStyle = async <T,>(operation: Promise<T>, method: string): Promise<T | undefined> => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try { return await Promise.race([operation, document.promise.then(() => undefined), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${method}: timeout`)), 3000) })]) }
+        finally { clearTimeout(timer) }
+      }
+      let clean = (key: string | undefined) => {
+        if (!key || cleaned || target.contents.isDestroyed()) return
+        cleaned = true
+        void target.contents.removeInsertedCSS(key).catch(() => undefined)
+      }
+      let insertion = css ? target.contents.insertCSS(css, { cssOrigin: 'user' }) : Promise.resolve(undefined)
+      void insertion.then(key => {
+        if (abandoned || target.closed || target.version !== version) clean(key)
+      }).catch(() => undefined)
+      let key: string | undefined
+      try {
+        key = await waitForStyle(insertion, 'insertCSS')
+      } finally { abandoned = true }
+      if (target.closed || target.version !== version) { clean(key); return }
       target.styles[kind] = { css, key }
-      if (previous) await target.contents.removeInsertedCSS(previous)
+      if (previous) await waitForStyle(target.contents.removeInsertedCSS(previous), 'removeInsertedCSS')
     })
     return target.styleWork
   }
@@ -194,14 +219,14 @@ export let createPageTools = (options: Options) => {
     frameContexts: (tabId: string, expression: string) => targets.get(tabId)?.frames?.contexts(expression) ?? Promise.resolve([]),
     error: (tabId: string) => targets.get(tabId)?.error,
     attach: (tabId: string, profileId: string, contents: WebContents, bootstrap = true) => {
-      let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve() }
+      let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve(), styleDocument: styleDocument() }
       target.frames = createFrameCosmetics({ contents, focusSource: target.focus.source, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
       contents.debugger.on('detach', () => { target.registeredSources = undefined })
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.
       target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
-      let resetStyles = () => { target.version++; target.styles = {} }
+      let resetStyles = () => { target.styleDocument.resolve(); target.styleDocument = styleDocument(); target.version++; target.styles = {} }
       contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) resetStyles() })
       // Settings can reapply styles to the outgoing document while navigation waits.
       // Those sheets and pending insertions must not count toward the new document.
@@ -219,7 +244,7 @@ export let createPageTools = (options: Options) => {
       return target.ready
     },
     ready: (tabId: string) => targets.get(tabId)?.ready ?? Promise.resolve(),
-    dispose: (tabId: string) => { let target = targets.get(tabId); if (target) { target.closed = true; target.frames?.close(); clearInterval(target.timer); targets.delete(tabId) } },
-    close: () => { closed = true; for (let file of watched) fs.unwatchFile(file, reload); for (let target of targets.values()) { target.closed = true; target.frames?.close(); clearInterval(target.timer) }; targets.clear() },
+    dispose: (tabId: string) => { let target = targets.get(tabId); if (target) { target.closed = true; target.styleDocument.resolve(); target.frames?.close(); clearInterval(target.timer); targets.delete(tabId) } },
+    close: () => { closed = true; for (let file of watched) fs.unwatchFile(file, reload); for (let target of targets.values()) { target.closed = true; target.styleDocument.resolve(); target.frames?.close(); clearInterval(target.timer) }; targets.clear() },
   }
 }
