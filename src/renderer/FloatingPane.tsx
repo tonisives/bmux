@@ -1,3 +1,4 @@
+import { useAddressVim } from './useAddressVim'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
@@ -13,6 +14,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
+  let vim = useAddressVim()
   let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
@@ -26,7 +28,7 @@ export let FloatingPane = () => {
   useEffect(() => {
     let unsubscribe = bridge.subscribe(setState)
     void bridge.state().then(setState).catch(error => setError(String(error)))
-    let controls = bridge.controls(control => { if (control === 'address') { editing.current = true; input.current?.focus(); input.current?.select() } })
+    let controls = bridge.controls(control => { if (control === 'address') { editing.current = true; vim.reset(); input.current?.focus(); input.current?.select() } })
     return () => { unsubscribe(); controls() }
   }, [])
   useEffect(() => { if (!editing.current) setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? '') }, [tab?.url, tab?.id])
@@ -35,6 +37,7 @@ export let FloatingPane = () => {
   }, [tab?.id])
   let focus = () => {
     editing.current = true
+    vim.reset()
     void run('select-pane', { focus: false }).then(() => run('focus-ui'))
   }
   let blur = () => { editing.current = false }
@@ -47,7 +50,7 @@ export let FloatingPane = () => {
     await run('navigate', { tab: tab.id, url: address.trim() })
     await run('focus-page')
   }
-  let keys = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') { editing.current = false; setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? ''); void run('focus-page') } }
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => { vim.keys(event) }
   let menu = (event: MouseEvent) => { event.preventDefault(); void run('pane.menu') }
   let close = () => { void run('pane.close') }
   let back = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('back', { tab: tab.id, newWindow: event.metaKey }) }
@@ -65,7 +68,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
       <div className={css.urlBar}>
         {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-        <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+        <span aria-label="URL editing mode">{vim.mode}&gt;</span><input ref={input} data-vim-mode={vim.mode} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
         <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />

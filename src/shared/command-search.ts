@@ -151,6 +151,7 @@ export let literalCommand = (line: string) => {
 export let HELP_NOTES = [
   'Commands use the current session, window, and pane unless you provide a target. Quote names containing spaces. Window indices start at 1.',
   'In the command finder: type to fuzzy search, Up/Down or Ctrl+P/N selects, Tab completes, and Enter opens or runs. Ctrl+R/S recalls command history. Shift+Enter runs the typed command exactly.',
+  'The URL bar opens in NORMAL mode. Press i or / to type, h/l or w/b to move, 0/$ for start/end, x to delete, and j/k to select suggestions. Escape returns to NORMAL without clearing the URL or leaving the field. Enter opens the URL; the close button returns to the page.',
   'In the session picker: type or press / to search names. Up/Down moves, Home/End jumps, PageUp/PageDown moves ten rows, and Enter selects. Escape clears search first, then closes without switching.',
   'Bookmarks search titles first, then folder names and URLs. Enable All profiles to include other profiles; pages open in their owning profile. Use + to bookmark the current page. Folder context stays visible. Up/Down moves and Enter opens in a new tab; Escape closes and reopening restores search, selection, and profile scope. Drag the handle to reorder bookmarks within a folder, or focus it and press Option+Up/Down.',
   'History searches page titles and URLs in the selected pane’s profile. Up/Down moves and Enter opens the page in that pane; Escape clears search first, then closes.',
