@@ -45,10 +45,10 @@ type AddressSelection = { start: number; end: number; direction: 'forward' | 'ba
 type Notification = { id: string; text: string; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
-type UIContext = { state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { settingsMemory: Map<string, unknown>; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
-  let [state, setState] = useState<PublicState | null>(null)
+  let settingsMemory = useRef(new Map<string, unknown>()).current, [state, setState] = useState<PublicState | null>(null)
   let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
   let [control, setControl] = useState<Control | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
@@ -135,9 +135,9 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, show, run).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
+    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
-  let context = { state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
+  let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -198,6 +198,20 @@ let useBookmarkMemory = () => {
   return { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection }
 }
 
+// Keep unfinished settings in this renderer only, including proxy credentials.
+let useSettingsState = <T,>(key: string, initial: T | (() => T)) => {
+  let { settingsMemory } = useUI()
+  let [value, setValue] = useState<T>(() => settingsMemory.has(key) ? settingsMemory.get(key) as T : typeof initial === 'function' ? (initial as () => T)() : initial)
+  let current = useRef(value)
+  let update = useCallback((next: T | ((current: T) => T)) => {
+    let value = typeof next === 'function' ? (next as (current: T) => T)(current.current) : next
+    current.current = value
+    settingsMemory.set(key, value)
+    setValue(value)
+  }, [key, settingsMemory])
+  return [value, update] as const
+}
+
 let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
   let pane = window.panes.find(item => paneConnectionId(item) === profileId)
   if (!pane) return []
@@ -227,7 +241,7 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   })
 }
 
-let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
+let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run'], settingsMemory: UIContext['settingsMemory']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
@@ -235,7 +249,7 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
   let pane = actors.find(actor => actor.paneId === selectedPane?.id)?.pane ?? actors[0]?.pane ?? panes.find(pane => pane.profileId === usage.profileId)
-  let settings = pane ? () => { void show('profiles', pane.id) } : undefined
+  let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, 'anti-bot'); void show('profiles', pane.id) } : undefined
   let actions = actors.filter(actor => actor.paneId !== selectedPane?.id).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
     return { label: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, title: actor.pane.title, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
@@ -1578,16 +1592,16 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
   let form = useRef<HTMLFormElement>(null)
   let current = pane.device
   let [active, setActive] = useState(!!current)
-  let [preset, setPreset] = useState<DevicePreset>(current?.preset ?? 'pixel-8')
-  let [platform, setPlatform] = useState<DevicePlatform>(current?.platform ?? 'android')
-  let [width, setWidth] = useState(String(current?.width ?? 412)), [height, setHeight] = useState(String(current?.height ?? 915)), [dpr, setDpr] = useState(String(current?.deviceScaleFactor ?? 2.625))
-  let [orientation, setOrientation] = useState(current?.orientation ?? 'portrait')
-  let [locale, setLocale] = useState(current?.locale ?? navigator.language ?? 'en-US')
-  let [timezone, setTimezone] = useState(current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC')
-  let [locationEnabled, setLocationEnabled] = useState(!!current?.geolocation)
-  let [latitude, setLatitude] = useState(String(current?.geolocation?.latitude ?? '')), [longitude, setLongitude] = useState(String(current?.geolocation?.longitude ?? '')), [accuracy, setAccuracy] = useState(String(current?.geolocation?.accuracy ?? 100))
+  let [preset, setPreset] = useSettingsState<DevicePreset>(`device:${pane.id}:preset`, current?.preset ?? 'pixel-8')
+  let [platform, setPlatform] = useSettingsState<DevicePlatform>(`device:${pane.id}:platform`, current?.platform ?? 'android')
+  let [width, setWidth] = useSettingsState(`device:${pane.id}:width`, String(current?.width ?? 412)), [height, setHeight] = useSettingsState(`device:${pane.id}:height`, String(current?.height ?? 915)), [dpr, setDpr] = useSettingsState(`device:${pane.id}:dpr`, String(current?.deviceScaleFactor ?? 2.625))
+  let [orientation, setOrientation] = useSettingsState(`device:${pane.id}:orientation`, current?.orientation ?? 'portrait')
+  let [locale, setLocale] = useSettingsState(`device:${pane.id}:locale`, current?.locale ?? navigator.language ?? 'en-US')
+  let [timezone, setTimezone] = useSettingsState(`device:${pane.id}:timezone`, current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC')
+  let [locationEnabled, setLocationEnabled] = useSettingsState(`device:${pane.id}:locationEnabled`, !!current?.geolocation)
+  let [latitude, setLatitude] = useSettingsState(`device:${pane.id}:latitude`, String(current?.geolocation?.latitude ?? '')), [longitude, setLongitude] = useSettingsState(`device:${pane.id}:longitude`, String(current?.geolocation?.longitude ?? '')), [accuracy, setAccuracy] = useSettingsState(`device:${pane.id}:accuracy`, String(current?.geolocation?.accuracy ?? 100))
   let [busy, setBusy] = useState(false)
-  let [newPanes, setNewPanes] = useState(!!session.device)
+  let [newPanes, setNewPanes] = useSettingsState(`device:${pane.id}:newPanes`, !!session.device)
   let draft = useMemo(() => {
     try { return { device: parseDevicePersona({ preset, platform, width: Number(width), height: Number(height), deviceScaleFactor: Number(dpr), orientation, locale, timezone, ...(locationEnabled ? { geolocation: { latitude: Number(latitude), longitude: Number(longitude), accuracy: Number(accuracy) } } : {}) }) } }
     catch (error) { return { error: error instanceof Error ? error.message : String(error) } }
@@ -1717,23 +1731,23 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let providers = proxyProviderEntries(state)
   let configuredProvider = providers.find(entry => entry.provider.regions.some(region => matchesProxyRegion(region, profile)))
   let configuredRegion = configuredProvider?.provider.regions.find(region => matchesProxyRegion(region, profile))?.host ?? ''
-  let [providerKey, setProviderKey] = useState(configuredProvider?.key ?? 'custom')
-  let [providerRegion, setProviderRegion] = useState(configuredRegion)
-  let [protocol, setProtocol] = useState(profile?.proxy?.protocol ?? 'https')
-  let [host, setHost] = useState(profile?.proxy?.host ?? '')
-  let [port, setPort] = useState(String(profile?.proxy?.port ?? 443))
-  let [authenticated, setAuthenticated] = useState(profile?.proxy?.authenticated ?? true)
-  let [username, setUsername] = useState(''), [password, setPassword] = useState('')
+  let [providerKey, setProviderKey] = useSettingsState(`proxy:${profile.id}:providerKey`, configuredProvider?.key ?? 'custom')
+  let [providerRegion, setProviderRegion] = useSettingsState(`proxy:${profile.id}:providerRegion`, configuredRegion)
+  let [protocol, setProtocol] = useSettingsState(`proxy:${profile.id}:protocol`, profile?.proxy?.protocol ?? 'https')
+  let [host, setHost] = useSettingsState(`proxy:${profile.id}:host`, profile?.proxy?.host ?? '')
+  let [port, setPort] = useSettingsState(`proxy:${profile.id}:port`, String(profile?.proxy?.port ?? 443))
+  let [authenticated, setAuthenticated] = useSettingsState(`proxy:${profile.id}:authenticated`, profile?.proxy?.authenticated ?? true)
+  let [username, setUsername] = useSettingsState(`proxy:${profile.id}:username`, ''), [password, setPassword] = useSettingsState(`proxy:${profile.id}:password`, '')
   let [testing, setTesting] = useState(false)
   let form = useRef<HTMLFormElement>(null)
-  let [credentialProfile, setCredentialProfile] = useState(defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useState('')
-  let [pickerOpen, setPickerOpen] = useState(false)
+  let [credentialProfile, setCredentialProfile] = useSettingsState(`proxy:${profile.id}:credentialProfile`, defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useSettingsState(`proxy:${profile.id}:savedUsername`, '')
+  let [pickerOpen, setPickerOpen] = useSettingsState(`proxy:${profile.id}:pickerOpen`, false)
   let savedProfiles = savedProxyProfiles(state.model)
   useEffect(() => {
     if (!credentialProfile) return
     let cancelled = false
     void run('profile.proxy.username', { profile: credentialProfile }).then(result => {
-      if (!cancelled && result) { let value = (result as { username: string }).username; setUsername(value); setSavedUsername(value) }
+      if (!cancelled && result) { let value = (result as { username: string }).username; setUsername(current => current === savedUsername ? value : current); setSavedUsername(value) }
     })
     return () => { cancelled = true }
   }, [credentialProfile, run])
@@ -1864,7 +1878,7 @@ let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; hos
 
 let ProfileExcludedWebsites = () => {
   let { state, run } = useUI(), { profile, pane } = selection(state)
-  let [website, setWebsite] = useState(() => automationWebsiteHost(pane?.url) ?? ''), [busy, setBusy] = useState(false)
+  let [website, setWebsite] = useSettingsState(`profile:${profile?.id}:excluded-website`, () => automationWebsiteHost(pane?.url) ?? ''), [busy, setBusy] = useState(false)
   if (!profile) return null
   let exclusions = Object.entries(state.automationSafety?.limits.sites?.[profile.id] ?? {}).flatMap(([host, entry]) => {
     let exclusion = automationSiteExclusion(entry)
@@ -2014,9 +2028,9 @@ let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
 }
 
 let ProfileInfo = () => {
-  let { state, run, show } = useUI()
+  let { state, run } = useUI()
   let { session, window, pane, profile } = selection(state)
-  let [tab, setTab] = useState<ProfileTab>(() => {
+  let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
     return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
   })
@@ -2026,7 +2040,6 @@ let ProfileInfo = () => {
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   let cache = state.profileCaches[profile.id]
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
-  let openProxy = () => show('proxy')
   let currentProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   let canChangeProfile = !!session && !session.private
   let changeProfile = async (event: ChangeEvent<HTMLSelectElement>) => {
@@ -2051,7 +2064,7 @@ let ProfileInfo = () => {
     <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}><ProfileTabIcon tab="overview" />Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}><ProfileTabIcon tab="device" />Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}><ProfileTabIcon tab="connection" />Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}><ProfileTabIcon tab="anti-bot" />Anti-bot</button></div>
     {tab === 'overview' && overviewContent}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
-    {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p><button type="button" onClick={openProxy}>Connection details</button></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
     {tab === 'anti-bot' && <ProfileAntiBotSettings />}
   </section>
 }
@@ -2513,12 +2526,13 @@ let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, curr
 }
 let SettingsContent = () => {
   let { state, run, onMessage } = useUI()
-  let [tab, setTab] = useState<SettingsTab>('general')
-  let [query, setQuery] = useState('')
-  let [prefix, setPrefix] = useState(state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
+  let [tab, setTab] = useSettingsState<SettingsTab>('settings:tab', 'general')
+  let [query, setQuery] = useSettingsState('settings:query', '')
+  let [prefix, setPrefix] = useSettingsState('settings:prefix', state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
   let root = useRef<HTMLDivElement>(null)
   let searchInput = useRef<HTMLInputElement>(null)
-  useEffect(() => setPrefix(state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix), [state.keyboard?.prefix])
+  let savedPrefix = state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix, previousPrefix = useRef(savedPrefix)
+  useEffect(() => { if (previousPrefix.current !== savedPrefix) { previousPrefix.current = savedPrefix; setPrefix(savedPrefix) } }, [savedPrefix, setPrefix])
   let makeDefault = async () => { if (await run('settings.default-browser')) onMessage('Default browser requested. Confirm any macOS prompt; you can also choose bmux in System Settings > Desktop & Dock.') }
   let changeTab = (event: MouseEvent<HTMLButtonElement>) => { setQuery(''); setTab(event.currentTarget.dataset.tab as SettingsTab) }
   let moveTab = (event: KeyboardEvent<HTMLDivElement>) => {
