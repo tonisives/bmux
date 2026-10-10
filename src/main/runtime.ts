@@ -63,6 +63,7 @@ import { localMediaResponse } from './local-media'
 import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
+import { createTranslationPopups } from './translation-popup'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -159,6 +160,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
+  let translationPopups = createTranslationPopups()
   let deferredTabs = new Set<string>()
   let deferredLinkLoads = new Map<string, Electron.LoadURLOptions>()
   let idleUnloaded = new Set<string>()
@@ -1086,7 +1088,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let template: Electron.MenuItemConstructorOptions[] = []
         if (selectionText) template.push(
           ...(process.platform === 'darwin' ? [{ label: 'Look Up', click: () => contents.showDefinitionForSelection() }] : []),
-          { label: 'Translate', click: () => { openLinkWindow(`https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(selectionText)}&op=translate`, true) } },
+          { label: 'Translate', click: () => translationPopups.open(owner.window, contents, selectionText) },
           { type: 'separator' },
         )
         if (params.isEditable && params.misspelledWord) {
@@ -1104,7 +1106,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
             { label: 'Open link in new window', click: () => { openLinkWindow(linkUrl, true) } },
             { label: 'Copy link address', click: () => clipboard.writeText(linkUrl) },
           )
-        } else {
+        } else if (!selectionText) {
           let navigation = contents.navigationHistory
           template.push(
             ...paneMenu(tabById(model, tabId).pane.id, [...clients].find(([, live]) => live === owner)![0]),
@@ -1112,15 +1114,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
             { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
             { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
             { label: 'Reload', click: () => contents.reload() },
-            { label: 'Keep Page Loaded', type: 'checkbox', checked: paneById(model, tabId).pane.keepAlive === true, click: item => { void execute({ method: 'pane.keep-alive', args: { pane: tabId, enabled: item.checked } }).catch(reportError) } },
-          )
-          if (params.selectionText || params.isEditable) template.push(
-            { type: 'separator' },
-            ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
-            { role: 'copy' },
-            { role: 'selectAll' },
           )
         }
+        if (selectionText || params.isEditable) template.push(
+          ...(template.at(-1)?.type === 'separator' ? [] : [{ type: 'separator' as const }]),
+          ...(params.isEditable ? [{ role: 'cut' as const }, { role: 'paste' as const }] : []),
+          { role: 'copy' },
+          { role: 'selectAll' },
+        )
         if (params.mediaType === 'image') template.push(
           { type: 'separator' },
           { label: 'Copy image', enabled: params.hasImageContents, click: () => contents.copyImageAt(params.x, params.y) },
@@ -2987,6 +2988,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     clickMode.cancel()
     crashRecovery.close()
     extensions.close()
+    translationPopups.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
     pageTools?.close()
     filters?.close()

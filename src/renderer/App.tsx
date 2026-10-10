@@ -2002,10 +2002,25 @@ let ProfileNameEditor = () => {
   </form>
 }
 
-type ProfileTab = 'overview' | 'device' | 'connection' | 'anti-bot'
+let ProfilePaneSettings = () => {
+  let { state, run } = useUI()
+  let { pane } = selection(state)
+  let [busy, setBusy] = useState(false)
+  if (!pane) return <p>No pane is selected.</p>
+  let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
+    setBusy(true)
+    try { await run('pane.keep-alive', { pane: pane.id, enabled: event.target.checked }) } finally { setBusy(false) }
+  }
+  return <div className={css.profileSections} role="tabpanel" aria-label="Pane settings"><ProfileSection title="Current pane">
+    <label className={css.profileControl}><span>Keep Page Loaded<small>Preserve this pane’s page state while inactive and load it on launch.</small></span><span className={css.profileToggleState}><span aria-hidden="true">{pane.keepAlive ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Keep Page Loaded" checked={pane.keepAlive === true} onChange={toggle} disabled={busy} /></span></label>
+  </ProfileSection></div>
+}
+
+type ProfileTab = 'overview' | 'pane' | 'device' | 'connection' | 'anti-bot'
 let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
   let paths: Record<ProfileTab, string> = {
     overview: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+    pane: 'M3 4h18v16H3zM3 8h18',
     device: 'M7 2h10v20H7zM10 18h4',
     connection: 'M8 2v5M16 2v5M6 7h12v3a6 6 0 0 1-12 0zM12 16v6',
     'anti-bot': 'M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6zM8 12l3 3 5-6',
@@ -2035,7 +2050,7 @@ let ProfileInfo = () => {
     await run('session.profile.set', { session: session.id, profile: event.target.value })
     setBusy(false)
   }
-  let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
+  let overview = () => setTab('overview'), paneTab = () => setTab('pane'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
   let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview"><ProfileSection title="Current pane"><dl>
       <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
       <div><dt>Session</dt><dd>{session?.name}</dd></div>
@@ -2048,8 +2063,9 @@ let ProfileInfo = () => {
     </ProfileSection></div>
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
-    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}><ProfileTabIcon tab="overview" />Overview</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}><ProfileTabIcon tab="device" />Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}><ProfileTabIcon tab="connection" />Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}><ProfileTabIcon tab="anti-bot" />Anti-bot</button></div>
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}><ProfileTabIcon tab="overview" />Overview</button><button type="button" role="tab" aria-selected={tab === 'pane'} onClick={paneTab}><ProfileTabIcon tab="pane" />Pane</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}><ProfileTabIcon tab="device" />Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}><ProfileTabIcon tab="connection" />Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}><ProfileTabIcon tab="anti-bot" />Anti-bot</button></div>
     {tab === 'overview' && overviewContent}
+    {tab === 'pane' && <ProfilePaneSettings key={pane?.id} />}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p><button type="button" onClick={openProxy}>Connection details</button></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
     {tab === 'anti-bot' && <ProfileAntiBotSettings />}

@@ -493,7 +493,7 @@ test('profile icon has no visible label and opens details for the selected pane'
   await expect(panel).toContainText(`Window${window.name}`)
   await expect(panel).toContainText(`Pane${pane.id}`)
   expect((await panel.boundingBox())!.width).toBeGreaterThan(800)
-  await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(4)
+  await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(5)
   await expect(panel.getByRole('heading')).toHaveText(['Current pane', 'New windows', 'HTTP cache'])
   await chrome.screenshot({ path: path.resolve('artifacts/profile-overview-sections.png') })
   await panel.getByRole('tab', { name: 'Connection' }).click()
@@ -502,6 +502,49 @@ test('profile icon has no visible label and opens details for the selected pane'
   await panel.getByRole('tab', { name: 'Device' }).click()
   await expect(panel.getByRole('heading')).toHaveText(['Device emulation', 'Screen', 'Language and location', 'New panes', 'Emulation details'])
   await chrome.screenshot({ path: path.resolve('artifacts/profile-device-sections.png') })
+})
+
+test('profile Pane settings keeps only the selected pane loaded and reflects saved changes', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let window = current.model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === client.windowId)!
+  let pane = window.panes.find((item: any) => item.id === client.paneId)!
+  let profile = current.model.profiles.find((item: any) => item.id === pane.profileId)!
+  let sibling = await rpc('split-window', { pane: pane.id, client: client.id, profile: profile.id, url }) as { id: string }
+  let keepAlive = async (paneId: string) => (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === paneId).keepAlive === true
+  try {
+    await rpc('select-pane', { pane: pane.id, client: client.id })
+    let panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    let toggle = panel.getByRole('tabpanel', { name: 'Pane settings' }).getByRole('switch', { name: 'Keep Page Loaded', exact: true })
+    await expect(toggle).not.toBeChecked()
+    await toggle.check()
+    await expect.poll(() => keepAlive(pane.id)).toBe(true)
+    expect(await keepAlive(sibling.id)).toBe(false)
+    await chrome.screenshot({ path: path.resolve('artifacts/profile-pane-settings.png') })
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    await expect(toggle).toBeChecked()
+    await rpc('pane.keep-alive', { pane: pane.id, enabled: false })
+    await expect(toggle).not.toBeChecked()
+    await toggle.check()
+    await expect.poll(() => keepAlive(pane.id)).toBe(true)
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await rpc('select-pane', { pane: sibling.id, client: client.id })
+    panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    await expect(toggle).not.toBeChecked()
+    await toggle.check()
+    await expect.poll(() => keepAlive(sibling.id)).toBe(true)
+    expect(await keepAlive(pane.id)).toBe(true)
+    await toggle.uncheck()
+    await expect.poll(() => keepAlive(sibling.id)).toBe(false)
+    expect(await keepAlive(pane.id)).toBe(true)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('pane.keep-alive', { pane: pane.id, enabled: false })
+    await rpc('kill-pane', { pane: sibling.id, confirm: true })
+  }
 })
 
 test('profile popup renames default and custom profiles without changing pane identity', async () => {
