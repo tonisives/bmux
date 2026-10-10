@@ -2791,7 +2791,7 @@ test('status plus button opens and selects a new tab with a focused URL prompt',
     await expect(prompt).toBeFocused()
     await prompt.fill(url)
     await prompt.press('Enter')
-    await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(url)
+    await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/`)
     await expect(list.locator('[data-window-id]').last()).toHaveAttribute('title', 'bmux fixture')
     let state = await cli('state')
     let selected = state.model.clients.find((item: { id: string }) => item.id === client.id)
