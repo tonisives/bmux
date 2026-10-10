@@ -40,9 +40,6 @@
 .app[data-status-bar="bottom"] .windows { align-items: flex-start; }
 .app[data-status-bar="bottom"] .windowTab { border-top: 0; border-bottom: 1px solid #343c48; border-radius: 0 0 4px 4px; }
 .app[data-status-bar="bottom"] .windowTab[data-selected="true"] { border-bottom-color: #56616f; }
-.windowTab[data-drop-position="before"]::before, .windowTab[data-drop-position="after"]::after { content: ''; position: absolute; top: 1px; bottom: 1px; width: 2px; background: #c2d8a7; pointer-events: none; }
-.windowTab[data-drop-position="before"]::before { left: -3px; }
-.windowTab[data-drop-position="after"]::after { right: -3px; }
 .status .windowSelect { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 7px; flex: 1 1 auto; min-width: 0; max-width: none; cursor: grab; }
 .status .windowSelect:hover { color: inherit; }
 .windows .windowTab[data-pinned="true"] { flex: 0 0 28px; min-width: 28px; padding-right: 0; }
