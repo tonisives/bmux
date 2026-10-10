@@ -328,6 +328,7 @@ let useWindowDrag = () => {
   let windows = useRef<HTMLDivElement>(null)
   let draggedWindow = useRef<string | null>(null)
   let committingWindowDrag = useRef(false)
+  let pendingDrop = useRef<{ order: string[]; lefts: Map<string, number> } | null>(null)
   let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
   let windowBounds = (tab: HTMLElement) => {
     let bounds = tab.getBoundingClientRect()
@@ -349,14 +350,26 @@ let useWindowDrag = () => {
     let list = windows.current
     if (!list) return
     let tabs = Array.from(list.querySelectorAll<HTMLElement>('[data-window-id]'))
+    let pending = pendingDrop.current
+    if (pending && tabs.every((tab, index) => tab.dataset.windowId === pending.order[index]) && tabs.length === pending.order.length) {
+      let offsets = tabs.map(tab => {
+        let transform = getComputedStyle(tab).transform
+        let offset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41
+        return { tab, offset: pending.lefts.get(tab.dataset.windowId!)! + offset - windowBounds(tab).left }
+      })
+      committingWindowDrag.current = false; pendingDrop.current = null
+      finishWindowDrag()
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) for (let { tab, offset } of offsets) {
+        if (Math.abs(offset) > .5) tab.animate([{ transform: `translateX(${offset}px)` }, { transform: 'translateX(0px)' }], { duration: 160, easing: 'ease' })
+      }
+      return
+    }
     let source = tabs.find(tab => tab.dataset.windowId === draggedWindow.current)
     let target = tabs.find(tab => tab.dataset.windowId === drop?.id)
     let bounds = new Map(tabs.map(tab => [tab, windowBounds(tab)]))
     let preview = tabs.filter(tab => tab !== source)
     if (source && target && source !== target) preview.splice(preview.indexOf(target) + (drop?.position === 'after' ? 1 : 0), 0, source)
     else preview = tabs
-    // Once the saved order arrives, its layout replaces the preview without a second slide.
-    if (committingWindowDrag.current && preview.every((tab, index) => tab === tabs[index])) delete list.dataset.dragging
     let left = bounds.get(tabs[0])?.left ?? 0
     let gap = parseFloat(getComputedStyle(list).columnGap) || 0
     for (let tab of preview) {
@@ -366,6 +379,7 @@ let useWindowDrag = () => {
     }
   }, [drop, session?.windows])
   let startWindowDrag = (event: DragEvent<HTMLDivElement>) => {
+    if (committingWindowDrag.current) { event.preventDefault(); return }
     let button = (event.target as HTMLElement).closest<HTMLElement>(`.${css.windowSelect}`)
     let id = button?.closest<HTMLElement>('[data-window-id]')?.dataset.windowId
     if (!id) return
@@ -376,7 +390,7 @@ let useWindowDrag = () => {
     event.dataTransfer.setData('text/plain', id)
   }
   let overWindow = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggedWindow.current) return
+    if (!draggedWindow.current || committingWindowDrag.current) return
     let target = dropAt(event)
     if (!target || target.id === draggedWindow.current) { setDrop(null); return }
     event.preventDefault()
@@ -386,16 +400,23 @@ let useWindowDrag = () => {
   let finishWindowDrag = () => {
     if (committingWindowDrag.current) return
     draggedWindow.current = null; setDrop(null)
+    pendingDrop.current = null
     delete windows.current?.dataset.dragging
     windows.current?.querySelectorAll<HTMLElement>('[data-window-id]').forEach(tab => { delete tab.dataset.dragging; tab.style.removeProperty('--tab-drag-offset') })
   }
   let dropWindow = async (event: DragEvent<HTMLDivElement>) => {
+    if (committingWindowDrag.current) return
     let source = draggedWindow.current, target = dropAt(event)
     if (!source || !target || source === target.id) { finishWindowDrag(); return }
     event.preventDefault()
+    let tabs = Array.from(windows.current!.querySelectorAll<HTMLElement>('[data-window-id]'))
+    let order = tabs.map(tab => tab.dataset.windowId!).filter(id => id !== source)
+    order.splice(order.indexOf(target.id) + (target.position === 'after' ? 1 : 0), 0, source)
+    pendingDrop.current = { order, lefts: new Map(tabs.map(tab => [tab.dataset.windowId!, windowBounds(tab).left])) }
     committingWindowDrag.current = true
-    try { await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position }) }
-    finally { committingWindowDrag.current = false; finishWindowDrag() }
+    setDrop(target)
+    let result = await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
+    if (result === undefined) { committingWindowDrag.current = false; finishWindowDrag() }
   }
   return { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
 }

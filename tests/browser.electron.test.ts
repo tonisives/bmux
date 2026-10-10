@@ -3023,9 +3023,34 @@ test('status windows can be dragged into a new order without switching the activ
   await tab(third.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: thirdSlot.x + thirdSlot.width * .35 })
   await expect.poll(() => offset(second.id)).toBeGreaterThan(1)
   await expect.poll(() => offset(third.id)).toBeLessThan(-1)
+  await expect.poll(() => list.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
+  // Sample every rendered frame across drop and the saved order arriving.
+  await list.evaluate(element => {
+    let list = element as HTMLElement & { dropFrames?: Promise<number[][]> }
+    list.dropFrames = new Promise(resolve => {
+      let frames: number[][] = [], settled = 0
+      let sample = () => {
+        let tabs = Array.from(list.querySelectorAll<HTMLElement>('[data-window-id]')).sort((a, b) => a.dataset.windowId!.localeCompare(b.dataset.windowId!))
+        frames.push(tabs.map(tab => tab.getBoundingClientRect().left))
+        settled = !list.dataset.dragging && list.getAnimations({ subtree: true }).length === 0 ? settled + 1 : 0
+        if (settled >= 3 || frames.length >= 120) resolve(frames)
+        else requestAnimationFrame(sample)
+      }
+      sample()
+    })
+  })
+  await tab(third.id).dispatchEvent('drop', { dataTransfer: transfer, clientX: thirdSlot.x + thirdSlot.width * .35 })
   await tab(second.id).dispatchEvent('dragend', { dataTransfer: transfer })
+  await expect.poll(order).toEqual([first.id, third.id, second.id])
   await expect(list).not.toHaveAttribute('data-dragging')
+  let frames = await list.evaluate(element => (element as HTMLElement & { dropFrames: Promise<number[][]> }).dropFrames)
+  for (let index = 0; index < 3; index++) {
+    let positions = frames.map(frame => frame[index])
+    expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2)
+  }
   await transfer.dispose()
+  await cli('reorder-window', { client: client.id, window: second.id, target: third.id, position: 'before' })
+  await expect.poll(order).toEqual([first.id, second.id, third.id])
   await tab(second.id).dragTo(tab(first.id), { targetPosition: { x: 2, y: 8 } })
   await expect.poll(order).toEqual([second.id, first.id, third.id])
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(first.id)
