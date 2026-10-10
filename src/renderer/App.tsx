@@ -1965,8 +1965,8 @@ let ProfileAntiBotSettings = () => {
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
     </ProfileSection>
-    <AutomationLimitsEditor key={profile.id} />
-    <ProfileExcludedWebsites key={profile.id} />
+    <AutomationLimitsEditor key={`limits:${profile.id}`} />
+    <ProfileExcludedWebsites key={`exclusions:${profile.id}`} />
   </div>
 }
 
