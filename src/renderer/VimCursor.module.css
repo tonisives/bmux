@@ -1,0 +1,6 @@
+.field { position: relative; display: grid; flex: 1; min-width: 0; overflow: hidden; }
+.field input { width: 100%; min-width: 0; }
+.cursor[data-vim-cursor] { position: absolute; pointer-events: none; z-index: 2; top: 50%; left: var(--vim-cursor-x); width: var(--vim-cursor-width); height: var(--vim-cursor-height); transform: translateY(-50%); background: #c2ceb9; color: #191d23; white-space: pre; font: inherit; line-height: var(--vim-cursor-height); text-align: center; }
+.cursor { display: none; }
+:focus-within > .cursor[data-mode="NORMAL"] { display: block; }
+:global(input[data-vim-mode="NORMAL"]) { caret-color: transparent; }

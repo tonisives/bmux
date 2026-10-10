@@ -301,7 +301,7 @@
 .addressEditor .prompt { min-height: 24px; gap: 6px; }
 .addressEditor .prompt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .addressEditor .prompt > button[type="button"] { width: 24px; height: 24px; flex: 0 0 24px; }
-.addressInput { display: grid; flex: 1; min-width: 0; }
+.addressInput { position: relative; overflow: hidden; display: grid; flex: 1; min-width: 0; }
 .addressInput input { grid-area: 1 / 1; min-width: 0; }
 .addressInput input { width: 100%; height: 24px; z-index: 1; }
 .urlHistory { position: fixed; z-index: 100; top: 29px; left: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; padding: 4px 8px; border: 1px solid #444b59; background: #191d23e6; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }

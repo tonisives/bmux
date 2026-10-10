@@ -1,0 +1,82 @@
+import { describe, expect, test } from 'vitest'
+import { createVimInputState, resetVimInputState, vimFind, vimInputKey, vimMotion, vimWordRange } from '../src/shared/vim-input'
+
+let run = (text: string, cursor: number, keys: string[]) => {
+  let state = createVimInputState()
+  return keys.map(key => vimInputKey(state, text, cursor, key)).at(-1)
+}
+describe('single-line Vim motions', () => {
+  test('word motions distinguish URL punctuation and WORD boundaries', () => {
+    let text = 'https://example.com/a-b next'
+    expect(vimMotion(text, 0, 'w')).toBe(5)
+    expect(vimMotion(text, 5, 'w')).toBe(8)
+    expect(vimMotion(text, 0, 'W')).toBe(24)
+    expect(vimMotion(text, 24, 'B')).toBe(0)
+    expect(vimMotion(text, 8, 'e')).toBe(14)
+    expect(vimMotion(text, 14, 'e')).toBe(15)
+    expect(vimMotion(text, 24, 'b')).toBe(22)
+  })
+  test('counts and beginning/end motions stay inside empty and short strings', () => {
+    expect(run('alpha bravo charlie', 0, ['2', 'w'])).toEqual({ kind: 'move', cursor: 12 })
+    expect(run('alpha', 0, ['9', 'l'])).toEqual({ kind: 'move', cursor: 4 })
+    expect(run('alpha', 0, ['b'])).toEqual({ kind: 'move', cursor: 0 })
+    expect(run('', 0, ['e'])).toEqual({ kind: 'move', cursor: 0 })
+    expect(run('  alpha', 5, ['^'])).toEqual({ kind: 'move', cursor: 2 })
+    expect(run('alpha', 1, ['$'])).toEqual({ kind: 'move', cursor: 4 })
+    expect(run('alpha', 4, ['g', 'g'])).toEqual({ kind: 'move', cursor: 0 })
+  })
+  test('character searches support direction, till, counts, and repeats', () => {
+    expect(vimFind('a/b/c/d', 0, 'f', '/', 2)).toBe(3)
+    expect(vimFind('a/b/c/d', 0, 't', '/', 2)).toBe(2)
+    expect(vimFind('a/b/c/d', 6, 'F', '/', 2)).toBe(3)
+    expect(vimFind('a/b/c/d', 6, 'T', '/', 2)).toBe(4)
+    expect(vimFind('a/b', 0, 'F', 'a', 1)).toBeUndefined()
+    let state = createVimInputState()
+    vimInputKey(state, 'a/b/c/d', 0, 'f')
+    expect(vimInputKey(state, 'a/b/c/d', 0, '/')).toEqual({ kind: 'move', cursor: 1 })
+    expect(vimInputKey(state, 'a/b/c/d', 1, ';')).toEqual({ kind: 'move', cursor: 3 })
+    expect(vimInputKey(state, 'a/b/c/d', 3, ',')).toEqual({ kind: 'move', cursor: 1 })
+    vimInputKey(state, 'a/b/c/d', 0, 't'); vimInputKey(state, 'a/b/c/d', 0, '/')
+    expect(vimInputKey(state, 'a/b/c/d', 0, ';')).toEqual({ kind: 'move', cursor: 2 })
+    expect(run('alpha', 0, ['d', 'x'])).toEqual({ kind: 'handled' })
+  })
+})
+describe('Vim editing operators', () => {
+  test('delete and change use counted and inclusive motion ranges', () => {
+    expect(run('alpha bravo charlie', 0, ['d', 'w'])).toEqual({ kind: 'edit', start: 0, end: 6, text: '', insert: false })
+    expect(run('alpha bravo charlie', 0, ['2', 'd', 'w'])).toEqual({ kind: 'edit', start: 0, end: 12, text: '', insert: false })
+    expect(run('alpha bravo charlie', 0, ['d', '2', 'w'])).toEqual({ kind: 'edit', start: 0, end: 12, text: '', insert: false })
+    expect(run('alpha bravo', 0, ['c', 'w'])).toEqual({ kind: 'edit', start: 0, end: 5, text: '', insert: true })
+    expect(run('a bravo', 0, ['c', 'w'])).toEqual({ kind: 'edit', start: 0, end: 1, text: '', insert: true })
+    expect(run('alpha', 2, ['d', '$'])).toEqual({ kind: 'edit', start: 2, end: 5, text: '', insert: false })
+    expect(run('alpha', 4, ['d', 'w'])).toEqual({ kind: 'edit', start: 4, end: 5, text: '', insert: false })
+    expect(run('alpha', 4, ['d', '0'])).toEqual({ kind: 'edit', start: 0, end: 4, text: '', insert: false })
+  })
+  test('text objects, whole field edits, and substitution work', () => {
+    expect(vimWordRange('alpha bravo', 2, false, true)).toEqual({ start: 0, end: 6 })
+    expect(run('alpha bravo', 2, ['c', 'i', 'w'])).toEqual({ kind: 'edit', start: 0, end: 5, text: '', insert: true })
+    expect(run('alpha bravo', 2, ['d', 'a', 'w'])).toEqual({ kind: 'edit', start: 0, end: 6, text: '', insert: false })
+    expect(run('alpha', 2, ['c', 'c'])).toEqual({ kind: 'edit', start: 0, end: 5, text: '', insert: true })
+    expect(run('alpha', 2, ['d', 'd'])).toEqual({ kind: 'edit', start: 0, end: 5, text: '', insert: false })
+    expect(run('alpha', 2, ['2', 's'])).toEqual({ kind: 'edit', start: 2, end: 4, text: '', insert: true })
+    expect(run('alpha', 2, ['2', 'r', 'z'])).toEqual({ kind: 'edit', start: 2, end: 4, text: 'zz', insert: false })
+  })
+  test('yank and deletion registers survive Escape and support paste', () => {
+    let state = createVimInputState()
+    vimInputKey(state, 'alpha bravo', 0, 'y')
+    expect(vimInputKey(state, 'alpha bravo', 0, 'w')).toEqual({ kind: 'move', cursor: 0 })
+    expect(state.register).toBe('alpha ')
+    resetVimInputState(state)
+    expect(vimInputKey(state, 'bravo', 0, 'P')).toEqual({ kind: 'edit', start: 0, end: 0, text: 'alpha ', insert: false })
+    vimInputKey(state, 'alpha', 0, 'd'); resetVimInputState(state)
+    expect(vimInputKey(state, 'alpha', 0, 'w')).toEqual({ kind: 'move', cursor: 4 })
+    expect(vimInputKey(state, 'alpha', 0, 'u')).toEqual({ kind: 'undo' })
+  })
+  test('insert commands and counted suggestion navigation stay separate', () => {
+    expect(run('alpha', 2, ['a'])).toEqual({ kind: 'insert', cursor: 3 })
+    expect(run('alpha', 2, ['A'])).toEqual({ kind: 'insert', cursor: 5 })
+    expect(run('alpha', 2, ['I'])).toEqual({ kind: 'insert', cursor: 0 })
+    expect(run('alpha', 2, ['3', 'j'])).toEqual({ kind: 'suggestion', direction: 3 })
+    expect(run('alpha', 2, ['Enter'])).toEqual({ kind: 'pass' })
+  })
+})

@@ -179,7 +179,7 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await chrome.getByRole('button', { name: 'Address', exact: true }).evaluate(button => (button as HTMLButtonElement).click())
     await expect(address).toBeFocused()
     await expect.poll(focusedRole).toBe('AXTextField')
-    await address.press('i')
+    await address.press('c'); await address.press('c')
     await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "ugug"'])
     await expect(address).toHaveValue('ugug')
     await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()

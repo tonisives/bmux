@@ -1,40 +1,41 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { createVimInputState, resetVimInputState, vimInputKey } from '../shared/vim-input'
 
 export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number) => {
   let [mode, setMode] = useState('NORMAL')
-  useEffect(() => { setMode('NORMAL') }, [focusVersion])
+  let state = useRef(createVimInputState())
+  let reset = () => { setMode('NORMAL'); resetVimInputState(state.current) }
+  useEffect(reset, [focusVersion])
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return false
     let input = event.currentTarget
     if (event.key === 'Escape') {
-      event.preventDefault(); event.stopPropagation(); setMode('NORMAL')
+      event.preventDefault(); event.stopPropagation()
+      let cursor = input.selectionStart ?? 0
+      if (mode === 'INSERT' && input.selectionStart === input.selectionEnd) cursor = Math.max(0, cursor - 1)
+      cursor = Math.min(cursor, Math.max(0, input.value.length - 1))
+      input.setSelectionRange(cursor, cursor); reset()
       return true
     }
-    if (mode === 'INSERT' || event.metaKey || event.ctrlKey || event.altKey) return false
-    let start = input.selectionStart ?? 0, end = input.selectionEnd ?? start
-    let cursor = start
-    if (['i', 'a', 'I', 'A', '/'].includes(event.key)) {
-      if (event.key === 'I') cursor = 0
-      else if (event.key === 'A') cursor = input.value.length
-      else if (event.key === 'a') cursor = Math.min(input.value.length, end + (start === end ? 1 : 0))
-      if (!['i', '/'].includes(event.key)) input.setSelectionRange(cursor, cursor)
-      setMode('INSERT')
-    } else if (event.key === 'h') cursor = Math.max(0, start - 1)
-    else if (event.key === 'l') cursor = Math.min(input.value.length, end + 1)
-    else if (event.key === '0' || event.key === '^') cursor = 0
-    else if (event.key === '$') cursor = input.value.length
-    else if (event.key === 'w') cursor = start + (input.value.slice(start).match(/^(?:\w+\W*|\W+)/)?.[0].length || 1)
-    else if (event.key === 'b') cursor = start - (input.value.slice(0, start).match(/\w+\W*$|\W+$/)?.[0].length || 1)
-    else if (event.key === 'x' || event.key === 's') {
-      input.setSelectionRange(start, start === end ? Math.min(input.value.length, end + 1) : end)
-      document.execCommand('delete')
-      if (event.key === 's') setMode('INSERT')
-    } else if (event.key === 'j' || event.key === 'k') moveSuggestion?.(event.key === 'j' ? 1 : -1)
-    else if (event.key.length !== 1) return false
+    if (mode === 'INSERT' || event.metaKey || event.altKey) return false
+    if (event.ctrlKey && event.key.toLowerCase() !== 'r') return false
+    let cursor = Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1))
+    let action = event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
+    if (action.kind === 'pass') return false
     event.preventDefault(); event.stopPropagation()
-    if (['h', 'l', '0', '^', '$', 'w', 'b'].includes(event.key)) input.setSelectionRange(Math.max(0, Math.min(input.value.length, cursor)), Math.max(0, Math.min(input.value.length, cursor)))
+    if (action.kind === 'move' || action.kind === 'insert') {
+      input.setSelectionRange(action.cursor, action.cursor)
+      if (action.kind === 'insert') setMode('INSERT')
+    } else if (action.kind === 'edit') {
+      input.setSelectionRange(action.start, action.end)
+      document.execCommand(action.text ? 'insertText' : 'delete', false, action.text)
+      let cursor = action.insert ? action.start + action.text.length : Math.min(action.start, Math.max(0, input.value.length - 1))
+      input.setSelectionRange(cursor, cursor)
+      if (action.insert) setMode('INSERT')
+    } else if (action.kind === 'undo' || action.kind === 'redo') document.execCommand(action.kind)
+    else if (action.kind === 'suggestion') moveSuggestion?.(action.direction)
     return true
   }
-  return { mode, keys, reset: () => setMode('NORMAL') }
+  return { mode, keys, reset }
 }

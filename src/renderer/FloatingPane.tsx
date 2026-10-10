@@ -1,3 +1,5 @@
+import { VimCursor } from './VimCursor'
+import vimCss from './VimCursor.module.css'
 import { useAddressVim } from './useAddressVim'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -68,7 +70,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
       <div className={css.urlBar}>
         {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-        <span aria-label="URL editing mode">{vim.mode}&gt;</span><input ref={input} data-vim-mode={vim.mode} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+        <span aria-label="URL editing mode">{vim.mode}&gt;</span><div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
         <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
