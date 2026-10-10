@@ -670,6 +670,55 @@ test('initial blank history is removed after navigation and restart', async () =
   }
 })
 
+for (let floating of [false, true]) test(`URL Vim mode preserves text and focus on Escape in ${floating ? 'floating' : 'tiled'} panes`, async () => {
+  let session = await cli('new-session', { name: `url-vim-${floating}` })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('activate-client', { client: client.id })
+    let chrome = await rendererForClient(client.id)
+    let controls = chrome
+    if (floating) {
+      await cli('break-pane', { pane: pane.id, floating: true, client: client.id })
+      await expect.poll(() => application.context().pages().some(page => page.url().endsWith(`#float=${pane.id}`))).toBe(true)
+      controls = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+      await controls.getByRole('textbox', { name: 'Address', exact: true }).click()
+    } else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = controls.getByRole('textbox', { name: floating ? 'Address' : 'URL or search', exact: true })
+    await expect(address).toBeFocused()
+    await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
+    await address.press('i')
+    await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
+    await address.pressSequentially('alpha bravo')
+    await address.press('Escape')
+    await expect(address).toHaveValue('alpha bravo')
+    await expect(address).toBeFocused()
+    await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
+    await address.press('0'); await address.press('w')
+    expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(6)
+    await address.press('b'); await address.press('x')
+    await expect(address).toHaveValue('lpha bravo')
+    await address.press('Escape')
+    await expect(address).toHaveValue('lpha bravo')
+    await expect(address).toBeFocused()
+    await address.press('/')
+    await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
+    await address.press('Meta+A')
+    await address.pressSequentially(`${url}/url-vim-${floating}`)
+    let draft = await address.inputValue()
+    await address.press('Escape'); await address.press('Escape')
+    await expect(address).toHaveValue(draft)
+    await expect(address).toBeFocused()
+    if (!floating) {
+      await address.press('j'); await address.press('k')
+      await expect(address).toBeFocused()
+    }
+    await address.press('Enter')
+    await expect.poll(() => cli('eval', { pane: pane.id, expression: 'location.pathname' })).toBe(`/url-vim-${floating}`)
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/url-vim-${floating}`)
+  } finally { await cli('detach-client', { client: client.id }) }
+})
+
 test('address controls navigate, refresh, and open the per-tab history on hold', async () => {
   let session = await cli('new-session', { name: 'address-navigation' })
   let pane = session.windows[0].panes[0]
@@ -1259,7 +1308,7 @@ test('pane address bars navigate independently and leave window switching availa
   await expect(address).toBeFocused()
   await address.fill('not-a-protocol://example'); await address.press('Enter')
   await expect(secondPane.getByRole('status')).toContainText('Only http')
-  await address.press('Escape')
+  await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   await expect(secondPane.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/edited-second-pane`)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
@@ -1343,7 +1392,7 @@ test('pane address bars navigate independently and leave window switching availa
         return Math.abs(list.x - content.x) < 1 && Math.abs(list.width - content.width) < 1 && list.y === content.y && list.bottom <= content.bottom && parseFloat(getComputedStyle(element).maxHeight) <= content.height
       })).toBe(true)
     }
-    await input.press('Escape')
+    await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   }
   await cli('detach-client', { client: client.id })
 })
@@ -1372,7 +1421,7 @@ test('Command+L shows and replaces the URL during pending navigations', async ()
   await expect.poll(async () => (await cli('state')).pendingUrls[tab.id]).toBe(`${url}/pending-tab`)
   await openAddress()
   await expect(address).toHaveValue(`${url}/pending-tab`)
-  await address.press('Escape')
+  await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   await cli('stop', { tab: tab.id })
   await cli('detach-client', { client: client.id })
 })
@@ -1618,11 +1667,12 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill('')
+  await address.press('i')
   for (let key of keys) await address.press(key)
   await expect(address).toHaveValue(keys.join(''))
   expect(page.url()).toBe(`${url}/vim-page-keys`)
   expect(await cli('eval', { tab, expression: 'window.identity' })).toBe(loadedIdentity)
-  await address.press('Escape')
+  await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   await cli('detach-client', { client: client.id })
   await fs.writeFile(config, previous)
   await cli('settings.reload')
@@ -1983,7 +2033,7 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
   try {
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await chrome.getByRole('button', { name: 'Address', exact: true }).or(address).click()
-    await address.pressSequentially(`${url}/cached-favicon/pinned`)
+    await address.press('i'); await address.pressSequentially(`${url}/cached-favicon/pinned`)
     await address.press('Enter')
     await cli('wait', { pane: second.panes[0].id, selector: '#text' })
     await expect(tab(second.id).locator('img')).toBeVisible()
@@ -2310,7 +2360,7 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await address.press('Backspace')
     await expect(address).toHaveValue(query.slice(0, -1))
     await expect(chrome.getByRole('option', { selected: true })).toHaveCount(0)
-    await address.press(query.at(-1)!)
+    await address.press('i'); await address.press(query.at(-1)!)
     await expect(address).toHaveValue(query)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(chrome.locator(`[role="option"][data-value="${savedUrl}"]`)).toHaveAttribute('data-kind', source)
@@ -2466,7 +2516,7 @@ for (let editing of [false, true]) test(`URL selection reaches the start or end 
       await expect(address).toBeFocused()
       expect(await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, direction: (input as HTMLInputElement).selectionDirection }))).toEqual({ start: 0, direction: 'backward' })
       await chrome.getByRole('group', { name: 'Pane address', exact: true }).screenshot({ path: info.outputPath(`address-focus-${vertical}.png`) })
-      await address.press('Escape')
+      await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
     }
   } finally { await cli('detach-client', { client: client.id }) }
 })
@@ -2560,7 +2610,7 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
   })
   let target = `${url}/select-the-right-side-of-this-url`
   await expect(address).toHaveValue(target.slice(0, selected!.start!) + target.slice(selected!.end!))
-  await address.press('Escape')
+  await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   await cli('detach-client', { client: client.id })
 })
 

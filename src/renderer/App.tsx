@@ -1,3 +1,4 @@
+import { useAddressVim } from './useAddressVim'
 import { activityLabel, windowVisitTime } from '../shared/pane-activity'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
@@ -752,8 +753,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     setIndex(-1); void run('history.remove', { profile: profile!.id, url })
     ref.current?.focus()
   }
+  let vim = useAddressVim(direction => { if (results.length) setIndex(selectedIndex < 0 ? (direction > 0 ? 0 : results.length - 1) : (selectedIndex + direction + results.length) % results.length) }, addressFocusVersion)
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return
+    if (vim.keys(event) || event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
       event.preventDefault()
       let input = event.currentTarget
@@ -771,9 +773,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
       event.preventDefault()
       if (results.length) setIndex(selectedIndex < 0 ? (event.key === 'ArrowDown' ? 0 : results.length - 1) : (selectedIndex + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
     }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl || selectedResult?.value) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} data-vim-mode={vim.mode} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div><span aria-label="URL editing mode">{vim.mode}&gt;</span>{(message || inlineUrl || selectedResult?.value) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
