@@ -1194,7 +1194,8 @@ test('URL entry after import attaches the live page; native shortcuts and comman
 })
 
 test('pane address bars navigate independently and leave window switching available', async () => {
-  let session = await cli('new-session', { name: 'pane-addresses' })
+  let profile = await cli('profile.create', { name: 'pane-addresses' })
+  let session = await cli('new-session', { name: 'pane-addresses', profile: profile.id })
   let window = session.windows[0], first = window.panes[0]
   let second = await cli('split-window', { pane: first.id, url: `${url}/second-pane` })
   let third = await cli('split-window', { pane: second.id, axis: 'vertical', url: `${url}/third-pane` })
