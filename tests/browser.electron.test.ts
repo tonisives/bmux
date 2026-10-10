@@ -740,7 +740,7 @@ for (let kind of ['window', 'session']) test(`renaming a ${kind} uses Vim motion
   try {
     await cli('activate-client', { client: client.id })
     let chrome = await rendererForClient(client.id)
-    await cli('focus-ui', { client: client.id })
+    await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
     await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, kind === 'window' ? { keyCode: ',' } : { keyCode: '$', modifiers: ['shift'] }])
     let input = chrome.getByRole('textbox', { name: kind === 'window' ? 'Rename window' : 'Rename session', exact: true })
     let cursor = input.locator('xpath=..').locator('[data-vim-cursor]')
@@ -2430,7 +2430,7 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await address.press('Backspace')
     await expect(address).toHaveValue(query.slice(0, -1))
     await expect(chrome.getByRole('option', { selected: true })).toHaveCount(0)
-    await address.press('i'); await address.press(query.at(-1)!)
+    await address.press('A'); await address.press(query.at(-1)!)
     await expect(address).toHaveValue(query)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(chrome.locator(`[role="option"][data-value="${savedUrl}"]`)).toHaveAttribute('data-kind', source)
