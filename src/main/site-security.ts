@@ -76,7 +76,7 @@ export let trackSiteSecurity = (contents: WebContents, changed: (state: SiteSecu
     if (closed || contents.isDestroyed()) return
     try {
       if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
-      await contents.debugger.sendCommand('Page.enable')
+      await contents.debugger.sendCommand('Page.enable', { enableFileChooserOpenedEvent: true })
       let { frameTree } = await contents.debugger.sendCommand('Page.getFrameTree')
       mainFrame = frameTree.frame.id
       await contents.debugger.sendCommand('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 })

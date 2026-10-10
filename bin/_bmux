@@ -2,6 +2,11 @@
 
 local -a commands subcommands
 
+if [[ $words[CURRENT-1] == --agent-id ]]; then
+  _message 'agent identifier (use your tmux pane ID)'
+  return
+fi
+
 if (( CURRENT == 2 )); then
   commands=(
     'status:Show browser status'

@@ -8,6 +8,8 @@
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
+.status .newTab { display: grid; place-items: center; width: 24px; height: 24px; }
+.newTabIcon { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1; }
 .status .session { display: inline-flex; align-items: center; flex-shrink: 0; max-width: none; white-space: nowrap; color: #bdc9b4; }
 .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
@@ -22,6 +24,9 @@
 @media (prefers-reduced-motion: reduce) { .downloadProgressIndeterminate { animation: none; } }
 .windows { display: flex; align-items: flex-end; gap: 3px; height: 100%; min-width: 0; overflow-x: auto; flex: 0 1 auto; scrollbar-width: none; -webkit-app-region: no-drag; }
 .windows::-webkit-scrollbar { display: none; }
+.windows[data-dragging] .windowTab { transform: translateX(var(--tab-drag-offset, 0px)); transition: transform 160ms ease; }
+.windows .windowTab[data-dragging="true"] { opacity: .4; }
+@media (prefers-reduced-motion: reduce) { .windows[data-dragging] .windowTab { transition: none; } }
 .windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 37px; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
 .windows[data-compressed="true"] .windowTab[data-automatic="true"] { flex-basis: var(--automatic-tab-width); }
 .windows .windowTab[data-selected="true"] { flex: 0 0 auto; max-width: 100%; }
@@ -35,9 +40,6 @@
 .app[data-status-bar="bottom"] .windows { align-items: flex-start; }
 .app[data-status-bar="bottom"] .windowTab { border-top: 0; border-bottom: 1px solid #343c48; border-radius: 0 0 4px 4px; }
 .app[data-status-bar="bottom"] .windowTab[data-selected="true"] { border-bottom-color: #56616f; }
-.windowTab[data-drop-position="before"]::before, .windowTab[data-drop-position="after"]::after { content: ''; position: absolute; top: 1px; bottom: 1px; width: 2px; background: #c2d8a7; pointer-events: none; }
-.windowTab[data-drop-position="before"]::before { left: -3px; }
-.windowTab[data-drop-position="after"]::after { right: -3px; }
 .status .windowSelect { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 7px; flex: 1 1 auto; min-width: 0; max-width: none; cursor: grab; }
 .status .windowSelect:hover { color: inherit; }
 .windows .windowTab[data-pinned="true"] { flex: 0 0 28px; min-width: 28px; padding-right: 0; }
@@ -60,13 +62,16 @@
 .prompt .error { color: #e6a69c; }
 .notifications { position: relative; z-index: 101; order: -1; flex: 0 0 auto; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app[data-status-bar="bottom"] .notifications { order: 2; }
-.notification { display: flex; align-items: center; min-height: 28px; gap: 12px; padding: 4px 8px 4px 12px; border-top: 1px solid #493638; border-bottom: 1px solid #493638; background: #2a2022; color: #e6a69c; }
+.notification { display: flex; flex-wrap: wrap; align-items: center; min-height: 28px; gap: 8px; padding: 4px 8px 4px 12px; border-top: 1px solid #493638; border-bottom: 1px solid #493638; background: #2a2022; color: #e6a69c; }
 .notification span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .notification button { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #b98d89; }
 .notification button:hover { color: #f2c1bb; }
 .notificationAction { background: transparent; color: inherit; }
+.notificationSettings { margin-left: auto; }
 .notification .notificationAction { display: block; width: auto; height: auto; flex-basis: auto; padding: 2px 6px; border: 1px solid #76565a; color: #f2c1bb; white-space: nowrap; }
 .notification svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.notificationSiteExclusion { display: inline-flex; align-items: center; gap: 8px; }
+.notificationSiteExclusion > span { flex: none; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
 .prompt label { color: #c2ceb9; }
 .prompt input { padding: 0; outline: none; border: 0; border-radius: 0; background: transparent; flex: 1; color: #eceef2; }
@@ -100,6 +105,7 @@
 .navigationMenu span { color: #8e98a4; }
 .urlBar { display: flex; align-items: center; flex: 1; min-width: 0; height: 24px; gap: 4px; padding: 0 4px; border-radius: 4px; background: #262c35; }
 .urlBar:focus-within { background: #2d3540; outline: 1px solid #627766; outline-offset: -1px; }
+.paneId { flex-shrink: 0; color: #8e98a4; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .location { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: inherit; font: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .location:hover { background: transparent; color: #f0f2f5; }
 .clickModeActions { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 3px; overflow: hidden; color: #f4f5f6; white-space: nowrap; }
@@ -194,9 +200,9 @@
 @media (max-width: 650px) { .profileProxyEndpoint, .profileProxyProvider, .profileProxyCredentials, .profileDeviceGrid, .profileDeviceLocation { grid-template-columns: 1fr; gap: 0; } }
 .sessionBack { color: #bdc9b4; }
 .sessionGroupEmpty { margin: 8px; }
-.sessionProfilePreference { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; color: #aeb9c5; }
-.sessionProfilePreference label { flex: 1; }
-.sessionProfilePreference select { min-width: 130px; height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.sessionProfilePreference { display: flex; align-items: center; flex-shrink: 0; gap: 4px; color: #aeb9c5; }
+.sessionProfilePreference select { width: 130px; height: calc(1lh + 6px); padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
+.sessionProfilePreference button { width: 26px; height: 1lh; padding: 0; }
 .newSession { color: #87a9c4; }
 .panel .sessionLabelRow { display: flex; align-items: center; overflow-wrap: normal; white-space: nowrap; }
 .sessionLabelText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -299,7 +305,7 @@
 .addressInput input { grid-area: 1 / 1; min-width: 0; }
 .addressInput input { width: 100%; height: 24px; z-index: 1; }
 .urlHistory { position: fixed; z-index: 100; top: 29px; left: 0; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; padding: 4px 8px; border: 1px solid #444b59; background: #191d23e6; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.addressSuggestionRow { display: flex; align-items: stretch; min-width: 0; }
+.addressSuggestionRow { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: stretch; min-width: 0; }
 .addressSuggestionRow:hover, .addressSuggestionRow:has([aria-selected="true"]) { background: #303844; }
 .urlHistory button { display: flex; align-items: center; gap: 12px; padding: 5px 0; text-align: left; border: 0; border-radius: 0; background: transparent; }
 .addressSuggestionRow > button:first-child { flex: 1; min-width: 0; }
@@ -394,5 +400,86 @@
 .proxyHostResults small { color: #aab2bd; overflow-wrap: anywhere; }
 
 .siteExclusion { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #333; }
-.siteExclusion label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.siteExclusion > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .siteExclusion small { display: block; margin-top: 4px; color: #999; }
+.antiBotStatus { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.antiBotLimitFields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 12px; }
+.antiBotLimitFields label { display: grid; gap: 6px; }
+.antiBotLimitFields input { width: 100%; max-width: 120px; }
+.antiBotLimitFields small { display: block; color: #8e98a4; font-size: 11px; }
+
+.sessionsPanel { width: min(960px, 94vw); }
+.sessionsPanel:has(.sessionPicker) { display: flex; flex-direction: column; height: 96%; max-height: 96%; overflow: hidden; }
+.sessionsPanel:has(.sessionPicker) > header { flex-shrink: 0; }
+.sessionsPanel:has(.sessionPicker) .panelBody { display: flex; flex: 1; min-height: 0; }
+.sessionPicker { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.sessionSearch { display: flex; align-items: center; flex-shrink: 0; border-bottom: 1px solid #343b45; }
+.sessionSearch:focus-within { border-bottom-color: #627766; }
+.sessionSearch > input { flex: 1; min-width: 0; border-bottom: 0; }
+.sessionMode { flex-shrink: 0; padding-left: 8px; color: #bdc9b4; }
+.sessionSort { flex-shrink: 0; padding: 0 8px; color: #8995a3; }
+.sessionSort[aria-pressed="true"] { color: #bdc9b4; }
+.sessionSort kbd { color: #8995a3; font: inherit; }
+.sessionList { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
+.sessionFooter { flex-shrink: 0; padding-top: 4px; border-top: 1px solid #363c45; }
+.sessionFooter .sessionCreate { max-height: 35vh; overflow: auto; padding-bottom: 8px; }
+.sessionNewRow { display: flex; align-items: center; }
+.sessionNewRow > .listRow { flex: 1; min-width: 0; }
+.sessionList[data-session-recent] .sessionBranch { display: none; }
+.panel .sessionPicker .listRow { display: flex; align-items: center; gap: 8px; padding: 3px 8px; overflow-wrap: normal; white-space: nowrap; }
+.panel .sessionPicker .listRow[data-window-row][data-active="true"] { background: #252d34; color: inherit; font-weight: 400; }
+.sessionPicker .sessionClose { align-self: center; height: 1lh; min-height: 0; padding: 0 8px; }
+.sessionPicker .sessionConfirm { gap: 8px; padding: 3px 8px; }
+.sessionPicker .sessionConfirm span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sessionPicker .sessionConfirm button { height: 1lh; padding: 0 8px; }
+.sessionNumber { flex: 0 0 3ch; color: #8995a3; text-align: right; font-weight: 400; }
+.sessionTreeHeader { position: relative; }
+.sessionChevronSpace { flex: 0 0 14px; }
+.sessionPicker .sessionToggle { position: absolute; left: calc(3ch + 16px); top: 3px; display: flex; align-items: center; justify-content: center; width: 14px; height: 1lh; padding: 0; border-radius: 0; color: #8995a3; }
+.sessionToggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.sessionToggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.sessionTreeHeader:has([role="alertdialog"]) .sessionToggle { display: none; }
+.sessionBranch { position: relative; flex: 0 0 30px; align-self: stretch; }
+.sessionBranch::before { content: ''; position: absolute; left: 7px; top: 50%; width: 16px; border-top: 1px solid #505a66; }
+.sessionBranch::after { content: ''; position: absolute; left: 7px; top: -3px; bottom: -3px; border-left: 1px solid #505a66; }
+.sessionWindows > :last-child .sessionBranch::after { bottom: 50%; }
+.sessionWindowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sessionWindowActivity { flex-shrink: 0; color: #8995a3; font-weight: 400; }
+.sessionAudio { display: flex; align-items: center; flex: 0 0 15px; color: #a7c88d; }
+.sessionAudio[data-muted="true"] { color: #77818d; }
+.sessionAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+.sessionSearchParent { padding: 3px 8px 3px calc(3ch + 38px); color: #8995a3; }
+
+.profilePanel { width: min(900px, 94vw); height: 92%; max-height: 92%; display: flex; flex-direction: column; overflow: hidden; }
+.profilePanel .panelBody { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px; }
+.profilePanel .profileInfo { display: flex; flex-direction: column; min-height: 100%; }
+.profilePanel .profileHeading { margin-bottom: 12px; }
+.profilePanel .panelTabs { position: sticky; top: -20px; z-index: 1; background: #191d23; }
+.profileSections { display: grid; gap: 0; }
+.profileSection { padding: 18px 0; border-bottom: 1px solid #363c45; }
+.profileSection:last-child { border-bottom: 0; }
+.profileSection h2 { margin: 0 0 12px; color: #eceef2; font: inherit; font-size: 13px; font-weight: 600; }
+.profileSection p { margin: 8px 0 12px; }
+.profileSection .deviceActive, .profileSection .profileDeviceGrid { margin-bottom: 0; }
+.profileSection .sessionProfileChange { margin-top: 0; }
+.profilePanel .profileProxy { margin: 0; border-top: 0; }
+.profileControl { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 0; }
+.profileControl small { display: block; color: #8e98a4; }
+.profileControl input { flex-shrink: 0; }
+.profileToggleState { display: inline-flex; align-items: center; gap: 10px; }
+.profilePanel .antiBotStatus button, .profileSection > button { padding: 6px 10px; border: 1px solid #505a66; color: #eceef2; }
+@media (max-width: 650px) { .profilePanel .panelBody { padding: 14px 16px; } .profilePanel .panelTabs { top: -14px; } .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; } .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; } }
+
+.app .overlay:has(.profilePanel) { position: absolute; inset: 0; }
+
+.profileSectionHeading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; }
+.profileSectionHeading h2 { margin: 0; }
+.antiBotSections { display: block; }
+
+.profilePanel .panelTabs button { display: inline-flex; align-items: center; gap: 7px; }
+.profileTabIcon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.siteExclusionAdd { display: flex; align-items: flex-end; gap: 12px; margin: 14px 0; }
+.siteExclusionAdd label { display: grid; flex: 1; gap: 6px; }
+.siteExclusionAdd input { width: 100%; margin: 0; }
+.siteExclusionAdd button, .siteExclusion button { padding: 6px 12px; border: 1px solid #505a66; color: #eceef2; }

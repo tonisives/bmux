@@ -6,6 +6,7 @@
 .address { position: relative; height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; border-radius: 7.75px 7.75px 0 0; overflow: hidden; background: #1b1f24; color: #c4cdd8; }
 .urlBar { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; height: 24px; gap: 4px; padding: 0 4px; border-radius: 4px; background: #262c35; }
 .urlBar:focus-within { background: #2d3540; outline: 1px solid #627766; outline-offset: -1px; }
+.paneId { flex-shrink: 0; color: #8e98a4; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .address input { field-sizing: content; width: auto; min-width: 60px; height: 24px; flex: 0 1 auto; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: #e7ecf2; font-size: 12px; }
 .address button { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; font-size: 16px; }
 .address button:disabled { opacity: .35; }

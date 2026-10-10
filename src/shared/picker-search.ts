@@ -1,4 +1,4 @@
-import type { Bookmark, HistoryEntry } from './types'
+import type { Bookmark, Client, HistoryEntry, InternalWindow, WorkspaceSession } from './types'
 import { fuzzyMatch } from './command-search'
 
 type BookmarkMatch = { priority: number; score: number }
@@ -13,6 +13,34 @@ let fieldMatch = (query: string, value: string, priority: number): BookmarkMatch
 
 let compareMatches = (a: BookmarkMatch, b: BookmarkMatch) => b.priority - a.priority || b.score - a.score
 let bestMatch = (matches: (BookmarkMatch | undefined)[]) => matches.filter((match): match is BookmarkMatch => !!match).sort(compareMatches)[0]
+type SessionSearchResult = { session: WorkspaceSession; windows: InternalWindow[]; matched: boolean }
+
+export let searchSessions = (sessions: WorkspaceSession[], query: string): SessionSearchResult[] => {
+  if (!query.trim()) return sessions.map(session => ({ session, windows: session.windows, matched: true }))
+  let search = (literal: boolean) => sessions.flatMap(session => {
+    let matchField = (value: string, priority: number): BookmarkMatch | undefined => {
+      if (literal) return fieldMatch(query, value, priority)
+      let match = fuzzyMatch(query, value)
+      return match ? { priority, score: match.score } : undefined
+    }
+    let sessionMatch = matchField(session.name, 4)
+    let windows = session.windows.flatMap(window => {
+      let match = bestMatch([sessionMatch, matchField(window.name, 3), ...window.panes.flatMap(pane => [matchField(pane.title, 2), matchField(pane.url, 1)]), matchField(`${session.name} ${window.name} ${window.panes.map(pane => `${pane.title} ${pane.url}`).join(' ')}`, 0)])
+      return match ? [{ window, match }] : []
+    }).sort((a, b) => compareMatches(a.match, b.match))
+    let match = bestMatch([sessionMatch, ...windows.map(item => item.match)])
+    return match ? [{ session, windows: windows.map(item => item.window), matched: !!sessionMatch, match }] : []
+  }).sort((a, b) => compareMatches(a.match, b.match))
+  let literal = search(true)
+  return (literal.length ? literal : search(false)).map(({ session, windows, matched }) => ({ session, windows, matched }))
+}
+
+export let searchRecentWindows = (sessions: WorkspaceSession[], query: string, client?: Pick<Client, 'windowHistory'>): InternalWindow[] => {
+  let positions = new Map(client?.windowHistory?.map((id, index) => [id, index]))
+  let matches = searchSessions(sessions, query).flatMap(({ session, windows }) => windows.map(window => ({ window, exactSession: !!query.trim() && session.name.toLocaleLowerCase() === query.trim().toLocaleLowerCase() })))
+  return matches.sort((a, b) => Number(b.exactSession) - Number(a.exactSession) || (positions.get(a.window.id) ?? Infinity) - (positions.get(b.window.id) ?? Infinity)).map(({ window }) => window)
+}
+
 let pageMatch = (bookmark: Bookmark, query: string) => bestMatch([
   fieldMatch(query, bookmark.title, 3),
   bookmark.url ? fieldMatch(query, bookmark.url, 1) : undefined,

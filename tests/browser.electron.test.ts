@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { parseDocument } from 'yaml'
 import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
+import { initialModel, newPane, newWindow } from '../src/main/model'
 
 let exec = promisify(execFile)
 let root = process.cwd()
@@ -561,7 +562,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
         selection?.addRange(range)
       })
       await website.locator('#popup').click({ button: 'right' })
-      await expect.poll(async () => (await application.evaluate(() => (globalThis as any).fixtureMenuLabels)).slice(-4)).toEqual(['Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address'])
+      await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(['Look Up', 'Translate', '', 'Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address', '', 'Copy', 'Select All'])
       await expect.poll(() => website.evaluate(() => globalThis.getSelection()?.toString())).toBe('Popup')
     } finally {
       await application.evaluate(({ Menu }) => {
@@ -1295,7 +1296,9 @@ test('pane address bars navigate independently and leave window switching availa
   await expect(address).toHaveCount(0)
   await secondPane.getByRole('button', { name: 'Address', exact: true }).click()
   await address.fill('http')
-  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { value: input.value, start: input.selectionStart, end: input.selectionEnd } })).toEqual({ value: `${url}/edited-second-pane`, start: 4, end: `${url}/edited-second-pane`.length })
+  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { value: input.value, start: input.selectionStart, end: input.selectionEnd } })).toEqual({ value: url, start: 4, end: url.length })
+  await address.press('ArrowDown')
+  await expect(address).toHaveValue(`${url}/edited-second-pane`)
   await address.press('ArrowRight')
   await expect(address).toHaveValue(`${url}/edited-second-pane`)
   await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd } })).toEqual({ start: `${url}/edited-second-pane`.length, end: `${url}/edited-second-pane`.length })
@@ -1873,10 +1876,13 @@ test('window management shortcuts and keyboard session selection', async () => {
   await shortcut('w', ['meta', 'control', 'alt', 'shift'], false)
   await expect(picker).toBeVisible()
   await chrome.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
   await shortcut('s')
+  await expect(picker.locator(`button[data-window-row="${beta.windows[0].id}"]`)).toBeFocused()
+  await chrome.keyboard.press('ArrowUp')
   await expect(picker.getByRole('button', { name: 'keyboard-renamed', exact: true })).toBeFocused()
   await chrome.keyboard.press('ArrowDown')
-  await expect(picker.getByRole('button', { name: 'keyboard-gamma', exact: true })).toBeFocused()
+  await expect(picker.locator(`button[data-window-row="${beta.windows[0].id}"]`)).toBeFocused()
   await chrome.keyboard.press('ArrowUp')
   await expect(picker.getByRole('button', { name: 'keyboard-renamed', exact: true })).toBeFocused()
   await chrome.keyboard.press('End')
@@ -2102,7 +2108,7 @@ test('accessibility preferences and custom window and pane shortcuts reload and 
 })
 
 
-test('permission corner popup leaves the native page interactive and reopens for new requests', async () => {
+test('permission notice leaves the native page interactive and reopens for new requests', async () => {
   let profile = await cli('profile.create', { name: 'permission-popup', background: true })
   let session = await cli('new-session', { name: 'permission-popup', profile: profile.id })
   let tab = session.windows[0].panes[0]
@@ -2112,28 +2118,25 @@ test('permission corner popup leaves the native page interactive and reopens for
   await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
   let client = await cli('attach-session', { session: session.id })
   let chrome = application.windows().find(window => window.url().endsWith('/renderer/index.html'))!
-  let permissionPage = application.context().pages().find(page => page.url().endsWith('#permissions'))!
-  let popup = permissionPage.getByRole('dialog', { name: 'Permissions', exact: true })
+  let popup = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: /requests (notifications|geolocation)/ })
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('notifications')
+  await expect(popup).toContainText('This pane')
+  await expect(popup.getByRole('button', { name: 'Go to pane', exact: true })).toHaveCount(0)
   let placement = await application.evaluate(({ BaseWindow }, fixtureUrl) => {
     let window = BaseWindow.getAllWindows().find(window => window.isFocused())!
     let views = window.contentView.children as Electron.WebContentsView[]
-    let popup = views.find(view => view.webContents.getURL().endsWith('#permissions'))!
-    return { popup: popup.getBounds(), width: window.getContentBounds().width, pageAttached: views.some(view => view.webContents.getURL() === fixtureUrl) }
+    return { pageAttached: views.some(view => view.webContents.getURL() === fixtureUrl && view.getBounds().height > 0) }
   }, `${url}/permission-popup`)
   expect(placement.pageAttached).toBe(true)
-  expect(placement.popup.width).toBe(340)
-  expect(placement.popup.x + placement.popup.width).toBe(placement.width - 12)
-  expect(placement.popup.y).toBe(68)
-  await permissionPage.screenshot({ path: path.join(root, 'artifacts/permission-popup.png') })
+  await chrome.screenshot({ path: path.join(root, 'artifacts/permission-notice.png') })
   let website = application.context().pages().find(page => page.url() === `${url}/permission-popup`)!
   await website.locator('#text').click()
   await website.locator('#text').fill('Keep browsing')
   await website.locator('#inc').click()
   await expect(website.locator('#count')).toHaveText('1')
   await expect(popup).toBeVisible()
-  await popup.getByRole('button', { name: 'Close', exact: true }).click()
+  await popup.getByRole('button', { name: 'Dismiss notification', exact: true }).click()
   await expect(popup).toBeHidden()
   await chrome.getByRole('button', { name: 'Activity', exact: true }).click()
   let activity = chrome.getByRole('dialog', { name: 'Activity', exact: true })
@@ -2169,11 +2172,14 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await expect(address).toBeFocused()
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
   await address.fill('127')
-  await expect(address).toHaveValue(url.replace(/^http:\/\//, '') + '/history-suggestion')
+  await expect(address).toHaveValue(url.replace(/^http:\/\//, ''))
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}/`)
+  await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}/`)
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(1)
-  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length + '/history-suggestion'.length })
+  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length })
   await address.press('Backspace')
   await expect(address).toHaveValue('127')
+  await expect(chrome.getByRole('option', { selected: true })).toHaveCount(0)
   await address.fill('long term metrics')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('history suggestion')
@@ -2215,6 +2221,159 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await cli('detach-client', { client: client.id })
 })
 
+test('address suggestions prefer base URLs over saved paths and page state', async () => {
+  let session = await cli('new-session', { name: 'Base URL suggestions' })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('activate-client', { client: client.id })
+  let savedUrl = `${url}/maps/place/previous?text=old#saved`
+  await cli('navigate', { tab: pane.id, url: savedUrl })
+  await expect.poll(async () => {
+    let state = await cli('state')
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === savedUrl)
+  }).toBe(true)
+  let chrome = await rendererForClient(client.id, { sessionId: session.id, windowId: session.windows[0].id, paneId: pane.id })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
+  let website = application.context().pages().find(page => page.url() === savedUrl)!
+  await displayed.click()
+  await expect(address).toBeFocused()
+  await address.fill(url.replace(/^http:\/\//, ''))
+  await expect(address).toHaveValue(url.replace(/^http:\/\//, ''))
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}/`)
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+  await address.press('Enter')
+  await expect(website).toHaveURL(`${url}/`)
+  await expect(website.locator('header')).toHaveText('Fixture top')
+  await displayed.click()
+  await expect(address).toBeFocused()
+  await address.fill(`${url}/ma`)
+  await expect(address).toHaveValue(`${url}/maps`)
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}/maps`)
+  await address.press('Enter')
+  await expect(website).toHaveURL(`${url}/maps`)
+  await expect(website.locator('header')).toBeVisible()
+  await displayed.click()
+  await expect(address).toBeFocused()
+  await address.fill('')
+  await address.fill(`${url}/maps`)
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'history')
+  await expect(chrome.locator(`[role="option"][data-value="${url}/maps"]`).locator('..').getByRole('button', { name: 'Remove bmux fixture from history', exact: true })).toBeVisible()
+  await address.press('ArrowDown')
+  await expect(address).toHaveValue(savedUrl)
+  await address.press('Enter')
+  await expect(website).toHaveURL(savedUrl)
+  await cli('detach-client', { client: client.id })
+})
+
+for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps' }, { query: 'github bmux', rootPath: '/github/acme/bmux' }, { query: 'long-term', rootPath: '/d/dashboard/long-term-metrics' }]) for (let source of ['history', 'bookmark']) test(`address suggestions select the clean root for ${query} from ${source}`, async () => {
+  let profile = await cli('profile.create', { name: `clean-${source}-${query.replaceAll(' ', '-')}` })
+  let session = await cli('new-session', { name: `Clean ${source} ${query}`, profile: profile.id })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('activate-client', { client: client.id })
+  let savedUrl = `${url}${rootPath}${query === 'long-term' ? '' : `/saved/${source}`}?entry=old#saved`
+  await cli('navigate', { tab: pane.id, url: savedUrl })
+  await cli('wait', { tab: pane.id, selector: '#text' })
+  await expect.poll(async () => {
+    let state = await cli('state')
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === savedUrl)
+  }).toBe(true)
+  let bookmark = source === 'bookmark' ? await cli('bookmark.add', { tab: pane.id, title: `Saved page - ${query}` }) : undefined
+  if (bookmark) await cli('history.remove', { profile: pane.profileId, url: savedUrl })
+  let chrome = await rendererForClient(client.id, { sessionId: session.id, windowId: session.windows[0].id, paneId: pane.id })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
+  let website = application.context().pages().find(page => page.url() === savedUrl)!
+  try {
+    await displayed.click()
+    await expect(address).toBeFocused()
+    await address.fill(query)
+    await expect(address).toHaveValue(query)
+    await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}${rootPath}`)
+    await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}${rootPath}`)
+    await expect.poll(async () => {
+      let root = await chrome.getByRole('option').first().locator('span').last().boundingBox()
+      let saved = await chrome.locator(`[role="option"][data-value="${savedUrl}"]`).locator('span').last().boundingBox()
+      return root && saved ? Math.abs(root.x - saved.x) : undefined
+    }).toBeLessThan(1)
+    await expect(chrome.getByRole('option').first().locator('strong')).toHaveText(query === 'long-term' ? source === 'bookmark' ? `Saved page - ${query}` : 'bmux fixture' : `${url.replace(/^http:\/\//, '')}${rootPath}`)
+    await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+    await expect(address).toHaveAttribute('aria-activedescendant', 'address-suggestion-0')
+    await address.press('Backspace')
+    await expect(address).toHaveValue(query.slice(0, -1))
+    await expect(chrome.getByRole('option', { selected: true })).toHaveCount(0)
+    await address.press(query.at(-1)!)
+    await expect(address).toHaveValue(query)
+    await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+    await expect(chrome.locator(`[role="option"][data-value="${savedUrl}"]`)).toHaveAttribute('data-kind', source)
+    await address.press('Enter')
+    await expect(website).toHaveURL(`${url}${rootPath}`)
+    await expect(website.locator('header')).toHaveText('Fixture top')
+    await displayed.click()
+    await expect(address).toBeFocused()
+    await address.fill(query)
+    await address.press('ArrowDown')
+    let retainedUrl = query === 'long-term' && source === 'history' ? `${url}${rootPath}` : savedUrl
+    await expect(address).toHaveValue(retainedUrl)
+    await address.press('Enter')
+    await expect(website).toHaveURL(retainedUrl)
+  } finally {
+    if (bookmark) await cli('bookmark.remove', { profile: pane.profileId, bookmark: bookmark.bookmark.id })
+    await cli('history.remove', { profile: pane.profileId, url: savedUrl })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
+test('address suggestions deduplicate titled pages and tracking variants before counting more matches', async () => {
+  let profile = await cli('profile.create', { name: 'duplicate-address-results' })
+  let session = await cli('new-session', { name: 'Duplicate address results', profile: profile.id })
+  let pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  await cli('activate-client', { client: client.id })
+  let entries = [
+    { url: `${url}/duplicate-results/saved?utm_source=bookmark`, title: 'Saved destination' },
+    { url: `${url}/duplicate-results/saved?utm_source=history`, title: 'Old saved title' },
+    { url: `${url}/duplicate-results/resort-one`, title: 'City Resort' },
+    { url: `${url}/duplicate-results/resort-two`, title: 'City Resort' },
+    { url: `${url}/duplicate-results/park`, title: 'City Park' },
+  ]
+  let savedBookmark: string | undefined
+  try {
+    for (let [index, entry] of entries.entries()) {
+      await cli('navigate', { tab: pane.id, url: entry.url })
+      await cli('eval', { tab: pane.id, expression: `document.title = ${JSON.stringify(entry.title)}` })
+      await expect.poll(async () => {
+        let state = await cli('state')
+        return state.model.profiles.find((item: { id: string }) => item.id === profile.id)?.history?.find((item: { url: string }) => item.url === entry.url)?.title
+      }).toBe(entry.title)
+      if (index === 0) savedBookmark = (await cli('bookmark.add', { tab: pane.id })).bookmark.id
+    }
+    let chrome = await rendererForClient(client.id, { sessionId: session.id, windowId: session.windows[0].id, paneId: pane.id })
+    let displayed = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true })
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await displayed.click()
+    await expect(address).toBeFocused()
+    await address.fill('duplicate-results')
+    let options = chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('option')
+    await expect(options).toHaveCount(4)
+    await expect(options.first()).toHaveAttribute('data-value', `${url}/duplicate-results`)
+    await expect(options.filter({ hasText: 'Saved destination' })).toHaveCount(1)
+    await expect(options.filter({ hasText: 'Old saved title' })).toHaveCount(0)
+    await expect(options.filter({ hasText: 'City Resort' })).toHaveCount(1)
+    await expect(options.filter({ hasText: 'City Park' })).toHaveCount(1)
+    await expect(options.filter({ hasText: 'Show ' })).toHaveCount(0)
+    await options.filter({ hasText: 'City Resort' }).click()
+    await expect.poll(async () => (await cli('tab.list', { pane: pane.id }))[0].url).toBe(entries[3].url)
+    await cli('wait', { tab: pane.id, selector: '#text' })
+    let state = await cli('state')
+    expect(state.model.profiles.find((item: { id: string }) => item.id === profile.id).history.some((item: { url: string }) => item.url === entries[2].url)).toBe(true)
+  } finally {
+    if (savedBookmark) await cli('bookmark.remove', { profile: profile.id, bookmark: savedBookmark })
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 test('address suggestions reveal older matching history', async () => {
   let session = await cli('new-session', { name: 'More history suggestions' })
   let pane = session.windows[0].panes[0]
@@ -2226,10 +2385,13 @@ test('address suggestions reveal older matching history', async () => {
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/github/bmux`)
   }).toBe(true)
   for (let index = 0; index < 2; index++) await cli('navigate', { tab: pane.id, url: `${url}/g-i-t-h-u-b/b-m-u-x-${index}` })
-  for (let index = 0; index < 12; index++) await cli('navigate', { tab: pane.id, url: `${url}/older-history-${index}` })
+  for (let index = 0; index < 12; index++) {
+    await cli('navigate', { tab: pane.id, url: `${url}/older-history-${index}` })
+    await cli('eval', { tab: pane.id, expression: `document.title = 'Older history ${index}'` })
+  }
   await expect.poll(async () => {
     let state = await cli('state')
-    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.filter((entry: { url: string }) => entry.url.includes('/older-history-')).length
+    return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.filter((entry: { url: string; title: string }) => entry.url.includes('/older-history-') && entry.title === `Older history ${entry.url.split('/older-history-')[1]}`).length
   }).toBe(12)
   let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
   await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
@@ -2279,9 +2441,9 @@ for (let editing of [false, true]) test(`URL selection reaches the start or end 
         await chrome.mouse.move(x, y + vertical, { steps: 3 })
         await expect.poll(selected).toEqual(outsideSelection)
         await chrome.mouse.move(x - 70, y + vertical, { steps: 5 })
-        await expect.poll(selected).toEqual(outsideSelection)
+        await expect.poll(selected).toEqual({ start: 0, end: anchor, direction: 'backward' })
         await chrome.mouse.move(x + 70, y + vertical, { steps: 5 })
-        await expect.poll(selected).toEqual(outsideSelection)
+        await expect.poll(selected).toEqual({ start: anchor, end: length, direction: 'forward' })
         await chrome.mouse.move(x - 70, y, { steps: 5 })
         await expect.poll(async () => (await selected()).start).toBeLessThan(anchor)
         expect(await selected()).toMatchObject({ end: anchor, direction: 'backward' })
@@ -2290,10 +2452,12 @@ for (let editing of [false, true]) test(`URL selection reaches the start or end 
         await expect.poll(async () => (await selected()).end).toBeGreaterThan(anchor)
         expect(await selected()).toMatchObject({ start: anchor, direction: 'forward' })
         expect((await selected()).end).toBeLessThan(target.length)
-        await chrome.mouse.move(x, y + vertical, { steps: 3 })
-        await expect.poll(selected).toEqual(outsideSelection)
+        // Release below and left of the anchor, still horizontally inside the input.
+        await chrome.mouse.move(x - 70, y + 60, { steps: 3 })
+        await expect.poll(selected).toEqual({ start: 0, end: anchor, direction: 'backward' })
       } finally { await chrome.mouse.up() }
       await expect(address).toBeFocused()
+      expect(await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, direction: (input as HTMLInputElement).selectionDirection }))).toEqual({ start: 0, direction: 'backward' })
       await chrome.getByRole('group', { name: 'Pane address', exact: true }).screenshot({ path: info.outputPath(`address-focus-${vertical}.png`) })
       await address.press('Escape')
     }
@@ -2371,7 +2535,7 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
       let toEnd = { start: inField.start, end: (await input.inputValue()).length }
       await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
       await mouse([{ type: 6, x: x + 35, y: y + 60 }])
-      await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
+      await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: inField.start })
     }
     selected = originalSelection ?? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
     await mouse([{ type: 2, x: x + (editing ? 210 : 35), y: y + 60 }])
@@ -2391,6 +2555,56 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
   await expect(address).toHaveValue(target.slice(0, selected!.start!) + target.slice(selected!.end!))
   await address.press('Escape')
   await cli('detach-client', { client: client.id })
+})
+
+for (let loseCapture of [false, true]) test(`fast displayed URL release ${loseCapture ? 'after losing pointer capture' : 'over the page'} stays editable`, async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  let configured = parseDocument(previous)
+  configured.setIn(['keyboard', 'shortcuts', 'j'], { action: 'scroll-down', when: 'pane-not-editing' })
+  await fs.writeFile(config, configured.toString())
+  await cli('settings.reload')
+  let session = await cli('new-session', { name: `Fast address selection ${loseCapture}` })
+  let pane = session.windows[0].panes[0]
+  let target = `${url}/fast-address-selection-with-a-long-enough-path`
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  await cli('navigate', { pane: pane.id, url: target })
+  await cli('wait', { pane: pane.id, selector: '#text' })
+  let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let mouse = async (events: { type: number; x: number; y: number }[]) => {
+    await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); let events = ${JSON.stringify(events)}; events.forEach(e => { let mouse = $.CGEventCreateMouseEvent(null, e.type, $.CGPointMake(e.x, e.y), 0); $.CGEventSetIntegerValueField(mouse, 1, 1); $.CGEventPost(0, mouse); delay(0.005); });`])
+  }
+  let bounds = (await displayed.boundingBox())!
+  let origin = await application.evaluate(({ BaseWindow }) => BaseWindow.getFocusedWindow()!.getContentBounds())
+  let x = origin.x + bounds.x + 210, y = origin.y + bounds.y + bounds.height / 2
+  try {
+    await mouse([{ type: 5, x, y }, { type: 1, x, y }, { type: 6, x: x + 140, y }])
+    await expect.poll(() => displayed.evaluate(input => (input as HTMLInputElement).selectionEnd! - (input as HTMLInputElement).selectionStart!)).toBeGreaterThan(0)
+    let selected = await displayed.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))
+    if (loseCapture) {
+      // Model capture being lost at the boundary between native browser views.
+      await displayed.evaluate(input => { if (!input.hasPointerCapture(1)) throw new Error('Address did not capture the pointer'); input.releasePointerCapture(1) })
+    }
+    // No inspector round trip between leaving the address bar and releasing.
+    await mouse([{ type: 6, x: x + 140, y: y + 160 }, { type: 2, x: x + 140, y: y + 160 }])
+    await expect(address).toBeFocused()
+    if (loseCapture) await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))).toEqual(selected)
+    selected = await address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))
+    expect(selected.end).toBeGreaterThan(selected.start)
+    await sendNativeKeys(application, [{ keyCode: 'Delete' }])
+    await expect(address).toHaveValue(target.slice(0, selected.start) + target.slice(selected.end))
+    await sendNativeKeys(application, [{ keyCode: 'Escape' }])
+    await expect(address).toHaveCount(0)
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(target)
+    await sendNativeKeys(application, [{ keyCode: 'j' }])
+    await expect.poll(() => cli('eval', { pane: pane.id, expression: 'scrollY' })).toBeGreaterThan(0)
+  } finally {
+    await mouse([{ type: 2, x: x + 140, y: y + 160 }])
+    await cli('detach-client', { client: client.id })
+    await fs.writeFile(config, previous); await cli('settings.reload')
+  }
 })
 
 test('address suggestions preserve a mouse selection across browser state updates', async () => {
@@ -2477,6 +2691,8 @@ test('dragging over a floating pane URL keeps its address input focused', async 
   await floating.mouse.move(bounds.x + 210, bounds.y + bounds.height + 60, { steps: 3 })
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
   await floating.mouse.move(bounds.x + 35, bounds.y + bounds.height + 60, { steps: 5 })
+  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: selected.start })
+  await floating.mouse.move(bounds.x + 210, bounds.y + bounds.height + 60, { steps: 5 })
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual(toEnd)
   await floating.mouse.up()
   await expect(address).toBeFocused()
@@ -2557,6 +2773,38 @@ test('status window list uses available room and hides its native scrollbar', as
     return { scrollbar: (element as HTMLElement).offsetHeight - element.clientHeight, activeVisible: active.left >= bounds.left && active.right <= bounds.right }
   })).toEqual({ scrollbar: 0, activeVisible: true })
   await cli('detach-client', { client: client.id })
+})
+
+test('status plus button opens and selects a new tab with a focused URL prompt', async () => {
+  let session = await cli('new-session', { name: 'mouse-new-tab' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  try {
+    await cli('activate-client', { client: client.id })
+    await expect.poll(async () => (await cli('state')).focusedClientId).toBe(client.id)
+    let list = chrome.locator('[data-window-list]')
+    let button = chrome.getByRole('button', { name: 'New tab', exact: true })
+    await expect(button).toBeVisible()
+    let bounds = (await button.boundingBox())!, tabs = (await list.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(tabs.x + tabs.width)
+    await button.click()
+    await expect(list.locator('[data-window-id]')).toHaveCount(2)
+    await expect(list.locator('[data-window-id]').last()).toHaveAttribute('data-selected', 'true')
+    let prompt = chrome.getByRole('textbox', { name: 'URL or search' })
+    await expect(prompt).toBeFocused()
+    await prompt.fill(url)
+    await prompt.press('Enter')
+    await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/`)
+    await expect(list.locator('[data-window-id]').last()).toHaveAttribute('title', 'bmux fixture')
+    let state = await cli('state')
+    let selected = state.model.clients.find((item: { id: string }) => item.id === client.id)
+    expect(selected.windowId).not.toBe(session.windows[0].id)
+    await cli('wait', { pane: selected.paneId, selector: '#text' })
+    await chrome.screenshot({ path: 'artifacts/status-new-tab.png' })
+  } finally {
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id, confirm: true })
+  }
 })
 
 test('status shares constrained space equally between automatic tabs and proportionally with renamed tabs', async () => {
@@ -2747,6 +2995,29 @@ test('status windows can be dragged into a new order without switching the activ
   let list = chrome.locator('[data-window-list]')
   let order = () => list.locator('[data-window-id]').evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.windowId))
   await expect.poll(order).toEqual([first.id, second.id, third.id])
+  // Inspect the preview before release, then cancel without changing the stored order.
+  let transfer = await chrome.evaluateHandle(() => new DataTransfer())
+  let firstBounds = (await list.locator(`[data-window-id="${first.id}"]`).boundingBox())!
+  await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer })
+  await tab(first.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: firstBounds.x + firstBounds.width * .65 })
+  let offset = (id: string) => list.locator(`[data-window-id="${id}"]`).evaluate(element => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41)
+  await expect.poll(() => offset(second.id)).toBeLessThan(-1)
+  await expect.poll(() => offset(first.id)).toBeGreaterThan(1)
+  await expect(list.locator(`[data-window-id="${first.id}"]`)).toHaveCSS('transition-duration', '0.16s')
+  expect(await list.locator('[data-window-id]').evaluateAll(elements => elements.every(element => getComputedStyle(element, '::before').content === 'none' && getComputedStyle(element, '::after').content === 'none'))).toBe(true)
+  await expect.poll(order).toEqual([first.id, second.id, third.id])
+  expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([first.id, second.id, third.id])
+  await tab(second.id).dispatchEvent('dragend', { dataTransfer: transfer })
+  await expect(list).not.toHaveAttribute('data-dragging')
+  await expect(list.locator(`[data-window-id="${first.id}"]`)).toHaveCSS('transform', 'none')
+  let thirdSlot = (await list.locator(`[data-window-id="${third.id}"]`).boundingBox())!
+  await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer })
+  await tab(third.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: thirdSlot.x + thirdSlot.width * .35 })
+  await expect.poll(() => offset(second.id)).toBeGreaterThan(1)
+  await expect.poll(() => offset(third.id)).toBeLessThan(-1)
+  await tab(second.id).dispatchEvent('dragend', { dataTransfer: transfer })
+  await expect(list).not.toHaveAttribute('data-dragging')
+  await transfer.dispose()
   await tab(second.id).dragTo(tab(first.id), { targetPosition: { x: 2, y: 8 } })
   await expect.poll(order).toEqual([second.id, first.id, third.id])
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(first.id)
@@ -2855,6 +3126,116 @@ test('restores cached favicons for inactive windows and sessions without loading
   await cli('kill-window', { window: inactiveWindow.id })
   expect((await cli('state')).favicons[inactive.id]).toBeUndefined()
   await cli('detach-client', { client: client.id })
+})
+
+test('window last visits survive startup and background loads and update on real visits', async () => {
+  let sharedDirectory = directory
+  await closeTestApplication(application)
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-window-visits-'))
+  let oldVisit = Date.now() - 2 * 86400000, legacyVisit = oldVisit - 2 * 86400000
+  let model = initialModel(), session = model.sessions[0], window = session.windows[0]
+  let secondPane = newPane(window.panes[0].profileId)
+  window.panes.push(secondPane)
+  window.layout = { kind: 'split', id: 'visit-split', axis: 'horizontal', ratio: .5, first: window.layout!, second: { kind: 'pane', paneId: secondPane.id } }
+  window.lastVisitedAt = oldVisit
+  window.panes.forEach((pane, index) => { pane.url = `${url}/visits-${index}`; pane.lastActivityAt = legacyVisit + index * 60000 })
+  let legacy = newWindow('Legacy visit', window.panes[0].profileId)
+  legacy.panes[0].url = `${url}/visits-legacy`; legacy.panes[0].lastActivityAt = legacyVisit
+  session.windows.push(legacy)
+  await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: false\n')
+  let savedWindow = async (id = window.id) => (await cli('list-windows', { session: session.id })).find((item: { id: string }) => item.id === id)
+  try {
+    await launch()
+    expect((await cli('state')).configError).toBeNull()
+    await expect.poll(() => application.evaluate(({ webContents }, target) => webContents.getAllWebContents().some(contents => contents.getURL() === target), secondPane.url)).toBe(true)
+    await cli('wait', { tab: secondPane.id, selector: '#inc' })
+    await cli('wait', { tab: legacy.panes[0].id, selector: '#inc' })
+    expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
+    expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
+    let client = await cli('attach-session', { session: session.id })
+    let chrome = await rendererForClient(client.id)
+    await cli('activate-client', { client: client.id })
+    await cli('navigate', { tab: secondPane.id, url: `${url}/visits-background` })
+    await cli('eval', { tab: secondPane.id, expression: 'document.title = "Background title update"' })
+    await cli('reload', { tab: legacy.panes[0].id })
+    await cli('wait', { tab: legacy.panes[0].id, selector: '#inc' })
+    expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
+    expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
+    let openSessions = async () => {
+      await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+      let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+      await command.fill('sessions'); await command.press('Enter')
+      return chrome.getByRole('group', { name: 'Choose session', exact: true })
+    }
+    let picker = await openSessions()
+    await expect(picker.locator(`[data-window-row="${window.id}"] time`)).toHaveCount(1)
+    await expect(picker.locator(`[data-window-row="${window.id}"] time`)).toHaveText('2d ago')
+    await expect(picker.locator(`[data-window-row="${legacy.id}"] time`)).toHaveText('4d ago')
+    await chrome.getByRole('dialog', { name: 'Sessions', exact: true }).screenshot({ path: test.info().outputPath('window-last-visits.png') })
+    await picker.locator(`[data-window-row="${legacy.id}"]`).click()
+    await expect(picker).toHaveCount(0)
+    await expect.poll(async () => (await savedWindow(legacy.id)).lastVisitedAt).toBeGreaterThan(oldVisit)
+    await cli('select-window', { client: client.id, window: window.id })
+    await cli('focus-page', { client: client.id })
+    let page = application.context().pages().find(page => page.url() === window.panes[0].url)!
+    await page.getByRole('button', { name: 'Increment', exact: true }).click()
+    await expect.poll(async () => (await savedWindow()).lastVisitedAt).toBeGreaterThan(oldVisit)
+    let visited = (await savedWindow()).lastVisitedAt
+    await closeTestApplication(application); await launch()
+    await cli('wait', { tab: secondPane.id, selector: '#inc' })
+    expect((await savedWindow()).lastVisitedAt).toBe(visited)
+  } finally {
+    await closeTestApplication(application)
+    await fs.rm(directory, { recursive: true, force: true })
+    directory = sharedDirectory
+    await launch()
+  }
+})
+
+test('session picker shows live sound for background windows in tree and recent views', async () => {
+  let session = await cli('new-session', { name: 'session-audio' })
+  let client = await cli('attach-session', { session: session.id })
+  let window = session.windows[0]
+  let chrome = await rendererForClient(client.id)
+  let media = await cli('split-window', { pane: window.panes[0].id, url: pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href })
+  let background = await cli('new-window', { session: session.id, name: 'Silent window' })
+  try {
+    await cli('select-window', { client: client.id, window: background.id })
+    await chrome.evaluate(() => localStorage.removeItem('session-sort-recent'))
+    await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+    let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+    await command.fill('sessions'); await command.press('Enter')
+    let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
+    let tree = picker.locator(`[data-session-tree="${session.id}"]`)
+    let sessionRow = tree.locator('[data-session-row]')
+    let windowRow = picker.locator(`[data-window-row="${window.id}"]`)
+    await expect(tree.getByRole('img', { name: 'Sound playing', exact: true })).toHaveCount(0)
+    await cli('eval', { tab: media.id, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
+    await expect(windowRow.getByRole('img', { name: 'Sound playing', exact: true })).toBeVisible()
+    await expect(sessionRow.getByRole('img', { name: 'Sound playing', exact: true })).toBeVisible()
+    await expect(picker.locator(`[data-window-row="${background.id}"]`).getByRole('img')).toHaveCount(0)
+    await tree.getByRole('button', { name: 'Collapse windows in session-audio', exact: true }).click()
+    await expect(windowRow).toHaveCount(0)
+    await expect(sessionRow.getByRole('img', { name: 'Sound playing', exact: true })).toBeVisible()
+    await tree.getByRole('button', { name: 'Expand windows in session-audio', exact: true }).click()
+    await chrome.evaluate(windowId => (window as any).bmux.command({ method: 'window.audio.toggle', args: { window: windowId } }), window.id)
+    await expect(windowRow.getByRole('img', { name: 'Sound muted', exact: true })).toBeVisible()
+    await expect(sessionRow.getByRole('img', { name: 'Sound muted', exact: true })).toBeVisible()
+    await picker.getByRole('button', { name: 'Sort by recently visited', exact: true }).click()
+    await expect(windowRow.getByRole('img', { name: 'Sound muted', exact: true })).toBeVisible()
+    await chrome.evaluate(windowId => (window as any).bmux.command({ method: 'window.audio.toggle', args: { window: windowId } }), window.id)
+    await expect(windowRow.getByRole('img', { name: 'Sound playing', exact: true })).toBeVisible()
+    await cli('eval', { tab: media.id, expression: 'document.querySelector("video").pause()' })
+    await expect(windowRow.getByRole('img')).toHaveCount(0)
+    await picker.getByRole('button', { name: 'Sort by recently visited', exact: true }).click()
+    await expect(sessionRow.getByRole('img')).toHaveCount(0)
+    expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(background.id)
+  } finally {
+    await chrome.evaluate(() => localStorage.removeItem('session-sort-recent'))
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id, confirm: true })
+  }
 })
 
 test('window audio control appears during playback and toggles sound', async () => {

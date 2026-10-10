@@ -250,6 +250,7 @@ export let validateModel = (value: unknown): Model => {
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
     for (let window of session.windows) {
       checkId(window.id)
+      if (window.lastVisitedAt !== undefined && (!Number.isFinite(window.lastVisitedAt) || window.lastVisitedAt < 0)) throw new Error('Invalid window visit time')
       if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
       if (window.pinned !== undefined && typeof window.pinned !== 'boolean') throw new Error('Invalid pinned window setting')
       let leaves: string[] = []
@@ -273,6 +274,7 @@ export let validateModel = (value: unknown): Model => {
         else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
+        if (pane.agentId !== undefined && (typeof pane.agentId !== 'string' || !pane.agentId.trim() || pane.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(pane.agentId))) throw new Error('Invalid pane agent identifier')
         if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.backToOpener !== undefined && typeof pane.backToOpener !== 'boolean') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }
     }

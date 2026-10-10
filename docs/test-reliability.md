@@ -1,5 +1,25 @@
 # Focused test verification
 
+## October 10 full-suite failures
+
+The full Check on `edc450b` found five outdated or shared-state GUI assumptions:
+selected-link menus now include translation and native copy actions; the session
+picker focuses the active window rather than its session heading; floating URL
+spacing includes the pane ID; autocomplete completes the current host or path
+segment; and proxy fixtures must not inherit another case's unfinished provider
+draft. The affected tests retain their selection, spacing, credentials, and native
+undo assertions using the current behavior and an independent proxy profile.
+
+A diagnostic repetition also retained an unfinished Electron `insertCSS` call.
+Style insertion uses renderer IPC, and an outgoing document's missing reply held
+the style queue and subsequent userscript refreshes indefinitely. Navigation and
+disposal now release that document's pending style work. Current-document native
+style calls have the same three-second bound as page-tools debugger calls, and
+late insertion replies remove their abandoned sheets. Unit cases retain a reply
+past navigation and never resolve another reply, verifying queue recovery, stale
+sheet cleanup, and the reported timeout. Verify the browser-tools file with its
+preceding configuration cases and repetitions, with tracing off.
+
 Keep local verification to typecheck, lint, and unit tests for the changed feature.
 Run affected GUI tests in GitHub Actions or Tart. The full suite runs on main in
 CI; it does not need to run on the working desktop for every edit.

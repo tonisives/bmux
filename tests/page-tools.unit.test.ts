@@ -186,6 +186,45 @@ test('preserves styles during same-document navigation without adding duplicate 
   } finally { close() }
 })
 
+test('navigation releases a lost style reply and cleans a late outgoing insertion', async () => {
+  let { contents, tools, sheets, css, ads, start, commit, close } = await fixture()
+  let insert = vi.mocked(contents.insertCSS), original = insert.getMockImplementation()!
+  let release: (key: string) => void = () => undefined, started: () => void = () => undefined
+  let inserting = new Promise<void>(resolve => { started = resolve })
+  insert.mockImplementationOnce(() => { started(); return new Promise<string>(resolve => { release = resolve }) })
+  try {
+    start()
+    let refreshing = tools.reload()
+    await inserting
+    commit()
+    // This must complete while the outgoing renderer's IPC is still pending.
+    await refreshing
+    await tools.reload()
+    expect([...sheets.values()].sort()).toEqual([css, ads].sort())
+    let late = await original('.late { color: red }', { cssOrigin: 'user' })
+    release(late)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(sheets.has(late)).toBe(false)
+  } finally { release(''); close() }
+})
+
+test('a stalled current-document style insertion reports a bounded error and can refresh again', async () => {
+  let { contents, tools, directory, sheets, close } = await fixture()
+  vi.useFakeTimers()
+  try {
+    fs.writeFileSync(path.join(directory, 'style.css'), '.custom { color: green !important }')
+    vi.mocked(contents.insertCSS).mockImplementationOnce(() => new Promise<string>(() => undefined))
+    let refreshing = tools.reload()
+    await vi.advanceTimersByTimeAsync(3000)
+    await refreshing
+    expect(tools.error('tab')).toContain('insertCSS: timeout')
+    await tools.reload()
+    expect(tools.error('tab')).toBeUndefined()
+    expect([...sheets.values()]).toContain('.custom { color: green !important }')
+  } finally { vi.useRealTimers(); close() }
+})
+
 
 test('pane blocking overrides remove and restore cosmetic sheets without changing user styles', async () => {
   let enabled = true

@@ -488,10 +488,82 @@ test('profile icon has no visible label and opens details for the selected pane'
   let button = chrome.getByRole('button', { name: `Profile: ${profile.name}`, exact: true })
   await expect(button.locator('span')).toHaveCount(0)
   let panel = await openProfilePanel(profile.name)
-  await expect(panel.getByRole('region', { name: `${profile.name} profile details`, exact: true })).toContainText(`Background pages${profile.background ? 'Keep running' : 'Throttle when inactive'}`)
-  await expect(panel).toContainText(`Session${session.name}`)
-  await expect(panel).toContainText(`Window${window.name}`)
-  await expect(panel).toContainText(`Pane${pane.id}`)
+  await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
+  await expect(panel.getByRole('region', { name: `${profile.name} profile details`, exact: true })).toBeVisible()
+  await expect(panel.getByRole('heading', { name: 'Current pane', exact: true })).toHaveCount(0)
+  expect((await panel.boundingBox())!.width).toBeGreaterThan(800)
+  await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(5)
+  await expect(panel.getByRole('heading')).toHaveText(['New windows', 'HTTP cache'])
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-overview-sections.png') })
+  await panel.getByRole('tab', { name: 'Connection' }).click()
+  await expect(panel.getByRole('heading')).toHaveText(['Current pane connection', 'Proxy for new panes'])
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-connection-sections.png') })
+  await expect(panel.getByRole('button', { name: 'Connection details', exact: true })).toHaveCount(0)
+  let host = panel.getByRole('textbox', { name: 'Host', exact: true })
+  let originalHost = await host.inputValue()
+  await host.fill('unfinished.proxy.example')
+  await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
+  await panel.getByRole('tab', { name: 'Connection', exact: true }).click()
+  await expect(host).toHaveValue('unfinished.proxy.example')
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(panel).toHaveCount(0)
+  panel = await openProfilePanel(profile.name)
+  await expect(panel.getByRole('tab', { name: 'Connection', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(host).toHaveValue('unfinished.proxy.example')
+  await host.fill(originalHost)
+  await panel.getByRole('tab', { name: 'Device' }).click()
+  await expect(panel.getByRole('heading')).toHaveText(['Device emulation', 'Screen', 'Language and location', 'New panes', 'Emulation details'])
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-device-sections.png') })
+})
+
+test('profile Pane settings keeps only the selected pane loaded and reflects saved changes', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let window = current.model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === client.windowId)!
+  let pane = window.panes.find((item: any) => item.id === client.paneId)!
+  let profile = current.model.profiles.find((item: any) => item.id === pane.profileId)!
+  let sibling = await rpc('split-window', { pane: pane.id, client: client.id, profile: profile.id, url }) as { id: string }
+  let keepAlive = async (paneId: string) => (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === paneId).keepAlive === true
+  try {
+    await rpc('wait', { pane: sibling.id, selector: 'h1' })
+    await expect.poll(() => application.evaluate(({ BaseWindow }, url) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+      return window.contentView.children.filter(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url && view.getBounds().width < window.getContentBounds().width * 0.6 && view.getBounds().height > 300).length
+    }, url)).toBe(2)
+    await rpc('select-pane', { pane: pane.id, client: client.id })
+    await rpc('focus-page', { client: client.id })
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+    let panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    let toggle = panel.getByRole('tabpanel', { name: 'Pane settings' }).getByRole('switch', { name: 'Keep Page Loaded', exact: true })
+    await expect(toggle).not.toBeChecked()
+    await toggle.check()
+    await expect.poll(() => keepAlive(pane.id)).toBe(true)
+    expect(await keepAlive(sibling.id)).toBe(false)
+    await chrome.screenshot({ path: path.resolve('artifacts/profile-pane-settings.png') })
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    await expect(toggle).toBeChecked()
+    await rpc('pane.keep-alive', { pane: pane.id, enabled: false })
+    await expect(toggle).not.toBeChecked()
+    await toggle.check()
+    await expect.poll(() => keepAlive(pane.id)).toBe(true)
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await rpc('select-pane', { pane: sibling.id, client: client.id })
+    panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    await expect(toggle).not.toBeChecked()
+    await toggle.check()
+    await expect.poll(() => keepAlive(sibling.id)).toBe(true)
+    expect(await keepAlive(pane.id)).toBe(true)
+    await toggle.uncheck()
+    await expect.poll(() => keepAlive(sibling.id)).toBe(false)
+    expect(await keepAlive(pane.id)).toBe(true)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('pane.keep-alive', { pane: pane.id, enabled: false })
+    await rpc('kill-pane', { pane: sibling.id, confirm: true })
+  }
 })
 
 test('profile popup renames default and custom profiles without changing pane identity', async () => {
@@ -508,6 +580,7 @@ test('profile popup renames default and custom profiles without changing pane id
       let selectedPane = customPane ?? pane
       let identity = await rpc('eval', { pane: selectedPane.id, expression: 'window.profileRenameIdentity ??= Math.random()' })
       let panel = await openProfilePanel(selected.name)
+      await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
       let rename = panel.getByRole('button', { name: 'Edit profile name', exact: true })
       let input = panel.getByRole('textbox', { name: 'Profile name', exact: true })
       await expect(panel.getByRole('button', { name: 'Rename', exact: true })).toHaveCount(0)
@@ -590,7 +663,9 @@ test('proxy host picker filters SOCKS5 providers by location', async () => {
 })
 
 test('saved proxy settings and credentials are shared across panes and profiles', async () => {
-  let current = await state(), profile = current.model.profiles[0], client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  // Other proxy cases deliberately retain unfinished provider drafts.
+  let profile = await rpc('profile.create', { name: 'Saved proxy fixture' }) as { id: string; name: string }
   await rpc('profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'fixture-user', password: 'fixture-password' })
   let other = await rpc('profile.create', { name: 'Shared proxy fixture' }) as { id: string; name: string }
   let pane = await rpc('split-window', { pane: client.paneId, profile: profile.id, client: client.id }) as { id: string }
@@ -993,6 +1068,14 @@ test('profile device toggle saves edits on close and changes new pane defaults w
   await expect(panel.locator('details')).toContainText('Omitted for iOS')
   await expect(panel.locator('details')).toContainText('Top 59 · right 0 · bottom 34 · left 0 CSS px')
   await panel.getByLabel('Timezone', { exact: true }).fill('Invalid/Timezone')
+  await expect(panel.locator('details')).toHaveCount(0)
+  await panel.getByLabel('Timezone', { exact: true }).press('Tab')
+  let mobile = panel.getByRole('switch', { name: 'Mobile device', exact: true })
+  await mobile.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }))
+  await expect.poll(async () => {
+    let toggle = await mobile.boundingBox(), tabs = await panel.getByRole('tablist', { name: 'Profile settings' }).boundingBox()
+    return !!toggle && !!tabs && toggle.y > tabs.y + tabs.height
+  }).toBe(true)
   await panel.getByRole('switch', { name: 'Mobile device', exact: true }).uncheck()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device).toBeUndefined()
 })

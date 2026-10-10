@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
-import { searchBookmarkPages, searchBookmarks, searchHistory } from '../src/shared/picker-search'
+import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, searchRecentWindows } from '../src/shared/picker-search'
+import { newSession, newWindow } from '../src/main/model'
 import { waitOptions } from '../src/main/wait'
 import type { Bookmark } from '../src/shared/types'
 
@@ -7,6 +8,41 @@ let bookmarks: Bookmark[] = [{ id: 'work', title: 'Work', children: [
   { id: 'docs', title: 'Documentation', children: [{ id: 'api', title: 'API reference', url: 'https://example.test/api' }] },
   { id: 'notes', title: 'Notes', url: 'https://example.test/notes' },
 ] }, { id: 'personal', title: 'Personal', children: [{ id: 'recipe', title: 'Recipes', url: 'https://food.test/' }] }]
+
+test('recent windows interleave sessions by window visits, retain unvisited order, and prioritize exact session searches', () => {
+  let gp = newSession('gp', 'profile'), tools = newSession('gp-tools', 'profile'), unseen = newSession('unvisited', 'profile')
+  let first = newWindow('first', 'profile'), second = newWindow('second', 'profile'), third = newWindow('third', 'profile')
+  gp.windows = [first, second, third]
+  first.panes[0].lastActivityAt = Date.now()
+  let sessions = [gp, tools, unseen], before = structuredClone(sessions)
+  let visits = { windowHistory: [second.id, tools.windows[0].id, first.id, 'deleted-window'] }
+  let sorted = searchRecentWindows(sessions, '', visits)
+  expect(sorted.map(window => window.id)).toEqual([second.id, tools.windows[0].id, first.id, third.id, unseen.windows[0].id])
+  expect(searchRecentWindows(sessions, 'gp', visits).map(window => window.id)).toEqual([second.id, first.id, third.id, tools.windows[0].id])
+  expect(searchRecentWindows(sessions, 'first', visits)).toEqual([first])
+  expect(searchRecentWindows(sessions, 'zzzz', visits)).toEqual([])
+  expect(searchRecentWindows(sessions, '')).toEqual(sessions.flatMap(session => session.windows))
+  expect(sessions).toEqual(before)
+})
+
+test('session search ranks session names first and omits loose matches when direct matches exist', () => {
+  let bot = newSession('bot', 'profile'), gp = newSession('gp', 'profile'), tskr = newSession('bot-tskr', 'profile')
+  let studio = newWindow('TikTok Studio', 'profile')
+  studio.panes[0].title = 'TikTok Studio'; studio.panes[0].url = 'https://www.tiktok.com/tiktokstudio/creator'
+  let audit = newWindow('tskr-backlink-audit', 'profile'), gpWindow = newWindow('gp-tools', 'profile')
+  bot.windows = [studio, audit, gpWindow]
+  let sessions = [bot, tskr, gp], before = structuredClone(sessions)
+  let results = searchSessions(sessions, 'tskr')
+  expect(results.map(result => result.session.id)).toEqual([tskr.id, bot.id])
+  expect(results[1].windows.map(window => window.id)).toEqual([audit.id])
+  expect(results[1].matched).toBe(false)
+  expect(searchSessions(sessions, 'GP')[0].session.id).toBe(gp.id)
+  expect(searchSessions(sessions, 'GP')[0].matched).toBe(true)
+  expect(searchSessions(sessions, 'tk std')[0].windows[0].id).toBe(studio.id)
+  expect(searchSessions(sessions, 'zzzz')).toEqual([])
+  expect(searchSessions(sessions, '   ').map(result => result.session)).toEqual(sessions)
+  expect(sessions).toEqual(before)
+})
 
 test('bookmark search preserves folder context without including unrelated siblings', () => {
   let before = structuredClone(bookmarks)

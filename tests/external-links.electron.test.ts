@@ -38,7 +38,9 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
     expect(state.configError).toBeNull()
     let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let session = state.model.sessions.find((item: { id: string }) => item.id === client.sessionId)
-    let original = session.windows[0]
+    await command('wait', { pane: client.paneId, expression: 'document.readyState === "complete"' })
+    await expect.poll(async () => (await command('list-windows', { session: session.id }))[0].panes[0].title).toBe('about:blank')
+    let original = (await command('list-windows', { session: session.id }))[0]
     let nativeId = (await command('diagnostics')).windows.find((item: { id: string }) => item.id === client.id).nativeId
     let cli = async () => {
       let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'new-window', JSON.stringify({ session: session.id, client: client.id, url })], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {

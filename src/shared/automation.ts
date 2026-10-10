@@ -10,21 +10,29 @@ export type AutomationGroup = {
 }
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
-export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationActor = { paneId: string; agentId?: string }
+export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
+export type AutomationProfileLimits = Pick<AutomationSafety, AutomationSafetyLimitKey>
+export let automationProfileLimits = (settings: AutomationSafety, profileId: string): AutomationProfileLimits => ({ maxSessionMinutes: settings.maxSessionMinutes, cooldownMinutes: settings.cooldownMinutes, socialDelayMs: settings.socialDelayMs, ...settings.profileLimits?.[profileId] })
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
-export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
+export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
 export type AutomationSettings = { safety: AutomationSafety; groups: Record<string, AutomationGroup> }
 export let DEFAULT_AUTOMATION: AutomationSettings = { safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, profiles: {} }, groups: {} }
-export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string) => settings.profiles[profileId] ?? settings.enabled
+export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string, paneId?: string) => (paneId ? settings.panes?.[paneId] : undefined) ?? settings.profiles[profileId] ?? settings.enabled
 export let automationSiteExclusion = (rule: AutomationSiteRule | undefined): AutomationSiteExclusion | undefined => typeof rule === 'boolean' ? { enabled: !rule, durationMinutes: null, expiresAt: null } : rule
 export let automationExclusionActive = (rule: AutomationSiteExclusion, now = Date.now()) => rule.enabled && (rule.expiresAt === null || rule.expiresAt > now)
-export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string, now = Date.now()) => {
+export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string, now = Date.now(), paneId?: string) => {
   let exclusion = automationSiteExclusion(settings.sites?.[profileId]?.[host.toLowerCase()])
-  return automationSafetyEnabled(settings, profileId) && (!exclusion || !automationExclusionActive(exclusion, now))
+  return automationSafetyEnabled(settings, profileId, paneId) && (!exclusion || !automationExclusionActive(exclusion, now))
+}
+export let automationSiteEnabled = (settings: AutomationSafety, profileId: string, url?: string, now = Date.now(), paneId?: string) => {
+  if (!automationSafetyEnabled(settings, profileId, paneId)) return false
+  try { return automationWarningEnabled(settings, profileId, new URL(url!).hostname, now, paneId) } catch { return true }
 }
 export let updateAutomationSiteExclusion = (previous: AutomationSiteRule | undefined, enabled: unknown, durationMinutes: unknown, now = Date.now()): AutomationSiteExclusion => {
   if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')
-  let duration = durationMinutes === undefined ? automationSiteExclusion(previous)?.durationMinutes ?? null : durationMinutes
+  let duration = durationMinutes ?? null
   if (duration !== null && duration !== 15 && duration !== 60) throw new Error('durationMinutes must be 15, 60, or null')
   return { enabled: !enabled, durationMinutes: duration, expiresAt: duration === null ? null : !enabled ? now + duration * 60_000 : automationSiteExclusion(previous)?.expiresAt ?? now }
 }
@@ -59,6 +67,10 @@ let limits = (value: unknown, name: string): AutomationLimits => {
   }
   return result
 }
+export let updateAutomationSafetyLimit = (settings: AutomationSafety, key: unknown, value: unknown) => {
+  if (key !== 'maxSessionMinutes' && key !== 'cooldownMinutes' && key !== 'socialDelayMs') throw new Error('Choose a session, break, or social site delay limit')
+  return parseAutomationSettings({ safety: { ...settings, [key]: value } }).safety[key]
+}
 export let parseAutomationSettings = (value: unknown): AutomationSettings => {
   if (value === undefined) return structuredClone(DEFAULT_AUTOMATION)
   let raw = mapping(value, 'automation')
@@ -79,10 +91,19 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
       }
       safety.sites = sites as Record<string, Record<string, AutomationSiteRule>>; continue
     }
-    if (key === 'profiles') {
-      let profiles = mapping(value, 'automation.safety.profiles')
-      if (Object.values(profiles).some(enabled => typeof enabled !== 'boolean')) throw new Error('automation.safety.profiles must map profile IDs to true or false')
-      safety.profiles = profiles as Record<string, boolean>; continue
+    if (key === 'profileLimits') {
+      let entries = mapping(value, 'automation.safety.profileLimits'), overrides: NonNullable<AutomationSafety['profileLimits']> = {}
+      for (let [profileId, entry] of Object.entries(entries)) {
+        let rawLimits = mapping(entry, `automation.safety.profileLimits.${profileId}`), parsed: Partial<AutomationProfileLimits> = {}
+        for (let [limitKey, amount] of Object.entries(rawLimits)) parsed[limitKey as AutomationSafetyLimitKey] = updateAutomationSafetyLimit(DEFAULT_AUTOMATION.safety, limitKey, amount)
+        overrides[profileId] = parsed
+      }
+      safety.profileLimits = overrides; continue
+    }
+    if (key === 'profiles' || key === 'panes') {
+      let entries = mapping(value, `automation.safety.${key}`)
+      if (Object.values(entries).some(enabled => typeof enabled !== 'boolean')) throw new Error(`automation.safety.${key} must map ${key === 'profiles' ? 'profile' : 'pane'} IDs to true or false`)
+      safety[key] = entries as Record<string, boolean>; continue
     }
     let maximum = key === 'socialDelayMs' ? 30_000 : 1440
     if (!['maxSessionMinutes', 'cooldownMinutes', 'socialDelayMs'].includes(key) || !Number.isInteger(value) || Number(value) < 1 || Number(value) > maximum) throw new Error(`Invalid automation.safety.${key}`)

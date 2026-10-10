@@ -57,6 +57,7 @@ Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Automation: automation status | automation safety | automation acquire -t PANE --url URL | automation release
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
+            Use --agent-id ID or BMUX_AGENT_ID to identify your automation pane.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
 Advanced: rpc METHOD JSON_ARGS
@@ -74,6 +75,23 @@ let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process
 let socketPath = controlSocketPath(dataDirectory)
 
 let parse = () => {
+  let agentId = process.env.BMUX_AGENT_ID
+  let agentFlag = false
+  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
+  for (let index = 0; index < argv.length; index++) {
+    if (argv[index] === '--') break
+    if (argv[index] === '--agent-id') {
+      let value = argv[index + 1]
+      if (!value || value.startsWith('--')) throw new Error('Missing value for --agent-id')
+      agentId = value; agentFlag = true; argv.splice(index, 2); index--
+    } else if (argv[index].startsWith('--agent-id=')) { agentId = argv[index].slice('--agent-id='.length); agentFlag = true; argv.splice(index, 1); index-- }
+    else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, ''))) index++
+  }
+  if (agentId !== undefined && (!agentId.trim() || agentId.length > 128 || /[\x00-\x1f\x7f]/.test(agentId))) throw new Error('agentId must be a nonempty identifier of at most 128 characters')
+  let identify = command => ({ ...command, args: { ...command.args, ...(agentId !== undefined && (agentFlag || command.args?.agentId === undefined) ? { agentId } : {}) } })
+  return identify(parseCommand())
+}
+let parseCommand = () => {
   let targetIndex = argv.findIndex(item => ['-t', '--target'].includes(item))
   let target = targetIndex >= 0 ? argv[targetIndex + 1] : argv.find(item => /^(?:-t|--target)=/.test(item))?.split('=').slice(1).join('=')
   let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window'].includes(argv[0])
