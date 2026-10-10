@@ -280,7 +280,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect(antiBot.getByRole('heading')).toHaveText(['Enable Anti-bot', 'Limits', 'Excluded websites'])
     await expect(antiBot).not.toContainText('Enter or leave')
     await expect(antiBot).not.toContainText('all profiles')
-    await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(4)
+    await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(5)
     let temporary = exclusions.getByRole('group', { name: 'temporary.example.com', exact: true })
     await expect(temporary).toContainText('Temporary · Until')
     await temporary.getByRole('button', { name: 'Keep temporary.example.com excluded' }).click()

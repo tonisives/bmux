@@ -1066,6 +1066,14 @@ test('profile device toggle saves edits on close and changes new pane defaults w
   await expect(panel.locator('details')).toContainText('Omitted for iOS')
   await expect(panel.locator('details')).toContainText('Top 59 · right 0 · bottom 34 · left 0 CSS px')
   await panel.getByLabel('Timezone', { exact: true }).fill('Invalid/Timezone')
+  await expect(panel.locator('details')).toHaveCount(0)
+  await panel.getByLabel('Timezone', { exact: true }).press('Tab')
+  let mobile = panel.getByRole('switch', { name: 'Mobile device', exact: true })
+  await mobile.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }))
+  await expect.poll(async () => {
+    let toggle = await mobile.boundingBox(), tabs = await panel.getByRole('tablist', { name: 'Profile settings' }).boundingBox()
+    return !!toggle && !!tabs && toggle.y > tabs.y + tabs.height
+  }).toBe(true)
   await panel.getByRole('switch', { name: 'Mobile device', exact: true }).uncheck()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device).toBeUndefined()
 })

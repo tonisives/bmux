@@ -1660,7 +1660,7 @@ let ProfileDeviceSettings = ({ profile, pane, session }: DeviceSettingsProps) =>
     try { return await run('profile.device.set', { profile: profile.id, pane: pane.id, newPanes, device }) }
     finally { setBusy(false) }
   }, [profile.id, pane.id, run])
-  useEffect(() => { if (!busy) setActive(!!current) }, [current])
+  useEffect(() => { if (!busy) setActive(!!current) }, [current, busy])
   let { commitField, queueField } = useDeviceAutoSave({ current, sessionDevice: session.device, draft, newPanes, busy, form, profileId: profile.id, paneId: pane.id, saveDevice })
   let changePreset = (event: ChangeEvent<HTMLSelectElement>) => setPreset(event.target.value as DevicePreset)
   let changePlatform = (event: ChangeEvent<HTMLSelectElement>) => setPlatform(event.target.value as DevicePlatform)
