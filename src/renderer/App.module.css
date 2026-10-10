@@ -8,8 +8,8 @@
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
-.status .newTab { display: grid; place-items: center; width: 24px; height: 24px; }
-.newTabIcon { display: block; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1; }
+.status .newTab { display: grid; place-items: center; width: 24px; height: 24px; color: #77818d; }
+.status .newTab:hover { border-radius: 3px; background: #48525f; color: #f0f2f5; }
 .status .session { display: inline-flex; align-items: center; flex-shrink: 0; max-width: none; white-space: nowrap; color: #bdc9b4; }
 .status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
@@ -55,7 +55,7 @@
 .windowAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .status .windowClose { display: grid; place-items: center; width: 14px; height: 18px; flex: 0 0 14px; color: #77818d; }
 .status .windowClose:hover { border-radius: 3px; background: #48525f; color: #e6a69c; }
-.windowClose svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.windowClose svg, .newTab svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 @keyframes tab-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .tabSpinner { animation: none; } }
 .drag { flex: 1; min-width: 0; margin: 0 -5px; align-self: stretch; }
