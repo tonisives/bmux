@@ -2693,10 +2693,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       } catch (error) { delete loading[tabId]; publish(); throw error }
       return { pane: tabId }
     }
-    if (['stop', 'back', 'forward'].includes(method)) {
+    if (method === 'stop') {
+      let tabId = required(args, 'tab'), live = await ensureLiveTab(tabId, false)
+      live.initialNavigation = undefined
+      live.contents.stop()
+      delete crashes[tabId]; delete loading[tabId]
+      publish(); return { pane: tabId }
+    }
+    if (['back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
       let contents = (await ensureLiveTab(tabId)).contents
-      if (method !== 'stop' && args.newWindow === true) {
+      if (args.newWindow === true) {
         let history = contents.navigationHistory
         let entry = history.getEntryAtIndex(history.getActiveIndex() + (method === 'back' ? -1 : 1))
         if (!entry || entry.url === 'about:blank') return { pane: tabId }
@@ -2704,7 +2711,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         return execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: entry.url } }, sourceClientId)
       }
       delete crashes[tabId]
-      if (method === 'stop') { contents.stop(); delete loading[tabId] }
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
         else {
