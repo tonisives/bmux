@@ -33,7 +33,7 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     } else if (event.key === 'j' || event.key === 'k') moveSuggestion?.(event.key === 'j' ? 1 : -1)
     else if (event.key.length !== 1) return false
     event.preventDefault(); event.stopPropagation()
-    if (['h', 'l', '0', '^', '$', 'w', 'b'].includes(event.key)) input.setSelectionRange(cursor, cursor)
+    if (['h', 'l', '0', '^', '$', 'w', 'b'].includes(event.key)) input.setSelectionRange(Math.max(0, Math.min(input.value.length, cursor)), Math.max(0, Math.min(input.value.length, cursor)))
     return true
   }
   return { mode, keys, reset: () => setMode('NORMAL') }
