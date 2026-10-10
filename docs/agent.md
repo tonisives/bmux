@@ -109,14 +109,16 @@ automation time or waits for a cooldown, including in the same profile.
 Permission requests use the same notice bar with the requesting pane and
 **Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
 leaves it pending; dismissed requests remain available in **Activity**.
-**Exclude website** in a warning notice adds its hostname to this profile's
-**Excluded websites** list. Add a hostname or URL in that list to turn off
+The alert's **Disable anti-bot** dropdown shows the website hostname and offers
+**For 15 minutes**, **For 1 hour**, and **Until removed**. Its exclusion appears
+in this profile's **Excluded websites** list. Add a hostname or URL there to turn off
 anti-bot for that exact hostname: session limits, social-site pacing, and warning
 checks are skipped. Other profiles and websites retain their protection.
 Exclusions persist until you remove them. Older temporary rules show their
 expiry and offer **Keep excluded** to make them permanent.
-The Profile tabs have icons and titled sections. Anti-bot shows **Limits** first,
-then **Protection** and **Excluded websites**. **Paused automation** appears only
+The Profile tabs have icons and titled sections. Anti-bot shows **Enable Anti-bot**
+with profile and pane switches and their On/Off states, then **Limits** and
+**Excluded websites**. **Paused automation** appears above those sections only
 when a warning, break, or safety error needs attention. Its action resumes after
 a resolved warning or resets a session to end a break.
 Session minutes, break minutes, and social site delay are editable for the

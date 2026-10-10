@@ -244,7 +244,8 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
   if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}. Manual browsing is unaffected.`, actions }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, text: `Automation session limit reached for ${name}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()}. Manual browsing is unaffected.`, actions: [
+  let siteHost = automationWebsiteHost(pane?.url)
+  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()}. Manual browsing is unaffected.`, actions: [
     ...actions,
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
   ] }]
@@ -300,7 +301,7 @@ let selection = (state: PublicState) => {
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteButton {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
 let Status = () => {
@@ -1836,13 +1837,14 @@ let useAutomationExpiry = (safety?: AutomationSafetyState) => {
   }, [safety, now])
 }
 
-let ExcludeWebsiteButton = ({ profileId, host }: { profileId: string; host: string }) => {
+let ExcludeWebsiteSelect = ({ profileId, host }: { profileId: string; host: string }) => {
   let { run } = useUI(), [busy, setBusy] = useState(false)
-  let exclude = async () => {
+  let exclude = async (event: ChangeEvent<HTMLSelectElement>) => {
+    let durationMinutes = event.target.value === 'permanent' ? null : Number(event.target.value)
     setBusy(true)
-    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false }) } finally { setBusy(false) }
+    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
   }
-  return <button type="button" className={css.notificationAction} onClick={exclude} disabled={busy} aria-label={`Exclude ${host}`}>Exclude website</button>
+  return <label className={css.notificationSiteExclusion}><span>{host}</span><select className={css.notificationAction} onChange={exclude} value="" disabled={busy} aria-label={`Disable anti-bot for ${host}`}><option value="" disabled>Disable anti-bot</option><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></select></label>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
@@ -1952,18 +1954,18 @@ let ProfileAntiBotSettings = () => {
     setPaneEnabled(next); setBusy(true)
     try { if (!await run('pane.anti-bot.set', { pane: pane.id, enabled: next })) setPaneEnabled(savedPaneEnabled) } finally { setBusy(false) }
   }
-  return <div className={css.antiBotSections} data-paused={paused} role="tabpanel" aria-label="Anti-bot settings">
-    <AutomationLimitsEditor key={profile.id} />
-    <ProfileSection title="Protection">
-      <p>Limits and warning checks apply to automation. Manual browsing is unaffected.</p>
-      <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Anti-bot protection" checked={enabled} onChange={toggle} disabled={busy} /></label>
-      {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable checks for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></label>}
-    </ProfileSection>
+  return <div className={css.antiBotSections} role="tabpanel" aria-label="Anti-bot settings">
     {paused && <ProfileSection title="Paused automation">
       <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
       {paneEnabled && cooldown && <p>Reset starts a new session now, ending the break for this profile.</p>}
       {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
     </ProfileSection>}
+    <ProfileSection title="Enable Anti-bot">
+      <p>Applies to automation. Manual browsing is unaffected.</p>
+      <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
+      {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
+    </ProfileSection>
+    <AutomationLimitsEditor key={profile.id} />
     <ProfileExcludedWebsites key={profile.id} />
   </div>
 }
