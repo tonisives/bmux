@@ -304,22 +304,52 @@ let Notifications = ({ notices }: { notices: Notification[] }) => <div className
   {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
-let Status = () => {
-  let { state, show, run, acknowledgedDownloads } = useUI()
-  let { client, session, profile } = selection(state)
+let useWindowDrag = () => {
+  let { state, run } = useUI()
+  let { session } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let draggedWindow = useRef<string | null>(null)
+  let committingWindowDrag = useRef(false)
   let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
-  let dropAt = (event: DragEvent<HTMLDivElement>) => {
-    let tab = (event.target as HTMLElement).closest<HTMLElement>('[data-window-id]')
-    if (!tab || !windows.current?.contains(tab)) return null
-    return { id: tab.dataset.windowId!, position: event.clientX < tab.getBoundingClientRect().left + tab.getBoundingClientRect().width / 2 ? 'before' as const : 'after' as const }
+  let windowBounds = (tab: HTMLElement) => {
+    let bounds = tab.getBoundingClientRect()
+    let transform = getComputedStyle(tab).transform
+    let left = bounds.left - (transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41)
+    return { left, width: bounds.width }
   }
+  let dropAt = (event: DragEvent<HTMLDivElement>) => {
+    let tabs = Array.from(windows.current?.querySelectorAll<HTMLElement>('[data-window-id]') ?? [])
+    // Hit-test the original slots so animated tabs cannot move the drop target under the pointer.
+    let tab = tabs.find(tab => { let bounds = windowBounds(tab); return event.clientX < bounds.left + bounds.width }) ?? tabs.at(-1)
+    if (!tab) return null
+    let bounds = windowBounds(tab)
+    return { id: tab.dataset.windowId!, position: event.clientX < bounds.left + bounds.width / 2 ? 'before' as const : 'after' as const }
+  }
+  useLayoutEffect(() => {
+    let list = windows.current
+    if (!list) return
+    let tabs = Array.from(list.querySelectorAll<HTMLElement>('[data-window-id]'))
+    let source = tabs.find(tab => tab.dataset.windowId === draggedWindow.current)
+    let target = tabs.find(tab => tab.dataset.windowId === drop?.id)
+    let bounds = new Map(tabs.map(tab => [tab, windowBounds(tab)]))
+    let preview = tabs.filter(tab => tab !== source)
+    if (source && target && source !== target) preview.splice(preview.indexOf(target) + (drop?.position === 'after' ? 1 : 0), 0, source)
+    else preview = tabs
+    let left = bounds.get(tabs[0])?.left ?? 0
+    let gap = parseFloat(getComputedStyle(list).columnGap) || 0
+    for (let tab of preview) {
+      let original = bounds.get(tab)!
+      tab.style.setProperty('--tab-drag-offset', `${left - original.left}px`)
+      left += original.width + gap
+    }
+  }, [drop, session?.windows])
   let startWindowDrag = (event: DragEvent<HTMLDivElement>) => {
     let button = (event.target as HTMLElement).closest<HTMLElement>(`.${css.windowSelect}`)
     let id = button?.closest<HTMLElement>('[data-window-id]')?.dataset.windowId
     if (!id) return
     draggedWindow.current = id
+    windows.current!.dataset.dragging = id
+    button!.closest<HTMLElement>('[data-window-id]')!.dataset.dragging = 'true'
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData('text/plain', id)
   }
@@ -331,14 +361,27 @@ let Status = () => {
     event.dataTransfer.dropEffect = 'move'
     setDrop(current => current?.id === target.id && current.position === target.position ? current : target)
   }
-  let finishWindowDrag = () => { draggedWindow.current = null; setDrop(null) }
-  let dropWindow = (event: DragEvent<HTMLDivElement>) => {
-    let source = draggedWindow.current, target = dropAt(event)
-    finishWindowDrag()
-    if (!source || !target || source === target.id) return
-    event.preventDefault()
-    void run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
+  let finishWindowDrag = () => {
+    if (committingWindowDrag.current) return
+    draggedWindow.current = null; setDrop(null)
+    delete windows.current?.dataset.dragging
+    windows.current?.querySelectorAll<HTMLElement>('[data-window-id]').forEach(tab => { delete tab.dataset.dragging; tab.style.removeProperty('--tab-drag-offset') })
   }
+  let dropWindow = async (event: DragEvent<HTMLDivElement>) => {
+    let source = draggedWindow.current, target = dropAt(event)
+    if (!source || !target || source === target.id) { finishWindowDrag(); return }
+    event.preventDefault()
+    committingWindowDrag.current = true
+    try { await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position }) }
+    finally { committingWindowDrag.current = false; finishWindowDrag() }
+  }
+  return { windows, drop, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
+}
+
+let Status = () => {
+  let { state, show, run, acknowledgedDownloads } = useUI()
+  let { client, session, profile } = selection(state)
+  let { windows, drop, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
   let help = () => show('help')
   let commands = () => show('command')
