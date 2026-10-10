@@ -663,7 +663,9 @@ test('proxy host picker filters SOCKS5 providers by location', async () => {
 })
 
 test('saved proxy settings and credentials are shared across panes and profiles', async () => {
-  let current = await state(), profile = current.model.profiles[0], client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  // Other proxy cases deliberately retain unfinished provider drafts.
+  let profile = await rpc('profile.create', { name: 'Saved proxy fixture' }) as { id: string; name: string }
   await rpc('profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: true, username: 'fixture-user', password: 'fixture-password' })
   let other = await rpc('profile.create', { name: 'Shared proxy fixture' }) as { id: string; name: string }
   let pane = await rpc('split-window', { pane: client.paneId, profile: profile.id, client: client.id }) as { id: string }

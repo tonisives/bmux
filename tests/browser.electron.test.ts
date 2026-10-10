@@ -562,7 +562,7 @@ test('links show their target, offer browser actions, and open popups in bmux wi
         selection?.addRange(range)
       })
       await website.locator('#popup').click({ button: 'right' })
-      await expect.poll(async () => (await application.evaluate(() => (globalThis as any).fixtureMenuLabels)).slice(-4)).toEqual(['Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address'])
+      await expect.poll(() => application.evaluate(() => (globalThis as any).fixtureMenuLabels)).toEqual(['Look Up', 'Translate', '', 'Open link', 'Open link in floating pane', 'Open link in new window', 'Copy link address', '', 'Copy', 'Select All'])
       await expect.poll(() => website.evaluate(() => globalThis.getSelection()?.toString())).toBe('Popup')
     } finally {
       await application.evaluate(({ Menu }) => {
@@ -1876,7 +1876,10 @@ test('window management shortcuts and keyboard session selection', async () => {
   await shortcut('w', ['meta', 'control', 'alt', 'shift'], false)
   await expect(picker).toBeVisible()
   await chrome.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
   await shortcut('s')
+  await expect(picker.locator(`button[data-window-row="${beta.windows[0].id}"]`)).toBeFocused()
+  await chrome.keyboard.press('ArrowUp')
   await expect(picker.getByRole('button', { name: 'keyboard-renamed', exact: true })).toBeFocused()
   await chrome.keyboard.press('ArrowDown')
   await expect(picker.locator(`button[data-window-row="${beta.windows[0].id}"]`)).toBeFocused()

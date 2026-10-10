@@ -166,7 +166,8 @@ test('floating panes preserve live pages, stack, drag, resize, dock and restore'
     context.font = getComputedStyle(input).font
     return context.measureText(input.value).width
   })
-  expect(dragSpace!.x - floatingAddressBox!.x - textWidth).toBeLessThan(12)
+  let paneIdBox = await firstFrame.getByTitle(`Pane ID: ${right.id}`, { exact: true }).boundingBox()
+  expect(dragSpace!.x - floatingAddressBox!.x - textWidth - paneIdBox!.width).toBeLessThan(12)
   expect(await firstFrame.locator('header').count()).toBe(0)
   expect(await rpc('eval', { tab: right.id, expression: 'window.identity' })).toBe(identity)
   expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length)).toBe(systemWindows)
