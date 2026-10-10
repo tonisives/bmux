@@ -37,6 +37,7 @@ export let FloatingPane = () => {
   }, [tab?.id])
   let focus = () => {
     editing.current = true
+    vim.reset()
     void run('select-pane', { focus: false }).then(() => run('focus-ui'))
   }
   let blur = () => { editing.current = false }
