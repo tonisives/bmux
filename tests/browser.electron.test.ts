@@ -2997,18 +2997,26 @@ test('status windows can be dragged into a new order without switching the activ
   await expect.poll(order).toEqual([first.id, second.id, third.id])
   // Inspect the preview before release, then cancel without changing the stored order.
   let transfer = await chrome.evaluateHandle(() => new DataTransfer())
-  let firstBounds = (await tab(first.id).boundingBox())!
+  let firstBounds = (await list.locator(`[data-window-id="${first.id}"]`).boundingBox())!
   await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer })
-  await tab(first.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: firstBounds.x + 2 })
+  await tab(first.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: firstBounds.x + firstBounds.width * .65 })
   let offset = (id: string) => list.locator(`[data-window-id="${id}"]`).evaluate(element => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41)
   await expect.poll(() => offset(second.id)).toBeLessThan(-1)
   await expect.poll(() => offset(first.id)).toBeGreaterThan(1)
   await expect(list.locator(`[data-window-id="${first.id}"]`)).toHaveCSS('transition-duration', '0.16s')
+  expect(await list.locator('[data-window-id]').evaluateAll(elements => elements.every(element => getComputedStyle(element, '::before').content === 'none' && getComputedStyle(element, '::after').content === 'none'))).toBe(true)
   await expect.poll(order).toEqual([first.id, second.id, third.id])
   expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual([first.id, second.id, third.id])
   await tab(second.id).dispatchEvent('dragend', { dataTransfer: transfer })
   await expect(list).not.toHaveAttribute('data-dragging')
   await expect(list.locator(`[data-window-id="${first.id}"]`)).toHaveCSS('transform', 'none')
+  let thirdSlot = (await list.locator(`[data-window-id="${third.id}"]`).boundingBox())!
+  await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer })
+  await tab(third.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: thirdSlot.x + thirdSlot.width * .35 })
+  await expect.poll(() => offset(second.id)).toBeGreaterThan(1)
+  await expect.poll(() => offset(third.id)).toBeLessThan(-1)
+  await tab(second.id).dispatchEvent('dragend', { dataTransfer: transfer })
+  await expect(list).not.toHaveAttribute('data-dragging')
   await transfer.dispose()
   await tab(second.id).dragTo(tab(first.id), { targetPosition: { x: 2, y: 8 } })
   await expect.poll(order).toEqual([second.id, first.id, third.id])

@@ -341,7 +341,9 @@ let useWindowDrag = () => {
     let tab = tabs.find(tab => { let bounds = windowBounds(tab); return event.clientX < bounds.left + bounds.width }) ?? tabs.at(-1)
     if (!tab) return null
     let bounds = windowBounds(tab)
-    return { id: tab.dataset.windowId!, position: event.clientX < bounds.left + bounds.width / 2 ? 'before' as const : 'after' as const }
+    let sourceIndex = tabs.findIndex(tab => tab.dataset.windowId === draggedWindow.current)
+    let threshold = tabs.indexOf(tab) > sourceIndex ? .25 : .75
+    return { id: tab.dataset.windowId!, position: event.clientX < bounds.left + bounds.width * threshold ? 'before' as const : 'after' as const }
   }
   useLayoutEffect(() => {
     let list = windows.current
@@ -395,13 +397,13 @@ let useWindowDrag = () => {
     try { await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position }) }
     finally { committingWindowDrag.current = false; finishWindowDrag() }
   }
-  return { windows, drop, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
+  return { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
 }
 
 let Status = () => {
   let { state, show, run, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
-  let { windows, drop, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
+  let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
   let help = () => show('help')
   let commands = () => show('command')
@@ -444,7 +446,7 @@ let Status = () => {
   }, [client?.windowId, session?.windows])
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
-    <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
+    <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} />)}</div>
     <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab">+</button>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
@@ -454,7 +456,7 @@ let Status = () => {
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
-let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalWindow; index: number; active: boolean; dropPosition?: 'before' | 'after' }) => {
+let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: number; active: boolean }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
@@ -484,7 +486,7 @@ let StatusWindow = ({ window, index, active, dropPosition }: { window: InternalW
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} data-drop-position={dropPosition} title={window.name} onContextMenu={menu}>
+  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : undefined} title={window.name} draggable>
       {tabId && state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : tabId && state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>}
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
