@@ -2341,13 +2341,26 @@ export let createRuntime = (dataDirectory: string) => {
       findResults[tabId] = { requestId, text, matches: repeat ? current.matches : 0, activeMatchOrdinal: repeat ? current.activeMatchOrdinal : 0, finalUpdate: false }
       publish(); return { text, requestId }
     }
-    if (['stop', 'reload', 'hard-reload', 'back', 'forward'].includes(method)) {
+    if (['stop', 'reload', 'hard-reload'].includes(method)) {
+      let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)
+      // Recovery must interrupt an unfinished initial load instead of awaiting it.
+      let live = await ensureLiveTab(tabId, false), contents = live.contents
+      live.initialNavigation = undefined
+      contents.stop()
+      delete crashes[tabId]
+      if (method === 'stop') delete loading[tabId]
+      else {
+        loading[tabId] = true
+        if (!contents.getURL() || contents.getURL() === 'about:blank' && tab.url !== 'about:blank') void contents.loadURL(tab.url).catch(reportError)
+        else if (method === 'hard-reload') contents.reloadIgnoringCache()
+        else contents.reload()
+      }
+      publish(); return { pane: tabId }
+    }
+    if (['back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
       let contents = (await ensureLiveTab(tabId)).contents
       delete crashes[tabId]
-      if (method === 'stop') { contents.stop(); delete loading[tabId] }
-      if (method === 'reload') { contents.stop(); contents.reload() }
-      if (method === 'hard-reload') contents.reloadIgnoringCache()
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
         else {
