@@ -335,6 +335,8 @@ let useWindowDrag = () => {
     let preview = tabs.filter(tab => tab !== source)
     if (source && target && source !== target) preview.splice(preview.indexOf(target) + (drop?.position === 'after' ? 1 : 0), 0, source)
     else preview = tabs
+    // Once the saved order arrives, its layout replaces the preview without a second slide.
+    if (committingWindowDrag.current && preview.every((tab, index) => tab === tabs[index])) delete list.dataset.dragging
     let left = bounds.get(tabs[0])?.left ?? 0
     let gap = parseFloat(getComputedStyle(list).columnGap) || 0
     for (let tab of preview) {
