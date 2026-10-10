@@ -468,9 +468,9 @@ test('selected page text translates in a popup without pane controls or changing
       expect(destination.origin).toBe('https://translate.google.com')
       expect(Object.fromEntries(destination.searchParams)).toEqual({ sl: 'auto', tl: 'en', text: expected, op: 'translate' })
       await expect(translation.locator('h1')).toHaveText('Translation fixture')
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.getTitle() === 'Translate' && window.isVisible()))).toBe(true)
+      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()))).toBe(true)
       let popup = await application.evaluate(({ BrowserWindow, webContents }, sourceUrl) => {
-        let window = BrowserWindow.getAllWindows().find(window => window.getTitle() === 'Translate')!
+        let window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().startsWith('https://translate.google.com/'))!
         let source = webContents.getAllWebContents().find(contents => contents.getURL() === sourceUrl)!
         return { sameSession: window.webContents.session === source.session, parent: !!window.getParentWindow() }
       }, `${url}/translate-selection`)
@@ -484,11 +484,11 @@ test('selected page text translates in a popup without pane controls or changing
       await expect.poll(() => application.context().pages().some(page => page.url() === destination.href)).toBe(true)
       translation = application.context().pages().find(page => page.url() === destination.href)!
       await expect(translation.locator('h1')).toHaveText('Translation fixture')
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.getTitle() === 'Translate' && window.isVisible()).length)).toBe(1)
+      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()).length)).toBe(1)
       await translation.screenshot({ path: path.resolve('artifacts/translation-popup.png') })
       await promisify(execFile)('/usr/sbin/screencapture', ['-x', path.resolve('artifacts/translation-popup-desktop.png')])
       await translation.keyboard.press('Escape')
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.getTitle() === 'Translate'))).toBe(false)
+      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
       await rpc('activate-client', { client: client.id })
     }
     for (let empty of ['', '   ']) {
@@ -508,13 +508,13 @@ test('selected page text translates in a popup without pane controls or changing
       expect(labels).not.toContain('Keep Page Loaded')
     }
     await application.evaluate(() => (globalThis as any).translateLastAction())
-    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.getTitle() === 'Translate' && window.isVisible()))).toBe(true)
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()))).toBe(true)
   } finally {
     await application.evaluate(() => (globalThis as any).restoreTranslateMenu())
     await application.context().unroute('https://translate.google.com/**')
     await rpc('select-window', { client: client.id, window: current.model.clients[0].windowId })
     await rpc('kill-session', { session: session.id, confirm: true })
-    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.getTitle() === 'Translate'))).toBe(false)
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
   }
 })
 

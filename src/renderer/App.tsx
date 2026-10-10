@@ -2006,13 +2006,17 @@ let ProfilePaneSettings = () => {
   let { state, run } = useUI()
   let { pane } = selection(state)
   let [busy, setBusy] = useState(false)
+  let savedEnabled = pane?.keepAlive === true
+  let [enabled, setEnabled] = useState(savedEnabled)
+  useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, pane?.id])
   if (!pane) return <p>No pane is selected.</p>
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
-    setBusy(true)
-    try { await run('pane.keep-alive', { pane: pane.id, enabled: event.target.checked }) } finally { setBusy(false) }
+    let next = event.target.checked
+    setEnabled(next); setBusy(true)
+    try { if (!await run('pane.keep-alive', { pane: pane.id, enabled: next })) setEnabled(savedEnabled) } finally { setBusy(false) }
   }
   return <div className={css.profileSections} role="tabpanel" aria-label="Pane settings"><ProfileSection title="Current pane">
-    <label className={css.profileControl}><span>Keep Page Loaded<small>Preserve this pane’s page state while inactive and load it on launch.</small></span><span className={css.profileToggleState}><span aria-hidden="true">{pane.keepAlive ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Keep Page Loaded" checked={pane.keepAlive === true} onChange={toggle} disabled={busy} /></span></label>
+    <label className={css.profileControl}><span>Keep Page Loaded<small>Preserve this pane’s page state while inactive and load it on launch.</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Keep Page Loaded" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
   </ProfileSection></div>
 }
 

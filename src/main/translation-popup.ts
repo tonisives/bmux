@@ -32,7 +32,7 @@ export let createTranslationPopups = () => {
       parent.off('closed', close)
       if (windows.get(parent) === popup) windows.delete(parent)
     })
-    popup.once('ready-to-show', () => { if (!popup.isDestroyed()) popup.show() })
+    popup.once('ready-to-show', () => { if (!popup.isDestroyed()) { popup.setTitle('Translate'); popup.show() } })
     void popup.loadURL(`https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(text)}&op=translate`).catch(() => {
       if (!popup.isDestroyed()) popup.show()
     })
