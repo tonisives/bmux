@@ -43,8 +43,14 @@ test.beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
-  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
-  chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await expect.poll(async () => {
+    for (let page of application.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) {
+      if (await page.getByRole('contentinfo', { name: 'Browser status' }).count() !== 1) continue
+      chrome = page
+      return true
+    }
+    return false
+  }).toBe(true)
 })
 
 test.afterAll(async () => {
@@ -57,6 +63,8 @@ test.afterAll(async () => {
 test('macOS swipe navigation targets its pane, navigates once and preserves page scrolling', async ({}, info) => {
   test.skip(process.platform !== 'darwin')
   let current = await state(), client = current.model.clients[0], pane = client.paneId
+  await rpc('activate-client', { client: client.id })
+  await expect.poll(async () => (await state()).focusedClientId).toBe(client.id)
   // Enter a real local URL through the browser controls and verify native paint.
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
