@@ -2772,6 +2772,36 @@ test('status window list uses available room and hides its native scrollbar', as
   await cli('detach-client', { client: client.id })
 })
 
+test('status plus button opens and selects a new tab with a focused URL prompt', async () => {
+  let session = await cli('new-session', { name: 'mouse-new-tab' })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  try {
+    let list = chrome.locator('[data-window-list]')
+    let button = chrome.getByRole('button', { name: 'New tab', exact: true })
+    await expect(button).toBeVisible()
+    let bounds = (await button.boundingBox())!, tabs = (await list.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(tabs.x + tabs.width)
+    await button.click()
+    await expect(list.locator('[data-window-id]')).toHaveCount(2)
+    await expect(list.locator('[data-window-id]').last()).toHaveAttribute('data-selected', 'true')
+    let prompt = chrome.getByRole('textbox', { name: 'URL or search' })
+    await expect(prompt).toBeFocused()
+    await prompt.fill(url)
+    await prompt.press('Enter')
+    await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(url)
+    await expect(list.locator('[data-window-id]').last()).toHaveAttribute('title', 'bmux fixture')
+    let state = await cli('state')
+    let selected = state.model.clients.find((item: { id: string }) => item.id === client.id)
+    expect(selected.windowId).not.toBe(session.windows[0].id)
+    await cli('wait', { pane: selected.paneId, selector: '#text' })
+    await chrome.screenshot({ path: 'artifacts/status-new-tab.png' })
+  } finally {
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id })
+  }
+})
+
 test('status shares constrained space equally between automatic tabs and proportionally with renamed tabs', async () => {
   let session = await cli('new-session', { name: 'tab-widths' })
   let client = await cli('attach-session', { session: session.id })

@@ -408,6 +408,7 @@ let Status = () => {
   let activity = () => show('activity')
   let downloads = () => show('downloads')
   let extensions = () => show('extensions')
+  let newTab = () => { void run('new-window', { session: session!.id, client: state.clientId }) }
   let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
   let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused)
   let progressTotal = progressingDownloads.reduce((total, item) => total + item.total, 0)
@@ -444,6 +445,7 @@ let Status = () => {
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={index + 1} active={window.id === client!.windowId} dropPosition={drop?.id === window.id ? drop.position : undefined} />)}</div>
+    <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab">+</button>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
