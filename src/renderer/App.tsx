@@ -2060,7 +2060,7 @@ let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
 
 let ProfileInfo = () => {
   let { state, run, show } = useUI()
-  let { session, window, pane, profile } = selection(state)
+  let { session, pane, profile } = selection(state)
   let [tab, setTab] = useState<ProfileTab>(() => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
     return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
@@ -2081,12 +2081,7 @@ let ProfileInfo = () => {
     setBusy(false)
   }
   let overview = () => setTab('overview'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
-  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview"><ProfileSection title="Current pane"><dl>
-      <div><dt>Background pages</dt><dd>{profile.background ? 'Keep running' : 'Throttle when inactive'}</dd></div>
-      <div><dt>Session</dt><dd>{session?.name}</dd></div>
-      <div><dt>Window</dt><dd>{window?.name}</dd></div>
-      <div><dt>Pane</dt><dd>{pane?.id}</dd></div>
-    </dl></ProfileSection>{canChangeProfile && <ProfileSection title="New windows"><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></ProfileSection>}
+  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="New windows"><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></ProfileSection>}
     <ProfileSection title="HTTP cache">
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
