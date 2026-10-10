@@ -64,8 +64,14 @@ let expectCoveredCorners = async (pageUrl: string, screenshotPath: string, insid
 let launch = async () => {
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await observeNativeFocus(application)
-  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
-  chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await expect.poll(async () => {
+    for (let page of application.context().pages().filter(page => page.url().endsWith('/renderer/index.html'))) {
+      if (await page.getByRole('contentinfo', { name: 'Browser status' }).count() !== 1) continue
+      chrome = page
+      return true
+    }
+    return false
+  }).toBe(true)
   await expect.poll(async () => (await state()).model.clients.length).toBe(1)
 }
 test.beforeAll(async () => {
@@ -416,8 +422,8 @@ test('selected page text translates in a popup without pane controls or changing
   let pane = source.panes[0]
   await rpc('select-window', { client: client.id, window: source.id })
   await rpc('activate-client', { client: client.id })
-  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Address', exact: true }).or(address).click()
   await address.fill(`${url}/translate-selection`); await address.press('Enter')
   await rpc('wait', { tab: pane.id, selector: '#lookup-text' })
   let page = application.context().pages().find(page => page.url() === `${url}/translate-selection`)!

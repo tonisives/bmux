@@ -1270,6 +1270,9 @@ test('pane address bars navigate independently and leave window switching availa
     chrome.sendInputEvent({ type: 'keyUp', keyCode: 'w', modifiers: ['control'] })
   })
   await expect(address).toHaveValue('one ')
+  // The preview is optional while page work is active; finish that work before
+  // hiding the native page behind suggestions and checking its captured image.
+  await expect.poll(async () => !!(await cli('state')).loading[second.id]).toBe(false)
   let contentBeforeSuggestions = await secondPane.locator('[data-browser-content]').boundingBox()
   await address.fill('edited-second-pane')
   let suggestions = chrome.getByRole('listbox', { name: 'Address suggestions' })
@@ -2753,13 +2756,14 @@ test('status window list uses available room and hides its native scrollbar', as
     window?.setBounds({ x: 90, y: 90, width: 480, height: 700 })
   }, client.id)
   let tab = list.locator('[data-window-id]').last()
+  let newTab = status.getByRole('button', { name: 'New tab', exact: true })
   await expect.poll(() => tab.locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   let profile = status.getByRole('button', { name: 'Extensions', exact: true })
   let help = status.getByRole('button', { name: 'Help', exact: true })
   await expect.poll(async () => {
-    let last = (await tab.boundingBox())!, avatar = (await profile.boundingBox())!, question = (await help.boundingBox())!, bar = (await status.boundingBox())!
-    return { gap: Math.round(avatar.x - last.x - last.width), helpFits: question.x + question.width <= bar.x + bar.width - 8 }
-  }).toEqual({ gap: 10, helpFits: true })
+    let last = (await tab.boundingBox())!, plus = (await newTab.boundingBox())!, avatar = (await profile.boundingBox())!, question = (await help.boundingBox())!, bar = (await status.boundingBox())!
+    return { tabGap: Math.round(plus.x - last.x - last.width), controlsGap: Math.round(avatar.x - plus.x - plus.width), helpFits: question.x + question.width <= bar.x + bar.width - 8 }
+  }).toEqual({ tabGap: 10, controlsGap: 10, helpFits: true })
   for (let index = 4; index <= 12; index++) await cli('new-window', { session: session.id, client: client.id, name: `descriptive-window-${index}` })
   await expect.poll(() => list.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
   await expect.poll(() => list.locator('[data-window-id]').last().locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
