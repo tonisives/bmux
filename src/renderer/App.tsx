@@ -45,10 +45,10 @@ type AddressSelection = { start: number; end: number; direction: 'forward' | 'ba
 type Notification = { id: string; text: string; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
-type UIContext = { settingsMemory: Map<string, unknown>; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { settingsMemory: Map<string, { initial: unknown; value: unknown }>; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
-  let settingsMemory = useRef(new Map<string, unknown>()).current, [state, setState] = useState<PublicState | null>(null)
+  let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
   let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
   let [control, setControl] = useState<Control | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
@@ -199,14 +199,18 @@ let useBookmarkMemory = () => {
 }
 
 // Keep unfinished settings in this renderer only, including proxy credentials.
-let useSettingsState = <T,>(key: string, initial: T | (() => T)) => {
+let useSettingsState = <T,>(key: string, initial: T | (() => T), resetWhenSavedChanges = true) => {
   let { settingsMemory } = useUI()
-  let [value, setValue] = useState<T>(() => settingsMemory.has(key) ? settingsMemory.get(key) as T : typeof initial === 'function' ? (initial as () => T)() : initial)
+  let baseline = useRef(typeof initial === 'function' ? (initial as () => T)() : initial)
+  let [value, setValue] = useState<T>(() => {
+    let remembered = settingsMemory.get(key)
+    return remembered && (!resetWhenSavedChanges || Object.is(remembered.initial, baseline.current)) ? remembered.value as T : baseline.current
+  })
   let current = useRef(value)
   let update = useCallback((next: T | ((current: T) => T)) => {
     let value = typeof next === 'function' ? (next as (current: T) => T)(current.current) : next
     current.current = value
-    settingsMemory.set(key, value)
+    settingsMemory.set(key, { initial: baseline.current, value })
     setValue(value)
   }, [key, settingsMemory])
   return [value, update] as const
@@ -249,7 +253,7 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
   let pane = actors.find(actor => actor.paneId === selectedPane?.id)?.pane ?? actors[0]?.pane ?? panes.find(pane => pane.profileId === usage.profileId)
-  let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, 'anti-bot'); void show('profiles', pane.id) } : undefined
+  let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, { initial: undefined, value: 'anti-bot' }); void show('profiles', pane.id) } : undefined
   let actions = actors.filter(actor => actor.paneId !== selectedPane?.id).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
     return { label: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, title: actor.pane.title, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
@@ -1878,7 +1882,7 @@ let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; hos
 
 let ProfileExcludedWebsites = () => {
   let { state, run } = useUI(), { profile, pane } = selection(state)
-  let [website, setWebsite] = useSettingsState(`profile:${profile?.id}:excluded-website`, () => automationWebsiteHost(pane?.url) ?? ''), [busy, setBusy] = useState(false)
+  let [website, setWebsite] = useSettingsState(`profile:${profile?.id}:excluded-website`, () => automationWebsiteHost(pane?.url) ?? '', false), [busy, setBusy] = useState(false)
   if (!profile) return null
   let exclusions = Object.entries(state.automationSafety?.limits.sites?.[profile.id] ?? {}).flatMap(([host, entry]) => {
     let exclusion = automationSiteExclusion(entry)
@@ -2033,7 +2037,7 @@ let ProfileInfo = () => {
   let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
     return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
-  })
+  }, false)
   let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
