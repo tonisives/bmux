@@ -487,7 +487,19 @@ test('selected page text translates in a popup without pane controls or changing
       await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()).length)).toBe(1)
       await translation.screenshot({ path: path.resolve('artifacts/translation-popup.png') })
       await promisify(execFile)('/usr/sbin/screencapture', ['-x', path.resolve('artifacts/translation-popup-desktop.png')])
-      await translation.keyboard.press('Escape')
+      await application.evaluate(({ BrowserWindow }, url) => {
+        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!
+        popup.focus(); popup.webContents.focus()
+      }, destination.href)
+      await expect.poll(() => application.evaluate(({ BrowserWindow }, url) => {
+        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)
+        return popup?.isFocused() && popup.webContents.isFocused()
+      }, destination.href)).toBe(true)
+      await application.evaluate(({ BrowserWindow }, url) => {
+        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!
+        popup.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+        if (!popup.isDestroyed()) popup.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      }, destination.href)
       await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
       await rpc('activate-client', { client: client.id })
     }

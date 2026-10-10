@@ -512,7 +512,14 @@ test('profile Pane settings keeps only the selected pane loaded and reflects sav
   let sibling = await rpc('split-window', { pane: pane.id, client: client.id, profile: profile.id, url }) as { id: string }
   let keepAlive = async (paneId: string) => (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === paneId).keepAlive === true
   try {
+    await rpc('wait', { pane: sibling.id, selector: 'h1' })
+    await expect.poll(() => application.evaluate(({ BaseWindow }, url) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+      return window.contentView.children.filter(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url && view.getBounds().width < window.getContentBounds().width * 0.6 && view.getBounds().height > 300).length
+    }, url)).toBe(2)
     await rpc('select-pane', { pane: pane.id, client: client.id })
+    await rpc('focus-page', { client: client.id })
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
     let panel = await openProfilePanel(profile.name)
     await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
     let toggle = panel.getByRole('tabpanel', { name: 'Pane settings' }).getByRole('switch', { name: 'Keep Page Loaded', exact: true })
