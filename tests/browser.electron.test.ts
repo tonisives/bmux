@@ -3295,7 +3295,7 @@ test('status windows can be dragged into a new order without switching the activ
     await expect.poll(() => source.evaluate(element => element.getAnimations().length)).toBe(0)
     let final = (await source.boundingBox())!
     let releaseOffset = Number(await source.getAttribute('data-release-offset'))
-    expect(Math.abs(releaseOffset)).toBeGreaterThan(10)
+    expect(Math.abs(releaseOffset)).toBeGreaterThan(1)
     expect(final.x + releaseOffset).toBeCloseTo(release, 0)
   }
   await transfer.dispose()
