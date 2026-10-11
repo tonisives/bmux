@@ -1,5 +1,8 @@
-import { BrowserWindow, ipcMain, session } from 'electron'
+import { ipcMain, session } from 'electron'
+import type { WebContents } from 'electron'
+import type { RemotePage } from './runtime'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 export type LocalRemoteSession = { id: string; name: string; panes: { id: string; title: string }[] }
 export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
@@ -8,9 +11,8 @@ export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHos
 export let createLocalRemote = () => {
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
-  let viewer: BrowserWindow | undefined
+  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; token: string; close: () => Promise<unknown> }>()
   let preferredProfileId: string | undefined, activeToken: string | undefined
-  let selected: { host: LocalRemoteHost; session: string } | undefined
   let profiles: () => string[] = () => []
   let useProfiles = (available: () => string[]) => { profiles = available }
   let preferProfile = (profileId: string) => { preferredProfileId = profileId }
@@ -29,38 +31,40 @@ export let createLocalRemote = () => {
     activeToken = undefined
     return { authenticated: false, hosts: [] }
   }
-  let connect = async (publicKey: JsonWebKey) => {
-    let token = activeToken
+  let connect = async (publicKey: JsonWebKey, token: string) => {
     if (!token) throw new Error('Sign in to remote')
     let response = await fetch(`${origin}/api/connect`, { method: 'POST', headers: { Cookie: `bmux_session=${token}`, Origin: origin, 'Content-Type': 'application/json', 'X-Bmux-Desktop': '1' }, body: JSON.stringify({ publicKey }), signal: AbortSignal.timeout(10000) })
     if (!response.ok) throw new Error('Remote connection unavailable')
     return response.json()
   }
+  let selection = (contents: WebContents) => {
+    let selected = viewers.get(contents)
+    let viewerUrl = process.env.ELECTRON_RENDERER_URL ? new URL('remote-client.html', process.env.ELECTRON_RENDERER_URL).href : pathToFileURL(path.join(import.meta.dirname, '../renderer/remote-client.html')).href
+    if (!selected || contents.getURL() !== viewerUrl) throw new Error('Untrusted renderer')
+    return selected
+  }
   ipcMain.handle('remote-client-selection', event => {
-    if (event.sender !== viewer?.webContents || !selected) throw new Error('Untrusted renderer')
-    return { origin, ...selected }
+    let selected = selection(event.sender)
+    return { origin, host: selected.host, session: selected.session }
   })
-  ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => {
-    if (event.sender !== viewer?.webContents) throw new Error('Untrusted renderer')
-    return connect(publicKey)
-  })
-  let open = async (hostId?: string, sessionId?: string) => {
+  ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => connect(publicKey, selection(event.sender).token))
+  ipcMain.handle('remote-client-close', event => selection(event.sender).close())
+  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>) => {
     let listing = await list()
-    if (!listing.authenticated) throw new Error('Sign in to remote')
+    if (!listing.authenticated || !activeToken) throw new Error('Sign in to remote')
     if (!hostId || !sessionId) throw new Error('Remote session required')
     let host = listing.hosts.find(item => item.id === hostId && item.sessions.some(item => item.id === sessionId))
     if (!host) throw new Error('Remote session unavailable')
-    selected = { host, session: sessionId }
-    if (!viewer || viewer.isDestroyed()) {
-      viewer = new BrowserWindow({ title: `${host.sessions.find(item => item.id === sessionId)?.name} - bmux remote`, width: 1200, height: 850, show: false, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
-      viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-      viewer.webContents.on('will-navigate', event => event.preventDefault())
-      viewer.on('closed', () => { viewer = undefined; selected = undefined })
-    }
-    await viewer.loadFile(path.join(import.meta.dirname, '../renderer/remote-client.html'))
-    viewer.show()
-    viewer.focus()
+    let token = activeToken
+    await show({
+      key: `${hostId}:${sessionId}`,
+      title: host.sessions.find(item => item.id === sessionId)!.name,
+      attach: (contents, close) => {
+        viewers.set(contents, { host, session: sessionId, token, close })
+        contents.once('destroyed', () => viewers.delete(contents))
+      },
+    })
   }
-  let close = () => { viewer?.close() }
+  let close = () => { for (let contents of viewers.keys()) if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); viewers.clear() }
   return { origin, list, open, close, useProfiles, preferProfile }
 }

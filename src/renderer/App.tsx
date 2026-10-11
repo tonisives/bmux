@@ -486,6 +486,12 @@ let Status = () => {
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
+let PageIcon = ({ paneId }: { paneId?: string }) => {
+  let { state } = useUI()
+  if (paneId && state.loading[paneId]) return <span className={css.tabSpinner} aria-hidden="true" data-tab-loading />
+  if (paneId && state.favicons[paneId]) return <img className={css.tabFavicon} src={state.favicons[paneId]} alt="" />
+  return <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>
+}
 let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: number; active: boolean }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
@@ -518,7 +524,7 @@ let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: 
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : undefined} title={window.name} draggable>
-      {tabId && state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : tabId && state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>}
+      <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
     </button>
     {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
@@ -1547,12 +1553,11 @@ let SessionTree = ({ result: { session, windows, matched }, now, query }: { resu
 let RemoteSessionPicker = () => {
   let { dismiss, onMessage } = useUI()
   let [remote, setRemote] = useState<RemoteSessionListing>()
-  let [waitingForSignIn, setWaitingForSignIn] = useState(false)
   let [openingSignIn, setOpeningSignIn] = useState(false)
   let { ref, keys, input, query, change } = usePickerNavigation()
   useEffect(() => {
     let active = true
-    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) { setRemote(listing); if (listing.authenticated) setWaitingForSignIn(false) } }).catch(() => { if (active) setRemote(undefined) }) }
+    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
     refresh()
     let timer = setInterval(refresh, 2000)
     return () => { active = false; clearInterval(timer) }
@@ -1561,14 +1566,13 @@ let RemoteSessionPicker = () => {
   let openRemote = (host?: string, session?: string) => { void bridge.openRemote(host, session).then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let signIn = () => {
     if (openingSignIn) return
-    setOpeningSignIn(true); setWaitingForSignIn(true)
-    void bridge.openRemote().catch(error => { setWaitingForSignIn(false); onMessage(error instanceof Error ? error.message : String(error)) }).finally(() => setOpeningSignIn(false))
+    setOpeningSignIn(true)
+    void bridge.openRemote().then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))).finally(() => setOpeningSignIn(false))
   }
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose remote session">
     <SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} />
     {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
-    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>{waitingForSignIn ? 'open sign-in window again' : 'sign in to remote'}</button>}
-    {waitingForSignIn && <p role="status">Waiting for sign-in in the new bmux window…</p>}
+    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
     {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
   </div>
@@ -1622,7 +1626,7 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionBranch} aria-hidden="true" /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       <SessionAudio panes={window.panes} />
       {visitedAt && <time className={css.sessionWindowActivity} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>

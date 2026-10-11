@@ -66,9 +66,14 @@ test.beforeAll(async () => {
       response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', service: 'fixture', sessions: [{ id: 'fixture-session', name: 'Remote fixture', panes: [{ id: 'fixture-pane', title: 'Fixture page' }] }] }] : { error: 'Login required' }))
       return
     }
+    if (request.url === '/favicon.svg') {
+      response.writeHead(200, { 'Content-Type': 'image/svg+xml' })
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#173353"/></svg>')
+      return
+    }
     response.writeHead(200, { 'Content-Type': 'text/html' })
     let title = request.url === '/docs' ? 'Documentation' : request.url === '/notes' ? 'Research notes' : request.url === '/tree-unnamed' ? 'Unnamed page title '.repeat(30).trim() : 'Search fixture'
-    response.end(`<!doctype html><title>${title}</title><style>body{font:24px sans-serif;background:#e8eef8;color:#173353;padding:30px}p{margin:32px 0}</style><h1>${title}</h1><p>First lantern</p><p>Second lantern</p><p>Third lantern</p><div id="ready" hidden>Ready</div><div id="offscreen" style="position:absolute;top:3000px">Offscreen</div><div data-label="a'b">Quoted selector</div>`)
+    response.end(`<!doctype html><title>${title}</title><link rel="icon" href="/favicon.svg"><style>body{font:24px sans-serif;background:#e8eef8;color:#173353;padding:30px}p{margin:32px 0}</style><h1>${title}</h1><p>First lantern</p><p>Second lantern</p><p>Third lantern</p><div id="ready" hidden>Ready</div><div id="offscreen" style="position:absolute;top:3000px">Offscreen</div><div data-label="a'b">Quoted selector</div>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   docsWindow.panes[0].url = `${url}/docs`; docsWindow.panes[0].title = 'Documentation'
@@ -184,6 +189,25 @@ test('session search puts exact names first and excludes unrelated fuzzy window 
   for (let session of [bot, gp, tskr]) await rpc('kill-session', { session: session.id, confirm: true })
 })
 
+test('session window rows show the same page icons as the status bar in both sort modes', async () => {
+  await rpc('switch-client', { client: (await state()).clientId, session: session.id })
+  await rpc('select-window', { client: (await state()).clientId, window: docsWindow.id })
+  await rpc('navigate', { tab: docsWindow.panes[0].id, url: `${url}/docs` })
+  await expect.poll(async () => (await state()).favicons[docsWindow.panes[0].id]).toBeTruthy()
+  await activate()
+  let icon = chrome.locator(`[data-window-id="${docsWindow.id}"] img`)
+  let source = await icon.getAttribute('src')
+  await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
+  let picker = chrome.getByRole('group', { name: 'Choose session', exact: true })
+  let sort = picker.getByRole('button', { name: 'Sort by recently visited' })
+  if (await sort.getAttribute('aria-pressed') === 'true') await sort.click()
+  await expect(picker.locator(`[data-window-row="${docsWindow.id}"] img`)).toHaveAttribute('src', source!)
+  await sort.click()
+  await expect(picker.locator(`[data-window-row="${docsWindow.id}"] img`)).toHaveAttribute('src', source!)
+  await sort.click()
+  await picker.getByRole('textbox', { name: 'Search sessions' }).press('Escape')
+})
+
 test('remote sessions open from the sessions popup title bar', async () => {
   await activate()
   await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
@@ -198,20 +222,40 @@ test('remote sessions open from the sessions popup title bar', async () => {
   await dialog.getByRole('tab', { name: 'Sessions', exact: true }).click()
   await expect(chrome.getByRole('group', { name: 'Choose session', exact: true })).toBeVisible()
   await dialog.getByRole('tab', { name: 'Remote sessions' }).click()
-  let clients = (await state()).model.clients.length
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  let clients = current.model.clients.length, previousSession = client.sessionId
+  let nativeWindows = await rpc('diagnostics')
   await picker.getByRole('button', { name: 'sign in to remote' }).click()
-  await expect(picker.getByRole('status')).toHaveText('Waiting for sign-in in the new bmux window…')
-  await expect.poll(async () => (await state()).model.clients.length).toBe(clients + 1)
-  let current = await state(), login = current.model.clients.find((item: { id: string }) => item.id !== current.clientId && !model.clients.some(known => known.id === item.id))
-  expect(login).toBeDefined()
-  let window = current.model.sessions.flatMap((item: { windows: any[] }) => item.windows).find((item: { id: string }) => item.id === login.windowId)
-  expect(window.panes[0].url).toBe(`${url}/`)
-  await expect(picker).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(async () => (await state()).model.clients.length).toBe(clients)
+  current = await state()
+  let remote = current.model.sessions.find((item: { ephemeral?: boolean }) => item.ephemeral)
+  expect(remote).toMatchObject({ name: 'remote', ephemeral: true })
+  expect(current.model.clients.find((item: { id: string }) => item.id === current.clientId).sessionId).toBe(remote.id)
+  expect(remote.windows[0].panes[0].url).toBe(`${url}/`)
+  expect((await rpc('diagnostics')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(nativeWindows.windows.map((window: { nativeId: number }) => window.nativeId))
   await application.evaluate(({ session }, value) => session.fromPartition('persist:profile_default').cookies.set({ url: value, name: 'bmux_session', value: 'fixture-token' }), url)
+  await activate()
+  await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
+  await dialog.getByRole('tab', { name: 'Remote sessions' }).click()
   await expect(picker.getByRole('button', { name: 'Remote fixture fixture · remote' })).toBeVisible()
+  await picker.getByRole('button', { name: 'Remote fixture fixture · remote' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/remote-client.html'))).toBe(true)
+  let viewer = application.context().pages().find(page => page.url().endsWith('/remote-client.html'))!
+  await expect(viewer.locator('header')).toContainText('Remote fixture')
+  current = await state()
+  expect(current.model.sessions.filter((item: { ephemeral?: boolean }) => item.ephemeral)).toHaveLength(1)
+  expect(current.model.clients).toHaveLength(clients)
+  expect((await rpc('diagnostics')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(nativeWindows.windows.map((window: { nativeId: number }) => window.nativeId))
+  let viewerPane = current.model.clients.find((item: { id: string }) => item.id === current.clientId).paneId
+  await expect(rpc('navigate', { tab: viewerPane, url: `${url}/docs` })).rejects.toThrow('Use the remote viewer address')
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
+  await viewer.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect.poll(async () => (await state()).model.sessions.find((item: { ephemeral?: boolean }) => item.ephemeral)?.windows.length).toBe(1)
+  await rpc('switch-client', { client: current.clientId, session: previousSession })
+  await expect.poll(async () => (await state()).model.sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
   await application.evaluate(({ session }, value) => session.fromPartition('persist:profile_default').cookies.remove(value, 'bmux_session'), url)
-  await rpc('detach-client', { client: login.id })
-  await rpc('kill-window', { window: window.id, confirm: true })
 })
 
 test('session picker goes back to the previously selected session', async () => {

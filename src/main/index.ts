@@ -114,11 +114,10 @@ void app.whenReady().then(async () => {
       let pane = workspace.windows.flatMap(window => window.panes).find(item => item.id === client.paneId)
       let profileId = pane?.profileId ?? workspace.defaultProfileId
       localRemote!.preferProfile(profileId)
-      let window = await runtime!.execute({ method: 'new-window', args: { session: workspace.id, profile: profileId, url: localRemote!.origin } }, clientId) as { id: string }
-      await runtime!.createClient(workspace.id, undefined, true, window.id)
+      await runtime!.openRemotePage(clientId, { key: 'sign-in', title: 'Sign in to remote', url: localRemote!.origin })
       return
     }
-    return localRemote!.open(host, session)
+    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page))
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)

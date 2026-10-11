@@ -80,7 +80,7 @@ export let writeModel = (directory: string, model: Model, bookmarkFile = path.jo
   let profiles = bookmarkProfiles(model)
   // Leave hand-edited formatting and comments intact when only session state changed.
   if (!fs.existsSync(bookmarkFile) || JSON.stringify(parseBookmarks(fs.readFileSync(bookmarkFile, 'utf8'))) !== JSON.stringify(profiles)) writeAtomic(bookmarkFile, stringify({ profiles }))
-  let sessions = model.sessions.filter(session => !session.private)
+  let sessions = model.sessions.filter(session => !session.private && !session.ephemeral)
   if (!sessions.length) sessions = [newSession('main', model.profiles[0].id, false, model)]
   let sessionIds = new Set(sessions.map(session => session.id))
   let clients = model.clients.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)) }))

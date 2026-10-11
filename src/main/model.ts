@@ -245,6 +245,7 @@ export let validateModel = (value: unknown): Model => {
     checkId(session.id)
     if (session.device !== undefined) session.device = parseDevicePersona(session.device)
     if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
+    if (session.ephemeral !== undefined && typeof session.ephemeral !== 'boolean') throw new Error('Invalid ephemeral session setting')
     if (session.profileExplicit !== undefined && typeof session.profileExplicit !== 'boolean') throw new Error('Invalid explicit profile setting')
     delete (session as WorkspaceSession & { searchApp?: string }).searchApp
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
@@ -313,14 +314,18 @@ export let repairClientSelections = (model: Model) => {
 export let removeSession = (model: Model, session: WorkspaceSession) => {
   let index = model.sessions.indexOf(session)
   if (index < 0) throw new Error(`Session '${session.id}' not found`)
-  if (!session.private) model.closedSessionProfiles = Object.fromEntries([...Object.entries(model.closedSessionProfiles ?? {}).filter(([name]) => name !== session.name), [session.name, session.defaultProfileId]].slice(-50))
+  if (!session.private && !session.ephemeral) model.closedSessionProfiles = Object.fromEntries([...Object.entries(model.closedSessionProfiles ?? {}).filter(([name]) => name !== session.name), [session.name, session.defaultProfileId]].slice(-50))
   model.sessions = model.sessions.filter(item => item !== session)
   let next = model.sessions.length ? model.sessions[index % model.sessions.length] : newSession('main', session.defaultProfileId, false, model)
   if (!model.sessions.length) model.sessions.push(next)
   for (let client of model.clients.filter(client => client.sessionId === session.id)) {
-    client.sessionId = next.id
-    client.windowId = next.windows[0].id
-    client.paneId = next.windows[0].panes[0]?.id ?? null
+    let previousId = client.sessionHistory?.find(id => model.sessions.some(session => session.id === id))
+    let target = session.ephemeral ? model.sessions.find(session => session.id === previousId) ?? next : next
+    let windowId = session.ephemeral ? client.windowHistory?.find(id => target.windows.some(window => window.id === id)) : undefined
+    let window = target.windows.find(window => window.id === windowId) ?? target.windows[0]
+    client.sessionId = target.id
+    client.windowId = window.id
+    client.paneId = window.panes[0]?.id ?? null
     client.zoomedPaneId = null
   }
   repairClientSelections(model)
