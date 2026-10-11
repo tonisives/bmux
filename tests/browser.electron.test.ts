@@ -670,6 +670,72 @@ test('initial blank history is removed after navigation and restart', async () =
   }
 })
 
+for (let floating of [false, true]) test(`General Vim editing toggle controls URL and rename fields in ${floating ? 'floating' : 'tiled'} panes`, async ({}, info) => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  let session = await cli('new-session', { name: `vim-setting-${floating}` })
+  let pane = session.windows[0].panes[0], client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('activate-client', { client: client.id })
+    let chrome = await rendererForClient(client.id)
+    await cli('navigate', { pane: pane.id, url: `${url}/vim-setting-${floating}` })
+    let controls = chrome
+    if (floating) {
+      await cli('break-pane', { pane: pane.id, floating: true, client: client.id })
+      await expect.poll(() => application.context().pages().some(page => page.url().endsWith(`#float=${pane.id}`))).toBe(true)
+      controls = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+    }
+    let settings = async () => {
+      await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
+      await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta'] }])
+      let panel = chrome.getByRole('dialog', { name: 'Settings', exact: true })
+      await panel.getByRole('tab', { name: 'General', exact: true }).click()
+      return panel
+    }
+    let panel = await settings(), toggle = panel.getByRole('checkbox', { name: 'Vim editing', exact: true })
+    await expect(toggle).toBeChecked()
+    await toggle.uncheck()
+    await expect.poll(async () => (await cli('state')).vimEditing).toBe(false)
+    expect(parseDocument(await fs.readFile(config, 'utf8')).get('vimEditing')).toBe(false)
+    await panel.screenshot({ path: info.outputPath('general-vim-editing.png') })
+    await chrome.keyboard.press('Escape')
+    let address = controls.getByRole('textbox', { name: floating ? 'Address' : 'URL or search', exact: true })
+    if (floating) await address.click()
+    else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await address.press('Meta+A'); await address.pressSequentially('hjkl')
+    await expect(address).toHaveValue('hjkl')
+    await address.press('Escape')
+    await expect(address).toBeFocused()
+    await expect(address).toHaveValue('hjkl')
+    expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(4)
+    await expect(address.locator('xpath=..').locator('[data-vim-cursor]')).toBeHidden()
+    await expect(controls.getByLabel('URL editing mode')).toHaveCount(0)
+    if (!floating) await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
+    for (let kind of ['window', 'session']) {
+      await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
+      await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, kind === 'window' ? { keyCode: ',' } : { keyCode: '$', modifiers: ['shift'] }])
+      let input = chrome.getByRole('textbox', { name: kind === 'window' ? 'Rename window' : 'Rename session', exact: true })
+      await input.pressSequentially('hjkl')
+      await input.press('Escape')
+      await expect(input).toHaveValue('hjkl')
+      await expect(input).toBeFocused()
+      await expect(input.locator('xpath=..').locator('[data-vim-cursor]')).toBeHidden()
+      await chrome.getByRole('button', { name: 'Cancel rename', exact: true }).click()
+    }
+    panel = await settings()
+    await expect(panel.getByRole('checkbox', { name: 'Vim editing', exact: true })).not.toBeChecked()
+    await panel.getByRole('checkbox', { name: 'Vim editing', exact: true }).check()
+    await expect.poll(async () => (await cli('state')).vimEditing).toBe(true)
+    await chrome.keyboard.press('Escape')
+    if (floating) await address.click()
+    else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
+    await expect(address.locator('xpath=..').locator('[data-vim-cursor]')).toBeVisible()
+  } finally {
+    await fs.writeFile(config, previous); await cli('settings.reload')
+    await cli('detach-client', { client: client.id })
+  }
+})
+
 for (let floating of [false, true]) test(`URL Vim mode preserves text and focus on Escape in ${floating ? 'floating' : 'tiled'} panes`, async ({}, info) => {
   let session = await cli('new-session', { name: `url-vim-${floating}` })
   let pane = session.windows[0].panes[0]
