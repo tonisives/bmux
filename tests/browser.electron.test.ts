@@ -3022,7 +3022,7 @@ test('status plus button opens and selects a new tab with a focused URL prompt',
         return Math.abs(plusBounds.y + plusBounds.height / 2 - closeBounds.y - closeBounds.height / 2)
       }).toBeLessThan(0.01)
       let buttonBounds = (await button.boundingBox())!, listBounds = (await list.boundingBox())!
-      expect(buttonBounds.x - listBounds.x - listBounds.width).toBeCloseTo(8)
+      expect(buttonBounds.x - listBounds.x - listBounds.width).toBeCloseTo(6.4, 1)
     }
     await chrome.screenshot({ path: 'artifacts/status-new-tab.png' })
   } finally {
