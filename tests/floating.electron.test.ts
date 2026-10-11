@@ -415,7 +415,7 @@ test('selected page text offers macOS Look Up on plain text and links', async ()
   } finally { await application.evaluate(() => (globalThis as any).restoreLookUpMenu()) }
 })
 
-test('selected page text translates in a popup without pane controls or changing the source window', async () => {
+test('selected page text translates in a floating pane without pane controls or changing the source window', async () => {
   let current = await state(), client = current.model.clients[0]
   let session = await rpc('new-session', { name: 'translate-selection', profile: 'bot' })
   let source = session.windows[0]
@@ -475,39 +475,28 @@ test('selected page text translates in a popup without pane controls or changing
       expect(destination.origin).toBe('https://translate.google.com')
       expect(Object.fromEntries(destination.searchParams)).toEqual({ sl: 'auto', tl: 'en', text: expected, op: 'translate' })
       await expect(translation.locator('h1')).toHaveText('Translation fixture')
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()))).toBe(true)
-      let popup = await application.evaluate(({ BrowserWindow, webContents }, sourceUrl) => {
-        let window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().startsWith('https://translate.google.com/'))!
-        let source = webContents.getAllWebContents().find(contents => contents.getURL() === sourceUrl)!
-        return { sameSession: window.webContents.session === source.session, parent: !!window.getParentWindow() }
-      }, `${url}/translate-selection`)
-      expect(popup).toEqual({ sameSession: true, parent: true })
       let after = await state()
+      let window = after.model.sessions.find((item: any) => item.id === session.id).windows[0]
+      let translated = window.panes.find((item: any) => item.id !== pane.id)
+      expect(window.floating.map((item: any) => item.paneId)).toEqual([translated.id])
+      expect(translated.profileId).toBe(pane.profileId)
       expect(after.model.sessions.find((item: any) => item.id === session.id).windows).toHaveLength(1)
       expect(after.model.clients.find((item: any) => item.id === client.id).windowId).toBe(source.id)
+      expect(after.model.clients.find((item: any) => item.id === client.id).paneId).toBe(translated.id)
       expect(await rpc('eval', { tab: pane.id, expression: 'location.href' })).toBe(`${url}/translate-selection`)
-      await application.evaluate(() => (globalThis as any).translateLastAction())
+      let floatingFrame = await frame(translated.id)
+      await expect(floatingFrame.getByRole('textbox', { name: 'Address', exact: true })).toHaveValue(destination.href)
+      await expect.poll(async () => (await views()).flatMap(window => window.children).some(view => view.url === destination.href && view.visible && view.bounds.width > 100 && view.bounds.height > 100)).toBe(true)
+      expect(await application.evaluate(({ webContents }, urls) => {
+        let all = webContents.getAllWebContents()
+        return all.find(contents => contents.getURL() === urls.destination)!.session === all.find(contents => contents.getURL() === urls.source)!.session
+      }, { destination: destination.href, source: `${url}/translate-selection` })).toBe(true)
+      expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter(window => window.isVisible()).length)).toBe(1)
+      await translation.screenshot({ path: path.resolve('artifacts/translation-floating.png') })
+      await promisify(execFile)('/usr/sbin/screencapture', ['-x', path.resolve('artifacts/translation-floating-desktop.png')])
+      await rpc('kill-pane', { pane: translated.id, confirm: true })
       await expect.poll(() => translation.isClosed()).toBe(true)
-      await expect.poll(() => application.context().pages().some(page => page.url() === destination.href)).toBe(true)
-      translation = application.context().pages().find(page => page.url() === destination.href)!
-      await expect(translation.locator('h1')).toHaveText('Translation fixture')
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()).length)).toBe(1)
-      await translation.screenshot({ path: path.resolve('artifacts/translation-popup.png') })
-      await promisify(execFile)('/usr/sbin/screencapture', ['-x', path.resolve('artifacts/translation-popup-desktop.png')])
-      await application.evaluate(({ BrowserWindow }, url) => {
-        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!
-        popup.focus(); popup.webContents.focus()
-      }, destination.href)
-      await expect.poll(() => application.evaluate(({ BrowserWindow }, url) => {
-        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)
-        return popup?.isFocused() && popup.webContents.isFocused()
-      }, destination.href)).toBe(true)
-      await application.evaluate(({ BrowserWindow }, url) => {
-        let popup = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)!
-        popup.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
-        if (!popup.isDestroyed()) popup.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
-      }, destination.href)
-      await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
+      await rpc('select-pane', { client: client.id, pane: pane.id })
       await rpc('activate-client', { client: client.id })
     }
     for (let empty of ['', '   ']) {
@@ -527,13 +516,13 @@ test('selected page text translates in a popup without pane controls or changing
       expect(labels).not.toContain('Keep Page Loaded')
     }
     await application.evaluate(() => (globalThis as any).translateLastAction())
-    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/') && window.isVisible()))).toBe(true)
+    await expect.poll(async () => (await views()).flatMap(window => window.children).some(view => view.url.startsWith('https://translate.google.com/') && view.visible)).toBe(true)
   } finally {
     await application.evaluate(() => (globalThis as any).restoreTranslateMenu())
     await application.context().unroute('https://translate.google.com/**')
     await rpc('select-window', { client: client.id, window: current.model.clients[0].windowId })
     await rpc('kill-session', { session: session.id, confirm: true })
-    await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some(window => window.webContents.getURL().startsWith('https://translate.google.com/')))).toBe(false)
+    await expect.poll(() => application.context().pages().some(page => page.url().startsWith('https://translate.google.com/'))).toBe(false)
   }
 })
 
