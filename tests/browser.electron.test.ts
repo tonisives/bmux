@@ -3236,7 +3236,8 @@ test('status windows can be dragged into a new order without switching the activ
   await expect(list).not.toHaveAttribute('data-dragging')
   await expect(list.locator(`[data-window-id="${first.id}"]`)).toHaveCSS('transform', 'none')
   let thirdSlot = (await list.locator(`[data-window-id="${third.id}"]`).boundingBox())!
-  await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer })
+  let sourceSlot = (await list.locator(`[data-window-id="${second.id}"]`).boundingBox())!
+  await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer, clientX: sourceSlot.x + sourceSlot.width / 2 })
   await tab(third.id).dispatchEvent('dragover', { dataTransfer: transfer, clientX: thirdSlot.x + thirdSlot.width * .35 })
   await expect.poll(() => offset(second.id)).toBeGreaterThan(1)
   await expect.poll(() => offset(third.id)).toBeLessThan(-1)
@@ -3263,7 +3264,39 @@ test('status windows can be dragged into a new order without switching the activ
   let frames = await list.evaluate(element => (element as HTMLElement & { dropFrames: Promise<number[][]> }).dropFrames)
   for (let index = 0; index < 3; index++) {
     let positions = frames.map(frame => frame[index])
-    expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2)
+    if ([first.id, second.id, third.id].sort()[index] !== second.id) expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2)
+  }
+
+  // Consecutive releases start at the pointer, including a drop that keeps the same order.
+  for (let targetId of [first.id, third.id, second.id]) {
+    let source = list.locator(`[data-window-id="${second.id}"]`)
+    let sourceBounds = (await source.boundingBox())!
+    let targetBounds = (await list.locator(`[data-window-id="${targetId}"]`).boundingBox())!
+    let pointer = targetBounds.x + targetBounds.width * (targetId === second.id ? .8 : targetId === first.id ? .65 : .35)
+    let release = pointer - sourceBounds.width / 2
+    await source.evaluate(element => {
+      let tab = element as HTMLElement
+      delete tab.dataset.releaseOffset
+      let animate = tab.animate.bind(tab)
+      tab.animate = (frames, options) => {
+        let first = (frames as Keyframe[])[0]
+        tab.dataset.releaseOffset = String(new DOMMatrixReadOnly(String(first.transform)).m41)
+        tab.animate = animate
+        return animate(frames, options)
+      }
+    })
+    await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer, clientX: sourceBounds.x + sourceBounds.width / 2 })
+    await tab(targetId).dispatchEvent('dragover', { dataTransfer: transfer, clientX: pointer })
+    await expect.poll(() => list.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
+    await tab(targetId).dispatchEvent('drop', { dataTransfer: transfer, clientX: pointer })
+    await tab(second.id).dispatchEvent('dragend', { dataTransfer: transfer })
+    await expect(source).toHaveAttribute('data-release-offset', /.+/)
+    await expect(list).not.toHaveAttribute('data-dragging')
+    await expect.poll(() => source.evaluate(element => element.getAnimations().length)).toBe(0)
+    let final = (await source.boundingBox())!
+    let releaseOffset = Number(await source.getAttribute('data-release-offset'))
+    expect(Math.abs(releaseOffset)).toBeGreaterThan(10)
+    expect(final.x + releaseOffset).toBeCloseTo(release, 0)
   }
   await transfer.dispose()
   await cli('reorder-window', { client: client.id, window: second.id, target: third.id, position: 'before' })

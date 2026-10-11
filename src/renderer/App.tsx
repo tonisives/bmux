@@ -329,8 +329,9 @@ let useWindowDrag = () => {
   let { session } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let draggedWindow = useRef<string | null>(null)
+  let grabOffset = useRef(0)
   let committingWindowDrag = useRef(false)
-  let pendingDrop = useRef<{ order: string[]; lefts: Map<string, number> } | null>(null)
+  let pendingDrop = useRef<{ order: string[]; lefts: Map<string, number>; released: { id: string; left: number } } | null>(null)
   let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
   let windowBounds = (tab: HTMLElement) => {
     let bounds = tab.getBoundingClientRect()
@@ -357,7 +358,8 @@ let useWindowDrag = () => {
       let offsets = tabs.map(tab => {
         let transform = getComputedStyle(tab).transform
         let offset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41
-        return { tab, offset: pending.lefts.get(tab.dataset.windowId!)! + offset - windowBounds(tab).left }
+        let left = tab.dataset.windowId === pending.released.id ? pending.released.left : pending.lefts.get(tab.dataset.windowId!)! + offset
+        return { tab, offset: left - windowBounds(tab).left }
       })
       committingWindowDrag.current = false; pendingDrop.current = null
       finishWindowDrag()
@@ -385,6 +387,8 @@ let useWindowDrag = () => {
     let button = (event.target as HTMLElement).closest<HTMLElement>(`.${css.windowSelect}`)
     let id = button?.closest<HTMLElement>('[data-window-id]')?.dataset.windowId
     if (!id) return
+    windows.current!.getAnimations({ subtree: true }).forEach(animation => animation.cancel())
+    grabOffset.current = event.clientX - button!.closest<HTMLElement>('[data-window-id]')!.getBoundingClientRect().left
     draggedWindow.current = id
     windows.current!.dataset.dragging = id
     button!.closest<HTMLElement>('[data-window-id]')!.dataset.dragging = 'true'
@@ -394,9 +398,10 @@ let useWindowDrag = () => {
   let overWindow = (event: DragEvent<HTMLDivElement>) => {
     if (!draggedWindow.current || committingWindowDrag.current) return
     let target = dropAt(event)
-    if (!target || target.id === draggedWindow.current) { setDrop(null); return }
+    if (!target) { setDrop(null); return }
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
+    if (target.id === draggedWindow.current) { setDrop(null); return }
     setDrop(current => current?.id === target.id && current.position === target.position ? current : target)
   }
   let finishWindowDrag = () => {
@@ -409,14 +414,14 @@ let useWindowDrag = () => {
   let dropWindow = async (event: DragEvent<HTMLDivElement>) => {
     if (committingWindowDrag.current) return
     let source = draggedWindow.current, target = dropAt(event)
-    if (!source || !target || source === target.id) { finishWindowDrag(); return }
+    if (!source || !target) { finishWindowDrag(); return }
     event.preventDefault()
     let tabs = Array.from(windows.current!.querySelectorAll<HTMLElement>('[data-window-id]'))
-    let order = tabs.map(tab => tab.dataset.windowId!).filter(id => id !== source)
-    order.splice(order.indexOf(target.id) + (target.position === 'after' ? 1 : 0), 0, source)
+    let order = tabs.map(tab => tab.dataset.windowId!)
+    if (source !== target.id) { order = order.filter(id => id !== source); order.splice(order.indexOf(target.id) + (target.position === 'after' ? 1 : 0), 0, source) }
     let pinned = new Set(session!.windows.filter(window => window.pinned).map(window => window.id))
     order.sort((first, second) => Number(pinned.has(second)) - Number(pinned.has(first)))
-    pendingDrop.current = { order, lefts: new Map(tabs.map(tab => [tab.dataset.windowId!, windowBounds(tab).left])) }
+    pendingDrop.current = { order, lefts: new Map(tabs.map(tab => [tab.dataset.windowId!, windowBounds(tab).left])), released: { id: source, left: event.clientX - grabOffset.current } }
     committingWindowDrag.current = true
     setDrop(target)
     let result = await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
