@@ -63,7 +63,6 @@ import { localMediaResponse } from './local-media'
 import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
-import { createTranslationPopups } from './translation-popup'
 
 type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -160,7 +159,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let bookmarkParameters = readBookmarkParameters(parameterFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
-  let translationPopups = createTranslationPopups()
   let deferredTabs = new Set<string>()
   let deferredLinkLoads = new Map<string, Electron.LoadURLOptions>()
   let idleUnloaded = new Set<string>()
@@ -1088,7 +1086,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let template: Electron.MenuItemConstructorOptions[] = []
         if (selectionText) template.push(
           ...(process.platform === 'darwin' ? [{ label: 'Look Up', click: () => contents.showDefinitionForSelection() }] : []),
-          { label: 'Translate', click: () => translationPopups.open(owner.window, contents, selectionText) },
+          { label: 'Translate', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(selectionText)}&op=translate` } }).catch(reportError) } },
           { type: 'separator' },
         )
         if (params.isEditable && params.misspelledWord) {
@@ -2994,7 +2992,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     clickMode.cancel()
     crashRecovery.close()
     extensions.close()
-    translationPopups.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
     pageTools?.close()
     filters?.close()
