@@ -2921,6 +2921,7 @@ test('status window list uses available room and hides its native scrollbar', as
 })
 
 test('status plus button opens and selects a new tab with a focused URL prompt', async () => {
+  let config = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
   let session = await cli('new-session', { name: 'mouse-new-tab' })
   let client = await cli('attach-session', { session: session.id })
   let chrome = await rendererForClient(client.id)
@@ -2945,8 +2946,21 @@ test('status plus button opens and selects a new tab with a focused URL prompt',
     let selected = state.model.clients.find((item: { id: string }) => item.id === client.id)
     expect(selected.windowId).not.toBe(session.windows[0].id)
     await cli('wait', { pane: selected.paneId, selector: '#text' })
+    for (let position of ['top', 'bottom', 'top']) {
+      await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nshowTabCloseButtons: true\nkeyboard: {}\n`)
+      await expect(chrome.locator('[data-status-bar]')).toHaveAttribute('data-status-bar', position)
+      let close = list.locator('button[aria-label^="Close "] svg').last()
+      await expect(close).toBeVisible()
+      await expect.poll(async () => {
+        let plusBounds = (await button.locator('svg').boundingBox())!, closeBounds = (await close.boundingBox())!
+        return Math.abs(plusBounds.y + plusBounds.height / 2 - closeBounds.y - closeBounds.height / 2)
+      }).toBeLessThan(0.01)
+      let buttonBounds = (await button.boundingBox())!, listBounds = (await list.boundingBox())!
+      expect(buttonBounds.x - listBounds.x - listBounds.width).toBeCloseTo(8)
+    }
     await chrome.screenshot({ path: 'artifacts/status-new-tab.png' })
   } finally {
+    await fs.writeFile(path.join(directory, 'config.yaml'), config)
     await cli('detach-client', { client: client.id })
     await cli('kill-session', { session: session.id, confirm: true })
   }
