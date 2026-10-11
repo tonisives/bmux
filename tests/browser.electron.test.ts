@@ -2129,6 +2129,7 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
     expect(await selected()).toBe(second.id)
     await button(third.id).dragTo(button(second.id), { targetPosition: { x: 2, y: 8 } })
     await expect.poll(order).toEqual([second.id, first.id, third.id])
+    await expect(chrome.locator('[data-window-list]')).not.toHaveAttribute('data-dragging')
     let bounds = (await button(third.id).boundingBox())!
     await button(second.id).dragTo(button(third.id), { targetPosition: { x: bounds.width - 2, y: 8 } })
     await expect.poll(order).toEqual([first.id, second.id, third.id])

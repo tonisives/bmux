@@ -414,6 +414,8 @@ let useWindowDrag = () => {
     let tabs = Array.from(windows.current!.querySelectorAll<HTMLElement>('[data-window-id]'))
     let order = tabs.map(tab => tab.dataset.windowId!).filter(id => id !== source)
     order.splice(order.indexOf(target.id) + (target.position === 'after' ? 1 : 0), 0, source)
+    let pinned = new Set(session!.windows.filter(window => window.pinned).map(window => window.id))
+    order.sort((first, second) => Number(pinned.has(second)) - Number(pinned.has(first)))
     pendingDrop.current = { order, lefts: new Map(tabs.map(tab => [tab.dataset.windowId!, windowBounds(tab).left])) }
     committingWindowDrag.current = true
     setDrop(target)
