@@ -16,7 +16,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
-  let vim = useAddressVim()
+  let vim = useAddressVim(undefined, undefined, address ? 'NORMAL' : 'INSERT')
   let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
@@ -30,7 +30,7 @@ export let FloatingPane = () => {
   useEffect(() => {
     let unsubscribe = bridge.subscribe(setState)
     void bridge.state().then(setState).catch(error => setError(String(error)))
-    let controls = bridge.controls(control => { if (control === 'address') { editing.current = true; vim.reset(); input.current?.focus(); input.current?.select() } })
+    let controls = bridge.controls(control => { if (control === 'address') { editing.current = true; vim.reset(input.current?.value ? 'NORMAL' : 'INSERT'); input.current?.focus(); input.current?.select() } })
     return () => { unsubscribe(); controls() }
   }, [])
   useEffect(() => { if (!editing.current) setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? '') }, [tab?.url, tab?.id])
@@ -39,7 +39,7 @@ export let FloatingPane = () => {
   }, [tab?.id])
   let focus = () => {
     editing.current = true
-    vim.reset()
+    vim.reset(input.current?.value ? 'NORMAL' : 'INSERT')
     void run('select-pane', { focus: false }).then(() => run('focus-ui'))
   }
   let blur = () => { editing.current = false }

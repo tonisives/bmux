@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { createVimInputState, resetVimInputState, vimInputKey } from '../shared/vim-input'
 
-export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number) => {
-  let [mode, setMode] = useState('NORMAL')
+export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number, initialMode = 'NORMAL') => {
+  let [mode, setMode] = useState(initialMode)
   let state = useRef(createVimInputState())
-  let reset = () => { setMode('NORMAL'); resetVimInputState(state.current) }
-  useEffect(reset, [focusVersion])
+  let reset = (mode = 'NORMAL') => { setMode(mode); resetVimInputState(state.current) }
+  useEffect(() => reset(initialMode), [focusVersion])
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return false
     let input = event.currentTarget

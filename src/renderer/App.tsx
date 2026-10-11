@@ -775,7 +775,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     setIndex(-1); void run('history.remove', { profile: profile!.id, url })
     ref.current?.focus()
   }
-  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion)
+  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT')
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (vim.keys(event) || event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
