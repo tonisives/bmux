@@ -635,7 +635,7 @@ test('session picker recent sorting lists individual windows across sessions and
     for (let [index, id] of [other.id, latest.id, older.id, second.windows[0].id, first.windows[0].id].entries()) await expect(windows.nth(index)).toHaveAttribute('data-window-row', id)
     await expect(windows.first()).toBeFocused()
     await expect(windows.first().locator('[data-session-number]')).toHaveText('0')
-    expect(await windows.first().locator('[data-window-label]').evaluate(element => element.previousElementSibling?.getBoundingClientRect().width)).toBe(0)
+    expect(await windows.first().locator('[data-session-branch]').evaluate(element => element.getBoundingClientRect().width)).toBe(0)
     let search = group.getByRole('textbox', { name: 'Search sessions', exact: true })
     await search.fill('recent-visit'); await expect(windows.first()).toHaveAttribute('data-window-row', latest.id)
     await search.press('s'); await expect(search).toHaveValue('recent-visits'); await expect(toggle).toHaveAttribute('aria-pressed', 'true')

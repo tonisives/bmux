@@ -1595,7 +1595,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       window = newWindow(page.title, profileId, false, model)
       let pane = window.panes[0]
       pane.title = page.title
-      pane.url = page.url ?? 'bmux:remote'
+      pane.url = page.url ? normalizeUrl(page.url, searchAppForSession(session)) : 'bmux:remote'
       remotePages.set(pane.id, page)
       session.windows.push(window)
     }
