@@ -3272,8 +3272,9 @@ test('status windows can be dragged into a new order without switching the activ
     let source = list.locator(`[data-window-id="${second.id}"]`)
     let sourceBounds = (await source.boundingBox())!
     let targetBounds = (await list.locator(`[data-window-id="${targetId}"]`).boundingBox())!
-    let pointer = targetBounds.x + targetBounds.width * (targetId === second.id ? .8 : targetId === first.id ? .65 : .35)
-    let release = pointer - sourceBounds.width / 2
+    let startX = Math.round(sourceBounds.x + sourceBounds.width / 2)
+    let pointer = Math.round(targetBounds.x + targetBounds.width * (targetId === second.id ? .8 : targetId === first.id ? .65 : .35))
+    let release = pointer - (startX - sourceBounds.x)
     await source.evaluate(element => {
       let tab = element as HTMLElement
       delete tab.dataset.releaseOffset
@@ -3285,7 +3286,7 @@ test('status windows can be dragged into a new order without switching the activ
         return animate(frames, options)
       }
     })
-    await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer, clientX: sourceBounds.x + sourceBounds.width / 2 })
+    await tab(second.id).dispatchEvent('dragstart', { dataTransfer: transfer, clientX: startX })
     await tab(targetId).dispatchEvent('dragover', { dataTransfer: transfer, clientX: pointer })
     await expect.poll(() => list.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
     await tab(targetId).dispatchEvent('drop', { dataTransfer: transfer, clientX: pointer })
