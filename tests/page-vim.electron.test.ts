@@ -109,6 +109,40 @@ test('website Vim hints open by mouse and native click mode with the configured 
   await expect(editor).toBeFocused(); await editor.press('Escape')
 })
 
+test('website Vim hints keep readable contrast with Dark Reader and after navigation', async ({}, info) => {
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let hint = page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')
+  let contrast = () => hint.evaluate(element => {
+    let style = getComputedStyle(element)
+    let luminance = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(channel => {
+      let value = channel / 255
+      return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4
+    }).reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0)
+    let foreground = luminance(style.color), background = luminance(style.backgroundColor)
+    return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
+  })
+  let dark = (value: string) => chrome.evaluate(async value => (window as any).bmux.command({ method: 'browser.set', args: { setting: 'darkMode', value } }), value)
+  let readerReady = () => expect.poll(() => hint.evaluate(element => {
+    let root = element.getRootNode() as ShadowRoot
+    return root.adoptedStyleSheets.some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes('__darkreader__adoptedOverride')))
+  })).toBe(true)
+  await expect(hint).toBeVisible(); await expect.poll(contrast).toBeGreaterThan(4.5)
+  try {
+    await dark('dark'); await readerReady()
+    await expect.poll(contrast).toBeGreaterThan(4.5)
+    await page.reload(); await expect(hint).toBeVisible(); await readerReady()
+    await expect.poll(contrast).toBeGreaterThan(4.5)
+    await hint.screenshot({ path: info.outputPath('vim-hint-dark.png') })
+    await hint.click()
+    let overlay = page.locator('[data-bmux-vim]'), editor = overlay.getByRole('textbox', { name: 'Vim text' })
+    await expect(editor).toBeFocused(); await editor.press('Escape'); await expect(overlay).toHaveCount(0)
+  } finally {
+    await dark('off')
+  }
+  await expect.poll(() => page.locator('style.darkreader').count()).toBe(0)
+  await expect(hint).toBeVisible(); await expect.poll(contrast).toBeGreaterThan(4.5)
+})
+
 test('website Vim editor stays inline and restores the original field and layout', async ({}, info) => {
   let field = page.locator('#notes'), next = page.locator('#password')
   await field.evaluate(element => {
