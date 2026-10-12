@@ -109,6 +109,44 @@ test('website Vim hints open by mouse and native click mode with the configured 
   await expect(editor).toBeFocused(); await editor.press('Escape')
 })
 
+test('website Vim editor stays inline and restores the original field and layout', async ({}, info) => {
+  let field = page.locator('#notes'), next = page.locator('#password')
+  await field.evaluate(element => {
+    element.style.setProperty('display', 'block', 'important')
+    element.style.setProperty('background-color', 'rgb(240, 245, 250)')
+    ;(window as any).originalVimField = element
+  })
+  let before = await field.boundingBox(), nextBefore = await next.boundingBox()
+  let { overlay, editor } = await open(field)
+  await expect(field).toBeHidden()
+  expect(await overlay.evaluate(element => ({
+    inline: getComputedStyle(element).position === 'static',
+    popup: element.hasAttribute('popover'),
+    original: element.previousElementSibling === (window as any).originalVimField,
+    color: getComputedStyle(element.shadowRoot!.querySelector('.cm-editor')!).backgroundColor,
+  }))).toEqual({ inline: true, popup: false, original: true, color: 'rgb(240, 245, 250)' })
+  let bounds = await overlay.boundingBox(), nextDuring = await next.boundingBox()
+  expect(bounds!.width).toBeCloseTo(before!.width, 0)
+  expect(nextDuring!.y - bounds!.y).toBeGreaterThan(nextBefore!.y - before!.y)
+  await page.screenshot({ path: info.outputPath('vim-inline.png') })
+  await editor.pressSequentially('A draft'); await editor.press('Escape')
+  // A framework redraw can detach injected siblings; preserve the draft inline.
+  await overlay.evaluate(element => element.remove())
+  await expect(editor).toBeVisible(); await expect(editor).toContainText('draft')
+  await editor.click(); await ex(editor, 'q')
+  await expect(overlay).toHaveCount(0); await expect(field).toBeVisible(); await expect(field).toBeFocused()
+  expect(await field.evaluate(element => ({
+    same: element === (window as any).originalVimField,
+    display: element.style.getPropertyValue('display'),
+    priority: element.style.getPropertyPriority('display'),
+    background: element.style.backgroundColor,
+  }))).toEqual({ same: true, display: 'block', priority: 'important', background: 'rgb(240, 245, 250)' })
+  await expect(field).toHaveValue('alpha bravo\ncharlie delta')
+  let after = await field.boundingBox(), nextAfter = await next.boundingBox()
+  expect(nextAfter!.y - after!.y).toBeCloseTo(nextBefore!.y - before!.y, 0)
+  await field.evaluate(element => element.removeAttribute('style'))
+})
+
 test('website Vim editor saves multiline motions, undo, and insert edits without submitting', async ({}, info) => {
   let field = page.locator('#notes'), { overlay, editor } = await open(field)
   await editor.pressSequentially('gg0dw')
@@ -136,7 +174,7 @@ test('website Vim editor discards drafts, writes controlled React inputs, and ex
   await editor.pressSequentially('gg0cc'); await editor.pressSequentially('saved'); await editor.press('Escape')
   await ex(editor, 'w')
   await expect(field).toHaveValue('saved'); await expect(page.locator('#controlled-value')).toHaveText('saved')
-  await expect(overlay).toBeVisible()
+  await expect(overlay).toBeVisible(); await expect(field).toBeHidden(); await expect(editor).toBeFocused()
   await editor.pressSequentially('A!'); await editor.press('Escape'); await editor.press('Escape')
   await expect(overlay).toHaveCount(0); await expect(field).toHaveValue('saved!')
   await expect(page.locator('#controlled-value')).toHaveText('saved!'); await expect(field).toBeFocused()

@@ -200,13 +200,16 @@ under `keyboard.shortcuts`, for example `Cmd+E: vim-editor` and `Ctrl+E: null`. 
 with text inputs, textareas, and contenteditable composers, including frames and
 open shadow roots. Password, disabled, and read-only fields keep their native editing.
 
-The editor starts in Normal mode. Use `i` to type, Vim motions and operators to
+The editor replaces the field in the page layout; it does not open a popup.
+It uses the field's width and colors, and taller editors move the surrounding
+content down. The editor starts in Normal mode. Use `i` to type, Vim motions and operators to
 edit, and Escape to return from Insert or Visual mode. Escape in Normal mode or
 `:wq` saves the draft and restores focus to the original field. `:q` discards the
 draft; `:w` writes it without closing. Save and Discard buttons provide the same
 actions. Saving only updates the field; it never submits the website's form.
 
-The original field stays mounted while editing. If the page changes its text,
+The original field stays mounted and hidden while editing, then returns when
+you exit. If the page changes its text,
 removes the field, or rejects an update, the editor keeps your draft and reports the problem. Rich-text
 editing writes plain text through the browser's editing commands; embedded media
 and formatting are not part of the Vim draft. Custom editors that reject native
