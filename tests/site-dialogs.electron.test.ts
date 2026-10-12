@@ -4,10 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
-let exec = promisify(execFile)
+import { sendNativeKeys } from './native-focus'
 
 let fixture = async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-dialogs-'))
@@ -56,12 +53,8 @@ test('website confirmations allow cancellation and acceptance', async () => {
   } finally { await close() }
 })
 
-test('unsaved changes use Escape to stay and Enter to leave when entering a URL', async () => {
-  test.skip(process.platform !== 'darwin', 'Native macOS alert keyboard equivalents')
+test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave when entering a URL', async () => {
   let { application, chrome, page, url, close } = await fixture()
-  let apple = (source: string) => exec('/usr/bin/osascript', ['-e', source], { timeout: 5000 })
-  let sheet = `tell application "System Events" to tell first application process whose unix id is ${application.process().pid} to `
-  let sheetVisible = () => apple(`${sheet}get exists sheet 1 of window 1`).then(result => result.stdout.trim()).catch(() => 'false')
   try {
     await application.evaluate(({ BaseWindow }) => {
       let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
@@ -71,19 +64,21 @@ test('unsaved changes use Escape to stay and Enter to leave when entering a URL'
     await page.getByRole('button', { name: 'Edit' }).click()
     await expect(page.locator('output')).toHaveText('Unsaved')
     let destination = `${url}?next`
-    for (let key of [53, 36]) {
+    for (let keyCode of ['Escape', 'Enter']) {
       await chrome.getByRole('button', { name: 'Address', exact: true }).click()
       let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
       await expect(address).toBeFocused()
       await address.fill(destination)
-      let submitting = address.press('Enter')
-      await expect.poll(sheetVisible).toBe('true')
-      expect((await apple(`${sheet}get name of buttons of sheet 1 of window 1`)).stdout).toContain('Leave')
-      expect((await apple(`${sheet}get value of static texts of sheet 1 of window 1`)).stdout).toContain('Press Esc to stay or Enter to leave.')
-      await apple(`tell application "System Events" to key code ${key}`)
-      await submitting
-      await expect.poll(sheetVisible).toBe('false')
-      if (key === 53) {
+      await address.press('Enter')
+      let prompt = chrome.getByRole('alertdialog', { name: 'Leave this site?' })
+      await expect(prompt).toBeVisible()
+      await expect(prompt.getByRole('button', { name: 'Stay (esc)', exact: true })).toBeFocused()
+      await expect(prompt.getByRole('button', { name: 'Leave (enter)', exact: true })).toBeVisible()
+      await expect(prompt).toContainText('Changes you made may not be saved.')
+      if (keyCode === 'Escape') await prompt.screenshot({ path: test.info().outputPath('unsaved-changes-prompt.png') })
+      await sendNativeKeys(application, [{ keyCode }])
+      await expect(prompt).toHaveCount(0)
+      if (keyCode === 'Escape') {
         await expect(page).toHaveURL(url)
         await expect(page.locator('output')).toHaveText('Unsaved')
       } else {
@@ -91,11 +86,7 @@ test('unsaved changes use Escape to stay and Enter to leave when entering a URL'
         await expect(page.locator('output')).toHaveText('Unchanged')
       }
     }
-  } finally {
-    // Dismiss a remaining native sheet before graceful Electron teardown.
-    if (await sheetVisible() === 'true') await apple('tell application "System Events" to key code 53')
-    await close()
-  }
+  } finally { await close() }
 })
 
 test('unsaved changes can cancel or allow tab and window close', async () => {
@@ -112,19 +103,19 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
       let pane = await (window as any).bmux.command({ method: 'split-window', args: { pane: tabId } })
       return pane.id as string
     }, tabId)
-    await application.evaluate(({ dialog }) => {
-      let native = dialog.showMessageBoxSync
-      let choices = [0, 1, 0, 1]
-      ;(dialog as any).showMessageBoxSync = (...args: unknown[]) => {
-        let options = args.at(-1) as Electron.MessageBoxOptions
-        if (options.message === 'Leave this site?') return choices.shift() ?? 0
-        return (native as any)(...args)
-      }
-    })
+    let choose = async (operation: () => Promise<unknown>, leave: boolean) => {
+      let closing = operation()
+      let prompt = chrome.getByRole('alertdialog', { name: 'Leave this site?' })
+      await expect(prompt).toBeVisible()
+      await prompt.getByRole('button', { name: leave ? 'Leave (enter)' : 'Stay (esc)', exact: true }).click()
+      let result = await closing
+      await expect(prompt).toHaveCount(0)
+      return result
+    }
     let closeTab = () => chrome.evaluate(({ tabId }) => (window as any).bmux.command({ method: 'kill-pane', args: { pane: tabId } }), { tabId })
-    expect(await closeTab()).toEqual({ cancelled: tabId })
+    expect(await choose(closeTab, false)).toEqual({ cancelled: tabId })
     await expect(page.locator('output')).toHaveText('Unsaved')
-    expect(await closeTab()).toEqual({ closed: tabId })
+    expect(await choose(closeTab, true)).toEqual({ closed: tabId })
     await expect.poll(() => application.context().pages().some(candidate => candidate.url() === url)).toBe(false)
     let windowId = await chrome.evaluate(async () => {
       let state = await (window as any).bmux.state()
@@ -137,9 +128,41 @@ test('unsaved changes can cancel or allow tab and window close', async () => {
     replacement.on('dialog', () => undefined)
     await replacement.getByRole('button', { name: 'Edit' }).click()
     let closeWindow = () => chrome.evaluate(({ windowId }) => (window as any).bmux.command({ method: 'kill-window', args: { window: windowId, confirm: true } }), { windowId })
-    expect(await closeWindow()).toEqual({ cancelled: windowId })
+    expect(await choose(closeWindow, false)).toEqual({ cancelled: windowId })
     await expect(replacement.locator('output')).toHaveText('Unsaved')
-    expect(await closeWindow()).toEqual({ closed: windowId })
+    expect(await choose(closeWindow, true)).toEqual({ closed: windowId })
     await expect.poll(() => application.context().pages().some(candidate => candidate.url() === url)).toBe(false)
   } finally { await cleanup() }
+})
+
+test('bmux reload and history actions use styled unsaved changes prompts', async () => {
+  let { application, chrome, page, url, close } = await fixture()
+  try {
+    page.on('dialog', () => undefined)
+    let tabId = await chrome.evaluate(async () => (await (window as any).bmux.state()).model.sessions[0].windows[0].panes[0].id as string)
+    let next = `${url}?next`
+    await chrome.evaluate(({ tabId, next }) => (window as any).bmux.command({ method: 'navigate', args: { tab: tabId, url: next } }), { tabId, next })
+    await expect(page).toHaveURL(next)
+    let index = await chrome.evaluate(async ({ tabId, url }) => (await (window as any).bmux.state()).navigation[tabId].entries.findIndex((entry: { url: string }) => entry.url === url), { tabId, url })
+    for (let method of ['reload', 'hard-reload', 'back', 'forward', 'history.go-to']) {
+      let current = page.url()
+      await page.getByRole('button', { name: 'Edit' }).click()
+      await expect(page.locator('output')).toHaveText('Unsaved')
+      for (let keyCode of ['Escape', 'Enter']) {
+        await chrome.evaluate(({ tabId, method, index }) => (window as any).bmux.command({ method, args: { tab: tabId, index } }), { tabId, method, index })
+        let prompt = chrome.getByRole('alertdialog', { name: 'Leave this site?' })
+        await expect(prompt).toBeVisible()
+        await expect(prompt.getByRole('button', { name: 'Stay (esc)', exact: true })).toBeFocused()
+        await sendNativeKeys(application, [{ keyCode }])
+        await expect(prompt).toHaveCount(0)
+        if (keyCode === 'Escape') {
+          await expect(page).toHaveURL(current)
+          await expect(page.locator('output')).toHaveText('Unsaved')
+        } else {
+          await expect(page).toHaveURL(method === 'back' || method === 'history.go-to' ? url : method === 'forward' ? next : current)
+          await expect(page.locator('output')).toHaveText('Unchanged')
+        }
+      }
+    }
+  } finally { await close() }
 })

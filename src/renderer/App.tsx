@@ -1,3 +1,4 @@
+import { UnloadPrompt } from './UnloadPrompt'
 import { VimCursor } from './VimCursor'
 import { useAddressVim } from './useAddressVim'
 import { activityLabel, windowVisitTime } from '../shared/pane-activity'
@@ -61,7 +62,7 @@ export let App = () => {
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
-  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false)
+  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousUnloadPrompt = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
@@ -72,7 +73,8 @@ export let App = () => {
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
     knownPanes.current = new Set(paneIds)
-    if (next.pluginPrompt) setControl('plugin-dialog')
+    if (next.unloadPrompt) { setControl(null); setHistoryPopup(null) }
+    else if (next.pluginPrompt) setControl('plugin-dialog')
     else setControl(current => current === 'plugin-dialog' ? null : current)
     previous.current = target; setState(next)
   }, [])
@@ -112,21 +114,18 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousUnloadPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    previousUnloadPrompt.current = !!state.unloadPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
-      if (!cancelled && !control && restoreFocus) void run('focus-page', { client: state.clientId })
+    void run('client.overlay', { client: state.clientId, visible: !!state.unloadPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
+      if (!cancelled && !control && !state.unloadPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, run])
-  useEffect(() => {
-    let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
-    document.addEventListener('keydown', escape)
-    return () => document.removeEventListener('keydown', escape)
-  }, [dismiss])
+  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.unloadPrompt?.id, run])
+  useEscapeDismiss(dismiss, !!state?.unloadPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
@@ -139,6 +138,7 @@ export let App = () => {
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
+  let respondToUnload = (leave: boolean) => run('unload.respond', { id: state.unloadPrompt?.id, leave })
   let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
@@ -147,7 +147,16 @@ export let App = () => {
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
+    {state.unloadPrompt && <UnloadPrompt key={state.unloadPrompt.id} respond={respondToUnload} />}
   </div></Context.Provider>
+}
+
+let useEscapeDismiss = (dismiss: () => void, blocked: boolean) => {
+  useEffect(() => {
+    let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape' && !blocked) dismiss() }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [dismiss, blocked])
 }
 
 let useIgnoredAutomationWarnings = (state: PublicState | null) => {

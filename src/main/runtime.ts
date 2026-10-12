@@ -63,8 +63,9 @@ import { localMediaResponse } from './local-media'
 import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
+import { createUnloadGuard } from './unload-guard'
 
-type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation> }
+type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; attach?: (contents: WebContents, close: () => Promise<unknown>) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -257,6 +258,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let permissionFocusTarget: { clientId: string; paneId: string } | undefined
   let pageFocusTarget: { clientId: string; paneId: string } | undefined
+  let unloadPrompts = new Map<string, { id: string; tabId: string; respond: (leave: boolean) => void }>()
   let overlays = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
@@ -331,7 +333,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ unloadPrompt: unloadPrompts.get(clientId) && { id: unloadPrompts.get(clientId)!.id, tabId: unloadPrompts.get(clientId)!.tabId }, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -747,6 +749,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && ![...focused.floats.values()].some(frame => frame.webContents === contents) && ![...tabs.values()].some(tab => tab.contents === contents && tab.parent === focused.window))) return
+      if (unloadPrompts.has(focusedClientId)) { contents.setIgnoreMenuShortcuts(true); return }
       if (clickMode.handle(focusedClientId, input)) { event.preventDefault(); return }
       let clickSettings = configuration?.clickMode ?? DEFAULT_CLICK_MODE
       let selected = model.clients.find(client => client.id === focusedClientId)?.paneId
@@ -871,6 +874,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (installSwipe) view.on('bounds-changed', installSwipe.cancel)
     contents.on('will-prevent-unload', event => {
       if (idleClosing.has(tabId)) { live.cancelClose?.(); return }
+      if (live.unloadGuard?.handle(event)) return
+      // Keep Chromium's request intact for site-initiated navigation, including
+      // form submissions whose body is unavailable to replay from the UI.
       let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
       // AppKit gives each button one key equivalent; sharing default and cancel
       // IDs makes Escape replace Enter rather than binding both keys.
@@ -879,6 +885,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (choice === 1) event.preventDefault()
       else live.cancelClose?.()
     })
+    live.unloadGuard = createUnloadGuard(() => confirmUnload(tabId), () => { live.cancelClose?.(); live.cancelNavigation?.() })
     // Lazy pages may first load after client restoration or a later selection.
     let serializedRestore = recoveryTabs.delete(tabId)
     tabs.set(tabId, live)
@@ -1042,7 +1049,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (client.paneId !== pane.id) { client.paneId = pane.id; raisePane(paneById(model, pane.id).window, pane.id); save(); void scheduleVisuals() }
       }
     })
-    contents.on('did-navigate', () => { live.pendingUrl = undefined; delete crashes[tabId]; update() })
+    contents.on('did-navigate', () => { live.unloadGuard?.cancel(); live.pendingUrl = undefined; delete crashes[tabId]; update() })
     contents.on('did-navigate-in-page', () => update())
     contents.on('did-finish-load', () => {
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.
@@ -1128,7 +1135,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         }
         if (linkUrl) {
           template.push(
-            { label: 'Open link', click: () => { if (isLiveTabOpen(live)) void contents.loadURL(linkUrl).catch(reportError) } },
+            { label: 'Open link', click: () => { if (isLiveTabOpen(live)) void guardedLoad(live, linkUrl).catch(reportError) } },
             { label: 'Open link in floating pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
             { label: 'Open link in new window', click: () => { openLinkWindow(linkUrl, true) } },
             { label: 'Copy link address', click: () => clipboard.writeText(linkUrl) },
@@ -1138,9 +1145,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           template.push(
             ...paneMenu(tabById(model, tabId).pane.id, [...clients].find(([, live]) => live === owner)![0]),
             { type: 'separator' },
-            { label: 'Back', enabled: navigation.canGoBack(), click: () => navigation.goBack() },
-            { label: 'Forward', enabled: navigation.canGoForward(), click: () => navigation.goForward() },
-            { label: 'Reload', click: () => contents.reload() },
+            { label: 'Back', enabled: navigation.canGoBack(), click: () => guardedNavigation(live, () => navigation.goBack()) },
+            { label: 'Forward', enabled: navigation.canGoForward(), click: () => guardedNavigation(live, () => navigation.goForward()) },
+            { label: 'Reload', click: () => guardedNavigation(live, () => contents.reload()) },
           )
         }
         if (selectionText || params.isEditable) template.push(
@@ -1253,12 +1260,47 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       client?.chrome.webContents.focus()
     }
   }
+  let confirmUnload = (tabId: string) => {
+    let live = tabs.get(tabId)
+    let entry = [...clients].find(([, owner]) => owner.window === live?.parent && owner.window.isVisible())
+    if (!entry) return { result: Promise.resolve(false), cancel: () => undefined }
+    let [clientId, owner] = entry
+    unloadPrompts.get(clientId)?.respond(false)
+    let resolve!: (leave: boolean) => void
+    let result = new Promise<boolean>(done => { resolve = done })
+    let requestId = id('unload')
+    let respond = (leave: boolean) => {
+      if (unloadPrompts.get(clientId)?.id !== requestId) return
+      unloadPrompts.delete(clientId); publish(); resolve(leave)
+    }
+    unloadPrompts.set(clientId, { id: requestId, tabId, respond })
+    overlays.add(clientId); publish()
+    void scheduleVisuals().then(() => {
+      if (unloadPrompts.get(clientId)?.id === requestId && owner.window.isFocused()) owner.chrome.webContents.focus()
+    }).catch(reportError)
+    return { result, cancel: () => respond(false) }
+  }
+  let guardedLoad = (live: LiveTab, url: string, options?: Electron.LoadURLOptions) => live.unloadGuard?.run(() => loadPage(live.contents, url, options), undefined) ?? loadPage(live.contents, url, options)
+  let guardedNavigation = (live: LiveTab, action: () => void) => {
+    let interrupt: () => void = () => undefined
+    let attempt = () => new Promise<void>((resolve, reject) => {
+      let contents = live.contents
+      let cleanup = () => {
+        contents.off('did-navigate', finish); contents.off('did-stop-loading', finish); contents.off('destroyed', finish)
+        if (live.cancelNavigation === finish) live.cancelNavigation = undefined
+      }
+      let finish = () => { cleanup(); resolve() }
+      interrupt = finish; live.cancelNavigation = finish
+      contents.once('did-navigate', finish); contents.once('did-stop-loading', finish); contents.once('destroyed', finish)
+      try { action() } catch (error) { cleanup(); reject(error) }
+    })
+    void (live.unloadGuard?.run(attempt, undefined, () => interrupt()) ?? attempt()).catch(reportError)
+  }
   let closeLiveTab = (tabId: string): Promise<boolean> => {
     let live = tabs.get(tabId)
     if (!live || live.contents.isDestroyed()) return Promise.resolve(true)
     if (live.closing) return Promise.resolve(false)
-    let start!: () => void
-    let closing = new Promise<boolean>(resolve => {
+    let attempt = () => new Promise<boolean>(resolve => {
       let finish = (closed: boolean) => {
         live.contents.off('destroyed', destroyed)
         live.cancelClose = undefined
@@ -1267,14 +1309,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let destroyed = () => finish(true)
       live.cancelClose = () => finish(false)
       live.contents.once('destroyed', destroyed)
-      start = () => {
-        try { live.contents.close({ waitForBeforeUnload: true }) }
-        catch (error) { finish(false); reportError(error) }
-      }
+      try { live.contents.close({ waitForBeforeUnload: true }) }
+      catch (error) { finish(false); reportError(error) }
     })
+    let closing = Promise.resolve().then(() => idleClosing.has(tabId) ? attempt() : live.unloadGuard?.run(attempt, false) ?? attempt())
     live.closing = closing
     void closing.finally(() => { if (live.closing === closing) live.closing = undefined })
-    start()
     return closing
   }
   let disposeTab = (tabId: string) => {
@@ -1287,6 +1327,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let live = tabs.get(tabId)
     if (live) {
       keepClientFocus(live)
+      live.unloadGuard?.cancel()
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
       if (!live.parent.isDestroyed() && live.parent.contentView.children.includes(live.view)) live.parent.contentView.removeChildView(live.view)
@@ -1663,6 +1704,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
     })
     window.on('closed', () => {
+      unloadPrompts.get(client.id)?.respond(false)
       clients.delete(client.id)
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
@@ -2057,6 +2099,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'plugin.reload') { plugins?.reload(); return plugins?.list() ?? [] }
     if (method === 'plugin.cancel') return plugins?.cancel(required(args, 'id'))
     if (method === 'plugin.respond') { if (!sourceClientId) throw new Error('Trusted UI required'); return plugins?.respond(sourceClientId, args) }
+    if (method === 'unload.respond') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let request = unloadPrompts.get(sourceClientId)
+      if (!request || request.id !== args.id) throw new Error('Unload prompt no longer exists')
+      request.respond(args.leave === true)
+      return null
+    }
     if (method === 'plugin.run') {
       if (!plugins) throw new Error('Plugin host unavailable')
       return plugins.run(required(args, 'action'), { clientId: sourceClientId, paneId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
@@ -2783,12 +2832,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'site-data.clear') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = (await ensureLiveTab(tabId)).contents
+      let live = await ensureLiveTab(tabId), contents = live.contents
       let url = new URL(contents.getURL())
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Open a website to clear its data')
       if (url.origin !== required(args, 'origin')) throw new Error('The page changed. Reopen Site information and try again')
       await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
-      if (!contents.isDestroyed() && contents.getURL() === url.href) contents.reload()
+      if (!contents.isDestroyed() && contents.getURL() === url.href) guardedNavigation(live, () => contents.reload())
       return { origin: url.origin }
     }
     if (method === 'reload' || method === 'hard-reload') {
@@ -2800,22 +2849,23 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         live.initialNavigation = undefined
         contents.stop()
         loading[tabId] = true; publish()
-        if (!contents.getURL() || contents.getURL() === 'about:blank' && tab.url !== 'about:blank') void contents.loadURL(tab.url).catch(reportError)
-        else if (method === 'hard-reload') contents.reloadIgnoringCache()
-        else contents.reload()
+        if (!contents.getURL() || contents.getURL() === 'about:blank' && tab.url !== 'about:blank') void guardedLoad(live, tab.url).catch(reportError)
+        else if (method === 'hard-reload') guardedNavigation(live, () => contents.reloadIgnoringCache())
+        else guardedNavigation(live, () => contents.reload())
       } catch (error) { delete loading[tabId]; publish(); throw error }
       return { pane: tabId }
     }
     if (method === 'stop') {
       let tabId = required(args, 'tab'), live = await ensureLiveTab(tabId, false)
       live.initialNavigation = undefined
+      live.unloadGuard?.cancel()
       live.contents.stop()
       delete crashes[tabId]; delete loading[tabId]
       publish(); return { pane: tabId }
     }
     if (['back', 'forward'].includes(method)) {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = (await ensureLiveTab(tabId)).contents
+      let live = await ensureLiveTab(tabId), contents = live.contents
       if (args.newWindow === true) {
         let history = contents.navigationHistory
         let entry = history.getEntryAtIndex(history.getActiveIndex() + (method === 'back' ? -1 : 1))
@@ -2825,7 +2875,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       delete crashes[tabId]
       if (method === 'back') {
-        if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+        if (contents.navigationHistory.canGoBack()) guardedNavigation(live, () => contents.navigationHistory.goBack())
         else {
           let { pane, window } = paneById(model, tabId)
           let opener = backOpener(model, pane)
@@ -2844,16 +2894,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           }
         }
       }
-      if (method === 'forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+      if (method === 'forward' && contents.navigationHistory.canGoForward()) guardedNavigation(live, () => contents.navigationHistory.goForward())
       publish(); return { pane: tabId }
     }
     if (method === 'history.go-to') {
       let tabId = required(args, 'tab'); tabById(model, tabId)
-      let contents = (await ensureLiveTab(tabId)).contents
+      let live = await ensureLiveTab(tabId), contents = live.contents
       let index = args.index
       let history = contents.navigationHistory
       if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= history.length()) throw new Error('Invalid history entry')
-      history.goToIndex(index)
+      guardedNavigation(live, () => history.goToIndex(index))
       publish(); return { pane: tabId, index }
     }
     if (method === 'history.remove') {
@@ -2876,7 +2926,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return loadPage(live.contents, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url && (live.disposed || live.contents.isDestroyed() || !live.contents.isLoading())) live.pendingUrl = undefined
@@ -2911,14 +2961,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
-          try { await contents.loadURL(normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
+          try { await guardedLoad(live, normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
           finally { contents.off('did-navigate', response) }
           if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(paneConnectionId(pane))?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
           return { id: tab.id, url: contents.getURL() }
         }
-        if (method === 'reload') { delete crashes[tabId]; contents.reload(); publish(); return { reloading: tabId } }
-        if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) history.goBack(); if (method === 'forward' && history.canGoForward()) history.goForward(); return { pane: tabId } }
+        if (method === 'reload') { delete crashes[tabId]; guardedNavigation(live, () => contents.reload()); publish(); return { reloading: tabId } }
+        if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) guardedNavigation(live, () => history.goBack()); if (method === 'forward' && history.canGoForward()) guardedNavigation(live, () => history.goForward()); return { pane: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
         if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
         if (method === 'eval') {
