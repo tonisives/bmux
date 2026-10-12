@@ -2595,7 +2595,7 @@ let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting:
     </section>}
     {show('[name="vimEditing"]') && <section className={css.settingsGroup} aria-label="Text editing"><h3>Text editing</h3>
       <label className={css.settingsRow}><span>Vim editing</span><input type="checkbox" name="vimEditing" checked={state.vimEditing !== false} onChange={changeSetting} /></label>
-      <p className={css.settingsHint}>Use Vim motions in URL bars and tab/session names. In website text fields, Ctrl+E opens a Vim editor.</p>
+      <p className={css.settingsHint}>Use Vim motions in URL bars and tab/session names. Click the Vim hint in website text fields to open an editor. Customize the vim-editor shortcut in your keyboard configuration.</p>
     </section>}
     {show('[name="accessibility"]') && <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
       <label className={css.settingsRow}><span>Allow page inspection</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>

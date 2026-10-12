@@ -7,6 +7,8 @@ import { matchesUrl, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserSettings, BrowserToolsState, UserScript } from '../shared/browser-tools'
 import { createKeyboardFocus } from './keyboard-focus'
 import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
+import { DEFAULT_KEYBOARD, shortcutAction } from '../shared/keyboard'
+import type { KeyboardConfig } from '../shared/keyboard'
 import pageVim from 'virtual:page-vim'
 
 type Script = UserScript & { source: string; error?: string }
@@ -16,14 +18,14 @@ let styleDocument = () => {
   return { promise, resolve }
 }
 type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; styleDocument: ReturnType<typeof styleDocument>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
-type Options = { directory: string; settings: () => BrowserSettings; vimEditing?: () => boolean; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
+type Options = { directory: string; settings: () => BrowserSettings; vimEditing?: () => boolean; keyboard?: () => KeyboardConfig; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
 let world = 'bmux:appearance'
 
 export let createPageTools = (options: Options) => {
   let targets = new Map<string, Target>(), scripts: Script[] = [], watched = new Set<string>(), closed = false
-  let keyboardSource = (target: Target) => `${target.focus.source};\nif (!globalThis.bmuxPageVim) { ${pageVim}\n }\nglobalThis.bmuxPageVim.configure(${options.vimEditing?.() !== false});`
+  let keyboardSource = (target: Target) => `${target.focus.source};\nif (!globalThis.bmuxPageVim) { ${pageVim}\n }\nglobalThis.bmuxPageVim.configure(${options.vimEditing?.() !== false}, ${JSON.stringify(Object.entries((options.keyboard?.() ?? DEFAULT_KEYBOARD).shortcuts).filter(([, binding]) => shortcutAction(binding) === 'vim-editor').map(([key]) => key))}, ${JSON.stringify(process.platform)});`
   let send = async (target: Target, method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
     if (target.closed || target.contents.isDestroyed()) throw new Error('Tab closed')
     if (!target.contents.debugger.isAttached()) target.contents.debugger.attach('1.3')

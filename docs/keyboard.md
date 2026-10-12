@@ -194,7 +194,9 @@ within its session. From the shell, use `bmux movew -c CLIENT -t 2`.
 The single-letter Vim-style example above is optional, not enabled by default.
 
 With **Vim editing** enabled in General settings (`vimEditing: true`), focus a
-website text field and press **Ctrl+E** to open its text in a Vim editor. This works
+website text field and press **Ctrl+E** (the default `vim-editor` shortcut), or
+click its small **Vim** hint with the mouse or click mode. Change the shortcut
+under `keyboard.shortcuts`, for example `Cmd+E: vim-editor` and `Ctrl+E: null`. This works
 with text inputs, textareas, and contenteditable composers, including frames and
 open shadow roots. Password, disabled, and read-only fields keep their native editing.
 
