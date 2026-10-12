@@ -446,6 +446,9 @@
 .sessionWindows > :last-child .sessionBranch::after { bottom: 50%; }
 .sessionWindowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sessionWindowActivity { flex-shrink: 0; color: #8995a3; font-weight: 400; }
+.sessionWindowActivity[data-age="recent"] { color: #a7c88d; }
+.sessionWindowActivity[data-age="today"] { color: #e5c07b; }
+.sessionWindowActivity[data-age="old"] { color: #e88b8b; }
 .sessionAudio { display: flex; align-items: center; flex: 0 0 15px; color: #a7c88d; }
 .sessionAudio[data-muted="true"] { color: #77818d; }
 .sessionAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
