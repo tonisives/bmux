@@ -27,9 +27,9 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
-    await application.evaluate(({ app, BrowserWindow }) => {
-      let window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('/renderer/index.html'))!
-      window.show(); window.focus(); app.focus({ steal: true })
+    await chrome.evaluate(async () => {
+      let state = await (window as any).bmux.state()
+      await (window as any).bmux.command({ method: 'activate-client', args: { client: state.clientId } })
     })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
