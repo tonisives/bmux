@@ -8,11 +8,11 @@ import { matchesBinding } from '../shared/keyboard'
 import { createFieldHints } from './hints'
 import css from './editor.css?inline'
 
-type PageVim = { configure: (enabled: boolean, shortcuts: string[], platform: string) => void }
+type PageVim = { configure: (enabled: boolean, shortcuts: string[], platform: NodeJS.Platform) => void }
 let scope = globalThis as typeof globalThis & { bmuxPageVim?: PageVim }
 
 let install = (): PageVim => {
-  let shortcuts: string[] = [], platform = 'darwin'
+  let shortcuts: string[] = [], platform: NodeJS.Platform = 'darwin'
   let enabled = true, active: { host: HTMLElement; close: (save: boolean) => void } | undefined
   let open = (field: TextField) => {
     if (!enabled || active) return
