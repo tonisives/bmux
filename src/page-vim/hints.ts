@@ -8,7 +8,7 @@ export let createFieldHints = (open: (field: TextField) => void) => {
   host.style.cssText = 'all:initial;position:fixed;inset:0;margin:0;border:0;padding:0;width:100%;height:100%;background:transparent;pointer-events:none;overflow:visible;'
   let root = host.attachShadow({ mode: 'open' }), sheet = new CSSStyleSheet()
   // Shadow DOM isolates page styles; a broad reset confuses Dark Reader's color conversion.
-  sheet.replaceSync(':host{color-scheme:dark}button{appearance:none;position:fixed;box-sizing:border-box;margin:0;font:11px/18px ui-monospace,monospace;color:#ddd;background-color:#222;border:1px solid #666;padding:0 4px;cursor:pointer;pointer-events:auto}button:hover{background-color:#444}button:focus-visible{outline:2px solid #aaa}')
+  sheet.replaceSync(':host{color-scheme:dark}button{appearance:none;position:fixed;box-sizing:border-box;margin:0;font:11px/18px ui-monospace,monospace;color:#ddd;background-color:#222;border:1px solid #666;padding:0 4px;cursor:pointer;pointer-events:auto;opacity:.7}button:hover{background-color:#444;opacity:1}button:focus-visible{outline:2px solid #aaa;opacity:1}')
   root.adoptedStyleSheets = [sheet]
   let buttons = new Map<TextField, HTMLButtonElement>()
   let hide = () => { if (host.isConnected) host.hidePopover(); host.remove() }

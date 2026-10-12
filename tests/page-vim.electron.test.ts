@@ -131,6 +131,11 @@ test('website Vim hints keep readable contrast with Dark Reader and after naviga
     return root.adoptedStyleSheets.some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes('__darkreader__adoptedOverride')))
   })).toBe(true)
   await expect(hint).toBeVisible(); await expect.poll(contrast).toBeGreaterThan(4.5)
+  await page.locator('#outside').hover(); await expect(hint).toHaveCSS('opacity', '0.7')
+  await hint.hover(); await expect(hint).toHaveCSS('opacity', '1')
+  await page.locator('#outside').hover(); await expect(hint).toHaveCSS('opacity', '0.7')
+  await hint.focus(); await expect(hint).toHaveCSS('opacity', '1')
+  await page.locator('#outside').focus(); await expect(hint).toHaveCSS('opacity', '0.7')
   try {
     await dark('dark'); await readerReady()
     await expect.poll(contrast).toBeGreaterThan(4.5)
