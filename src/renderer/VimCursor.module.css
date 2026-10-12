@@ -4,3 +4,5 @@
 .cursor { display: none; }
 :focus-within > .cursor[data-mode="NORMAL"] { display: block; }
 :global(input[data-vim-mode="NORMAL"]) { caret-color: transparent; }
+
+:global(input[data-vim-mode="VISUAL"]) { caret-color: transparent; }

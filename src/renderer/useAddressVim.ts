@@ -1,19 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, MouseEvent, RefObject } from 'react'
 import { createVimInputState, resetVimInputState, vimInputKey } from '../shared/vim-input'
 
-export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number, initialMode = 'NORMAL', enabled = true) => {
+export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number, initialMode = 'NORMAL', enabled = true, inputRef?: RefObject<HTMLInputElement | null>) => {
   let [mode, setMode] = useState(initialMode)
   let state = useRef(createVimInputState())
+  let visual = useRef({ anchor: 0, cursor: 0 })
+  let selectField = (input: HTMLInputElement) => {
+    let start = input.selectionStart ?? 0, end = input.selectionEnd ?? start
+    if (start === end) { reset(); return }
+    visual.current = input.selectionDirection === 'backward' ? { anchor: end - 1, cursor: start } : { anchor: start, cursor: end - 1 }
+    reset('VISUAL')
+  }
   let reset = (mode = 'NORMAL') => { setMode(mode); resetVimInputState(state.current) }
-  useEffect(() => reset(initialMode), [focusVersion, enabled])
+  let select = (event: MouseEvent<HTMLInputElement>) => { if (enabled && mode !== 'INSERT' && event.button === 0) selectField(event.currentTarget) }
+  useEffect(() => {
+    reset(initialMode)
+    let input = inputRef?.current
+    if (enabled && initialMode === 'NORMAL' && input && input.selectionStart !== input.selectionEnd) selectField(input)
+  }, [focusVersion, enabled])
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return false
     let input = event.currentTarget
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation()
       if (!enabled) return true
-      let cursor = input.selectionStart ?? 0
+      let cursor = mode === 'VISUAL' ? visual.current.cursor : input.selectionStart ?? 0
       if (mode === 'INSERT' && input.selectionStart === input.selectionEnd) cursor = Math.max(0, cursor - 1)
       cursor = Math.min(cursor, Math.max(0, input.value.length - 1))
       input.setSelectionRange(cursor, cursor); reset()
@@ -21,22 +33,46 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     }
     if (!enabled || mode === 'INSERT' || event.metaKey || event.altKey) return false
     if (event.ctrlKey && event.key.toLowerCase() !== 'r') return false
-    let cursor = Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1))
-    let action = event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
+    let cursor = mode === 'VISUAL' ? visual.current.cursor : Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1))
+    if (event.key === 'v') {
+      event.preventDefault(); event.stopPropagation()
+      if (mode === 'VISUAL') { input.setSelectionRange(cursor, cursor); reset() }
+      else { visual.current = { anchor: cursor, cursor }; input.setSelectionRange(cursor, Math.min(input.value.length, cursor + 1)); reset('VISUAL') }
+      return true
+    }
+    let start = input.selectionStart ?? cursor, end = input.selectionEnd ?? cursor
+    if (mode === 'VISUAL' && event.key === 'y') {
+      event.preventDefault(); event.stopPropagation()
+      state.current.register = input.value.slice(start, end)
+      input.setSelectionRange(start, start); reset(); return true
+    }
+    let action = mode === 'VISUAL' && ['x', 'd', 'c', 's', 'Backspace', 'Delete'].includes(event.key)
+      ? { kind: 'edit' as const, start, end, text: '', insert: true }
+      : event.key === 'Backspace' || event.key === 'Delete'
+        ? { kind: 'edit' as const, start: event.key === 'Backspace' ? Math.max(0, cursor - 1) : cursor, end: event.key === 'Backspace' ? cursor : Math.min(input.value.length, cursor + 1), text: '', insert: true }
+        : event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
     if (action.kind === 'pass') return false
     event.preventDefault(); event.stopPropagation()
     if (action.kind === 'move' || action.kind === 'insert') {
-      input.setSelectionRange(action.cursor, action.cursor)
-      if (action.kind === 'insert') setMode('INSERT')
+      if (mode === 'VISUAL' && action.kind === 'move') {
+        visual.current.cursor = action.cursor
+        let anchor = visual.current.anchor
+        input.setSelectionRange(Math.min(anchor, action.cursor), Math.min(input.value.length, Math.max(anchor, action.cursor) + 1), action.cursor < anchor ? 'backward' : 'forward')
+      } else {
+        input.setSelectionRange(action.cursor, action.cursor)
+        if (action.kind === 'insert') reset('INSERT')
+      }
     } else if (action.kind === 'edit') {
+      let insert = action.insert || !action.text && action.end > action.start
+      if (!action.text) state.current.register = input.value.slice(action.start, action.end)
       input.setSelectionRange(action.start, action.end)
       document.execCommand(action.text ? 'insertText' : 'delete', false, action.text)
-      let cursor = action.insert ? action.start + action.text.length : Math.min(action.start, Math.max(0, input.value.length - 1))
+      let cursor = insert ? action.start + action.text.length : Math.min(action.start, Math.max(0, input.value.length - 1))
       input.setSelectionRange(cursor, cursor)
-      if (action.insert) setMode('INSERT')
+      if (insert) reset('INSERT')
     } else if (action.kind === 'undo' || action.kind === 'redo') document.execCommand(action.kind)
     else if (action.kind === 'suggestion') moveSuggestion?.(action.direction)
     return true
   }
-  return { mode: enabled ? mode : 'INSERT', enabled, keys, reset }
+  return { mode: enabled ? mode : 'INSERT', enabled, keys, reset, select }
 }

@@ -780,6 +780,7 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(6)
     await address.press('b'); await address.press('x')
     await expect(address).toHaveValue('lpha bravo')
+    await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
     await address.press('Escape')
     await expect(address).toHaveValue('lpha bravo')
     await expect(address).toBeFocused()
@@ -813,6 +814,44 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: 0 })
     await address.press('w')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(4)
+  } finally { await cli('detach-client', { client: client.id }) }
+})
+
+for (let field of ['tiled URL', 'floating URL', 'window name', 'session name']) test(`mouse selection enters VISUAL and deletion enters INSERT in ${field}`, async () => {
+  let session = await cli('new-session', { name: `visual-${field}` }), pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('activate-client', { client: client.id })
+    let chrome = await rendererForClient(client.id), controls = chrome
+    if (field === 'floating URL') {
+      await cli('break-pane', { pane: pane.id, floating: true, client: client.id })
+      await expect.poll(() => application.context().pages().some(page => page.url().endsWith(`#float=${pane.id}`))).toBe(true)
+      controls = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+    } else if (field === 'tiled URL') await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    else {
+      await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
+      await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, field === 'window name' ? { keyCode: ',' } : { keyCode: '$', modifiers: ['shift'] }])
+    }
+    let input = controls.getByRole('textbox', { name: field === 'tiled URL' ? 'URL or search' : field === 'floating URL' ? 'Address' : field === 'window name' ? 'Rename window' : 'Rename session', exact: true })
+    await input.fill('alpha bravo charlie'); await input.press('Escape'); await input.press('0')
+    await input.dblclick({ position: { x: 25, y: 10 } })
+    await expect(input).toHaveAttribute('data-vim-mode', 'VISUAL')
+    let selected = await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart!, end: (input as HTMLInputElement).selectionEnd! }))
+    expect(selected.end).toBeGreaterThan(selected.start)
+    await input.press('l')
+    expect(await input.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(selected.end + 1)
+    await input.press('x')
+    await expect(input).toHaveAttribute('data-vim-mode', 'INSERT')
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue('alpha bravo charlie'.slice(0, selected.start) + 'alpha bravo charlie'.slice(selected.end + 1))
+    await input.pressSequentially('replacement')
+    await expect(input).toHaveValue('alpha bravo charlie'.slice(0, selected.start) + 'replacement' + 'alpha bravo charlie'.slice(selected.end + 1))
+    await input.press('Escape'); await input.press('0'); await input.press('v'); await input.press('l')
+    await expect(input).toHaveAttribute('data-vim-mode', 'VISUAL')
+    await input.press('y')
+    await expect(input).toHaveAttribute('data-vim-mode', 'NORMAL')
+    await input.press('P')
+    await expect(input).toHaveValue('re' + 'alpha bravo charlie'.slice(0, selected.start) + 'replacement' + 'alpha bravo charlie'.slice(selected.end + 1))
   } finally { await cli('detach-client', { client: client.id }) }
 })
 
@@ -852,7 +891,8 @@ for (let kind of ['window', 'session']) test(`renaming a ${kind} uses Vim motion
     expect(await input.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(6)
     await input.press('d'); await input.press('w')
     await expect(input).toHaveValue('alpha delta')
-    await input.press('u')
+    await expect(input).toHaveAttribute('data-vim-mode', 'INSERT')
+    await input.press('Escape'); await input.press('u')
     await expect(input).toHaveValue('alpha bravo delta')
     await input.fill('long name '.repeat(100) + 'z')
     await input.press('$')
@@ -2389,7 +2429,11 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length })
   await address.press('Backspace')
   await expect(address).toHaveValue('127')
-  await expect(chrome.getByRole('option', { selected: true })).toHaveCount(0)
+  await expect(address).toBeFocused()
+  await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
+  await address.pressSequentially('0')
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
   await address.fill('long term metrics')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('history suggestion')
