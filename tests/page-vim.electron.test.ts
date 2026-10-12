@@ -321,6 +321,8 @@ test('website Vim editor discards drafts, writes controlled React inputs, and ex
 test('website Vim editor updates rich text and shadow fields through native events', async () => {
   let rich = page.locator('#rich'), { overlay, editor } = await open(rich)
   await editor.pressSequentially('ggVGc'); await editor.pressSequentially('new  first'); await editor.press('Enter'); await editor.pressSequentially('new second'); await editor.press('Escape')
+  await expect(editor).toContainText('new second')
+  await expect(overlay.locator('.status')).toBeHidden()
   await expect(page.locator('#rich-count')).toContainText('new second')
   expect(await rich.textContent()).toContain('new  first')
   await expect(editor).toBeFocused()

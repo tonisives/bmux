@@ -68,7 +68,8 @@ let install = (): PageVim => {
       if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || readField(field) === value) return writeField(field, value, selection)
       let focused = root.activeElement as HTMLElement | null
       let result = inline.write(() => writeField(field, value, selection))
-      focused?.focus({ preventScroll: true })
+      if (focused === view.contentDOM) view.focus()
+      else focused?.focus({ preventScroll: true })
       return result
     }
     let sync = () => {
