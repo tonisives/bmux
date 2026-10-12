@@ -739,7 +739,7 @@ for (let floating of [false, true]) test(`General Vim editing toggle controls UR
   }
 })
 
-for (let floating of [false, true]) test(`URL Vim mode preserves text and focus on Escape in ${floating ? 'floating' : 'tiled'} panes`, async ({}, info) => {
+for (let floating of [false, true]) test(`URL Vim mode uses Escape to leave INSERT or VISUAL then focus the page in ${floating ? 'floating' : 'tiled'} panes`, async ({}, info) => {
   let session = await cli('new-session', { name: `url-vim-${floating}` })
   let pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
@@ -779,7 +779,7 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(0)
     await address.press('w')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(6)
-    await address.press('b'); await address.press('s')
+    await address.press('b'); await address.press('x')
     await expect(address).toHaveValue('lpha bravo')
     await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
     await address.press('Escape')
@@ -797,7 +797,7 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     await address.press('Meta+A')
     await address.pressSequentially(`${url}/url-vim-${floating}`)
     let draft = await address.inputValue()
-    await address.press('Escape'); await address.press('Escape')
+    await address.press('Escape')
     await expect(address).toHaveValue(draft)
     await expect(address).toBeFocused()
     if (!floating) {
@@ -815,12 +815,15 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: 0 })
     await address.press('w')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(4)
-    await address.fill('alpha u U x'); await address.press('Escape'); await address.press('0')
+    await address.press('i'); await address.fill('alpha u U x'); await address.press('Escape'); await address.press('0')
     await address.press('f'); await address.press('Shift+U')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(8)
     await expect(address).toHaveValue('alpha u U x')
     await address.press('f'); await address.press('x')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(10)
+    await expect(address).toBeFocused()
+    await address.press('v'); await expect(address).toHaveAttribute('data-vim-mode', 'VISUAL')
+    await address.press('Escape'); await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
     await expect(address).toBeFocused()
     await address.press('i'); await address.press('x')
     await expect(address).toHaveValue('alpha u U xx')
@@ -830,7 +833,7 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
       await expect(controls.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
     }
     await address.press('Escape')
-    await address.press('x')
+    await address.press('Escape')
     await expect(controls.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/url-vim-${floating}`)
     if (floating) { await expect(address).not.toBeFocused(); await expect(address).toHaveValue('alpha u U xx') }
