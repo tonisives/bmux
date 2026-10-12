@@ -6,6 +6,7 @@ import path from 'node:path'
 import { createExtensionCompatibility } from './extension-compatibility'
 import { findExtension } from './extension-lookup'
 import { extensionDetails } from '../shared/extension-details'
+import { prepareBitwardenPackage } from './bitwarden-extension'
 
 type Entry = { profile: string; path: string; id?: string; name?: string; version?: string; enabled?: boolean; error?: string }
 type Manifest = { action?: { default_popup?: string }; browser_action?: { default_popup?: string }; options_ui?: { page?: string }; options_page?: string }
@@ -63,6 +64,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
       if (entries.some(entry => entry.profile === profile && entry.enabled !== false)) ensureCompatibility(profile, session)
       for (let entry of entries.filter(entry => entry.profile === profile && entry.enabled !== false)) {
         try {
+          await prepareBitwardenPackage(directory, entry.path)
           let extension = await session.extensions.loadExtension(entry.path)
           Object.assign(entry, { id: extension.id, name: extension.name, version: extension.version })
         }
@@ -143,6 +145,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     let loaded = previous?.id ? session.extensions.getExtension(previous.id) : undefined
     if (loaded) return describe(loaded)
     ensureCompatibility(key, session)
+    await prepareBitwardenPackage(directory, source.path)
     let extension = await session.extensions.loadExtension(source.path)
     let entry: Entry = { profile: key, path: source.path, id: extension.id, name: extension.name, version: extension.version, enabled: true }
     privateEntries.set(key, [...installed.filter(item => item !== previous), entry])
@@ -181,6 +184,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
       let extension = session.extensions.getExtension(previous.id)
       if (extension) return describe(extension)
     }
+    await prepareBitwardenPackage(directory, canonical)
     let extension = await session.extensions.loadExtension(canonical)
     let entry: Entry = { profile, path: canonical, id: extension.id, name: extension.name, version: extension.version, enabled: true }
     let before = entries.slice()
@@ -210,6 +214,7 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     let loaded = entry.id ? session.extensions.getExtension(entry.id) : undefined
     if (loaded) return describe(loaded)
     ensureCompatibility(profile, session)
+    await prepareBitwardenPackage(directory, entry.path)
     let extension = await session.extensions.loadExtension(entry.path)
     let before = { ...entry }
     Object.assign(entry, { enabled: true, id: extension.id, name: extension.name, version: extension.version, error: undefined })

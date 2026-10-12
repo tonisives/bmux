@@ -15,6 +15,7 @@ test('official Bitwarden keeps login ports working across profiles and idle time
     let installed = await test.step('Install the pinned official extension', () => rpc('extension.install-bitwarden', { profile: 'profile_default' })) as { name: string; path: string }
     expect(installed.name).toBe('Bitwarden Password Manager')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
+    expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-passkey-unlock-preflight')
     let other = await rpc('profile.create', { name: 'bot (Brave)' })
     for (let profile of ['profile_default', 'profile_bot', other.id]) {
       await test.step(`Verify login and ports in ${profile}`, async () => {
