@@ -18,7 +18,7 @@ let fixture = `<!doctype html><title>Vim field fixture</title>
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-page-vim-'))
   config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard: {}\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
   let bundle = await build({ stdin: { contents: `
     import React, { useState } from 'react'; import { createRoot } from 'react-dom/client';
     let Form = () => { let [value, setValue] = useState('controlled'); return React.createElement(React.Fragment, null, React.createElement('input', { id: 'controlled', value, onChange: e => setValue(e.target.value) }), React.createElement('output', { id: 'controlled-value' }, value)); };
@@ -39,6 +39,7 @@ test.beforeAll(async () => {
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '0' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  expect(await chrome.evaluate(async () => (window as any).bmux.state().then((state: any) => state.configError))).toBeNull()
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.pressSequentially(url); await address.press('Enter')
@@ -104,9 +105,9 @@ test('website Vim editor discards drafts, writes controlled React inputs, and ex
 
 test('website Vim editor updates rich text and shadow fields through native events', async () => {
   let rich = page.locator('#rich'), { overlay, editor } = await open(rich)
-  await editor.pressSequentially('ggVGc'); await editor.pressSequentially('new first'); await editor.press('Enter'); await editor.pressSequentially('new second'); await editor.press('Escape')
+  await editor.pressSequentially('ggVGc'); await editor.pressSequentially('new  first'); await editor.press('Enter'); await editor.pressSequentially('new second'); await editor.press('Escape')
   await ex(editor, 'wq')
-  expect(await rich.innerText()).toBe('new first\nnew second')
+  expect((await rich.innerText()).replace(/\u00a0/g, ' ')).toBe('new  first\nnew second')
   await expect(overlay).toHaveCount(0)
   let shadow = page.locator('#shadow-text')
   ;({ overlay, editor } = await open(shadow))
@@ -162,7 +163,7 @@ test('website Vim editor works in same-origin and cross-origin frames and honors
     await frame.locator('[data-bmux-vim] .cm-vim-panel input').press('Enter')
     await expect(field).toHaveValue('frame bravo'); await expect(field).toBeFocused()
   }
-  await fs.writeFile(config, 'vimEditing: false\naccessibility: true\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
+  await fs.writeFile(config, 'vimEditing: false\naccessibility: true\nkeyboard: {}\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await expect.poll(() => chrome.evaluate(async () => (window as any).bmux.state().then((state: any) => state.vimEditing))).toBe(false)
   // Explicitly await page-tools refresh instead of racing its configuration queue.

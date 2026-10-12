@@ -10,7 +10,8 @@ export let textField = (element: Element | null): TextField | undefined => {
   return field.getAttribute('aria-readonly') !== 'true' && field.getAttribute('aria-disabled') !== 'true' ? field : undefined
 }
 
-export let readField = (field: TextField) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : field.innerText
+// Chromium uses nonbreaking spaces to keep repeated spaces in rich text visible.
+export let readField = (field: TextField) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : field.innerText.replace(/\u00a0/g, ' ')
 
 export let writeField = (field: TextField, value: string, cursor: number) => {
   if (!field.isConnected || textField(field) !== field) return false
