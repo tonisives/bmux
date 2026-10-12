@@ -3,7 +3,7 @@ import type { KeyboardEvent, MouseEvent, RefObject } from 'react'
 import type { Bridge } from '../shared/types'
 import { createVimInputState, resetVimInputState, vimInputKey } from '../shared/vim-input'
 
-export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number, initialMode = 'NORMAL', enabled = true, inputRef?: RefObject<HTMLInputElement | null>) => {
+export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number, initialMode = 'NORMAL', enabled = true, inputRef?: RefObject<HTMLInputElement | null>, exit?: () => void) => {
   let [mode, setMode] = useState(initialMode)
   let state = useRef(createVimInputState())
   let visual = useRef({ anchor: 0, cursor: 0 })
@@ -45,6 +45,9 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     if (mode !== 'VISUAL' && ['Backspace', 'Delete'].includes(event.key)) { reset('INSERT'); return false }
     if (event.metaKey || event.altKey) return false
     if (event.ctrlKey && event.key.toLowerCase() !== 'r') return false
+    if (mode === 'NORMAL' && event.key === 'x' && !event.ctrlKey && !state.current.pending && !state.current.operator && exit) {
+      event.preventDefault(); event.stopPropagation(); reset(); exit(); return true
+    }
     let cursor = mode === 'VISUAL' ? visual.current.cursor : Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1))
     if (event.key === 'v') {
       event.preventDefault(); event.stopPropagation()

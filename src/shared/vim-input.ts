@@ -61,6 +61,7 @@ let finishMotion = (state: VimInputState, text: string, cursor: number, destinat
   return { kind: 'move', cursor: Math.max(0, Math.min(Math.max(0, text.length - 1), destination)) }
 }
 export let vimInputKey = (state: VimInputState, text: string, cursor: number, key: string): VimInputAction => {
+  if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(key)) return { kind: 'handled' }
   let count = Math.min(999, Number(state.count || 1) * state.operatorCount)
   if (state.pending === 'r') {
     resetVimInputState(state)
