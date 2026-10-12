@@ -177,3 +177,53 @@ test('bmux reload and history actions use styled unsaved changes prompts', async
     }
   } finally { await close() }
 })
+
+test('bmux confirmations use styled keyboard actions with visible page content', async () => {
+  let { application, chrome, page, url, close } = await fixture()
+  try {
+    let clientId = await chrome.evaluate(async () => (await (window as any).bmux.state()).clientId as string)
+    for (let keyCode of ['Escape', 'Enter']) {
+      let choice = chrome.evaluate(({ clientId }) => (window as any).bmux.command({ method: 'dialog.confirm', args: { client: clientId, message: 'Continue this operation?' } }), { clientId })
+      let prompt = chrome.getByRole('alertdialog', { name: 'Continue this operation?' })
+      await expect(prompt.getByRole('button', { name: 'Cancel (esc)', exact: true })).toBeFocused()
+      await expect(prompt.getByRole('button', { name: 'Continue (enter)', exact: true })).toBeVisible()
+      await expect(chrome.locator('body')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url && view.getVisible())), url)).toBe(true)
+      await sendNativeKeys(application, [{ keyCode }])
+      expect(await choice).toBe(keyCode === 'Enter')
+      await expect(prompt).toHaveCount(0)
+      await page.getByRole('button', { name: 'Delete', exact: true }).hover()
+    }
+  } finally { await close() }
+})
+
+test('bmux confirmations reject another client and cancel when their window closes', async () => {
+  let { application, chrome, close } = await fixture()
+  try {
+    let state = await chrome.evaluate(() => (window as any).bmux.state())
+    let second = await chrome.evaluate(({ session }) => (window as any).bmux.command({ method: 'attach-session', args: { session } }), { session: state.model.sessions[0].id })
+    await expect.poll(() => application.context().pages().filter(page => page.url().endsWith('/renderer/index.html')).length).toBe(2)
+    let other = application.context().pages().find(page => page.url().endsWith('/renderer/index.html') && page !== chrome)!
+    let choice = chrome.evaluate(({ client }) => (window as any).bmux.command({ method: 'dialog.confirm', args: { client, message: 'Close-owner confirmation' } }), { client: second.id })
+    let prompt = other.getByRole('alertdialog', { name: 'Close-owner confirmation' })
+    await expect(prompt).toBeVisible()
+    let requestId = await other.evaluate(async () => (await (window as any).bmux.state()).dialogPrompt.id as string)
+    await expect(chrome.evaluate(({ id }) => (window as any).bmux.command({ method: 'dialog.respond', args: { id, response: 1 } }), { id: requestId })).rejects.toThrow('Dialog no longer exists')
+    await expect(prompt).toBeVisible()
+    await chrome.evaluate(({ client }) => (window as any).bmux.command({ method: 'detach-client', args: { client } }), { client: second.id })
+    expect(await choice).toBe(false)
+  } finally { await close() }
+})
+
+test('website JavaScript alerts keep native synchronous acknowledgment', async () => {
+  let { page, close } = await fixture()
+  try {
+    let opening = page.waitForEvent('dialog')
+    let result = page.evaluate(() => { alert('Extension-style warning'); return 'Acknowledged' })
+    let warning = await opening
+    expect(warning.type()).toBe('alert')
+    expect(warning.message()).toBe('Extension-style warning')
+    await warning.accept()
+    expect(await result).toBe('Acknowledged')
+  } finally { await close() }
+})

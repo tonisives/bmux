@@ -1,11 +1,12 @@
-import { app, autoUpdater as nativeUpdater, dialog, Menu, Notification } from 'electron'
+import { app, autoUpdater as nativeUpdater, Menu, Notification } from 'electron'
 import type { MenuItem } from 'electron'
 import electronUpdater from 'electron-updater'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createUpdates } from './updates'
+import type { MessageDialogOptions } from '../shared/types'
 
-export let installUpdateMenu = (options: { enabled: () => boolean; setEnabled: (enabled: boolean) => void; beforeRestart: () => void }) => {
+export let installUpdateMenu = (options: { enabled: () => boolean; setEnabled: (enabled: boolean) => void; beforeRestart: () => void; showMessageDialog: (options: MessageDialogOptions) => Promise<{ response: number }> }) => {
   // Development, test profiles, and local packages never fetch or install releases.
   if (process.platform !== 'darwin' || !app.isPackaged || process.env.BMUX_DATA_DIR || process.env.BROWMUX_DATA_DIR || !fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))) return
   electronUpdater.autoUpdater.channel = `latest-${process.arch}`
@@ -20,17 +21,17 @@ export let installUpdateMenu = (options: { enabled: () => boolean; setEnabled: (
   })
   let setEnabled = (item: MenuItem) => {
     try { options.setEnabled(item.checked) }
-    catch { item.checked = options.enabled(); void dialog.showMessageBox({ type: 'error', message: 'Could not save the update preference.', detail: 'Fix the configuration file and try again.' }) }
+    catch { item.checked = options.enabled(); void options.showMessageDialog({ message: 'Could not save the update preference.', detail: 'Fix the configuration file and try again.' }) }
   }
   let check = async () => {
     if (updates.state.status === 'ready') {
-      let result = await dialog.showMessageBox({ message: `Restart bmux to install version ${updates.state.version}?`, buttons: ['Restart', 'Later'], defaultId: 1, cancelId: 1 })
+      let result = await options.showMessageDialog({ message: `Restart bmux to install version ${updates.state.version}?`, buttons: ['Restart', 'Later'], defaultId: 1, cancelId: 1 })
       if (result.response === 0) updates.restart()
       return
     }
     await updates.check()
-    if (updates.state.status === 'idle') await dialog.showMessageBox({ message: 'bmux is up to date.', detail: `Version ${app.getVersion()}` })
-    if (updates.state.status === 'error') await dialog.showMessageBox({ type: 'error', message: 'Could not check for updates.', detail: 'Please try again later.' })
+    if (updates.state.status === 'idle') await options.showMessageDialog({ message: 'bmux is up to date.', detail: `Version ${app.getVersion()}` })
+    if (updates.state.status === 'error') await options.showMessageDialog({ message: 'Could not check for updates.', detail: 'Please try again later.' })
   }
   let refresh = () => {
     let menu = Menu.getApplicationMenu()

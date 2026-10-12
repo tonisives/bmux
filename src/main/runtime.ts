@@ -7,7 +7,7 @@ import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSes
 import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
+import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -259,9 +259,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let permissionFocusTarget: { clientId: string; paneId: string } | undefined
   let pageFocusTarget: { clientId: string; paneId: string } | undefined
-  let unloadPrompts = new Map<string, { id: string; tabId: string; respond: (leave: boolean) => void }>()
+  let dialogPrompts = new Map<string, { prompt: DialogPrompt; respond: (response: number) => void; cancel: () => void }>()
   let overlays = new Set<string>()
-  let raisedUnloadChrome = new Set<string>()
+  let raisedDialogChrome = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
   let tabQueues = new Map<string, Promise<unknown>>()
@@ -336,7 +336,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ unloadPrompt: unloadPrompts.get(clientId) && { id: unloadPrompts.get(clientId)!.id, tabId: unloadPrompts.get(clientId)!.tabId }, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -753,7 +753,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && ![...focused.floats.values()].some(frame => frame.webContents === contents) && ![...tabs.values()].some(tab => tab.contents === contents && tab.parent === focused.window))) return
-      if (unloadPrompts.has(focusedClientId)) { contents.setIgnoreMenuShortcuts(true); return }
+      if (dialogPrompts.has(focusedClientId)) { contents.setIgnoreMenuShortcuts(true); return }
       if (clickMode.handle(focusedClientId, input)) { event.preventDefault(); return }
       let clickSettings = configuration?.clickMode ?? DEFAULT_CLICK_MODE
       let selected = model.clients.find(client => client.id === focusedClientId)?.paneId
@@ -1264,25 +1264,40 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       client?.chrome.webContents.focus()
     }
   }
+  let requestDialog = (clientId: string, options: MessageDialogOptions) => {
+    let buttons = options.buttons?.length ? options.buttons : ['OK']
+    let defaultId = options.defaultId ?? 0, cancelId = options.cancelId ?? 0
+    let owner = clients.get(clientId)
+    if (!owner || owner.window.isDestroyed()) return { result: Promise.resolve(cancelId), cancel: () => undefined }
+    dialogPrompts.get(clientId)?.cancel()
+    let resolve!: (response: number) => void
+    let result = new Promise<number>(done => { resolve = done })
+    let requestId = id('dialog')
+    let respond = (response: number) => {
+      if (dialogPrompts.get(clientId)?.prompt.id !== requestId) return
+      dialogPrompts.delete(clientId); publish(); resolve(response)
+    }
+    let cancel = () => respond(cancelId)
+    dialogPrompts.set(clientId, { prompt: { id: requestId, message: options.message, detail: options.detail, buttons, defaultId, cancelId }, respond, cancel })
+    overlays.add(clientId); publish()
+    void scheduleVisuals().then(() => {
+      if (dialogPrompts.get(clientId)?.prompt.id === requestId && owner.window.isFocused()) owner.chrome.webContents.focus()
+    }).catch(error => { reportError(error); cancel() })
+    return { result, cancel }
+  }
+  let showMessageDialog = async (options: MessageDialogOptions) => {
+    let entry = [...clients].find(([clientId, owner]) => clientId === focusedClientId && owner.window.isVisible())
+      ?? [...clients].find(([, owner]) => owner.window.isVisible() && !owner.window.isMinimized())
+    // An application-menu message can also open when there is no browser window.
+    if (!entry) return dialog.showMessageBox(options)
+    return { response: await requestDialog(entry[0], options).result }
+  }
   let confirmUnload = (tabId: string) => {
     let live = tabs.get(tabId)
     let entry = [...clients].find(([, owner]) => owner.window === live?.parent && owner.window.isVisible())
     if (!entry) return { result: Promise.resolve(false), cancel: () => undefined }
-    let [clientId, owner] = entry
-    unloadPrompts.get(clientId)?.respond(false)
-    let resolve!: (leave: boolean) => void
-    let result = new Promise<boolean>(done => { resolve = done })
-    let requestId = id('unload')
-    let respond = (leave: boolean) => {
-      if (unloadPrompts.get(clientId)?.id !== requestId) return
-      unloadPrompts.delete(clientId); publish(); resolve(leave)
-    }
-    unloadPrompts.set(clientId, { id: requestId, tabId, respond })
-    overlays.add(clientId); publish()
-    void scheduleVisuals().then(() => {
-      if (unloadPrompts.get(clientId)?.id === requestId && owner.window.isFocused()) owner.chrome.webContents.focus()
-    }).catch(reportError)
-    return { result, cancel: () => respond(false) }
+    let request = requestDialog(entry[0], { message: 'Leave this site?', detail: 'Changes you made may not be saved.', buttons: ['Stay', 'Leave'], defaultId: 1, cancelId: 0 })
+    return { result: request.result.then(response => response === 1), cancel: request.cancel }
   }
   let guardedLoad = (live: LiveTab, url: string, options?: Electron.LoadURLOptions) => live.unloadGuard?.run(() => loadPage(live.contents, url, options), undefined) ?? loadPage(live.contents, url, options)
   let guardedNavigation = (live: LiveTab, action: () => void) => {
@@ -1418,7 +1433,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       let { x, y, width, height } = floatRect(client, placement)
       frame.setBounds({ x, y, width, height })
-      frame.setVisible(!overlays.has(client.id) || unloadPrompts.has(client.id))
+      frame.setVisible(!overlays.has(client.id) || dialogPrompts.has(client.id))
     }
   }
   let moveView = (live: LiveTab, parent: BaseWindow) => {
@@ -1484,7 +1499,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let viewers = new Map<string, { id: string; live: LiveClient; bounds: Bounds }[]>()
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
-      if (!live || !live.window.isVisible() || live.window.isMinimized() || (overlays.has(candidate.id) && !unloadPrompts.has(candidate.id))) continue
+      if (!live || !live.window.isVisible() || live.window.isMinimized() || (overlays.has(candidate.id) && !dialogPrompts.has(candidate.id))) continue
       let paneIds = visiblePaneIds(candidate)
       for (let paneId of paneIds) {
         let tabId = paneById(model, paneId).pane.id
@@ -1557,10 +1572,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
       if (!live) continue
-      if (!unloadPrompts.has(candidate.id) && raisedUnloadChrome.delete(candidate.id)) {
+      if (!dialogPrompts.has(candidate.id) && raisedDialogChrome.delete(candidate.id)) {
         live.chrome.setBackgroundColor('#111318'); live.window.contentView.addChildView(live.chrome, 0)
       }
-      if (overlays.has(candidate.id) && !unloadPrompts.has(candidate.id)) continue
+      if (overlays.has(candidate.id) && !dialogPrompts.has(candidate.id)) continue
       let window = model.sessions.flatMap(session => session.windows).find(window => window.id === candidate.windowId)
       let ordered: View[] = []
       for (let paneId of visiblePaneIds(candidate)) {
@@ -1577,13 +1592,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           if (page.camera) ordered.push(page.camera)
         }
       }
-      if (unloadPrompts.has(candidate.id)) {
-        raisedUnloadChrome.add(candidate.id); live.chrome.setBackgroundColor('#00000000'); ordered.push(live.chrome)
+      if (dialogPrompts.has(candidate.id)) {
+        raisedDialogChrome.add(candidate.id); live.chrome.setBackgroundColor('#00000000'); ordered.push(live.chrome)
       }
       if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
-      if (unloadPrompts.has(candidate.id) && live.window.isFocused()) live.chrome.webContents.focus()
+      if (dialogPrompts.has(candidate.id) && live.window.isFocused()) live.chrome.webContents.focus()
     }
     if (pointerTarget) {
       let cursor = screen.getCursorScreenPoint()
@@ -1716,7 +1731,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
     })
     window.on('closed', () => {
-      unloadPrompts.get(client.id)?.respond(false)
+      dialogPrompts.get(client.id)?.cancel()
+      raisedDialogChrome.delete(client.id)
       clients.delete(client.id)
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
@@ -2111,11 +2127,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'plugin.reload') { plugins?.reload(); return plugins?.list() ?? [] }
     if (method === 'plugin.cancel') return plugins?.cancel(required(args, 'id'))
     if (method === 'plugin.respond') { if (!sourceClientId) throw new Error('Trusted UI required'); return plugins?.respond(sourceClientId, args) }
-    if (method === 'unload.respond') {
+    if (method === 'dialog.respond') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let request = unloadPrompts.get(sourceClientId)
-      if (!request || request.id !== args.id) throw new Error('Unload prompt no longer exists')
-      request.respond(args.leave === true)
+      let request = dialogPrompts.get(sourceClientId)
+      if (!request || request.prompt.id !== args.id) throw new Error('Dialog no longer exists')
+      let response = args.response
+      if (typeof response !== 'number' || !Number.isInteger(response) || response < 0 || response >= request.prompt.buttons.length) throw new Error('Invalid dialog response')
+      request.respond(response)
       return null
     }
     if (method === 'plugin.run') {
@@ -2827,8 +2845,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'dialog.confirm') {
       let client = resolve(model.clients, args.client, 'Client')
-      let response = await dialog.showMessageBox(clients.get(client.id)!.window, { type: 'question', message: required(args, 'message'), buttons: ['Cancel', 'Continue'], defaultId: 0, cancelId: 0 })
-      return response.response === 1
+      let response = await requestDialog(client.id, { message: required(args, 'message'), buttons: ['Cancel', 'Continue'], defaultId: 1, cancelId: 0 }).result
+      return response === 1
     }
     if (method === 'quit') { setTimeout(() => app.quit(), 100); return { quitting: true } }
     if (method === 'find') {
@@ -3174,5 +3192,5 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return remoteViewport(pane)
     },
   }
-  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

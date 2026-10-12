@@ -126,7 +126,7 @@ void app.whenReady().then(async () => {
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
-  updateMenu = installUpdateMenu({ enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
+  updateMenu = installUpdateMenu({ showMessageDialog: options => runtime!.showMessageDialog(options), enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
   if (process.env.BMUX_REMOTE_CONFIG) remoteHost = startRemoteHost(runtime, dataDirectory, process.env.BMUX_REMOTE_CONFIG)
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))

@@ -1,0 +1,10 @@
+.prompt { width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 20px; border: 1px solid #363c45; background: #191d23; color: #c0c6ce; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.prompt::backdrop { background: #090b10a8; }
+.prompt h2 { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 8px; color: #eceef2; font: inherit; font-weight: 600; }
+.prompt p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 20px; color: #8e98a4; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.actions button { padding: 5px 10px; border: 1px solid #444b59; background: #23282f; color: #d6dcd2; font: inherit; }
+.actions button span { color: #8e98a4; }
+.actions button:hover:not(:disabled) { background: #303944; }
+.actions button:focus-visible { outline: 1px solid #83917b; outline-offset: 2px; }
+.actions button:disabled { opacity: .5; }

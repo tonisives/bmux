@@ -1,4 +1,4 @@
-import { UnloadPrompt } from './UnloadPrompt'
+import { MessageDialog } from './MessageDialog'
 import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
 import { useAddressVim } from './useAddressVim'
@@ -63,7 +63,7 @@ export let App = () => {
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
-  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousUnloadPrompt = useRef(false)
+  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
@@ -74,7 +74,7 @@ export let App = () => {
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
     knownPanes.current = new Set(paneIds)
-    if (next.unloadPrompt) { setControl(null); setHistoryPopup(null) }
+    if (next.dialogPrompt) { setControl(null); setHistoryPopup(null) }
     else if (next.pluginPrompt) setControl('plugin-dialog')
     else setControl(current => current === 'plugin-dialog' ? null : current)
     previous.current = target; setState(next)
@@ -115,18 +115,18 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousUnloadPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
-    previousUnloadPrompt.current = !!state.unloadPrompt
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    previousDialogPrompt.current = !!state.dialogPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!state.unloadPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
-      if (!cancelled && !control && !state.unloadPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
+    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
+      if (!cancelled && !control && !state.dialogPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.unloadPrompt?.id, run])
-  useEscapeDismiss(dismiss, !!state?.unloadPrompt)
+  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, run])
+  useEscapeDismiss(dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
@@ -139,16 +139,16 @@ export let App = () => {
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
-  let respondToUnload = (leave: boolean) => run('unload.respond', { id: state.unloadPrompt?.id, leave })
+  let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
   let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
-  return <Context.Provider value={context}><div className={css.app} data-unload-prompt={!!state.unloadPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
+  return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
-    {state.unloadPrompt && <UnloadPrompt key={state.unloadPrompt.id} respond={respondToUnload} />}
+    {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
 
