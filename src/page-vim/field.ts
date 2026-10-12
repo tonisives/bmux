@@ -74,7 +74,9 @@ export let writeField = (field: TextField, value: string, selection: FieldSelect
       // insertText with embedded newlines can create paragraphs whose innerText
       // gains extra blank lines. Explicit line breaks preserve the plain draft.
       let lines = value.split('\n')
-      if (!document.execCommand('insertText', false, lines[0])) return false
+      // An empty insert leaves a zero-height paragraph with no caret placeholder.
+      // Native deletion leaves a proper empty editing line for the next live edit.
+      if (!document.execCommand(lines[0] ? 'insertText' : 'delete', false, lines[0])) return false
       for (let line of lines.slice(1)) {
         if (!document.execCommand('insertLineBreak')) return false
         if (line && !document.execCommand('insertText', false, line)) return false
