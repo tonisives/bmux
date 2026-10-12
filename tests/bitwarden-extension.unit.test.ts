@@ -98,12 +98,14 @@ describe('Bitwarden passkey startup', () => {
     expect(patchBitwardenPasskeys(patched)).toBe(patched)
     let fixture = passkeyFixture()
     let sign = vi.fn(), focusTab = vi.fn(), focusWindow = vi.fn()
-    let iterate = vm.runInNewContext(`(function* (n,t,e,i) { ${patched} })`, {
+    let worker = vm.runInNewContext(`(function* (n,t,e,i) { ${patched} })`, {
       DOMException, setTimeout, clearTimeout,
       ad: { Unlocked: 2 }, chrome: { tabs: { get: fixture.resolveTab } },
       aN: { openPopout: fixture.openUnlock }, oN: 'auth_unlockExtension', YO: { focusTab, focusWindow },
-    }).call({ authService: { getAuthStatus: fixture.authStatus } }, {}, fixture.tab, {}, sign)
+    })
+    let background = { authService: { getAuthStatus: fixture.authStatus } }
     let run = async () => {
+      let iterate = worker.call(background, {}, fixture.tab, {}, sign)
       let step = iterate.next()
       while (!step.done) {
         let value
@@ -113,11 +115,16 @@ describe('Bitwarden passkey startup', () => {
       }
       return step.value
     }
-    await expect(run()).rejects.toMatchObject({ name: 'NotAllowedError' })
+    await Promise.all([expect(run()).rejects.toMatchObject({ name: 'NotAllowedError' }), expect(run()).rejects.toMatchObject({ name: 'NotAllowedError' })])
     expect(sign).not.toHaveBeenCalled()
     expect(focusTab).not.toHaveBeenCalled()
     expect(focusWindow).not.toHaveBeenCalled()
     expect(fixture.openUnlock).toHaveBeenCalledWith('popup/index.html#/login', { singleActionKey: 'auth_unlockExtension', senderWindowId: 4 })
+    expect(fixture.openUnlock).toHaveBeenCalledOnce()
+    let originalUnlock = 'openUnlock:tab=>aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId})'
+    let earlier = patched.replace(/openUnlock:tab=>\{if\(!this\.bmuxPasskeyUnlock\).*?return this\.bmuxPasskeyUnlock\}/, originalUnlock)
+    expect(earlier).not.toBe(patched)
+    expect(patchBitwardenPasskeys(earlier)).toBe(patched)
   })
 
   it('rejects an unknown pinned bundle instead of silently missing the patch', () => {

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { bitwardenPasskeyPreflight } from '../src/main/bitwarden-extension'
+import { patchBitwardenPasskeys } from '../src/main/bitwarden-extension'
 import { closeTestApplication } from './electron-fixture'
 
 test('locked Bitwarden passkey startup opens unlock and releases sign-in without background popups', async ({}, testInfo) => {
@@ -16,20 +16,32 @@ test('locked Bitwarden passkey startup opens unlock and releases sign-in without
     content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }],
   }))
   await fs.writeFile(path.join(extensionPath, 'background.js'), `
-    let preflight = ${bitwardenPasskeyPreflight.toString()}
+    let ad = { Unlocked: 2 }, oN = 'auth_unlockExtension'
+    let YO = { focusTab: async () => undefined, focusWindow: async () => undefined }
+    let aN = { openPopout: async () => {
+      let { failOpen = false } = await chrome.storage.local.get('failOpen')
+      if (failOpen) throw new Error('fixture window failure')
+      return chrome.windows.create({ url: chrome.runtime.getURL('unlock.html'), type: 'popup', focused: true })
+    } }
+    let background = { authService: { getAuthStatus: async () => {
+      let { unlocked = false } = await chrome.storage.local.get('unlocked')
+      return unlocked ? 2 : 1
+    } } }
+    let handle = function* (n,t,e,i) { ${patchBitwardenPasskeys('try{return yield i(n,t,e)}finally{null!=t.id&&(yield YO.focusTab(t.id)),null!=t.windowId&&(yield YO.focusWindow(t.windowId))}')} }
     chrome.runtime.onMessage.addListener((message, sender, respond) => {
       if (message.command !== 'passkey') return
       ;(async () => {
-        let { unlocked = false, failOpen = false } = await chrome.storage.local.get(['unlocked', 'failOpen'])
         try {
-          let tab = await preflight({ request: message.options, tab: sender.tab, unlockedStatus: 2,
-            authStatus: async () => unlocked && !message.options.failOpen ? 2 : 1, resolveTab: id => chrome.tabs.get(id),
-            openUnlock: tab => {
-              if (failOpen || message.options.failOpen) throw new Error('fixture window failure')
-              return chrome.windows.create({ url: chrome.runtime.getURL('unlock.html'), type: 'popup', focused: true })
+          if (message.options.failOpen) await chrome.storage.local.set({ unlocked: false, failOpen: true })
+          let iterator = handle.call(background, message.options, sender.tab, {}, async (_request, tab) => ({ credential: { id: 'fixture-credential' }, windowId: tab.windowId }))
+          let step = iterator.next()
+          while (!step.done) {
+            let value
+            try { value = await step.value }
+            catch (error) { step = iterator.throw(error); continue }
+            step = iterator.next(value)
             }
-          })
-          respond({ credential: { id: 'fixture-credential' }, windowId: tab.windowId })
+          respond(step.value)
         } catch (error) { respond({ error: { name: error.name, message: error.message } }) }
       })()
       return true
@@ -81,6 +93,13 @@ test('locked Bitwarden passkey startup opens unlock and releases sign-in without
     await expect(popup.getByRole('heading')).toHaveText('Unlock Bitwarden fixture')
     await expect.poll(() => application.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), popup.url())).toBe(true)
     await popup.screenshot({ path: testInfo.outputPath('passkey-unlock.png') })
+    await popup.close()
+    expect(await page.evaluate(async () => Promise.all([1, 2].map(async () => {
+      try { await navigator.credentials.get({ publicKey: { challenge: new Uint8Array([1]) } }); return 'resolved' }
+      catch (error) { return (error as DOMException).name }
+    })))).toEqual(['NotAllowedError', 'NotAllowedError'])
+    expect(application.context().pages().filter(page => page.url().endsWith('/unlock.html'))).toHaveLength(1)
+    popup = application.context().pages().find(page => page.url().endsWith('/unlock.html'))!
     await popup.close()
     expect(await page.evaluate(async () => {
       try { await navigator.credentials.get({ mediation: 'conditional', publicKey: { challenge: new Uint8Array([1]) } }); return 'resolved' }

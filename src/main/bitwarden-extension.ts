@@ -13,6 +13,8 @@ let inlineNewItemPatch = 'bmux-inline-new-item-existing-popout-check'
 let inlineNewItemNeedle = 'const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})}'
 let passkeyPatch = 'bmux-passkey-unlock-preflight'
 let passkeyNeedle = 'try{return yield i(n,t,e)}finally{null!=t.id&&(yield YO.focusTab(t.id)),null!=t.windowId&&(yield YO.focusWindow(t.windowId))}'
+let unlockNeedle = 'openUnlock:tab=>aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId})'
+let unlockSource = 'openUnlock:tab=>{if(!this.bmuxPasskeyUnlock)this.bmuxPasskeyUnlock=aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId}).finally(()=>{this.bmuxPasskeyUnlock=void 0});return this.bmuxPasskeyUnlock}'
 
 // Serialized into the pinned extension's worker. Keep this function self-contained.
 export let bitwardenPasskeyPreflight = async ({ request, tab, authStatus, unlockedStatus, resolveTab, openUnlock }: {
@@ -49,9 +51,11 @@ export let bitwardenPasskeyPreflight = async ({ request, tab, authStatus, unlock
 }
 
 export let patchBitwardenPasskeys = (source: string) => {
-  if (source.includes(passkeyPatch)) return source
+  if (source.includes(passkeyPatch)) return source.replace(unlockNeedle, unlockSource)
   if (!source.includes(passkeyNeedle)) throw new Error('Bitwarden passkey compatibility target was not found')
-  let preflight = `t=yield (${bitwardenPasskeyPreflight.toString()})({request:n,tab:t,authStatus:()=>this.authService.getAuthStatus(),unlockedStatus:ad.Unlocked,resolveTab:id=>chrome.tabs.get(id),openUnlock:tab=>aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId})});/* ${passkeyPatch} */`
+  // Amazon can start overlapping requests from its account menu and sign-in
+  // button. Share window creation until its tab is visible to extension queries.
+  let preflight = `t=yield (${bitwardenPasskeyPreflight.toString()})({request:n,tab:t,authStatus:()=>this.authService.getAuthStatus(),unlockedStatus:ad.Unlocked,resolveTab:id=>chrome.tabs.get(id),${unlockSource}});/* ${passkeyPatch} */`
   return source.replace(passkeyNeedle, `${preflight}${passkeyNeedle}`)
 }
 
