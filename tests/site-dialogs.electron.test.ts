@@ -75,6 +75,12 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
       await expect(prompt.getByRole('button', { name: 'Stay (esc)', exact: true })).toBeFocused()
       await expect(prompt.getByRole('button', { name: 'Leave (enter)', exact: true })).toBeVisible()
       await expect(prompt).toContainText('Changes you made may not be saved.')
+      await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => {
+        let owner = BaseWindow.getAllWindows().find(window => window.isVisible())!
+        let pageView = owner.contentView.children.find(view => view instanceof WebContentsView && view.webContents.getURL() === url)
+        return !!pageView && pageView.getVisible()
+      }, url)).toBe(true)
+      await expect(chrome.locator('body')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
       if (keyCode === 'Escape') await prompt.screenshot({ path: test.info().outputPath('unsaved-changes-prompt.png') })
       await sendNativeKeys(application, [{ keyCode }])
       await expect(prompt).toHaveCount(0)
