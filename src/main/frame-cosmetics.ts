@@ -3,7 +3,7 @@ import { pageOrigin } from '../shared/browser-tools'
 
 type FrameTree = { frame: { id: string; parentId?: string; loaderId: string; url: string }; childFrames?: FrameTree[] }
 type FrameStyle = { loaderId: string; url: string; css?: string; key?: string }
-type Session = { id?: string; parent?: string; parentFrameId?: string; targetId?: string; rootId?: string; frames: Map<string, FrameStyle>; documents: Map<string, FrameTree['frame']>; ready?: Promise<void> }
+type Session = { id?: string; parent?: string; parentFrameId?: string; targetId?: string; rootId?: string; frames: Map<string, FrameStyle>; documents: Map<string, FrameTree['frame']>; keyboard?: Map<string, { contextId: number; source: string }>; ready?: Promise<void> }
 type TargetInfo = { targetId: string; parentId?: string; parentFrameId?: string; url: string }
 export type FrameContext = { id: string; parentId?: string; value: unknown; evaluate: (expression: string) => Promise<unknown>; point: (x: number, y: number) => Promise<{ x: number; y: number }> }
 type Options = {
@@ -66,10 +66,16 @@ export let createFrameCosmetics = (options: Options) => {
   }
   let apply = async (session: Session, tree: FrameTree, inheritedUrl: string, main: boolean) => {
     let { id, loaderId, url } = tree.frame
-    if (options.focusSource && current(session)) {
+    let focusSource = options.focusSource
+    if (focusSource && current(session)) {
       try {
         let { executionContextId } = await options.send('Page.createIsolatedWorld', { frameId: id, worldName: 'bmux:keyboard-focus' }, session.id)
-        await options.send('Runtime.evaluate', { contextId: executionContextId, expression: options.focusSource, timeout: 1000 }, session.id)
+        let keyboard = session.keyboard ??= new Map(), previous = keyboard.get(id)
+        // The editor bundle only needs evaluation once per context/configuration.
+        if (previous?.contextId !== executionContextId || previous.source !== focusSource) {
+          let result = await options.send('Runtime.evaluate', { contextId: executionContextId, expression: focusSource, timeout: 1000 }, session.id)
+          if (!result.exceptionDetails && current(session)) keyboard.set(id, { contextId: executionContextId, source: focusSource })
+        }
       } catch { /* Unknown focus never enables a conditional shortcut. */ }
     }
     let effectiveUrl = pageOrigin(url) ? url : /^about:(blank|srcdoc)(?:[?#]|$)/.test(url) ? inheritedUrl : ''
@@ -117,6 +123,7 @@ export let createFrameCosmetics = (options: Options) => {
     let collect = (tree: FrameTree) => { session.documents.set(tree.frame.id, tree.frame); for (let child of tree.childFrames ?? []) collect(child) }
     collect(frameTree)
     for (let id of session.frames.keys()) if (!session.documents.has(id)) session.frames.delete(id)
+    for (let id of session.keyboard?.keys() ?? []) if (!session.documents.has(id)) session.keyboard?.delete(id)
     let parentUrl = frameTree.frame.parentId ? documentUrl(frameTree.frame.parentId) : options.contents.getURL()
     await apply(session, frameTree, parentUrl, !session.id)
   }
@@ -155,6 +162,7 @@ export let createFrameCosmetics = (options: Options) => {
     else if (method === 'Page.frameNavigated' || method === 'Page.frameDetached') {
       session.frames.delete(params.frame?.id ?? params.frameId)
       session.documents.delete(params.frame?.id ?? params.frameId)
+      session.keyboard?.delete(params.frame?.id ?? params.frameId)
       schedule()
     } else if (method === 'Page.frameStoppedLoading' || method === 'Page.navigatedWithinDocument') schedule()
     else if (method === 'CSS.styleSheetRemoved') {

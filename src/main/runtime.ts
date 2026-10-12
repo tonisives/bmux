@@ -3013,7 +3013,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
       return { tabId: entry[0], adblock: tabById(model, entry[0]).pane.adblock, url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
-    pageTools = createPageTools({ adblock: contentsId => {
+    pageTools = createPageTools({ vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
       let entry = [...tabs].find(([, live]) => !live.contents.isDestroyed() && live.contents.id === contentsId)
       return entry ? tabById(model, entry[0]).pane.adblock : undefined
     }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })

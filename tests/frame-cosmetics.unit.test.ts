@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { WebContents } from 'electron'
 import { createFrameCosmetics } from '../src/main/frame-cosmetics'
 
-let fixture = () => {
+let fixture = (keyboard?: { source: string }) => {
   let events = Object.assign(new EventEmitter(), { isAttached: () => true, detach: vi.fn() }), enabled = true, sheets = new Map<string, string>(), sequence = 0
   let frame = { id: 'child', parentId: 'main', loaderId: 'first', url: 'https://frame.example.test/' }
   let contents = Object.assign(new EventEmitter(), { debugger: events, isDestroyed: vi.fn(() => false), getURL: () => 'https://page.example.test/' }) as unknown as WebContents
@@ -17,7 +17,7 @@ let fixture = () => {
     if (method === 'CSS.setStyleSheetText') sheets.set(params.styleSheetId, params.text)
     return {}
   })
-  let tools = createFrameCosmetics({ contents, send, enabled: () => enabled, styles: url => `${url.includes('frame.') ? '.frame-ad' : '.parent-ad'}{display:none!important}` })
+  let tools = createFrameCosmetics({ contents, get focusSource() { return keyboard?.source }, send, enabled: () => enabled, styles: url => `${url.includes('frame.') ? '.frame-ad' : '.parent-ad'}{display:none!important}` })
   return { contents, events, sheets, send, tools, frame, disable: () => { enabled = false } }
 }
 
@@ -35,6 +35,24 @@ test('clears the existing sheet after same-document navigation and transient con
     fixtureState.disable(); await tools.refresh()
     expect([...sheets.values()]).toEqual([''])
     expect(send.mock.calls.some(([method]) => method === 'Target.attachToTarget' || method === 'Target.setAutoAttach')).toBe(false)
+  } finally { tools.close() }
+})
+
+test('installs keyboard code once per frame context and reapplies live settings and navigation', async () => {
+  let keyboard = { source: 'installEditor(true)' }, { tools, send, events, frame } = fixture(keyboard)
+  let evaluations = () => send.mock.calls.filter(([method, params]) => method === 'Runtime.evaluate' && params?.expression === keyboard.source)
+  try {
+    await tools.refresh(); await tools.refresh()
+    expect(evaluations()).toHaveLength(2)
+    keyboard.source = 'installEditor(false)'
+    await tools.refresh(); await tools.refresh()
+    expect(evaluations()).toHaveLength(2)
+    events.emit('message', {}, 'Page.frameNavigated', { frame })
+    await tools.refresh()
+    expect(evaluations()).toHaveLength(3)
+    events.emit('detach')
+    await tools.refresh()
+    expect(evaluations()).toHaveLength(5)
   } finally { tools.close() }
 })
 

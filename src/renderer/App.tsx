@@ -2554,7 +2554,7 @@ let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', labe
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
-  { tab: 'general', label: 'Vim editing', section: 'Text editing', keywords: 'URL address rename tabs sessions normal insert motions', target: '[name="vimEditing"]' },
+  { tab: 'general', label: 'Vim editing', section: 'Text editing', keywords: 'URL address rename tabs sessions normal insert motions website fields Ctrl E', target: '[name="vimEditing"]' },
   { tab: 'general', label: 'Allow page inspection', section: 'Accessibility', keywords: 'screen readers', target: '[name="accessibility"]' },
   { tab: 'general', label: 'Default browser', section: 'Default browser', target: '[data-setting-id="default-browser"]' },
   { tab: 'appearance', label: 'Status bar', section: 'Browser layout', keywords: 'top bottom', target: '[name="statusBar"]' },
@@ -2585,7 +2585,7 @@ let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting:
     </section>}
     {show('[name="vimEditing"]') && <section className={css.settingsGroup} aria-label="Text editing"><h3>Text editing</h3>
       <label className={css.settingsRow}><span>Vim editing</span><input type="checkbox" name="vimEditing" checked={state.vimEditing !== false} onChange={changeSetting} /></label>
-      <p className={css.settingsHint}>Use Vim motions in URL bars and tab/session names.</p>
+      <p className={css.settingsHint}>Use Vim motions in URL bars and tab/session names. In website text fields, Ctrl+E opens a Vim editor.</p>
     </section>}
     {show('[name="accessibility"]') && <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
       <label className={css.settingsRow}><span>Allow page inspection</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>

@@ -192,6 +192,23 @@ within its session. From the shell, use `bmux movew -c CLIENT -t 2`.
 ### Conditional shortcuts
 
 The single-letter Vim-style example above is optional, not enabled by default.
+
+With **Vim editing** enabled in General settings (`vimEditing: true`), focus a
+website text field and press **Ctrl+E** to open its text in a Vim editor. This works
+with text inputs, textareas, and contenteditable composers, including frames and
+open shadow roots. Password, disabled, and read-only fields keep their native editing.
+
+The editor starts in Normal mode. Use `i` to type, Vim motions and operators to
+edit, and Escape to return from Insert or Visual mode. Escape in Normal mode or
+`:wq` saves the draft and restores focus to the original field. `:q` discards the
+draft; `:w` writes it without closing. Save and Discard buttons provide the same
+actions. Saving only updates the field; it never submits the website's form.
+
+The original field stays mounted while editing. If the page changes its text or
+rejects an update, the editor keeps your draft and reports the problem. Rich-text
+editing writes plain text through the browser's editing commands; embedded media
+and formatting are not part of the Vim draft. Custom editors that reject native
+text insertion can still be edited normally.
 Merge it into your existing `keyboard` mapping without replacing unrelated
 preferences. Website shortcuts outside editable fields can still conflict:
 configured bmux bindings take precedence. See the

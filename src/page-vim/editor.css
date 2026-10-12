@@ -1,0 +1,10 @@
+:host { all: initial; color-scheme: dark; }
+.shell { display: flex; flex-direction: column; height: 100%; background: #181818; color: #eee; border: 1px solid #777; box-shadow: 0 4px 20px #0006; box-sizing: border-box; font: 13px/1.5 ui-monospace, monospace; }
+.editor { flex: 1; min-height: 0; overflow: hidden; }
+.cm-editor { height: 100%; }
+.cm-scroller { overflow: auto; }
+.cm-content { font-family: ui-monospace, monospace; }
+.footer { display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-top: 1px solid #444; }
+.status { flex: 1; }
+button { font: inherit; color: inherit; background: transparent; border: 1px solid #666; padding: 0 6px; cursor: pointer; }
+button:focus-visible { outline: 2px solid #ddd; }
