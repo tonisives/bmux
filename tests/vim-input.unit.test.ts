@@ -26,6 +26,9 @@ describe('single-line Vim motions', () => {
     expect(run('alpha', 4, ['g', 'g'])).toEqual({ kind: 'move', cursor: 0 })
   })
   test('character searches support direction, till, counts, and repeats', () => {
+    expect(run('a u U x', 0, ['f', 'Shift', 'U'])).toEqual({ kind: 'move', cursor: 4 })
+    expect(run('a u U x', 0, ['d', 'f', 'Shift', 'U'])).toEqual({ kind: 'edit', start: 0, end: 5, text: '', insert: false })
+    expect(run('alpha', 0, ['r', 'Shift', 'U'])).toEqual({ kind: 'edit', start: 0, end: 1, text: 'U', insert: false })
     expect(vimFind('a/b/c/d', 0, 'f', '/', 2)).toBe(3)
     expect(vimFind('a/b/c/d', 0, 't', '/', 2)).toBe(2)
     expect(vimFind('a/b/c/d', 6, 'F', '/', 2)).toBe(3)

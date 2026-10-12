@@ -17,7 +17,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
-  let vim = useAddressVim(undefined, undefined, address ? 'NORMAL' : 'INSERT', state?.vimEditing !== false, input)
+  let vim = useAddressVim(undefined, undefined, address ? 'NORMAL' : 'INSERT', state?.vimEditing !== false, input, () => { input.current?.blur(); void run('focus-page') })
   let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
