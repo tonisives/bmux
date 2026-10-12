@@ -1575,6 +1575,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
+      if (unloadPrompts.has(candidate.id) && live.window.isFocused()) live.chrome.webContents.focus()
     }
     if (pointerTarget) {
       let cursor = screen.getCursorScreenPoint()
