@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { activityLabel, windowVisitTime } from '../src/shared/pane-activity'
+import { activityAge, activityLabel, windowVisitTime } from '../src/shared/pane-activity'
 import { newPane } from '../src/main/model'
 
 test('pane activity distinguishes missing, recent, old and future timestamps', () => {
@@ -19,4 +19,13 @@ test('window visits use one recorded time and retain legacy pane times until vis
   first.lastActivityAt = 1000; second.lastActivityAt = 2000
   expect(windowVisitTime({ panes: [first, second] })).toBe(2000)
   expect(windowVisitTime({ lastVisitedAt: 1500, panes: [first, second] })).toBe(1500)
+})
+
+test('visit age changes at one hour and one day, including future timestamps', () => {
+  let now = 2_000_000_000_000
+  expect(activityAge(now + 1000, now)).toBe('recent')
+  expect(activityAge(now - 3599999, now)).toBe('recent')
+  expect(activityAge(now - 3600000, now)).toBe('today')
+  expect(activityAge(now - 86399999, now)).toBe('today')
+  expect(activityAge(now - 86400000, now)).toBe('old')
 })
