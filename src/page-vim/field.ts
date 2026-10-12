@@ -10,8 +10,28 @@ export let textField = (element: Element | null): TextField | undefined => {
   return field.getAttribute('aria-readonly') !== 'true' && field.getAttribute('aria-disabled') !== 'true' ? field : undefined
 }
 
-// Chromium uses nonbreaking spaces to keep repeated spaces in rich text visible.
-export let readField = (field: TextField) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : field.innerText.replace(/\u00a0/g, ' ')
+let editableText = (node: Node): string => {
+  if (node.nodeType === Node.TEXT_NODE) return (node.nodeValue ?? '').replace(/\u00a0/g, ' ')
+  if (!(node instanceof HTMLElement)) return ''
+  if (node.tagName === 'BR') return '\n'
+  let children = [...node.childNodes]
+  // Chromium adds a final BR as a caret placeholder on an empty last line.
+  if (children.at(-1) instanceof HTMLBRElement) children.pop()
+  let text = '', previousBlock = false, first = true
+  for (let child of children) {
+    let display = child instanceof HTMLElement ? getComputedStyle(child).display : ''
+    if (display === 'none' || child instanceof HTMLElement && ['SCRIPT', 'STYLE'].includes(child.tagName)) continue
+    let block = ['block', 'list-item', 'table-row', 'flex', 'grid', 'flow-root'].includes(display)
+    if (!first && (block || previousBlock)) text += '\n'
+    text += editableText(child)
+    previousBlock = block; first = false
+  }
+  return text
+}
+
+// Read logical lines and raw spacing, without innerText's paragraph margins and
+// whitespace collapsing. Website styles should not change the plain-text draft.
+export let readField = (field: TextField) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : editableText(field)
 
 export let writeField = (field: TextField, value: string, cursor: number) => {
   if (!field.isConnected || textField(field) !== field) return false
