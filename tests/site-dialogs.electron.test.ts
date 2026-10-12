@@ -4,6 +4,10 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+let exec = promisify(execFile)
 
 let fixture = async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-dialogs-'))
@@ -50,6 +54,48 @@ test('website confirmations allow cancellation and acceptance', async () => {
       await expect(page.locator('output')).toHaveText(accept ? 'Deleted' : 'Cancelled')
     }
   } finally { await close() }
+})
+
+test('unsaved changes use Escape to stay and Enter to leave when entering a URL', async () => {
+  test.skip(process.platform !== 'darwin', 'Native macOS alert keyboard equivalents')
+  let { application, chrome, page, url, close } = await fixture()
+  let apple = (source: string) => exec('/usr/bin/osascript', ['-e', source], { timeout: 5000 })
+  let sheet = `tell application "System Events" to tell first application process whose unix id is ${application.process().pid} to `
+  let sheetVisible = () => apple(`${sheet}get exists sheet 1 of window 1`).then(result => result.stdout.trim()).catch(() => 'false')
+  try {
+    await application.evaluate(({ BaseWindow }) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+      window.show(); window.focus()
+    })
+    page.on('dialog', () => undefined)
+    await page.getByRole('button', { name: 'Edit' }).click()
+    await expect(page.locator('output')).toHaveText('Unsaved')
+    let destination = `${url}?next`
+    for (let key of [53, 36]) {
+      await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+      let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+      await expect(address).toBeFocused()
+      await address.fill(destination)
+      let submitting = address.press('Enter')
+      await expect.poll(sheetVisible).toBe('true')
+      expect((await apple(`${sheet}get name of buttons of sheet 1 of window 1`)).stdout).toContain('Leave')
+      expect((await apple(`${sheet}get value of static texts of sheet 1 of window 1`)).stdout).toContain('Press Esc to stay or Enter to leave.')
+      await apple(`tell application "System Events" to key code ${key}`)
+      await submitting
+      await expect.poll(sheetVisible).toBe('false')
+      if (key === 53) {
+        await expect(page).toHaveURL(url)
+        await expect(page.locator('output')).toHaveText('Unsaved')
+      } else {
+        await expect(page).toHaveURL(destination)
+        await expect(page.locator('output')).toHaveText('Unchanged')
+      }
+    }
+  } finally {
+    // Dismiss a remaining native sheet before graceful Electron teardown.
+    if (await sheetVisible() === 'true') await apple('tell application "System Events" to key code 53')
+    await close()
+  }
 })
 
 test('unsaved changes can cancel or allow tab and window close', async () => {

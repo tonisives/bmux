@@ -872,7 +872,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('will-prevent-unload', event => {
       if (idleClosing.has(tabId)) { live.cancelClose?.(); return }
       let owner = BaseWindow.getFocusedWindow() ?? (!live.parent.isDestroyed() && live.parent.isVisible() ? live.parent : undefined)
-      let options: Electron.MessageBoxOptions = { type: 'question', buttons: ['Stay', 'Leave'], defaultId: 0, cancelId: 0, message: 'Leave this site?', detail: 'Changes you made may not be saved.' }
+      // AppKit gives each button one key equivalent; sharing default and cancel
+      // IDs makes Escape replace Enter rather than binding both keys.
+      let options: Electron.MessageBoxOptions = { type: 'question', buttons: ['Stay', 'Leave'], defaultId: 1, cancelId: 0, message: 'Leave this site?', detail: 'Changes you made may not be saved.\n\nPress Esc to stay or Enter to leave.' }
       let choice = owner ? dialog.showMessageBoxSync(owner, options) : dialog.showMessageBoxSync(options)
       if (choice === 1) event.preventDefault()
       else live.cancelClose?.()
