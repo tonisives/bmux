@@ -203,7 +203,7 @@ test('website Vim editor works in same-origin and cross-origin frames and honors
     await frame.locator('[data-bmux-vim] .cm-vim-panel input').press('Enter')
     await expect(field).toHaveValue('frame bravo'); await expect(field).toBeFocused()
   }
-  await fs.writeFile(config, 'vimEditing: false\naccessibility: true\nkeyboard: {}\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
+  await fs.writeFile(config, 'vimEditing: false\naccessibility: true\nkeyboard:\n  shortcuts:\n    Ctrl+E: null\n    Cmd+E: vim-editor\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await expect.poll(() => chrome.evaluate(async () => (window as any).bmux.state().then((state: any) => state.vimEditing))).toBe(false)
   // Explicitly await page-tools refresh instead of racing its configuration queue.
@@ -211,4 +211,5 @@ test('website Vim editor works in same-origin and cross-origin frames and honors
   let field = page.locator('#notes')
   await field.click(); await field.press('Meta+e')
   await expect(page.locator('[data-bmux-vim]')).toHaveCount(0)
+  await expect(page.locator('[data-bmux-vim-hints]')).toHaveCount(0)
 })
