@@ -1856,7 +1856,7 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill('')
-  await address.press('i')
+  await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
   for (let key of keys) await address.press(key)
   await expect(address).toHaveValue(keys.join(''))
   expect(page.url()).toBe(`${url}/vim-page-keys`)

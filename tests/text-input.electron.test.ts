@@ -20,10 +20,17 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/ug-url`
   let application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '0' } })
-  let focusedRole = async () => (await exec('/usr/bin/osascript', ['-e', `tell application "System Events" to tell first application process whose unix id is ${application.process().pid} to get role of (value of attribute "AXFocusedUIElement")`])).stdout.trim()
+  let focusedRole = async () => {
+    try { return (await exec('/usr/bin/osascript', ['-e', `tell application "System Events" to tell first application process whose unix id is ${application.process().pid} to get role of (value of attribute "AXFocusedUIElement")`])).stdout.trim() }
+    catch (error) { if (String(error).includes('(-1728)')) return ''; throw error }
+  }
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    await application.evaluate(({ app, BrowserWindow }) => {
+      let window = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().endsWith('/renderer/index.html'))!
+      window.show(); window.focus(); app.focus({ steal: true })
+    })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await expect(address).toBeFocused()
@@ -57,6 +64,9 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await expect(address).toHaveValue(url)
+    await expect(address).toBeFocused()
+    await address.press('Meta+A')
+    await expect.poll(() => address.evaluate(input => { let field = input as HTMLInputElement; return [field.selectionStart, field.selectionEnd] })).toEqual([0, url.length])
     await address.press('Backspace')
     await expect(address).toHaveValue('')
     await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
