@@ -28,6 +28,7 @@ export let createFrameCosmetics = (options: Options) => {
   sessions.set('', root)
   let current = (session: Session) => !closed && !options.contents.isDestroyed() && sessions.get(session.id ?? '') === session
   let initialize = (session: Session): Promise<void> => session.ready ??= (async () => {
+    if (options.clipboard) await options.send('Runtime.enable', {}, session.id)
     if (options.clipboard) await options.send('Runtime.addBinding', { name: 'bmuxVimClipboard', executionContextName: 'bmux:keyboard-focus' }, session.id)
     await options.send('Page.enable', { enableFileChooserOpenedEvent: true }, session.id)
     await options.send('DOM.enable', {}, session.id)
