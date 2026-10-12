@@ -4,7 +4,5 @@
 .cm-editor { height: 100%; }
 .cm-scroller { overflow: auto; }
 .cm-content { font-family: ui-monospace, monospace; }
-.footer { display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-top: 1px solid var(--field-border); flex-wrap: wrap; }
-.status { flex: 1; }
-button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--field-border); padding: 0 6px; cursor: pointer; }
-button:focus-visible { outline: 2px solid currentColor; }
+.status { padding: 4px 8px; border-top: 1px solid var(--field-border); }
+.status[hidden] { display: none; }

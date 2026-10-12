@@ -13,7 +13,7 @@ let fixture = `<!doctype html><title>Vim field fixture</title>
 <form><input id="text" value="alpha bravo"><textarea id="notes">alpha bravo\ncharlie delta</textarea><input id="password" type="password"><input id="readonly" readonly value="locked"><input id="number" type="number"></form>
 <div id="rich" contenteditable="true"><p>alpha bravo</p><p>charlie delta</p></div>
 <div id="react"></div><div id="shadow"></div><button id="outside">Outside</button>
-<script src="/fixture.js"></script>`
+<script nonce="bmux-fixture" src="/fixture.js"></script>`
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-page-vim-'))
@@ -31,7 +31,7 @@ test.beforeAll(async () => {
     document.querySelector('form').addEventListener('submit', e => { e.preventDefault(); window.fixtureEvents.submit++; });
   `, resolveDir: process.cwd(), sourcefile: 'page-vim-fixture.js' }, bundle: true, write: false, platform: 'browser', format: 'iife' })
   server = http.createServer((request, response) => {
-    response.writeHead(200, { 'Content-Type': request.url === '/fixture.js' ? 'text/javascript' : request.url === '/fixture.css' ? 'text/css' : 'text/html', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; frame-src 'self' http://localhost:*" })
+    response.writeHead(200, { 'Content-Type': request.url === '/fixture.js' ? 'text/javascript' : request.url === '/fixture.css' ? 'text/css' : 'text/html', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'nonce-bmux-fixture'; frame-src 'self' http://localhost:*" })
     response.end(request.url === '/fixture.js' ? bundle.outputFiles[0].text : request.url === '/fixture.css' ? 'body { padding: 30px; font: 16px sans-serif; } textarea, input, [contenteditable] { display: block; width: 450px; margin: 10px; } [contenteditable] { min-height: 60px; border: 1px solid #888; }' : fixture)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -73,6 +73,7 @@ let ex = async (editor: Locator, command: string) => {
 test('website Vim hints open by mouse and native click mode with the configured shortcut', async ({}, info) => {
   let hint = page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')
   await expect(hint).toBeVisible(); await expect(hint).toHaveAttribute('title', 'Edit with Vim (Cmd+E)')
+  await expect(hint).toHaveText('v'); await expect(hint).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)'); await expect(hint).toHaveCSS('border-top-width', '0px')
   for (let id of ['password', 'readonly', 'number']) await expect(page.locator(`[data-bmux-vim-hints] button[aria-controls="${id}"]`)).toHaveCount(0)
   await hint.click()
   let overlay = page.locator('[data-bmux-vim]'), editor = overlay.getByRole('textbox', { name: 'Vim text' })
@@ -118,7 +119,13 @@ test('website Vim hints keep readable contrast with Dark Reader and after naviga
       let value = channel / 255
       return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4
     }).reduce((total, value, index) => total + value * [.2126, .7152, .0722][index], 0)
-    let foreground = luminance(style.color), background = luminance(style.backgroundColor)
+    let field = document.getElementById(element.getAttribute('aria-controls')!)!
+    let backgroundColor = getComputedStyle(field).backgroundColor
+    let backgroundChannels = backgroundColor.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+    let foregroundChannels = style.color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+    let opacity = Number(style.opacity)
+    let foregroundColor = `rgb(${foregroundChannels.map((channel, index) => channel * opacity + backgroundChannels[index] * (1 - opacity)).join(',')})`
+    let foreground = luminance(foregroundColor), background = luminance(backgroundColor)
     return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
   })
   let dark = (value: string) => chrome.evaluate(async value => {
@@ -126,10 +133,7 @@ test('website Vim hints keep readable contrast with Dark Reader and after naviga
     let tab = state.model.clients.find((client: { id: string }) => client.id === state.clientId).paneId
     return (window as any).bmux.command({ method: 'browser.set', args: { tab, setting: 'darkMode', value } })
   }, value)
-  let readerReady = () => expect.poll(() => hint.evaluate(element => {
-    let root = element.getRootNode() as ShadowRoot
-    return root.adoptedStyleSheets.some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes('__darkreader__adoptedOverride')))
-  })).toBe(true)
+  let readerReady = () => expect.poll(() => page.locator('html').evaluate(element => getComputedStyle(element).colorScheme)).toBe('dark')
   await expect(hint).toBeVisible(); await expect.poll(contrast).toBeGreaterThan(4.5)
   await page.locator('#outside').hover(); await expect(hint).toHaveCSS('opacity', '0.7')
   await hint.hover(); await expect(hint).toHaveCSS('opacity', '1')
@@ -190,6 +194,33 @@ test('website Vim editor stays inline and restores the original field and layout
   await field.evaluate(element => element.removeAttribute('style'))
 })
 
+test('website Vim editor has relative numbers, visible visual selection, and zz save-and-close', async ({}, info) => {
+  let field = page.locator('#notes'), { overlay, editor } = await open(field)
+  await expect(overlay.locator('.footer')).toHaveCount(0)
+  await expect(overlay.getByRole('button', { name: /^(Save|Discard)$/ })).toHaveCount(0)
+  await editor.pressSequentially('gg0')
+  let numbers = overlay.locator('.cm-lineNumbers .cm-gutterElement').filter({ visible: true })
+  // The first gutter element is the width spacer, followed by the document lines.
+  await expect(numbers).toHaveText(['1', '1'])
+  await editor.press('j'); await expect(numbers).toHaveText(['1', '2'])
+  await editor.pressSequentially('gg0vll')
+  await expect(overlay).toHaveAttribute('data-mode', 'VISUAL')
+  let selection = overlay.locator('.cm-selectionBackground').first()
+  await expect(selection).toBeVisible()
+  await expect.poll(() => selection.evaluate(element => {
+    let style = getComputedStyle(element), bounds = element.getBoundingClientRect()
+    return style.backgroundColor !== 'rgba(0, 0, 0, 0)' && bounds.width > 0 && bounds.height > 0
+  })).toBe(true)
+  await overlay.screenshot({ path: info.outputPath('vim-visual-selection.png') })
+  await editor.press('Escape'); await expect(overlay).toHaveAttribute('data-mode', 'NORMAL')
+  await editor.pressSequentially('A draft'); await editor.press('Escape'); await editor.pressSequentially('zz')
+  await expect(overlay).toHaveCount(0); await expect(field).toHaveValue('alpha bravo draft\ncharlie delta')
+  ;({ overlay, editor } = await open(field))
+  await editor.pressSequentially('gg0A!'); await editor.press('Escape'); await editor.pressSequentially('ZZ')
+  await expect(overlay).toHaveCount(0); await expect(field).toHaveValue('alpha bravo draft!\ncharlie delta')
+  await field.fill('alpha bravo\ncharlie delta')
+})
+
 test('website Vim editor saves multiline motions, undo, and insert edits without submitting', async ({}, info) => {
   let field = page.locator('#notes'), { overlay, editor } = await open(field)
   await editor.pressSequentially('gg0dw')
@@ -212,7 +243,7 @@ test('website Vim yanks share the system clipboard across editors and browser fi
   let { overlay, editor } = await open(page.locator('#notes'))
   await editor.pressSequentially('gg0yy')
   await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('alpha bravo\n')
-  await overlay.getByRole('button', { name: 'Discard', exact: true }).click()
+  await ex(editor, 'q')
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -229,7 +260,7 @@ test('website Vim yanks share the system clipboard across editors and browser fi
   await application.evaluate(({ clipboard }) => clipboard.writeText('outside '))
   await editor.pressSequentially('gg0P')
   await expect(editor).toContainText('outside from browseralpha bravo')
-  await overlay.getByRole('button', { name: 'Discard', exact: true }).click()
+  await ex(editor, 'q')
 })
 
 test('website Vim editor discards drafts, writes controlled React inputs, and exits with Escape', async () => {
@@ -257,7 +288,7 @@ test('website Vim editor updates rich text and shadow fields through native even
   let shadow = page.locator('#shadow-text')
   ;({ overlay, editor } = await open(shadow))
   await editor.pressSequentially('gg0cw'); await editor.pressSequentially('edited'); await editor.press('Escape')
-  await overlay.getByRole('button', { name: 'Save', exact: true }).click()
+  await ex(editor, 'wq')
   await expect(shadow).toHaveValue('edited draft'); await expect(shadow).toBeFocused()
   expect(await page.evaluate(() => (window as any).fixtureEvents.input)).toBeGreaterThan(0)
 })
@@ -269,7 +300,7 @@ test('website Vim editor preserves conflicting drafts and handles removed, disab
   await ex(editor, 'wq')
   await expect(overlay).toContainText('Field changed on the page')
   await expect(editor).toContainText('draft'); await expect(field).toHaveValue('page update')
-  await overlay.getByRole('button', { name: 'Discard' }).click()
+  await ex(editor, 'q')
   await expect(overlay).toHaveCount(0)
   for (let id of ['password', 'readonly', 'number']) {
     let input = page.locator(`#${id}`)
@@ -281,7 +312,7 @@ test('website Vim editor preserves conflicting drafts and handles removed, disab
   await field.evaluate(element => element.remove())
   await expect(overlay).toContainText('Field no longer available')
   await expect(editor).toContainText('retained draft')
-  await overlay.getByRole('button', { name: 'Discard' }).click()
+  await ex(editor, 'q')
   await expect(overlay).toHaveCount(0)
 })
 

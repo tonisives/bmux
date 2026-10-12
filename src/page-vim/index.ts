@@ -1,5 +1,5 @@
-import { EditorState } from '@codemirror/state'
-import { EditorView, keymap, lineNumbers } from '@codemirror/view'
+import { Compartment, EditorState } from '@codemirror/state'
+import { drawSelection, EditorView, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { getCM, vim, Vim } from '@replit/codemirror-vim'
 import { readField, textField, writeField } from './field'
@@ -12,7 +12,14 @@ import css from './editor.css?inline'
 type PageVim = { configure: (enabled: boolean, shortcuts: string[], platform: NodeJS.Platform) => void }
 let scope = globalThis as typeof globalThis & { bmuxPageVim?: PageVim }
 
+let relativeLineNumber = (line: number, state: EditorState) => {
+  let current = state.doc.lineAt(state.selection.main.head).number
+  return String(line === current ? line : Math.abs(line - current))
+}
+
 let install = (): PageVim => {
+  Vim.map('zz', ':wq<CR>', 'normal')
+  Vim.map('ZZ', ':wq<CR>', 'normal')
   let requests = new Map<number, (text: string) => void>(), sequence = 0
   let clipboardScope = globalThis as typeof globalThis & { bmuxVimClipboard: (payload: string) => void; bmuxVimClipboardResolve: (id: number, text: string) => void }
   clipboardScope.bmuxVimClipboardResolve = (id, text) => { requests.get(id)?.(text); requests.delete(id) }
@@ -32,25 +39,29 @@ let install = (): PageVim => {
     host.setAttribute('aria-label', 'Vim editor')
     let root = host.attachShadow({ mode: 'open' }), sheet = new CSSStyleSheet()
     sheet.replaceSync(css); root.adoptedStyleSheets = [sheet]
-    let shell = document.createElement('div'), container = document.createElement('div'), footer = document.createElement('div'), status = document.createElement('span')
-    shell.className = 'shell'; container.className = 'editor'; footer.className = 'footer'; status.className = 'status'
-    footer.append(status)
-    shell.append(container, footer); root.append(shell)
+    let shell = document.createElement('div'), container = document.createElement('div'), status = document.createElement('div')
+    shell.className = 'shell'; container.className = 'editor'; status.className = 'status'; status.hidden = true
+    status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite')
+    shell.append(container, status); root.append(shell)
+    let report = (message: string) => { status.textContent = message; status.hidden = false }
     let inline = mountInlineEditor(field, host)
     let cursor = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.selectionStart ?? 0 : original.length
+    let relativeNumbers = new Compartment()
     let view = new EditorView({
       parent: container, root,
       state: EditorState.create({ doc: original, selection: { anchor: cursor }, extensions: [
-        vim(), history(), keymap.of([...defaultKeymap, ...historyKeymap]), lineNumbers(), EditorView.lineWrapping,
+        vim(), drawSelection(), history(), keymap.of([...defaultKeymap, ...historyKeymap]), EditorView.lineWrapping,
+        relativeNumbers.of(lineNumbers({ formatNumber: relativeLineNumber })),
+        EditorState.transactionExtender.of(transaction => transaction.selection || transaction.docChanged ? { effects: relativeNumbers.reconfigure(lineNumbers({ formatNumber: relativeLineNumber })) } : null),
         EditorView.contentAttributes.of({ 'aria-label': 'Vim text' }),
-        EditorView.theme({ '&': { backgroundColor: 'var(--field-background)', color: 'var(--field-color)' }, '.cm-gutters': { backgroundColor: 'var(--field-background)', color: 'var(--field-color)', border: 'none', opacity: '.65' }, '.cm-cursor': { borderLeftColor: 'var(--field-color)' }, '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'color-mix(in srgb, var(--field-color) 25%, transparent)' } }),
+        EditorView.theme({ '&': { backgroundColor: 'var(--field-background)', color: 'var(--field-color)' }, '.cm-gutters': { backgroundColor: 'var(--field-background)', color: 'var(--field-color)', border: 'none', opacity: '.65' }, '.cm-cursor': { borderLeftColor: 'var(--field-color)' }, '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--field-color) 25%, transparent)' } }),
       ] }),
     })
     let closing = false
     let save = () => {
-      if (readField(field) !== original) { status.textContent = 'Field changed on the page. Copy your draft or discard.'; return false }
-      if (!inline.write(() => writeField(field, view.state.doc.toString(), view.state.selection.main.head))) { status.textContent = 'Could not update this field. Copy your draft or discard.'; view.focus(); return false }
-      original = readField(field)
+      if (readField(field) !== original) { report('Field changed on the page. Copy your draft or use :q to discard.'); return false }
+      if (!inline.write(() => writeField(field, view.state.doc.toString(), view.state.selection.main.head))) { report('Could not update this field. Copy your draft or use :q to discard.'); view.focus(); return false }
+      original = readField(field); status.hidden = true
       return true
     }
     let close = (commit: boolean) => {
@@ -63,18 +74,14 @@ let install = (): PageVim => {
     active = { host, close }
     let observer = new MutationObserver(() => {
       inline.retain()
-      let message = 'Field no longer available. Copy your draft or discard.'
-      if (!field.isConnected && status.textContent !== message) status.textContent = message
+      let message = 'Field no longer available. Copy your draft or use :q to discard.'
+      if (!field.isConnected && status.textContent !== message) report(message)
     })
     observer.observe(document, { subtree: true, childList: true })
     let fieldRoot = field.getRootNode()
     if (fieldRoot !== document) observer.observe(fieldRoot, { subtree: true, childList: true })
-    for (let [label, commit] of [['Save', true], ['Discard', false]] as const) {
-      let button = document.createElement('button')
-      button.textContent = label; button.type = 'button'; button.addEventListener('click', () => close(commit)); footer.append(button)
-    }
     let cm = getCM(view)!
-    let mode = () => { let state = cm.state.vim; host.dataset.mode = state?.insertMode ? 'INSERT' : state?.visualMode ? 'VISUAL' : 'NORMAL'; status.textContent = `${host.dataset.mode}  :wq / :q` }
+    let mode = () => { let state = cm.state.vim; host.dataset.mode = state?.insertMode ? 'INSERT' : state?.visualMode ? 'VISUAL' : 'NORMAL' }
     cm.on('vim-mode-change', mode); mode()
     Vim.defineEx('write', 'w', () => { if (save()) { view.focus(); mode() } })
     Vim.defineEx('quit', 'q', () => queueMicrotask(() => close(false)))
