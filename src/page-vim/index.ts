@@ -68,7 +68,13 @@ let install = (): PageVim => {
       if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || readField(field) === value) return writeField(field, value, selection)
       let focused = root.activeElement as HTMLElement | null
       let result = inline.write(() => writeField(field, value, selection))
-      if (focused === view.contentDOM) view.focus()
+      if (focused === view.contentDOM) {
+        // Native editing changes the document selection outside the shadow root.
+        // Restore it explicitly; CodeMirror's cached range may still look current.
+        let anchor = view.domAtPos(view.state.selection.main.anchor), head = view.domAtPos(view.state.selection.main.head)
+        window.getSelection()?.setBaseAndExtent(anchor.node, anchor.offset, head.node, head.offset)
+        view.focus()
+      }
       else focused?.focus({ preventScroll: true })
       return result
     }
