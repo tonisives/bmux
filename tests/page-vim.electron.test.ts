@@ -158,7 +158,7 @@ test('website Vim hints keep readable contrast with Dark Reader and after naviga
   } finally {
     await dark('off')
   }
-  await expect.poll(() => page.locator('style.darkreader').count()).toBe(0)
+  await expect.poll(() => page.evaluate(() => document.querySelectorAll('style.darkreader').length)).toBe(0)
   await expect(hint).toBeVisible(); await expect.poll(contrast).toBeGreaterThan(4.5)
 })
 
