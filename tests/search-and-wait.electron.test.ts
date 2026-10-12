@@ -516,6 +516,29 @@ test('session tree shows window visits and supports counted vim navigation and w
   await rpc('kill-window', { window: unnamed.id, confirm: true })
 })
 
+test('session visit times use age colors in tree and recent views', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let created = await rpc('new-window', { session: client.sessionId, name: 'visit-colors' })
+  await rpc('select-window', { client: client.id, window: created.id })
+  let visitedAt = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === created.id).lastVisitedAt
+  await chrome.evaluate(() => { (window as any).bmuxTestDateNow = Date.now })
+  try {
+    for (let [age, color] of [[0, 'rgb(167, 200, 141)'], [3600000, 'rgb(229, 192, 123)'], [86400000, 'rgb(232, 139, 139)']] as const) {
+      await chrome.evaluate(now => { Date.now = () => now; localStorage.removeItem('session-sort-recent') }, visitedAt + age)
+      await open('sessions')
+      let group = chrome.getByRole('group', { name: 'Choose session', exact: true })
+      let time = group.locator(`[data-window-row="${created.id}"] time`)
+      await expect(time).toHaveCSS('color', color)
+      await group.getByRole('button', { name: 'Sort by recently visited', exact: true }).click()
+      await expect(time).toHaveCSS('color', color)
+      await chrome.keyboard.press('Escape'); await expect(group).toHaveCount(0)
+    }
+  } finally {
+    await chrome.evaluate(() => { Date.now = (window as any).bmuxTestDateNow; delete (window as any).bmuxTestDateNow; localStorage.removeItem('session-sort-recent') })
+    await rpc('kill-window', { window: created.id, confirm: true })
+  }
+})
+
 test('session tree collapses with keyboard and mouse while search and creation stay visible', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let created = await rpc('new-session', { client: client.id, name: 'tree-controls' })
