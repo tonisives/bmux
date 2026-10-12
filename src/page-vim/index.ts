@@ -90,7 +90,7 @@ let install = (): PageVim => {
     root.addEventListener('keydown', event => {
       let key = event as KeyboardEvent
       if (!key.isTrusted) return
-      clipboardAuthorized = true; queueMicrotask(() => { clipboardAuthorized = false })
+      clipboardAuthorized = true; setTimeout(() => { clipboardAuthorized = false }, 0)
       if (['p', 'P'].includes(key.key) && !key.metaKey && !key.ctrlKey && !key.altKey && !cm.state.vim?.insertMode && !cm.state.vim?.inputState.registerName && !root.querySelector('.cm-panel input')) {
         key.preventDefault(); key.stopImmediatePropagation()
         void clipboard('read').then(text => { if (closing) return; registers.getRegister('"').setText(text, text.endsWith('\n')); Vim.handleKey(cm, key.key, 'user') })
