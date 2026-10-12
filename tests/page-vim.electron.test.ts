@@ -175,7 +175,7 @@ test('website Vim yanks share the system clipboard across editors and browser fi
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.press('P')
   await expect(address).toHaveValue('alpha bravo' + page.url())
-  await address.fill('from browser'); await address.press('Escape'); await address.press('y'); await address.press('y')
+  await address.press('i'); await address.fill('from browser'); await address.press('Escape'); await address.press('y'); await address.press('y')
   await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('from browser')
   await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   ;({ overlay, editor } = await open(page.locator('#text')))

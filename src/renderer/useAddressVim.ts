@@ -35,6 +35,7 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation()
       if (!enabled) return true
+      if (mode === 'NORMAL' && exit) { reset(); exit(); return true }
       let cursor = mode === 'VISUAL' ? visual.current.cursor : input.selectionStart ?? 0
       if (mode === 'INSERT' && input.selectionStart === input.selectionEnd) cursor = Math.max(0, cursor - 1)
       cursor = Math.min(cursor, Math.max(0, input.value.length - 1))
@@ -45,9 +46,6 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     if (mode !== 'VISUAL' && ['Backspace', 'Delete'].includes(event.key)) { reset('INSERT'); return false }
     if (event.metaKey || event.altKey) return false
     if (event.ctrlKey && event.key.toLowerCase() !== 'r') return false
-    if (mode === 'NORMAL' && event.key === 'x' && !event.ctrlKey && !state.current.pending && !state.current.operator && exit) {
-      event.preventDefault(); event.stopPropagation(); reset(); exit(); return true
-    }
     let cursor = mode === 'VISUAL' ? visual.current.cursor : Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1))
     if (event.key === 'v') {
       event.preventDefault(); event.stopPropagation()
