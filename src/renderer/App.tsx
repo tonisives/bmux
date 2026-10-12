@@ -879,7 +879,7 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
     if (result !== undefined) finish()
   }
   let submit = (event: FormEvent) => { event.preventDefault(); if (closing ? text.toLowerCase() === 'y' : text.trim()) void apply() }
-  let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { if (renaming && (event.nativeEvent as InputEvent).inputType?.startsWith('delete')) vim.reset('INSERT'); setText(event.target.value) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (renaming && vim.keys(event)) return
     if (event.key === 'Escape' || (closing && event.key.toLowerCase() === 'n')) { event.preventDefault(); finish(); return }

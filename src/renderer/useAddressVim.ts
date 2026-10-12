@@ -40,7 +40,9 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
       input.setSelectionRange(cursor, cursor); reset()
       return true
     }
-    if (!enabled || mode === 'INSERT' || event.metaKey || event.altKey) return false
+    if (!enabled || mode === 'INSERT') return false
+    if (mode !== 'VISUAL' && ['Backspace', 'Delete'].includes(event.key)) { reset('INSERT'); return false }
+    if (event.metaKey || event.altKey) return false
     if (event.ctrlKey && event.key.toLowerCase() !== 'r') return false
     let cursor = mode === 'VISUAL' ? visual.current.cursor : Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1))
     if (event.key === 'v') {
