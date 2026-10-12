@@ -677,6 +677,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let tab = pane?.id
     let control = (name: string) => { pointerTarget = undefined; let chrome = name === 'address' && pane && !client.zoomedPaneId ? focused.floats.get(pane.id) ?? focused.chrome : focused.chrome; chrome.webContents.focus(); chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
+    if (action === 'vim-editor') { if (tab && !overlays.has(client.id)) void pageTools?.frameContexts(tab, `window.dispatchEvent(new Event('bmux:vim-editor'))`).catch(reportError); return }
     if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { invoke({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
@@ -3065,7 +3066,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
       return { tabId: entry[0], adblock: tabById(model, entry[0]).pane.adblock, url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
-    pageTools = createPageTools({ vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
+    pageTools = createPageTools({ keyboard: () => configuration!.keyboard, vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
       let entry = [...tabs].find(([, live]) => !live.contents.isDestroyed() && live.contents.id === contentsId)
       return entry ? tabById(model, entry[0]).pane.adblock : undefined
     }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })

@@ -4,15 +4,17 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { getCM, vim, Vim } from '@replit/codemirror-vim'
 import { readField, textField, writeField } from './field'
 import type { TextField } from './field'
+import { createFieldHints } from './hints'
 import css from './editor.css?inline'
 
-type PageVim = { configure: (enabled: boolean) => void }
+type PageVim = { configure: (enabled: boolean, shortcut: string) => void }
 let scope = globalThis as typeof globalThis & { bmuxPageVim?: PageVim }
 
 let install = (): PageVim => {
   let enabled = true, active: { host: HTMLElement; close: (save: boolean) => void } | undefined
   let open = (field: TextField) => {
-    if (active) return
+    if (!enabled || active) return
+    hints.hide()
     let original = readField(field), host = document.createElement('div')
     host.dataset.bmuxVim = 'true'
     host.popover = 'manual'
@@ -53,7 +55,7 @@ let install = (): PageVim => {
       if (closing || commit && !save()) return
       closing = true; active = undefined
       observer.disconnect(); window.removeEventListener('resize', position); window.removeEventListener('scroll', position, true)
-      view.destroy(); host.remove()
+      view.destroy(); host.remove(); hints.refresh()
       if (field.isConnected) field.focus({ preventScroll: true })
     }
     active = { host, close }
@@ -84,14 +86,19 @@ let install = (): PageVim => {
     for (let type of ['keydown', 'keyup', 'keypress']) root.addEventListener(type, event => event.stopPropagation())
     view.focus()
   }
-  window.addEventListener('keydown', event => {
-    if (!enabled || active || event.isComposing || event.repeat || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'e') return
-    let element = event.composedPath().find(item => item instanceof HTMLElement) as HTMLElement | undefined
-    let field = textField(element ?? null)
-    if (!field) return
-    event.preventDefault(); event.stopImmediatePropagation(); open(field)
-  }, true)
-  return { configure: value => { enabled = value; if (!enabled) active?.close(true) } }
+  let hints = createFieldHints(open)
+  window.addEventListener('bmux:vim-editor', () => {
+    if (!enabled || active || !document.hasFocus()) return
+    let element = document.activeElement
+    while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement
+    let field = textField(element)
+    if (field) open(field)
+  })
+  return { configure: (value, shortcut) => {
+    enabled = value
+    if (!enabled) active?.close(true)
+    hints.configure(enabled && !active, shortcut)
+  } }
 }
 
 if (!scope.bmuxPageVim) scope.bmuxPageVim = install()

@@ -18,7 +18,7 @@ let fixture = `<!doctype html><title>Vim field fixture</title>
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-page-vim-'))
   config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nkeyboard: {}\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Ctrl+E: null\n    Cmd+E: vim-editor\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
   let bundle = await build({ stdin: { contents: `
     import React, { useState } from 'react'; import { createRoot } from 'react-dom/client';
     let Form = () => { let [value, setValue] = useState('controlled'); return React.createElement(React.Fragment, null, React.createElement('input', { id: 'controlled', value, onChange: e => setValue(e.target.value) }), React.createElement('output', { id: 'controlled-value' }, value)); };
@@ -55,7 +55,7 @@ test.afterAll(async () => {
 })
 
 let open = async (field: Locator, owner = page) => {
-  await field.click(); await field.press('Control+e')
+  await field.click(); await field.press('Meta+e')
   let overlay = owner.locator('[data-bmux-vim]')
   await expect(overlay).toBeVisible()
   await expect(overlay).toHaveAttribute('data-mode', 'NORMAL')
@@ -69,6 +69,40 @@ let ex = async (editor: Locator, command: string) => {
   let prompt = page.locator('[data-bmux-vim] .cm-vim-panel input')
   await expect(prompt).toBeFocused(); await prompt.press('Enter')
 }
+
+test('website Vim hints open by mouse and native click mode with the configured shortcut', async ({}, info) => {
+  let hint = page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')
+  await expect(hint).toBeVisible(); await expect(hint).toHaveAttribute('title', 'Edit with Vim (Cmd+E)')
+  for (let id of ['password', 'readonly', 'number']) await expect(page.locator(`[data-bmux-vim-hints] button[aria-controls="${id}"]`)).toHaveCount(0)
+  await hint.click()
+  let overlay = page.locator('[data-bmux-vim]'), editor = overlay.getByRole('textbox', { name: 'Vim text' })
+  await expect(editor).toBeFocused(); await editor.press('Escape'); await expect(overlay).toHaveCount(0)
+  await expect(hint).toBeVisible()
+  await page.screenshot({ path: info.outputPath('vim-hints.png') })
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await chrome.evaluate(async () => (window as any).bmux.command({ method: 'click-mode', args: {} }))
+  await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
+  let label = await application.evaluate(async ({ webContents }, url) => {
+    let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url)!
+    let { frameTree } = await contents.debugger.sendCommand('Page.getFrameTree')
+    let { executionContextId } = await contents.debugger.sendCommand('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'bmux:click-mode' })
+    let { result } = await contents.debugger.sendCommand('Runtime.evaluate', { contextId: executionContextId, expression: `(() => { let mode = globalThis.__bmuxClickMode; let index = mode.elements.findIndex(element => element.getAttribute('aria-controls') === 'notes'); return mode.shadow.querySelectorAll('span')[index]?.textContent })()`, returnByValue: true })
+    return result.value as string
+  }, page.url())
+  expect(label).toMatch(/^[A-Z0-9]+$/)
+  await application.evaluate(({ webContents }, label) => {
+    let contents = webContents.getFocusedWebContents()!
+    for (let key of label) {
+      contents.sendInputEvent({ type: 'keyDown', keyCode: key.toLowerCase() })
+      contents.sendInputEvent({ type: 'keyUp', keyCode: key.toLowerCase() })
+    }
+  }, label)
+  await expect(editor).toBeFocused(); await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(0)
+  await editor.press('Escape')
+  let field = page.locator('#notes')
+  await field.click(); await field.press('Control+e'); await expect(overlay).toHaveCount(0)
+  await field.press('Meta+e'); await expect(editor).toBeFocused(); await editor.press('Escape')
+})
 
 test('website Vim editor saves multiline motions, undo, and insert edits without submitting', async ({}, info) => {
   let field = page.locator('#notes'), { overlay, editor } = await open(field)
@@ -129,7 +163,7 @@ test('website Vim editor preserves conflicting drafts and handles removed, disab
   await expect(overlay).toHaveCount(0)
   for (let id of ['password', 'readonly', 'number']) {
     let input = page.locator(`#${id}`)
-    await input.click(); await input.press('Control+e')
+    await input.click(); await input.press('Meta+e')
     await expect(page.locator('[data-bmux-vim]')).toHaveCount(0)
   }
   ;({ overlay, editor } = await open(field))
@@ -155,7 +189,7 @@ test('website Vim editor works in same-origin and cross-origin frames and honors
     await field.click()
     // Subframes receive the isolated editor after their renderer has attached.
     await expect.poll(async () => {
-      await field.press('Control+e')
+      await field.press('Meta+e')
       return frame.locator('[data-bmux-vim]').count()
     }).toBe(1)
     let overlay = frame.locator('[data-bmux-vim]'), editor = overlay.getByRole('textbox', { name: 'Vim text' })
@@ -170,6 +204,6 @@ test('website Vim editor works in same-origin and cross-origin frames and honors
   // Explicitly await page-tools refresh instead of racing its configuration queue.
   await chrome.evaluate(async () => (window as any).bmux.command({ method: 'browser.reload-scripts', args: {} }))
   let field = page.locator('#notes')
-  await field.click(); await field.press('Control+e')
+  await field.click(); await field.press('Meta+e')
   await expect(page.locator('[data-bmux-vim]')).toHaveCount(0)
 })
