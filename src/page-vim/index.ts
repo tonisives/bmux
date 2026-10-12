@@ -4,13 +4,15 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { getCM, vim, Vim } from '@replit/codemirror-vim'
 import { readField, textField, writeField } from './field'
 import type { TextField } from './field'
+import { matchesBinding } from '../shared/keyboard'
 import { createFieldHints } from './hints'
 import css from './editor.css?inline'
 
-type PageVim = { configure: (enabled: boolean, shortcut: string) => void }
+type PageVim = { configure: (enabled: boolean, shortcuts: string[], platform: string) => void }
 let scope = globalThis as typeof globalThis & { bmuxPageVim?: PageVim }
 
 let install = (): PageVim => {
+  let shortcuts: string[] = [], platform = 'darwin'
   let enabled = true, active: { host: HTMLElement; close: (save: boolean) => void } | undefined
   let open = (field: TextField) => {
     if (!enabled || active) return
@@ -87,6 +89,13 @@ let install = (): PageVim => {
     view.focus()
   }
   let hints = createFieldHints(open)
+  window.addEventListener('keydown', event => {
+    if (!enabled || active || event.isComposing || event.repeat || !shortcuts.some(binding => matchesBinding(binding, { key: event.key, code: event.code, meta: event.metaKey, control: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, platform))) return
+    let element = event.composedPath().find(item => item instanceof HTMLElement) as HTMLElement | undefined
+    let field = textField(element ?? null)
+    if (!field) return
+    event.preventDefault(); event.stopImmediatePropagation(); open(field)
+  }, true)
   window.addEventListener('bmux:vim-editor', () => {
     if (!enabled || active || !document.hasFocus()) return
     let element = document.activeElement
@@ -94,10 +103,10 @@ let install = (): PageVim => {
     let field = textField(element)
     if (field) open(field)
   })
-  return { configure: (value, shortcut) => {
-    enabled = value
+  return { configure: (value, bindings, os) => {
+    enabled = value; shortcuts = bindings; platform = os
     if (!enabled) active?.close(true)
-    hints.configure(enabled && !active, shortcut)
+    hints.configure(enabled && !active, shortcuts.join(' / '))
   } }
 }
 

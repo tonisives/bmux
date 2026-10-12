@@ -25,7 +25,7 @@ let world = 'bmux:appearance'
 
 export let createPageTools = (options: Options) => {
   let targets = new Map<string, Target>(), scripts: Script[] = [], watched = new Set<string>(), closed = false
-  let keyboardSource = (target: Target) => `${target.focus.source};\nif (!globalThis.bmuxPageVim) { ${pageVim}\n }\nglobalThis.bmuxPageVim.configure(${options.vimEditing?.() !== false}, ${JSON.stringify(Object.entries((options.keyboard?.() ?? DEFAULT_KEYBOARD).shortcuts).filter(([, binding]) => shortcutAction(binding) === 'vim-editor').map(([key]) => key).join(' / '))});`
+  let keyboardSource = (target: Target) => `${target.focus.source};\nif (!globalThis.bmuxPageVim) { ${pageVim}\n }\nglobalThis.bmuxPageVim.configure(${options.vimEditing?.() !== false}, ${JSON.stringify(Object.entries((options.keyboard?.() ?? DEFAULT_KEYBOARD).shortcuts).filter(([, binding]) => shortcutAction(binding) === 'vim-editor').map(([key]) => key))}, ${JSON.stringify(process.platform)});`
   let send = async (target: Target, method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
     if (target.closed || target.contents.isDestroyed()) throw new Error('Tab closed')
     if (!target.contents.debugger.isAttached()) target.contents.debugger.attach('1.3')

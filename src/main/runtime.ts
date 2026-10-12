@@ -711,7 +711,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
-    let items = Object.entries(keyboard.shortcuts).filter(([key]) => key !== 'Escape' && !isModifierKeyBinding(key)).map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
+    let items = Object.entries(keyboard.shortcuts).filter(([key, binding]) => key !== 'Escape' && !isModifierKeyBinding(key) && shortcutAction(binding) !== 'vim-editor').map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
@@ -798,7 +798,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         event.preventDefault(); return
       }
       let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
-      if (!entry || !matchesContext(entry[1], contents) || (shortcutAction(entry[1]) === 'stop' && contents === focused.chrome.webContents)) return
+      if (!entry || shortcutAction(entry[1]) === 'vim-editor' || !matchesContext(entry[1], contents) || (shortcutAction(entry[1]) === 'stop' && contents === focused.chrome.webContents)) return
       // Escape must also reach websites so they can dismiss dialogs and overlays.
       if (input.key !== 'Escape' || shortcutAction(entry[1]) !== 'stop') event.preventDefault()
       dispatchShortcut(shortcutAction(entry[1]))
