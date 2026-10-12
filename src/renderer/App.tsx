@@ -2,7 +2,7 @@ import { UnloadPrompt } from './UnloadPrompt'
 import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
 import { useAddressVim } from './useAddressVim'
-import { activityLabel, windowVisitTime } from '../shared/pane-activity'
+import { activityAge, activityLabel, windowVisitTime } from '../shared/pane-activity'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -141,7 +141,7 @@ export let App = () => {
   ]
   let respondToUnload = (leave: boolean) => run('unload.respond', { id: state.unloadPrompt?.id, leave })
   let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
-  return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
+  return <Context.Provider value={context}><div className={css.app} data-unload-prompt={!!state.unloadPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
@@ -1135,7 +1135,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
     {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>
 }
@@ -1646,7 +1646,7 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
     <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
       <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       <SessionAudio panes={window.panes} />
-      {visitedAt && <time className={css.sessionWindowActivity} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
+      {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
 }

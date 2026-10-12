@@ -4,6 +4,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { sendNativeKeys } from './native-focus'
 
 let fixture = async () => {
@@ -75,7 +77,16 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
       await expect(prompt.getByRole('button', { name: 'Stay (esc)', exact: true })).toBeFocused()
       await expect(prompt.getByRole('button', { name: 'Leave (enter)', exact: true })).toBeVisible()
       await expect(prompt).toContainText('Changes you made may not be saved.')
-      if (keyCode === 'Escape') await prompt.screenshot({ path: test.info().outputPath('unsaved-changes-prompt.png') })
+      await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => {
+        let owner = BaseWindow.getAllWindows().find(window => window.isVisible())!
+        let pageView = owner.contentView.children.find(view => view instanceof WebContentsView && view.webContents.getURL() === url)
+        return !!pageView && pageView.getVisible()
+      }, url)).toBe(true)
+      await expect(chrome.locator('body')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      if (keyCode === 'Escape') {
+        await prompt.screenshot({ path: test.info().outputPath('unsaved-changes-prompt.png') })
+        if (process.platform === 'darwin') await promisify(execFile)('/usr/sbin/screencapture', ['-x', test.info().outputPath('unsaved-changes-desktop.png')])
+      }
       await sendNativeKeys(application, [{ keyCode }])
       await expect(prompt).toHaveCount(0)
       if (keyCode === 'Escape') {
