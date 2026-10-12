@@ -30,9 +30,16 @@ export let FloatingPane = () => {
   useEffect(() => {
     let unsubscribe = bridge.subscribe(setState)
     void bridge.state().then(setState).catch(error => setError(String(error)))
-    let controls = bridge.controls(control => { if (control === 'address') { editing.current = true; vim.reset(input.current?.value ? 'NORMAL' : 'INSERT'); input.current?.focus(); input.current?.select() } })
-    return () => { unsubscribe(); controls() }
+    return unsubscribe
   }, [])
+  useEffect(() => bridge.controls(control => {
+    if (control !== 'address' || !input.current) return
+    editing.current = true
+    vim.reset(input.current.value ? 'NORMAL' : 'INSERT')
+    input.current.focus()
+    if (vim.enabled) input.current.setSelectionRange(0, 0)
+    else input.current.select()
+  }), [vim.enabled])
   useEffect(() => { if (!editing.current) setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? '') }, [tab?.url, tab?.id])
   useEffect(() => {
     if (tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()

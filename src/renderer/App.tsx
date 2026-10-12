@@ -651,15 +651,16 @@ let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, lis
   }, [form, list, visible, statusBar])
 }
 
-let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: number, takeSelection: () => AddressSelection | undefined) => {
+let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: number, takeSelection: () => AddressSelection | undefined, vimEnabled: boolean) => {
   useEffect(() => {
     let input = ref.current
     if (!input) return
     input.focus()
     let selection = takeSelection()
     if (selection) input.setSelectionRange(selection.start, selection.end, selection.direction)
+    else if (vimEnabled) input.setSelectionRange(0, 0)
     else input.select()
-  }, [focusVersion, ref, takeSelection])
+  }, [focusVersion, ref, takeSelection, vimEnabled])
 }
 
 let useAddressSelectionFocus = () => {
@@ -729,7 +730,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let deleting = useRef(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useAddressFocus(ref, addressFocusVersion, takeSelection)
+  useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
   let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean) ?? searchUrlDestination(query, [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
   let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : ''
@@ -861,7 +862,13 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
+  useEffect(() => {
+    let input = ref.current
+    if (!input) return
+    input.focus()
+    if (renaming && vim.enabled) input.setSelectionRange(0, 0)
+    else input.select()
+  }, [])
   let finish = () => { dismiss(); void run('focus-page', { client: client!.id }) }
   let apply = async () => {
     if (busy) return

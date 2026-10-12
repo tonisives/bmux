@@ -807,6 +807,10 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
     await expect(cursor).toBeVisible()
+    await address.press('Meta+L')
+    await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: 0 })
+    await address.press('w')
+    expect(await address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(4)
   } finally { await cli('detach-client', { client: client.id }) }
 })
 
@@ -824,6 +828,7 @@ for (let kind of ['window', 'session']) test(`renaming a ${kind} uses Vim motion
     await expect(input).toBeFocused()
     await expect(input).toHaveAttribute('data-vim-mode', 'NORMAL')
     await expect(cursor).toBeVisible()
+    expect(await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: 0 })
     await input.press('c'); await input.press('c')
     await expect(input).toHaveValue('')
     await expect(input).toHaveAttribute('data-vim-mode', 'INSERT')
@@ -1507,7 +1512,7 @@ test('pane address bars navigate independently and leave window switching availa
     chrome.sendInputEvent({ type: 'keyDown', keyCode: 'l', modifiers: ['meta'] })
     chrome.sendInputEvent({ type: 'keyUp', keyCode: 'l', modifiers: ['meta'] })
   })
-  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd, length: input.value.length } })).toEqual({ start: 0, end: `${url}/edited-second-pan`.length, length: `${url}/edited-second-pan`.length })
+  await expect.poll(() => address.evaluate(element => { let input = element as HTMLInputElement; return { start: input.selectionStart, end: input.selectionEnd, length: input.value.length } })).toEqual({ start: 0, end: 0, length: `${url}/edited-second-pan`.length })
   await address.press('Enter')
   await expect(address).toHaveCount(0)
   await expect.poll(async () => (await cli('tab.list', { pane: second.id })).find((tab: { id: string }) => tab.id === second.id)?.url).toBe(`${url}/edited-second-pan`)
