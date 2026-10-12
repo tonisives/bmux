@@ -4,6 +4,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { sendNativeKeys } from './native-focus'
 
 let fixture = async () => {
@@ -81,7 +83,10 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
         return !!pageView && pageView.getVisible()
       }, url)).toBe(true)
       await expect(chrome.locator('body')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-      if (keyCode === 'Escape') await prompt.screenshot({ path: test.info().outputPath('unsaved-changes-prompt.png') })
+      if (keyCode === 'Escape') {
+        await prompt.screenshot({ path: test.info().outputPath('unsaved-changes-prompt.png') })
+        if (process.platform === 'darwin') await promisify(execFile)('/usr/sbin/screencapture', ['-x', test.info().outputPath('unsaved-changes-desktop.png')])
+      }
       await sendNativeKeys(application, [{ keyCode }])
       await expect(prompt).toHaveCount(0)
       if (keyCode === 'Escape') {
