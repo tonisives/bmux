@@ -131,7 +131,11 @@ test('website Vim editor preserves conflicting drafts and handles removed, disab
     await expect(page.locator('[data-bmux-vim]')).toHaveCount(0)
   }
   ;({ overlay, editor } = await open(field))
+  await editor.pressSequentially('A retained draft'); await editor.press('Escape')
   await field.evaluate(element => element.remove())
+  await expect(overlay).toContainText('Field no longer available')
+  await expect(editor).toContainText('retained draft')
+  await overlay.getByRole('button', { name: 'Discard' }).click()
   await expect(overlay).toHaveCount(0)
 })
 

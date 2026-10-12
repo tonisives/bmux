@@ -204,8 +204,8 @@ edit, and Escape to return from Insert or Visual mode. Escape in Normal mode or
 draft; `:w` writes it without closing. Save and Discard buttons provide the same
 actions. Saving only updates the field; it never submits the website's form.
 
-The original field stays mounted while editing. If the page changes its text or
-rejects an update, the editor keeps your draft and reports the problem. Rich-text
+The original field stays mounted while editing. If the page changes its text,
+removes the field, or rejects an update, the editor keeps your draft and reports the problem. Rich-text
 editing writes plain text through the browser's editing commands; embedded media
 and formatting are not part of the Vim draft. Custom editors that reject native
 text insertion can still be edited normally.

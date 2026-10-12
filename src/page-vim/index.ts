@@ -57,7 +57,11 @@ let install = (): PageVim => {
       if (field.isConnected) field.focus({ preventScroll: true })
     }
     active = { host, close }
-    let observer = new MutationObserver(() => { if (!field.isConnected || !host.isConnected) close(false) })
+    let observer = new MutationObserver(() => {
+      if (!host.isConnected) { close(false); return }
+      let message = 'Field no longer available. Copy your draft or discard.'
+      if (!field.isConnected && status.textContent !== message) status.textContent = message
+    })
     observer.observe(document, { subtree: true, childList: true })
     window.addEventListener('resize', position); window.addEventListener('scroll', position, true)
     for (let [label, commit] of [['Save', true], ['Discard', false]] as const) {
