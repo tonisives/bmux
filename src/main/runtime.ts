@@ -260,6 +260,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let pageFocusTarget: { clientId: string; paneId: string } | undefined
   let unloadPrompts = new Map<string, { id: string; tabId: string; respond: (leave: boolean) => void }>()
   let overlays = new Set<string>()
+  let raisedUnloadChrome = new Set<string>()
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
   let tabQueues = new Map<string, Promise<unknown>>()
@@ -1553,9 +1554,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
-      if (!live || (overlays.has(candidate.id) && !unloadPrompts.has(candidate.id))) continue
+      if (!live) continue
+      if (!unloadPrompts.has(candidate.id) && raisedUnloadChrome.delete(candidate.id)) {
+        live.chrome.setBackgroundColor('#111318'); live.window.contentView.addChildView(live.chrome, 0)
+      }
+      if (overlays.has(candidate.id) && !unloadPrompts.has(candidate.id)) continue
       let window = model.sessions.flatMap(session => session.windows).find(window => window.id === candidate.windowId)
-      let ordered: View[] = [live.chrome]
+      let ordered: View[] = []
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
@@ -1570,8 +1575,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           if (page.camera) ordered.push(page.camera)
         }
       }
-      if (unloadPrompts.has(candidate.id)) { ordered.shift(); ordered.push(live.chrome) }
-      live.chrome.setBackgroundColor(unloadPrompts.has(candidate.id) ? '#00000000' : '#111318')
+      if (unloadPrompts.has(candidate.id)) {
+        raisedUnloadChrome.add(candidate.id); live.chrome.setBackgroundColor('#00000000'); ordered.push(live.chrome)
+      }
       if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
