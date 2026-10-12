@@ -693,7 +693,8 @@ for (let floating of [false, true]) test(`General Vim editing toggle controls UR
     }
     let panel = await settings(), toggle = panel.getByRole('checkbox', { name: 'Vim editing', exact: true })
     await expect(toggle).toBeChecked()
-    await toggle.uncheck()
+    await toggle.click()
+    await expect(toggle).not.toBeChecked()
     await expect.poll(async () => (await cli('state')).vimEditing).toBe(false)
     expect(parseDocument(await fs.readFile(config, 'utf8')).get('vimEditing')).toBe(false)
     await panel.screenshot({ path: info.outputPath('general-vim-editing.png') })
@@ -723,7 +724,8 @@ for (let floating of [false, true]) test(`General Vim editing toggle controls UR
     }
     panel = await settings()
     await expect(panel.getByRole('checkbox', { name: 'Vim editing', exact: true })).not.toBeChecked()
-    await panel.getByRole('checkbox', { name: 'Vim editing', exact: true }).check()
+    await panel.getByRole('checkbox', { name: 'Vim editing', exact: true }).click()
+    await expect(panel.getByRole('checkbox', { name: 'Vim editing', exact: true })).toBeChecked()
     await expect.poll(async () => (await cli('state')).vimEditing).toBe(true)
     await chrome.keyboard.press('Escape')
     if (floating) await address.click()
@@ -807,7 +809,7 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
     await expect(cursor).toBeVisible()
-    await address.press('Meta+L')
+    await sendNativeKeys(application, [{ keyCode: 'l', modifiers: ['meta'] }])
     await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: 0 })
     await address.press('w')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionEnd)).toBe(4)
