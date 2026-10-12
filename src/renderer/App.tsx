@@ -728,7 +728,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let selectionFocus = useAddressSelectionFocus()
   let selectAddress = useAddressSelection()
   let deleting = useRef(false)
-  let mounted = useRef(true)
+  let [suggestionsHidden, setSuggestionsHidden] = useState(false), mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
@@ -740,7 +740,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = deduplicateAddressEntries(prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url), [...preferredUrls, ...bookmarks])
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
-  let results = [
+  let results = suggestionsHidden ? [] : [
     ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
@@ -761,6 +761,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
+    setSuggestionsHidden(deletion); if (deletion) vim.reset('INSERT')
     let completion = deletion ? undefined : profileHistory.map(entry => baseUrlCompletion(value, entry.url) ?? inlineUrlCompletion(value, entry.url)).find(Boolean)
     setQuery(value); setIndex(-1); setPreferRoot(!deletion); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
@@ -786,10 +787,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     event.stopPropagation()
     let url = event.currentTarget.dataset.value!
     if (inlineUrl?.url === url) { setInlineUrl(undefined); setText(query) }
-    setIndex(-1); void run('history.remove', { profile: profile!.id, url })
-    ref.current?.focus()
+    setIndex(-1); void run('history.remove', { profile: profile!.id, url }); ref.current?.focus()
   }
-  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false)
+  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false, ref)
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (vim.keys(event) || event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
@@ -810,7 +810,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
       if (results.length) setIndex(selectedIndex < 0 ? (event.key === 'ArrowDown' ? 0 : results.length - 1) : (selectedIndex + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
     }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} data-vim-mode={vim.mode} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /><VimCursor input={ref} mode={vim.mode} value={previewText} /></div>{vim.enabled && <span aria-label="URL editing mode">{vim.mode}&gt;</span>}{message && <span className={css.error} role="status">{message}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} data-vim-mode={vim.mode} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onMouseUp={vim.select} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /><VimCursor input={ref} mode={vim.mode} value={previewText} /></div>{vim.enabled && <span aria-label="URL editing mode">{vim.mode}&gt;</span>}{message && <span className={css.error} role="status">{message}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
@@ -856,10 +856,10 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let { state, run, dismiss } = useUI()
   let { client, session, window, pane } = selection(state)
   let closingPane = mode === 'close-pane', closingWindow = mode === 'close-window', closing = closingPane || closingWindow
-  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false)
+  let ref = useRef<HTMLInputElement>(null)
+  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false, ref)
   let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : mode === 'move-window' ? String(session!.windows.indexOf(window!) + 1) : window!.name)
   let [busy, setBusy] = useState(false)
-  let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => {
@@ -879,14 +879,15 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
     if (result !== undefined) finish()
   }
   let submit = (event: FormEvent) => { event.preventDefault(); if (closing ? text.toLowerCase() === 'y' : text.trim()) void apply() }
-  let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { if (renaming && (event.nativeEvent as InputEvent).inputType?.startsWith('delete')) vim.reset('INSERT'); setText(event.target.value) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (renaming && vim.keys(event)) return
     if (event.key === 'Escape' || (closing && event.key.toLowerCase() === 'n')) { event.preventDefault(); finish(); return }
     if (closing && event.key.toLowerCase() === 'y') { event.preventDefault(); void apply() }
   }
+  let selectName = renaming ? vim.select : undefined
   let label = closingPane ? 'Close pane? (y/n)' : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : mode === 'move-window' ? 'Move window to index' : 'Rename window'
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><div className={css.addressInput}><input id="manage" ref={ref} data-vim-mode={renaming ? vim.mode : undefined} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} />{renaming && <VimCursor input={ref} mode={vim.mode} value={text} />}</div><span className={message ? css.error : undefined} role="status">{message || (renaming ? vim.enabled ? `${vim.mode}>` : '' : 'esc')}</span>{renaming && <CloseButton label="Cancel rename" onClick={finish} />}<button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><div className={css.addressInput}><input id="manage" ref={ref} data-vim-mode={renaming ? vim.mode : undefined} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} onMouseUp={selectName} autoComplete="off" spellCheck={false} readOnly={busy} />{renaming && <VimCursor input={ref} mode={vim.mode} value={text} />}</div><span className={message ? css.error : undefined} role="status">{message || (renaming ? vim.enabled ? `${vim.mode}>` : '' : 'esc')}</span>{renaming && <CloseButton label="Cancel rename" onClick={finish} />}<button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
 let EmptyPane = ({ paneId }: { paneId?: string }) => {
