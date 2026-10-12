@@ -318,20 +318,9 @@ test('website Vim editor discards drafts, writes controlled React inputs, and ex
   await expect(page.locator('#controlled-value')).toHaveText('saved!'); await expect(field).toBeFocused()
 })
 
-test('website Vim editor updates rich text and shadow fields through native events', async ({}, info) => {
+test('website Vim editor updates rich text and shadow fields through native events', async () => {
   let rich = page.locator('#rich'), { overlay, editor } = await open(rich)
-  let snapshots: unknown[] = []
-  let capture = async (step: string) => {
-    snapshots.push(await page.evaluate(step => {
-      let field = document.querySelector('#rich')!, host = document.querySelector('[data-bmux-vim]')!, root = host.shadowRoot!
-      return { step, html: field.innerHTML, text: field.textContent, editor: root.querySelector('.cm-content')!.textContent, status: root.querySelector('.status')!.textContent, focused: root.activeElement?.className, children: [...field.children].map(child => ({ tag: child.tagName, display: getComputedStyle(child).display })) }
-    }, step))
-    await fs.writeFile(info.outputPath('rich-live-state.json'), JSON.stringify(snapshots))
-  }
-  await editor.pressSequentially('ggVGc'); await capture('delete')
-  for (let char of 'new  first') { await editor.pressSequentially(char); await capture(char) }
-  await editor.press('Enter'); await capture('newline')
-  await editor.pressSequentially('new second'); await editor.press('Escape'); await capture('second line')
+  await editor.pressSequentially('ggVGc'); await editor.pressSequentially('new  first'); await editor.press('Enter'); await editor.pressSequentially('new second'); await editor.press('Escape')
   await expect(editor).toContainText('new second')
   await expect(overlay.locator('.status')).toBeHidden()
   await expect(page.locator('#rich-count')).toContainText('new second')

@@ -61,7 +61,13 @@ export let writeField = (field: TextField, value: string, selection: FieldSelect
       // Never replace its HTML: Draft.js/Lexical and other composers own that DOM.
       field.focus({ preventScroll: true })
       let selection = window.getSelection(), range = document.createRange()
-      range.selectNodeContents(field)
+      // Selecting the host's child boundaries inserts before an empty paragraph.
+      // Select within its text blocks so native replacement keeps one logical line.
+      let start: Node = field, end: Node = field
+      while (start.firstChild) start = start.firstChild
+      while (end.lastChild) end = end.lastChild
+      range.setStart(start, 0)
+      range.setEnd(end, end.nodeType === Node.TEXT_NODE ? end.nodeValue!.length : end.childNodes.length)
       selection?.removeAllRanges(); selection?.addRange(range)
       // insertText with embedded newlines can create paragraphs whose innerText
       // gains extra blank lines. Explicit line breaks preserve the plain draft.
