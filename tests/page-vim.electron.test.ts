@@ -121,7 +121,11 @@ test('website Vim hints keep readable contrast with Dark Reader and after naviga
     let foreground = luminance(style.color), background = luminance(style.backgroundColor)
     return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
   })
-  let dark = (value: string) => chrome.evaluate(async value => (window as any).bmux.command({ method: 'browser.set', args: { setting: 'darkMode', value } }), value)
+  let dark = (value: string) => chrome.evaluate(async value => {
+    let state = await (window as any).bmux.state()
+    let tab = state.model.clients.find((client: { id: string }) => client.id === state.clientId).paneId
+    return (window as any).bmux.command({ method: 'browser.set', args: { tab, setting: 'darkMode', value } })
+  }, value)
   let readerReady = () => expect.poll(() => hint.evaluate(element => {
     let root = element.getRootNode() as ShadowRoot
     return root.adoptedStyleSheets.some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes('__darkreader__adoptedOverride')))
