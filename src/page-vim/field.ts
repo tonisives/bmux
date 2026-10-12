@@ -33,10 +33,21 @@ let editableText = (node: Node): string => {
 // whitespace collapsing. Website styles should not change the plain-text draft.
 export let readField = (field: TextField) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : editableText(field)
 
-export let writeField = (field: TextField, value: string, cursor: number) => {
+export type FieldSelection = { anchor: number; head: number }
+
+let selectField = (field: TextField, selection: FieldSelection) => {
+  if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel'].includes(field.type)) {
+    let anchor = Math.min(field.value.length, selection.anchor), head = Math.min(field.value.length, selection.head)
+    field.setSelectionRange(Math.min(anchor, head), Math.max(anchor, head), anchor > head ? 'backward' : 'forward')
+  }
+}
+
+export let writeField = (field: TextField, value: string, selection: FieldSelection) => {
   if (!field.isConnected || textField(field) !== field) return false
-  if (field instanceof HTMLInputElement) value = value.replace(/[\r\n]/g, '')
-  field.focus({ preventScroll: true })
+  if (field instanceof HTMLInputElement) {
+    selection = { anchor: value.slice(0, selection.anchor).replace(/[\r\n]/g, '').length, head: value.slice(0, selection.head).replace(/[\r\n]/g, '').length }
+    value = value.replace(/[\r\n]/g, '')
+  }
   if (readField(field) !== value) {
     if (!field.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, cancelable: true, inputType: 'insertReplacementText', data: value }))) return false
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
@@ -48,6 +59,7 @@ export let writeField = (field: TextField, value: string, cursor: number) => {
     } else {
       // Native editing preserves the rich editor's model, input events, and undo.
       // Never replace its HTML: Draft.js/Lexical and other composers own that DOM.
+      field.focus({ preventScroll: true })
       let selection = window.getSelection(), range = document.createRange()
       range.selectNodeContents(field)
       selection?.removeAllRanges(); selection?.addRange(range)
@@ -62,6 +74,6 @@ export let writeField = (field: TextField, value: string, cursor: number) => {
     }
   }
   if (!field.isConnected || readField(field) !== value) return false
-  if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel'].includes(field.type)) field.setSelectionRange(Math.min(value.length, cursor), Math.min(value.length, cursor))
+  selectField(field, selection)
   return true
 }
