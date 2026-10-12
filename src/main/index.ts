@@ -90,6 +90,11 @@ void app.whenReady().then(async () => {
   runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
   localRemote = createLocalRemote()
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
+  ipcMain.handle('clipboard', (event, text?: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (text !== undefined && typeof text !== 'string') throw new Error('Invalid clipboard text')
+    return runtime!.clipboard(text)
+  })
   ipcMain.handle('state', event => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')

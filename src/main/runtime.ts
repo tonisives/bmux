@@ -24,6 +24,7 @@ import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
+import { createTextClipboard } from './text-clipboard'
 import { createPageTools } from './page-tools'
 import { waitOptions } from './wait'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
@@ -274,6 +275,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let searchAppForSession = (session: { private?: boolean }) => (configuration?.searchApps ?? DEFAULT_SEARCH_APPS)[session.private ? 'private' : 'normal']
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
+  let textClipboard = createTextClipboard(clipboard)
   let pageTools: ReturnType<typeof createPageTools> | undefined
   let doubleTap = createDoubleTapTracker()
   let publishClickMode = () => {}
@@ -3066,7 +3068,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
       return { tabId: entry[0], adblock: tabById(model, entry[0]).pane.adblock, url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
-    pageTools = createPageTools({ keyboard: () => configuration!.keyboard, vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
+    pageTools = createPageTools({ clipboard: textClipboard, keyboard: () => configuration!.keyboard, vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
       let entry = [...tabs].find(([, live]) => !live.contents.isDestroyed() && live.contents.id === contentsId)
       return entry ? tabById(model, entry[0]).pane.adblock : undefined
     }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
@@ -3163,5 +3165,5 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return remoteViewport(pane)
     },
   }
-  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, setBounds, createClient, openRemotePage, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

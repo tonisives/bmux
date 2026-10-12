@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { WebContents } from 'electron'
 import { createFrameCosmetics } from '../src/main/frame-cosmetics'
 
-let fixture = (keyboard?: { source: string }) => {
+let fixture = (keyboard?: { source: string }, clipboard?: (text?: string) => Promise<string>) => {
   let events = Object.assign(new EventEmitter(), { isAttached: () => true, detach: vi.fn() }), enabled = true, sheets = new Map<string, string>(), sequence = 0
   let frame = { id: 'child', parentId: 'main', loaderId: 'first', url: 'https://frame.example.test/' }
   let contents = Object.assign(new EventEmitter(), { debugger: events, isDestroyed: vi.fn(() => false), getURL: () => 'https://page.example.test/' }) as unknown as WebContents
@@ -17,7 +17,7 @@ let fixture = (keyboard?: { source: string }) => {
     if (method === 'CSS.setStyleSheetText') sheets.set(params.styleSheetId, params.text)
     return {}
   })
-  let tools = createFrameCosmetics({ contents, get focusSource() { return keyboard?.source }, send, enabled: () => enabled, styles: url => `${url.includes('frame.') ? '.frame-ad' : '.parent-ad'}{display:none!important}` })
+  let tools = createFrameCosmetics({ contents, clipboard, get focusSource() { return keyboard?.source }, send, enabled: () => enabled, styles: url => `${url.includes('frame.') ? '.frame-ad' : '.parent-ad'}{display:none!important}` })
   return { contents, events, sheets, send, tools, frame, disable: () => { enabled = false } }
 }
 
@@ -114,4 +114,23 @@ test('disposal skips protocol cleanup after web contents destruction', () => {
   vi.mocked(contents.isDestroyed).mockReturnValue(true)
   tools.close()
   expect(events.detach).not.toHaveBeenCalled()
+})
+
+
+test('clipboard bindings accept only known isolated editor contexts and valid operations', async () => {
+  let clipboard = vi.fn(async () => 'shared text'), { tools, events, send } = fixture({ source: 'editor' }, clipboard)
+  await tools.refresh()
+  expect(send).toHaveBeenCalledWith('Runtime.addBinding', { name: 'bmuxVimClipboard', executionContextName: 'bmux:keyboard-focus' }, undefined)
+  let request = (executionContextId: number, payload: unknown) => events.emit('message', {}, 'Runtime.bindingCalled', { name: 'bmuxVimClipboard', executionContextId, payload: JSON.stringify(payload) })
+  request(999, { id: 1, operation: 'read' })
+  request(1, { id: 2, operation: 'write', text: 12 })
+  request(1, { id: 3, operation: 'invalid' })
+  expect(clipboard).not.toHaveBeenCalled()
+  request(1, { id: 4, operation: 'write', text: 'selected text' })
+  await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith('selected text'))
+  request(1, { id: 5, operation: 'read' })
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith('Runtime.evaluate', expect.objectContaining({ contextId: 1, expression: 'globalThis.bmuxVimClipboardResolve(5, "shared text")' }), undefined))
+  tools.close()
+  request(1, { id: 6, operation: 'read' })
+  expect(clipboard).toHaveBeenCalledTimes(2)
 })

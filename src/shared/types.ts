@@ -43,6 +43,7 @@ export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { paneBounds?: { x: number; y: number; width: number; height: number }; paneId: string; x: number; y: number; width: number; height: number }
 export type RemoteSessionListing = { authenticated: boolean; hosts: { id: string; service: string; sessions: { id: string; name: string; panes: { id: string; title: string }[] }[] }[] }
 export type Bridge = {
+  clipboard: (text?: string) => Promise<string>
   controls: (listener: (control: string) => void) => () => void
   linkPreview: (listener: (url: string) => void) => () => void
   state: () => Promise<PublicState>

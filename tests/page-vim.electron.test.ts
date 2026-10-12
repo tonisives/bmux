@@ -127,6 +127,30 @@ test('website Vim editor saves multiline motions, undo, and insert edits without
   expect(await page.evaluate(() => (window as any).fixtureEvents.keys)).toBe(keys)
 })
 
+test('website Vim yanks share the system clipboard across editors and browser fields', async () => {
+  let { overlay, editor } = await open(page.locator('#notes'))
+  await editor.pressSequentially('gg0yy')
+  await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('alpha bravo\n')
+  await overlay.getByRole('button', { name: 'Discard', exact: true }).click()
+  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.press('P')
+  await expect(address).toHaveValue('alpha bravo' + page.url())
+  await address.fill('from browser'); await address.press('Escape'); await address.press('y'); await address.press('y')
+  await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('from browser')
+  await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
+  ;({ overlay, editor } = await open(page.locator('#text')))
+  await editor.pressSequentially('gg0P')
+  await expect(editor).toContainText('from browseralpha bravo')
+  await editor.pressSequentially('gg0vey')
+  await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('from')
+  await application.evaluate(({ clipboard }) => clipboard.writeText('outside '))
+  await editor.pressSequentially('gg0P')
+  await expect(editor).toContainText('outside from browseralpha bravo')
+  await overlay.getByRole('button', { name: 'Discard', exact: true }).click()
+})
+
 test('website Vim editor discards drafts, writes controlled React inputs, and exits with Escape', async () => {
   let field = page.locator('#controlled'), { overlay, editor } = await open(field)
   await editor.pressSequentially('gg0cc'); await editor.pressSequentially('discarded'); await editor.press('Escape')

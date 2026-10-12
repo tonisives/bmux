@@ -12,6 +12,14 @@ type PageVim = { configure: (enabled: boolean, shortcuts: string[], platform: No
 let scope = globalThis as typeof globalThis & { bmuxPageVim?: PageVim }
 
 let install = (): PageVim => {
+  let requests = new Map<number, (text: string) => void>(), sequence = 0
+  let clipboardScope = globalThis as typeof globalThis & { bmuxVimClipboard: (payload: string) => void; bmuxVimClipboardResolve: (id: number, text: string) => void }
+  clipboardScope.bmuxVimClipboardResolve = (id, text) => { requests.get(id)?.(text); requests.delete(id) }
+  let clipboard = (operation: string, text?: string) => new Promise<string>(resolve => { let id = ++sequence; requests.set(id, resolve); clipboardScope.bmuxVimClipboard(JSON.stringify({ id, operation, text })) })
+  let clipboardAuthorized = false
+  let registers = Vim.getRegisterController(), pushText = registers.pushText.bind(registers)
+  registers.pushText = (...args) => { pushText(...args); if (clipboardAuthorized && args[0] !== '_') void clipboard('write', registers.getRegister('"').toString()).catch(() => undefined) }
+
   let shortcuts: string[] = [], platform: NodeJS.Platform = 'darwin'
   let enabled = true, active: { host: HTMLElement; close: (save: boolean) => void } | undefined
   let open = (field: TextField) => {
@@ -81,6 +89,13 @@ let install = (): PageVim => {
     Vim.defineEx('xit', 'x', () => queueMicrotask(() => close(true)))
     root.addEventListener('keydown', event => {
       let key = event as KeyboardEvent
+      if (!key.isTrusted) return
+      clipboardAuthorized = true; queueMicrotask(() => { clipboardAuthorized = false })
+      if (['p', 'P'].includes(key.key) && !key.metaKey && !key.ctrlKey && !key.altKey && !cm.state.vim?.insertMode && !cm.state.vim?.inputState.registerName && !root.querySelector('.cm-panel input')) {
+        key.preventDefault(); key.stopImmediatePropagation()
+        void clipboard('read').then(text => { if (closing) return; registers.getRegister('"').setText(text, text.endsWith('\n')); Vim.handleKey(cm, key.key, 'user') })
+        return
+      }
       if (key.key === 'Escape' && !key.isComposing && !cm.state.vim?.insertMode && !cm.state.vim?.visualMode && !root.querySelector('.cm-panel input')) {
         key.preventDefault(); key.stopImmediatePropagation(); close(true)
       }

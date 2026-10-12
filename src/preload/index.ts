@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Bridge, PublicState } from '../shared/types'
 
 let bridge: Bridge = {
+  clipboard: text => ipcRenderer.invoke('clipboard', text),
   controls: listener => {
     let handler = (_event: Electron.IpcRendererEvent, control: string) => listener(control)
     ipcRenderer.on('focus-control', handler)

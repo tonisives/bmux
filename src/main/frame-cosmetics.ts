@@ -9,6 +9,7 @@ export type FrameContext = { id: string; parentId?: string; value: unknown; eval
 type Options = {
   contents: WebContents
   focusSource?: string
+  clipboard?: (text?: string) => Promise<string>
   send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<any>
   enabled: () => boolean
   styles: (url: string, ids: string[], classes: string[]) => string
@@ -27,6 +28,7 @@ export let createFrameCosmetics = (options: Options) => {
   sessions.set('', root)
   let current = (session: Session) => !closed && !options.contents.isDestroyed() && sessions.get(session.id ?? '') === session
   let initialize = (session: Session): Promise<void> => session.ready ??= (async () => {
+    if (options.clipboard) await options.send('Runtime.addBinding', { name: 'bmuxVimClipboard', executionContextName: 'bmux:keyboard-focus' }, session.id)
     await options.send('Page.enable', { enableFileChooserOpenedEvent: true }, session.id)
     await options.send('DOM.enable', {}, session.id)
     await options.send('CSS.enable', {}, session.id)
@@ -158,7 +160,14 @@ export let createFrameCosmetics = (options: Options) => {
     if (closed) return
     let session = sessions.get(sessionId ?? '')
     if (!session) return
-    if (method === 'Target.detachedFromTarget') remove(params.sessionId)
+    if (method === 'Runtime.bindingCalled' && params.name === 'bmuxVimClipboard' && options.clipboard) {
+      if (![...session.keyboard?.values() ?? []].some(context => context.contextId === params.executionContextId)) return
+      try {
+        let request = JSON.parse(params.payload)
+        if (!Number.isSafeInteger(request.id) || !['read', 'write'].includes(request.operation) || (request.operation === 'write' && typeof request.text !== 'string')) return
+        void options.clipboard(request.operation === 'write' ? request.text : undefined).then(text => options.send('Runtime.evaluate', { contextId: params.executionContextId, expression: `globalThis.bmuxVimClipboardResolve(${request.id}, ${JSON.stringify(text)})`, timeout: 1000 }, session.id)).catch(() => undefined)
+      } catch { /* Ignore malformed or expired editor requests. */ }
+    } else if (method === 'Target.detachedFromTarget') remove(params.sessionId)
     else if (method === 'Page.frameNavigated' || method === 'Page.frameDetached') {
       session.frames.delete(params.frame?.id ?? params.frameId)
       session.documents.delete(params.frame?.id ?? params.frameId)

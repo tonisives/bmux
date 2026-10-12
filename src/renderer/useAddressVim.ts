@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent, RefObject } from 'react'
+import type { Bridge } from '../shared/types'
 import { createVimInputState, resetVimInputState, vimInputKey } from '../shared/vim-input'
 
 export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusVersion?: number, initialMode = 'NORMAL', enabled = true, inputRef?: RefObject<HTMLInputElement | null>) => {
@@ -55,11 +56,26 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     if (mode === 'VISUAL' && event.key === 'y') {
       event.preventDefault(); event.stopPropagation()
       state.current.register = input.value.slice(start, end)
+      void bridge.clipboard(state.current.register).catch(() => undefined)
       input.setSelectionRange(start, start); reset(); return true
+    }
+    let yanking = state.current.operator === 'y'
+    if (!event.ctrlKey && !state.current.operator && !state.current.pending && ['p', 'P'].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation()
+      let count = Math.min(999, Number(state.current.count || 1)), key = event.key
+      resetVimInputState(state.current)
+      void bridge.clipboard().then(text => {
+        if (!input.isConnected || document.activeElement !== input) return
+        state.current.register = text
+        let cursor = Math.min(input.selectionStart ?? 0, Math.max(0, input.value.length - 1)), position = Math.min(input.value.length, cursor + (key === 'p' ? 1 : 0))
+        input.setSelectionRange(position, position); document.execCommand('insertText', false, text.replace(/[\r\n]/g, '').repeat(count)); input.setSelectionRange(position, position)
+      }).catch(() => undefined)
+      return true
     }
     let action = mode === 'VISUAL' && ['x', 'd', 'c', 's', 'Backspace', 'Delete'].includes(event.key)
       ? { kind: 'edit' as const, start, end, text: '', insert: true }
       : event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
+    if (yanking && action.kind === 'move') void bridge.clipboard(state.current.register).catch(() => undefined)
     if (action.kind === 'pass') return false
     event.preventDefault(); event.stopPropagation()
     if (action.kind === 'move' || action.kind === 'insert') {
@@ -73,7 +89,7 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
       }
     } else if (action.kind === 'edit') {
       let insert = action.insert || !action.text && action.end > action.start
-      if (!action.text) state.current.register = input.value.slice(action.start, action.end)
+      if (!action.text && action.end > action.start) { state.current.register = input.value.slice(action.start, action.end); void bridge.clipboard(state.current.register).catch(() => undefined) }
       input.setSelectionRange(action.start, action.end)
       document.execCommand(action.text ? 'insertText' : 'delete', false, action.text)
       let cursor = insert ? action.start + action.text.length : Math.min(action.start, Math.max(0, input.value.length - 1))
@@ -85,3 +101,5 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
   }
   return { mode: enabled ? mode : 'INSERT', enabled, keys, reset, select }
 }
+
+let bridge = (window as unknown as { bmux: Bridge }).bmux

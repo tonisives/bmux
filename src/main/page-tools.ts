@@ -18,7 +18,7 @@ let styleDocument = () => {
   return { promise, resolve }
 }
 type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; styleDocument: ReturnType<typeof styleDocument>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
-type Options = { directory: string; settings: () => BrowserSettings; vimEditing?: () => boolean; keyboard?: () => KeyboardConfig; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
+type Options = { directory: string; settings: () => BrowserSettings; vimEditing?: () => boolean; clipboard?: (text?: string) => Promise<string>; keyboard?: () => KeyboardConfig; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
 let world = 'bmux:appearance'
@@ -224,7 +224,7 @@ export let createPageTools = (options: Options) => {
     error: (tabId: string) => targets.get(tabId)?.error,
     attach: (tabId: string, profileId: string, contents: WebContents, bootstrap = true) => {
       let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve(), styleDocument: styleDocument() }
-      target.frames = createFrameCosmetics({ contents, get focusSource() { return keyboardSource(target) }, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
+      target.frames = createFrameCosmetics({ contents, clipboard: options.clipboard, get focusSource() { return keyboardSource(target) }, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
       contents.debugger.on('detach', () => { target.registeredSources = undefined })
       // A newly-created WebContents has no renderer to answer Page.enable yet.
