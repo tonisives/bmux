@@ -16,7 +16,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
-  let vim = useAddressVim(undefined, undefined, address ? 'NORMAL' : 'INSERT', state?.vimEditing !== false)
+  let vim = useAddressVim(undefined, undefined, address ? 'NORMAL' : 'INSERT', state?.vimEditing !== false, input)
   let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
@@ -50,7 +50,7 @@ export let FloatingPane = () => {
     void run('select-pane', { focus: false }).then(() => run('focus-ui'))
   }
   let blur = () => { editing.current = false }
-  let change = (event: ChangeEvent<HTMLInputElement>) => setAddress(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { if ((event.nativeEvent as InputEvent).inputType?.startsWith('delete')) vim.reset('INSERT'); setAddress(event.target.value) }
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!tab || !address.trim()) return

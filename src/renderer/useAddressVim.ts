@@ -19,6 +19,15 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     let input = inputRef?.current
     if (enabled && initialMode === 'NORMAL' && input && input.selectionStart !== input.selectionEnd) selectField(input)
   }, [focusVersion, enabled])
+  useEffect(() => {
+    let input = inputRef?.current, selecting = false
+    if (!input || !enabled || mode === 'INSERT') return
+    let down = () => { selecting = true }
+    let up = () => { if (selecting) { selecting = false; selectField(input) } }
+    input.addEventListener('mousedown', down)
+    document.addEventListener('mouseup', up)
+    return () => { input.removeEventListener('mousedown', down); document.removeEventListener('mouseup', up) }
+  }, [inputRef, enabled, mode])
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return false
     let input = event.currentTarget
@@ -48,9 +57,7 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
     }
     let action = mode === 'VISUAL' && ['x', 'd', 'c', 's', 'Backspace', 'Delete'].includes(event.key)
       ? { kind: 'edit' as const, start, end, text: '', insert: true }
-      : event.key === 'Backspace' || event.key === 'Delete'
-        ? { kind: 'edit' as const, start: event.key === 'Backspace' ? Math.max(0, cursor - 1) : cursor, end: event.key === 'Backspace' ? cursor : Math.min(input.value.length, cursor + 1), text: '', insert: true }
-        : event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
+      : event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
     if (action.kind === 'pass') return false
     event.preventDefault(); event.stopPropagation()
     if (action.kind === 'move' || action.kind === 'insert') {

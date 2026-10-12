@@ -2560,7 +2560,8 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await address.press('Backspace')
     await expect(address).toHaveValue(query.slice(0, -1))
     await expect(chrome.getByRole('option', { selected: true })).toHaveCount(0)
-    await address.press('A'); await address.press(query.at(-1)!)
+    await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
+    await address.press(query.at(-1)!)
     await expect(address).toHaveValue(query)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(chrome.locator(`[role="option"][data-value="${savedUrl}"]`)).toHaveAttribute('data-kind', source)
@@ -2794,7 +2795,7 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
       await mouse([{ type: 6, x: x + 35, y: y + 60 }])
       await expect.poll(() => input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 0, end: inField.start })
     }
-    selected = originalSelection ?? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
+    selected = originalSelection && originalSelection.start !== originalSelection.end ? originalSelection : await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))
     await mouse([{ type: 2, x: x + (editing ? 210 : 35), y: y + 60 }])
     released = true
   } finally {

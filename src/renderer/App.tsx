@@ -856,10 +856,10 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let { state, run, dismiss } = useUI()
   let { client, session, window, pane } = selection(state)
   let closingPane = mode === 'close-pane', closingWindow = mode === 'close-window', closing = closingPane || closingWindow
-  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false)
+  let ref = useRef<HTMLInputElement>(null)
+  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false, ref)
   let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : mode === 'move-window' ? String(session!.windows.indexOf(window!) + 1) : window!.name)
   let [busy, setBusy] = useState(false)
-  let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => {
