@@ -66,8 +66,10 @@ export let writeField = (field: TextField, value: string, selection: FieldSelect
       let start: Node = field, end: Node = field
       while (start.firstChild) start = start.firstChild
       while (end.lastChild) end = end.lastChild
-      range.setStart(start, 0)
-      range.setEnd(end, end.nodeType === Node.TEXT_NODE ? end.nodeValue!.length : end.childNodes.length)
+      if (start instanceof HTMLBRElement) range.setStartBefore(start)
+      else range.setStart(start, 0)
+      if (end instanceof HTMLBRElement) range.setEndAfter(end)
+      else range.setEnd(end, end.nodeType === Node.TEXT_NODE ? end.nodeValue!.length : end.childNodes.length)
       selection?.removeAllRanges(); selection?.addRange(range)
       // insertText with embedded newlines can create paragraphs whose innerText
       // gains extra blank lines. Explicit line breaks preserve the plain draft.

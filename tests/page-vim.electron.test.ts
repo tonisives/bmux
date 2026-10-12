@@ -27,7 +27,9 @@ test.beforeAll(async () => {
     window.fixtureEvents = { input: 0, change: 0, submit: 0, keys: 0 };
     document.addEventListener('input', () => window.fixtureEvents.input++);
     document.querySelector('#notes').addEventListener('input', e => { document.querySelector('#notes-count').textContent = String(e.target.value.length); });
-    document.querySelector('#rich').addEventListener('input', e => { document.querySelector('#rich-count').textContent = e.target.textContent; });
+    window.richEvents = [];
+    document.querySelector('#rich').addEventListener('beforeinput', e => { window.richEvents.push({ type: 'beforeinput', data: e.data, html: e.target.innerHTML }); });
+    document.querySelector('#rich').addEventListener('input', e => { document.querySelector('#rich-count').textContent = e.target.textContent; window.richEvents.push({ type: 'input', data: e.data, html: e.target.innerHTML }); });
     document.addEventListener('change', () => window.fixtureEvents.change++);
     document.addEventListener('keydown', () => window.fixtureEvents.keys++);
     document.querySelector('form').addEventListener('submit', e => { e.preventDefault(); window.fixtureEvents.submit++; });
@@ -318,9 +320,10 @@ test('website Vim editor discards drafts, writes controlled React inputs, and ex
   await expect(page.locator('#controlled-value')).toHaveText('saved!'); await expect(field).toBeFocused()
 })
 
-test('website Vim editor updates rich text and shadow fields through native events', async () => {
+test('website Vim editor updates rich text and shadow fields through native events', async ({}, info) => {
   let rich = page.locator('#rich'), { overlay, editor } = await open(rich)
   await editor.pressSequentially('ggVGc'); await editor.pressSequentially('new  first'); await editor.press('Enter'); await editor.pressSequentially('new second'); await editor.press('Escape')
+  await fs.writeFile(info.outputPath('rich-live-events.json'), JSON.stringify(await page.evaluate(() => ({ html: document.querySelector('#rich')!.innerHTML, events: (window as any).richEvents }))))
   await expect(editor).toContainText('new second')
   await expect(overlay.locator('.status')).toBeHidden()
   await expect(page.locator('#rich-count')).toContainText('new second')
