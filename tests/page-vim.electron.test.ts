@@ -101,7 +101,12 @@ test('website Vim hints open by mouse and native click mode with the configured 
   await editor.press('Escape')
   let field = page.locator('#notes')
   await field.click(); await field.press('Control+e'); await expect(overlay).toHaveCount(0)
-  await field.press('Meta+e'); await expect(editor).toBeFocused(); await editor.press('Escape')
+  await application.evaluate(({ webContents }) => {
+    let contents = webContents.getFocusedWebContents()!
+    contents.sendInputEvent({ type: 'keyDown', keyCode: 'e', modifiers: ['meta'] })
+    contents.sendInputEvent({ type: 'keyUp', keyCode: 'e', modifiers: ['meta'] })
+  })
+  await expect(editor).toBeFocused(); await editor.press('Escape')
 })
 
 test('website Vim editor saves multiline motions, undo, and insert edits without submitting', async ({}, info) => {

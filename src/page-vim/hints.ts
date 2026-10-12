@@ -32,6 +32,9 @@ export let createFieldHints = (open: (field: TextField) => void) => {
           if (!field || fields.has(field) || !field.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue
           let rect = field.getBoundingClientRect()
           if (rect.width < 48 || rect.height < 20 || rect.right <= 0 || rect.left >= innerWidth || rect.bottom <= 0 || rect.top >= innerHeight) continue
+          let centerX = (Math.max(0, rect.left) + Math.min(innerWidth, rect.right)) / 2, centerY = (Math.max(0, rect.top) + Math.min(innerHeight, rect.bottom)) / 2
+          let hit = current.elementFromPoint(centerX, centerY)
+          if (hit && !field.contains(hit) && hit !== host) continue
           fields.add(field)
           let button = buttons.get(field)
           if (!button) {
