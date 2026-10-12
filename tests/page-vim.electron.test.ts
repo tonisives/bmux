@@ -148,7 +148,13 @@ test('website Vim hints keep readable contrast with Dark Reader and after naviga
     await hint.screenshot({ path: info.outputPath('vim-hint-dark.png') })
     await hint.click()
     let overlay = page.locator('[data-bmux-vim]'), editor = overlay.getByRole('textbox', { name: 'Vim text' })
-    await expect(editor).toBeFocused(); await editor.press('Escape'); await expect(overlay).toHaveCount(0)
+    await expect(editor).toBeFocused(); await editor.pressSequentially('gg0vll')
+    await expect(overlay).toHaveAttribute('data-mode', 'VISUAL')
+    let selection = overlay.locator('.cm-selectionBackground').first()
+    await expect(selection).toBeVisible()
+    await expect.poll(() => selection.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    await overlay.screenshot({ path: info.outputPath('vim-visual-selection-dark.png') })
+    await editor.press('Escape'); await editor.press('Escape'); await expect(overlay).toHaveCount(0)
   } finally {
     await dark('off')
   }
