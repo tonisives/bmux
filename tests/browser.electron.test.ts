@@ -822,10 +822,18 @@ for (let floating of [false, true]) test(`URL Vim mode preserves text and focus 
     await address.press('f'); await address.press('x')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(10)
     await expect(address).toBeFocused()
+    await address.press('i'); await address.press('x')
+    await expect(address).toHaveValue('alpha u U xx')
+    await expect(address).toBeFocused()
+    if (!floating) {
+      await address.fill(`url-vim-${floating}`)
+      await expect(controls.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
+    }
+    await address.press('Escape')
     await address.press('x')
     await expect(controls.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/url-vim-${floating}`)
-    if (floating) { await expect(address).not.toBeFocused(); await expect(address).toHaveValue('alpha u U x') }
+    if (floating) { await expect(address).not.toBeFocused(); await expect(address).toHaveValue('alpha u U xx') }
     else await expect(address).toHaveCount(0)
   } finally { await cli('detach-client', { client: client.id }) }
 })
