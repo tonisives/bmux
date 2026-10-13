@@ -1147,7 +1147,7 @@ let Panel = ({ type }: { type: Control }) => {
   let sessionPicker = type === 'sessions' || type === 'remote-sessions'
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
+  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
       <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
@@ -2273,6 +2273,59 @@ type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after
 let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
 let BookmarkExpansionContext = createContext<{ canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
+let useBookmarkNavigation = (onMetaEnter: (row: HTMLButtonElement) => void, initialQuery: string, onQueryChange: (query: string) => void) => {
+  let { state, dismiss } = useUI()
+  let { ref, input, query, change, keys } = usePickerNavigation(onMetaEnter, initialQuery, onQueryChange, false)
+  let [count, setCount] = useState(''), [searchFocused, setSearchFocused] = useState(false)
+  let pendingG = useRef(false)
+  let rows = () => [...(ref.current?.querySelectorAll<HTMLButtonElement>('button[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])') ?? [])].filter(row => row.getClientRects().length)
+  let focusRow = (position: number) => {
+    let items = rows(), index = Math.max(0, Math.min(items.length - 1, position)), row = items[index]
+    row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+  }
+  let move = (direction: number) => {
+    let items = rows(), index = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (document.activeElement === input.current && query) index = 0
+    focusRow(index + direction)
+  }
+  let vim = useAddressVim(move, undefined, 'NORMAL', state.vimEditing !== false, input, dismiss)
+  let focusMode = (event: FocusEvent<HTMLDivElement>) => {
+    setSearchFocused(event.target === input.current)
+    setCount(''); pendingG.current = false
+  }
+  let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => { if (vim.enabled) vim.keys(event) }
+  let bookmarkKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.altKey) return
+    let target = event.target as HTMLElement, editing = target === input.current
+    if (!editing && target.closest('input, textarea, select, [data-picker-action], [role="menu"]')) return
+    if (!editing && !event.ctrlKey && event.key === 'Escape' && (count || pendingG.current)) {
+      event.preventDefault(); event.stopPropagation(); setCount(''); pendingG.current = false; return
+    }
+    if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); setCount((count + event.key).slice(0, 6)); return }
+    if (!editing && !event.ctrlKey && event.key === 'g') {
+      event.preventDefault()
+      if (pendingG.current) { focusRow(Number(count || 1) - 1); setCount(''); pendingG.current = false } else pendingG.current = true
+      return
+    }
+    pendingG.current = false
+    if (!editing && !event.ctrlKey && event.key === 'G') { event.preventDefault(); focusRow(count ? Number(count) - 1 : rows().length - 1); setCount(''); return }
+    if ((!editing && !event.ctrlKey && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
+      event.preventDefault()
+      let direction = ['j', 'n', 'f'].includes(event.key) ? 1 : -1
+      move(direction * (event.ctrlKey ? ['f', 'b'].includes(event.key) ? 10 : 1 : Number(count || 1)))
+      setCount(''); return
+    }
+    if (!editing && !event.ctrlKey && ['i', 'a', '/'].includes(event.key)) {
+      event.preventDefault(); setCount(''); vim.reset('INSERT'); input.current?.focus()
+      if (event.key === '/') input.current?.select()
+      return
+    }
+    if (!editing && !event.ctrlKey && event.key.length === 1 && event.key !== ' ') vim.reset('INSERT')
+    setCount(''); keys(event)
+  }
+  return { ref, input, query, change, keys: bookmarkKeys, searchKeys, focusMode, vim, mode: searchFocused ? vim.mode : 'NORMAL', count }
+}
+
 let BookmarkPicker = () => {
   let { state, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
   let { profile, client, session, tab } = selection(state)
@@ -2289,11 +2342,11 @@ let BookmarkPicker = () => {
     let result = await run('new-window', { session: session?.id, profile: profileId, client: client.id, url })
     if (result !== undefined) dismiss()
   }
-  let { ref, keys, input, query, change } = usePickerNavigation(row => {
+  let { ref, keys, input, query, change, searchKeys, focusMode, vim, mode, count } = useBookmarkNavigation(row => {
     let group = groups.find(item => item.profile.id === row.dataset.bookmarkProfile)
     let bookmark = findBookmark(group?.bookmarks ?? [], row.dataset.bookmarkId ?? '')
     if (bookmark && group) void activate(bookmark, group.profile.id)
-  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) }, false)
+  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) })
   useEffect(() => {
     let selected = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[data-bookmark-id]') ?? [])].find(row => bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') === bookmarkSelections[profile?.id ?? ''])
     if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }) }
@@ -2321,6 +2374,7 @@ let BookmarkPicker = () => {
     void run('bookmark.move', { profile: source.profileId, bookmark: source.id, target: target.id, position })
   }
   let focus = (event: FocusEvent<HTMLDivElement>) => {
+    focusMode(event)
     let bookmarkId = event.target instanceof HTMLButtonElement ? event.target.dataset.bookmarkId : undefined
     let key = bookmarkId && event.target instanceof HTMLButtonElement ? bookmarkKey(event.target.dataset.bookmarkProfile ?? '', bookmarkId) : undefined
     if (profile && key) rememberBookmarkSelection(profile.id, key)
@@ -2331,7 +2385,7 @@ let BookmarkPicker = () => {
   let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
   let focusSearch = () => input.current?.focus()
   return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
-    <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
+    <div className={css.bookmarkToolbar}><VimMode mode={`${mode}${count && ` ${count}`}`} label="Bookmark navigation mode" /><div className={css.bookmarkSearch}><SearchInput ref={input} aria-label="Search bookmarks" data-vim-mode={vim.mode} value={query} onChange={changeQuery} onKeyDown={searchKeys} onMouseUp={vim.select} /><VimCursor input={input} mode={vim.mode} value={query} /></div><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
     <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
     {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
   </div></BookmarkExpansionContext.Provider>
