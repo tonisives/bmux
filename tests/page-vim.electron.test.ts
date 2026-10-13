@@ -12,7 +12,7 @@ let fixture = `<!doctype html><title>Vim field fixture</title>
 <link rel="stylesheet" href="/fixture.css">
 <form><input id="text" value="alpha bravo"><textarea id="notes">alpha bravo\ncharlie delta</textarea><input id="password" type="password"><input id="readonly" readonly value="locked"><input id="number" type="number"></form>
 <div id="rich" contenteditable="true"><p>alpha bravo</p><p>charlie delta</p></div>
-<div id="react"></div><div id="shadow"></div><button id="outside">Outside</button>
+<output id="notes-count">25</output><output id="rich-count"></output><div id="react"></div><div id="shadow"></div><button id="outside">Outside</button>
 <script nonce="bmux-fixture" src="/fixture.js"></script>`
 
 test.beforeAll(async () => {
@@ -26,6 +26,10 @@ test.beforeAll(async () => {
     document.querySelector('#shadow').attachShadow({mode:'open'}).innerHTML = '<textarea id="shadow-text">shadow draft</textarea>';
     window.fixtureEvents = { input: 0, change: 0, submit: 0, keys: 0 };
     document.addEventListener('input', () => window.fixtureEvents.input++);
+    document.querySelector('#notes').addEventListener('input', e => { document.querySelector('#notes-count').textContent = String(e.target.value.length); });
+    window.richEvents = [];
+    document.querySelector('#rich').addEventListener('beforeinput', e => { window.richEvents.push({ type: 'beforeinput', data: e.data, html: e.target.innerHTML }); });
+    document.querySelector('#rich').addEventListener('input', e => { document.querySelector('#rich-count').textContent = e.target.textContent; window.richEvents.push({ type: 'input', data: e.data, html: e.target.innerHTML }); });
     document.addEventListener('change', () => window.fixtureEvents.change++);
     document.addEventListener('keydown', () => window.fixtureEvents.keys++);
     document.querySelector('form').addEventListener('submit', e => { e.preventDefault(); window.fixtureEvents.submit++; });
@@ -235,7 +239,7 @@ test('website Vim editor saves multiline motions, undo, and insert edits without
   await editor.pressSequentially('j0cw'); await editor.pressSequentially('changed')
   await expect(overlay).toHaveAttribute('data-mode', 'INSERT')
   await editor.press('Escape'); await expect(overlay).toHaveAttribute('data-mode', 'NORMAL')
-  await expect(field).toHaveValue('alpha bravo\ncharlie delta')
+  await expect(field).toHaveValue('alpha bravo\nchanged delta')
   await overlay.screenshot({ path: info.outputPath('vim-editor.png') })
   let keys = await page.evaluate(() => (window as any).fixtureEvents.keys)
   await ex(editor, 'wq')
@@ -243,6 +247,35 @@ test('website Vim editor saves multiline motions, undo, and insert edits without
   await expect(field).toHaveValue('alpha bravo\nchanged delta')
   expect(await page.evaluate(() => (window as any).fixtureEvents.submit)).toBe(0)
   expect(await page.evaluate(() => (window as any).fixtureEvents.keys)).toBe(keys)
+})
+
+test('website Vim edits update page counts and native selections before saving', async () => {
+  let field = page.locator('#notes')
+  await field.fill('alpha bravo\nchanged delta')
+  let { overlay, editor } = await open(field)
+  await editor.pressSequentially('gg0vll')
+  await expect.poll(() => field.evaluate(element => {
+    let input = element as HTMLTextAreaElement
+    return [input.selectionStart, input.selectionEnd, input.selectionDirection]
+  })).toEqual([0, 3, 'forward'])
+  await expect(editor).toBeFocused()
+  await editor.press('Escape'); await editor.pressSequentially('gg0llvhh')
+  await expect.poll(() => field.evaluate(element => {
+    let input = element as HTMLTextAreaElement
+    return [input.selectionStart, input.selectionEnd, input.selectionDirection]
+  })).toEqual([0, 3, 'backward'])
+  await editor.press('Escape'); await editor.pressSequentially('gg0A!')
+  await expect(field).toHaveValue('alpha bravo!\nchanged delta')
+  await expect(page.locator('#notes-count')).toHaveText(String('alpha bravo!\nchanged delta'.length))
+  await expect(editor).toBeFocused(); await editor.press('Escape'); await editor.press('u')
+  await expect(field).toHaveValue('alpha bravo\nchanged delta')
+  await expect(page.locator('#notes-count')).toHaveText(String('alpha bravo\nchanged delta'.length))
+  await editor.pressSequentially('A saved'); await editor.press('Escape'); await ex(editor, 'w')
+  await editor.pressSequentially('A discarded'); await editor.press('Escape'); await ex(editor, 'q')
+  await expect(overlay).toHaveCount(0)
+  await expect(field).toHaveValue('alpha bravo saved\nchanged delta')
+  await expect(page.locator('#notes-count')).toHaveText(String('alpha bravo saved\nchanged delta'.length))
+  await field.fill('alpha bravo\nchanged delta')
 })
 
 test('website Vim yanks share the system clipboard across editors and browser fields', async () => {
@@ -272,8 +305,11 @@ test('website Vim yanks share the system clipboard across editors and browser fi
 test('website Vim editor discards drafts, writes controlled React inputs, and exits with Escape', async () => {
   let field = page.locator('#controlled'), { overlay, editor } = await open(field)
   await editor.pressSequentially('gg0cc'); await editor.pressSequentially('discarded'); await editor.press('Escape')
+  await expect(field).toHaveValue('discarded'); await expect(page.locator('#controlled-value')).toHaveText('discarded')
+  await expect(editor).toBeFocused()
   await ex(editor, 'q')
   await expect(overlay).toHaveCount(0); await expect(field).toHaveValue('controlled')
+  await expect(page.locator('#controlled-value')).toHaveText('controlled')
   ;({ overlay, editor } = await open(field))
   await editor.pressSequentially('gg0cc'); await editor.pressSequentially('saved'); await editor.press('Escape')
   await ex(editor, 'w')
@@ -284,9 +320,15 @@ test('website Vim editor discards drafts, writes controlled React inputs, and ex
   await expect(page.locator('#controlled-value')).toHaveText('saved!'); await expect(field).toBeFocused()
 })
 
-test('website Vim editor updates rich text and shadow fields through native events', async () => {
+test('website Vim editor updates rich text and shadow fields through native events', async ({}, info) => {
   let rich = page.locator('#rich'), { overlay, editor } = await open(rich)
   await editor.pressSequentially('ggVGc'); await editor.pressSequentially('new  first'); await editor.press('Enter'); await editor.pressSequentially('new second'); await editor.press('Escape')
+  await fs.writeFile(info.outputPath('rich-live-events.json'), JSON.stringify(await page.evaluate(() => ({ html: document.querySelector('#rich')!.innerHTML, events: (window as any).richEvents }))))
+  await expect(editor).toContainText('new second')
+  await expect(overlay.locator('.status')).toBeHidden()
+  await expect(page.locator('#rich-count')).toContainText('new second')
+  expect(await rich.textContent()).toContain('new  first')
+  await expect(editor).toBeFocused()
   await ex(editor, 'wq')
   expect(await rich.textContent()).toContain('new  first')
   expect((await rich.innerText()).replace(/\u00a0/g, ' ')).toBe('new first\nnew second')
@@ -303,6 +345,8 @@ test('website Vim editor preserves conflicting drafts and handles removed, disab
   let field = page.locator('#text'), { overlay, editor } = await open(field)
   await editor.pressSequentially('A draft'); await editor.press('Escape')
   await field.evaluate(element => { (element as HTMLInputElement).value = 'page update' })
+  await editor.pressSequentially('A!'); await editor.press('Escape')
+  await expect(field).toHaveValue('page update')
   await ex(editor, 'wq')
   await expect(overlay).toContainText('Field changed on the page')
   await expect(editor).toContainText('draft'); await expect(field).toHaveValue('page update')

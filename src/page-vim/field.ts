@@ -33,10 +33,21 @@ let editableText = (node: Node): string => {
 // whitespace collapsing. Website styles should not change the plain-text draft.
 export let readField = (field: TextField) => field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value : editableText(field)
 
-export let writeField = (field: TextField, value: string, cursor: number) => {
+export type FieldSelection = { anchor: number; head: number }
+
+let selectField = (field: TextField, selection: FieldSelection) => {
+  if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel'].includes(field.type)) {
+    let anchor = Math.min(field.value.length, selection.anchor), head = Math.min(field.value.length, selection.head)
+    field.setSelectionRange(Math.min(anchor, head), Math.max(anchor, head), anchor > head ? 'backward' : 'forward')
+  }
+}
+
+export let writeField = (field: TextField, value: string, selection: FieldSelection) => {
   if (!field.isConnected || textField(field) !== field) return false
-  if (field instanceof HTMLInputElement) value = value.replace(/[\r\n]/g, '')
-  field.focus({ preventScroll: true })
+  if (field instanceof HTMLInputElement) {
+    selection = { anchor: value.slice(0, selection.anchor).replace(/[\r\n]/g, '').length, head: value.slice(0, selection.head).replace(/[\r\n]/g, '').length }
+    value = value.replace(/[\r\n]/g, '')
+  }
   if (readField(field) !== value) {
     if (!field.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, cancelable: true, inputType: 'insertReplacementText', data: value }))) return false
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
@@ -48,13 +59,24 @@ export let writeField = (field: TextField, value: string, cursor: number) => {
     } else {
       // Native editing preserves the rich editor's model, input events, and undo.
       // Never replace its HTML: Draft.js/Lexical and other composers own that DOM.
+      field.focus({ preventScroll: true })
       let selection = window.getSelection(), range = document.createRange()
-      range.selectNodeContents(field)
+      // Selecting the host's child boundaries inserts before an empty paragraph.
+      // Select within its text blocks so native replacement keeps one logical line.
+      let start: Node = field, end: Node = field
+      while (start.firstChild) start = start.firstChild
+      while (end.lastChild) end = end.lastChild
+      if (start instanceof HTMLBRElement) range.setStartBefore(start)
+      else range.setStart(start, 0)
+      if (end instanceof HTMLBRElement) range.setEndAfter(end)
+      else range.setEnd(end, end.nodeType === Node.TEXT_NODE ? end.nodeValue!.length : end.childNodes.length)
       selection?.removeAllRanges(); selection?.addRange(range)
       // insertText with embedded newlines can create paragraphs whose innerText
       // gains extra blank lines. Explicit line breaks preserve the plain draft.
       let lines = value.split('\n')
-      if (!document.execCommand('insertText', false, lines[0])) return false
+      // An empty insert leaves a zero-height paragraph with no caret placeholder.
+      // Native deletion leaves a proper empty editing line for the next live edit.
+      if (!document.execCommand(lines[0] ? 'insertText' : 'delete', false, lines[0])) return false
       for (let line of lines.slice(1)) {
         if (!document.execCommand('insertLineBreak')) return false
         if (line && !document.execCommand('insertText', false, line)) return false
@@ -62,6 +84,6 @@ export let writeField = (field: TextField, value: string, cursor: number) => {
     }
   }
   if (!field.isConnected || readField(field) !== value) return false
-  if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel'].includes(field.type)) field.setSelectionRange(Math.min(value.length, cursor), Math.min(value.length, cursor))
+  selectField(field, selection)
   return true
 }

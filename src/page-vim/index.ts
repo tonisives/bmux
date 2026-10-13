@@ -3,7 +3,7 @@ import { drawSelection, EditorView, keymap, lineNumbers } from '@codemirror/view
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { getCM, vim, Vim } from '@replit/codemirror-vim'
 import { readField, textField, writeField } from './field'
-import type { TextField } from './field'
+import type { FieldSelection, TextField } from './field'
 import { matchesBinding } from '../shared/keyboard'
 import { createFieldHints } from './hints'
 import { mountInlineEditor } from './inline'
@@ -33,7 +33,7 @@ let install = (): PageVim => {
   let open = (field: TextField) => {
     if (!enabled || active) return
     hints.hide()
-    let original = readField(field), host = document.createElement('div')
+    let original = readField(field), synced = original, host = document.createElement('div')
     host.dataset.bmuxVim = 'true'
     host.setAttribute('role', 'group')
     host.setAttribute('aria-label', 'Vim editor')
@@ -46,26 +46,57 @@ let install = (): PageVim => {
     let report = (message: string) => { status.textContent = message; status.hidden = false }
     let inline = mountInlineEditor(field, host)
     let cursor = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.selectionStart ?? 0 : original.length
-    let relativeNumbers = new Compartment()
+    let savedSelection = { anchor: cursor, head: cursor }
+    let relativeNumbers = new Compartment(), closing = false, syncQueued = false
+    let scheduleSync = () => {
+      if (syncQueued || closing) return
+      syncQueued = true
+      queueMicrotask(() => { syncQueued = false; if (!closing) sync() })
+    }
     let view = new EditorView({
       parent: container, root,
       state: EditorState.create({ doc: original, selection: { anchor: cursor }, extensions: [
-        vim(), drawSelection(), history(), keymap.of([...defaultKeymap, ...historyKeymap]), EditorView.lineWrapping,
+        vim(), drawSelection(), EditorView.updateListener.of(update => { if (update.docChanged || update.selectionSet) scheduleSync() }), history(), keymap.of([...defaultKeymap, ...historyKeymap]), EditorView.lineWrapping,
         relativeNumbers.of(lineNumbers({ formatNumber: relativeLineNumber })),
         EditorState.transactionExtender.of(transaction => transaction.selection || transaction.docChanged ? { effects: relativeNumbers.reconfigure(lineNumbers({ formatNumber: relativeLineNumber })) } : null),
         EditorView.contentAttributes.of({ 'aria-label': 'Vim text' }),
         EditorView.theme({ '&': { backgroundColor: 'var(--field-background)', color: 'var(--field-color)' }, '.cm-gutters': { backgroundColor: 'var(--field-background)', color: 'var(--field-color)', border: 'none', opacity: '.65' }, '.cm-cursor': { borderLeftColor: 'var(--field-color)' }, '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--field-color) 25%, transparent)' } }),
       ] }),
     })
-    let closing = false
+    let write = (value: string, selection: FieldSelection) => {
+      // Regular fields can update while hidden, without blurring the Vim editor.
+      if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || readField(field) === value) return writeField(field, value, selection)
+      let focused = root.activeElement as HTMLElement | null
+      let result = inline.write(() => writeField(field, value, selection))
+      if (focused === view.contentDOM) {
+        // Native editing changes the document selection outside the shadow root.
+        // Restore it explicitly; CodeMirror's cached range may still look current.
+        let anchor = view.domAtPos(view.state.selection.main.anchor), head = view.domAtPos(view.state.selection.main.head)
+        window.getSelection()?.setBaseAndExtent(anchor.node, anchor.offset, head.node, head.offset)
+        view.focus()
+      }
+      else focused?.focus({ preventScroll: true })
+      return result
+    }
+    let sync = () => {
+      if (readField(field) !== synced) { report('Field changed on the page. Copy your draft or use :q to discard.'); return false }
+      if (!write(view.state.doc.toString(), view.state.selection.main)) { report('Could not update this field. Copy your draft or use :q to discard.'); return false }
+      synced = readField(field); status.hidden = true
+      return true
+    }
     let save = () => {
-      if (readField(field) !== original) { report('Field changed on the page. Copy your draft or use :q to discard.'); return false }
-      if (!inline.write(() => writeField(field, view.state.doc.toString(), view.state.selection.main.head))) { report('Could not update this field. Copy your draft or use :q to discard.'); view.focus(); return false }
-      original = readField(field); status.hidden = true
+      if (!sync()) return false
+      original = synced; savedSelection = { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head }
+      return true
+    }
+    let discard = () => {
+      // Leave independent page changes intact; otherwise restore the last :w.
+      if (readField(field) !== synced || synced === original || !field.isConnected) return true
+      if (!write(original, savedSelection)) { report('Could not restore this field. Copy your draft or save to close.'); return false }
       return true
     }
     let close = (commit: boolean) => {
-      if (closing || commit && !save()) return
+      if (closing || !(commit ? save() : discard())) return
       closing = true; active = undefined
       observer.disconnect()
       view.destroy(); inline.restore(); hints.refresh()
