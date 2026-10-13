@@ -726,9 +726,9 @@ let useDismissAddressOnOutsideClick = (form: RefObject<HTMLFormElement | null>, 
 }
 
 let useOpenAddressBookmark = (finish: () => void) => {
-  let { state, run } = useUI(), { profile, client } = selection(state)
+  let { state, run } = useUI(), { profile, client, tab } = selection(state)
   return async (bookmarkId: string) => {
-    let result = await run('bookmark.open', { bookmark: bookmarkId, profile: profile!.id, session: client!.sessionId, client: client!.id })
+    let result = await run('bookmark.open', { bookmark: bookmarkId, profile: profile!.id, tab: tab?.id, session: client!.sessionId, client: client!.id })
     if (result !== undefined) finish()
   }
 }

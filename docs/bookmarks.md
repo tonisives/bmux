@@ -84,7 +84,8 @@ post, link/crosspost, and title filtering. A minimum of 0 disables that threshol
 Unknown counts remain visible. The first qualifying duplicate stays visible;
 matching titles ignore case and repeated whitespace but preserve punctuation.
 
-Opening the bookmark attaches its plugins to the new pane. Other panes, copied
+Opening the bookmark attaches its plugins to the new pane. Choosing a bookmark
+from address suggestions attaches them to the current pane instead. Other panes, copied
 windows, and links opened in new panes do not inherit them. Attachments survive
 reloads and browser restoration, and run only on matching pages. The Reddit
 filter affects post search results, including infinite scrolling, rather than

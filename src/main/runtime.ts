@@ -2025,7 +2025,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let bookmark = bookmarkById(profile.bookmarks ?? [], required(args, 'bookmark'))
       if (!bookmark?.url || !/^(https?:|file:)/i.test(bookmark.url)) throw new Error('Supported bookmark required')
-      return execute({ method: 'new-window', args: { session: args.session, client: args.client, profile: profile.id, url: parameterizedBookmarkUrl(bookmark.url, bookmarkParameters[profile.id]?.[bookmark.id]), _bookmarkSource: { profileId: profile.id, bookmarkId: bookmark.id } } }, sourceClientId)
+      let url = parameterizedBookmarkUrl(bookmark.url, bookmarkParameters[profile.id]?.[bookmark.id]), source = { profileId: profile.id, bookmarkId: bookmark.id }
+      if (typeof args.tab === 'string') {
+        let { pane } = tabById(model, args.tab)
+        if (pane.profileId !== profile.id) throw new Error('Bookmark and pane profiles must match')
+        pane.bookmarkSource = source
+        save()
+        return execute({ method: 'navigate', args: { tab: args.tab, url, waitUntil: 'none' } }, sourceClientId)
+      }
+      return execute({ method: 'new-window', args: { session: args.session, client: args.client, profile: profile.id, url, _bookmarkSource: source } }, sourceClientId)
     }
     if (method === 'bookmark.plugins.update') {
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')

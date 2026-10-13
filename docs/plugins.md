@@ -287,7 +287,8 @@ bookmark and document. The website's main JavaScript world receives no binding.
 
 `bookmark.open` accepts `profile`, `bookmark`, and the existing `session`/`client`
 selection arguments. It opens the owning profile's parameterized bookmark in a
-new window and binds its plugins before navigation. `bookmark.plugins.update`
+new window and binds its plugins before navigation. An optional `tab` replaces
+that pane's page instead, requiring the bookmark and pane to share a profile. `bookmark.plugins.update`
 accepts `profile`, `bookmark`, `id`, `enabled`, and `values`; use `remove: true`
 with the IDs to remove an attachment. Saved settings are separate from URL
 parameters and keyed by profile and bookmark ID.
