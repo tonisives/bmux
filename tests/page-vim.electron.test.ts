@@ -279,6 +279,7 @@ test('website Vim edits update page counts and native selections before saving',
 })
 
 test('website Vim yanks share the system clipboard across editors and browser fields', async () => {
+  await page.locator('#notes').fill('alpha bravo\ncharlie delta')
   let { overlay, editor } = await open(page.locator('#notes'))
   await editor.pressSequentially('gg0yy')
   await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('alpha bravo\n')
