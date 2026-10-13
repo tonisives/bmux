@@ -22,7 +22,8 @@ export let BookmarkPlugins = ({ state, profileId, bookmarkId, url, run }: Props)
 }
 let BookmarkPluginSettings = ({ attachment, plugin, update }: { attachment: BookmarkPluginAttachment; plugin?: PluginInfo; update: (attachment: BookmarkPluginAttachment, remove?: boolean) => Promise<unknown> }) => {
   let [values, setValues] = useState(attachment.values)
-  useEffect(() => setValues(attachment.values), [attachment.values])
+  let persistedValues = JSON.stringify(attachment.values)
+  useEffect(() => setValues(JSON.parse(persistedValues)), [persistedValues])
   let change = (name: string, value: BookmarkPluginValue, persist = false) => { let next = { ...values, [name]: value }; setValues(next); if (persist) void update({ ...attachment, values: next }) }
   let save = () => { void update({ ...attachment, values }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void update({ ...attachment, enabled: event.target.checked, values }) }
