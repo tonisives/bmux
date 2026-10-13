@@ -7,11 +7,12 @@ from a folder row to search folders, then use Up/Down and Enter to select one.
 You can create a folder inside the selected folder.
 
 Opening a bookmark preserves the current layout and keeps its original page
-available. Searches are remembered per profile during
-the running UI session. This is not cross-device synchronization.
+available. Search, selection, scroll position, collapsed folders, and the All
+profiles preference are remembered locally across app restarts. Search and
+selection are saved per profile. This is not cross-device synchronization.
 
 Navigate bookmark rows with `j`/`k`, counts such as `3j`, `gg`/`G`, or
-Ctrl+N/Ctrl+P. Ctrl+F/Ctrl+B move ten rows. Relative numbers on the right show
+Ctrl+N/Ctrl+P. Ctrl+F/Ctrl+B move ten rows. Relative numbers before bookmark titles show
 the distance from the selected row, which displays 0. Hidden and unsupported
 bookmarks are skipped. Press `/`, `i`, or `a` from a row to edit the search. With **Vim
 editing** enabled, the search supports the same normal, insert, and visual modes
@@ -29,7 +30,8 @@ Click a folder's left chevron or title to collapse or expand it. Use the **Reord
 
 Right-click a bookmark or folder for Rename and Delete, in both the full list and search results. The list dims while the menu is open; clicking outside the menu closes it without opening a bookmark or changing a folder. Rename opens an inline title editor: Enter or leaving the title saves; Escape cancels. A single click on a bookmark title opens the page. Deleting a folder also deletes its contents. These actions change only the owning profile, including in **All profiles**.
 
-For a saved URL with query parameters, the small sliders icon beside its title opens optional controls. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
+For a saved URL with query parameters, the small sliders icon beside its title opens settings to the right of the bookmark list. The list and settings scroll
+independently. Text parameters can be edited directly; numeric parameters also have sliders. Changes are saved for the bookmark and used when it opens. The × button removes a parameter from future opens and hides its control. The original saved URL stays in `bookmarks.yaml`.
 For X searches, numeric `min_faves` and `min_replies` operators inside the `q` parameter also appear as separate controls. A post-age slider writes a relative `since:YYYY-MM-DD` operator when the bookmark opens; 0 keeps posts of any age. The `f` URL parameter is labeled Results, with `live` identified as Latest. X does not support a minimum post-view or impression-count search operator.
 
 Bookmarks are stored in `~/.config/bmux/bookmarks.yaml`, beside the keyboard settings in `config.yaml`. bmux creates the file automatically. Existing bookmarks in `state.json` move to YAML when you first start this version; subsequent state saves omit them.
@@ -79,7 +81,8 @@ and a Tart demonstration.
 
 Enable **Reddit search filter** in the Plugins panel, then open a Reddit search
 bookmark's sliders and choose it under **Add plugin**. The sliders are available
-on bookmarks without query parameters too. Configure minimum score and comments
+on bookmarks without query parameters too. The plugin selector is hidden when
+there are no matching enabled plugins left to add. Configure minimum score and comments
 (default 2 each), whether results must meet both or either minimum, and duplicate
 post, link/crosspost, and title filtering. A minimum of 0 disables that threshold.
 Unknown counts remain visible. The first qualifying duplicate stays visible;

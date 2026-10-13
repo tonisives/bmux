@@ -762,7 +762,7 @@ test('bookmarks support counted Vim navigation and Vim search editing', async ()
   await search.press('Escape'); await expect(group).toHaveCount(0)
 })
 
-test('bookmark relative numbers align right and follow filtering, folder visibility, and restored focus', async () => {
+test('bookmark relative numbers appear before titles and follow filtering, folder visibility, and restored focus', async () => {
   await open('bookmarks')
   let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
   let group = dialog.getByRole('group', { name: 'Choose bookmark', exact: true })
@@ -775,9 +775,9 @@ test('bookmark relative numbers align right and follow filtering, folder visibil
   await expect(group.getByRole('button', { name: 'Disabled bookmarklet', exact: true }).locator('..').locator('[data-bookmark-number]')).toHaveText('')
   let aligned = await rows.evaluateAll(buttons => buttons.map(button => {
     let row = button.parentElement!, number = row.querySelector<HTMLElement>('[data-bookmark-number]')!
-    return { right: number.getBoundingClientRect().right, margin: row.getBoundingClientRect().right - number.getBoundingClientRect().right, afterTitle: number.getBoundingClientRect().left >= button.getBoundingClientRect().right }
+    return { beforeTitle: number.getBoundingClientRect().right < button.getBoundingClientRect().left }
   }))
-  expect(aligned.every(number => Math.abs(number.right - aligned[0].right) < 1 && Math.abs(number.margin - 8) < 1 && number.afterTitle)).toBe(true)
+  expect(aligned.every(number => number.beforeTitle)).toBe(true)
   await chrome.keyboard.press('3'); await chrome.keyboard.press('j')
   await dialog.screenshot({ path: path.resolve('artifacts/bookmark-relative-numbers.png') })
   await group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Guides$/ }).click()
@@ -827,12 +827,23 @@ test('bookmarks panel grows by twenty percent and fits smaller native windows', 
     await dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('')
     await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(744)
     await dialog.screenshot({ path: path.resolve('artifacts/bookmark-vim-expanded.png') })
+    await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
+    let settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
+    await expect(settings).toBeVisible()
+    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1056)
+    await settings.getByRole('button', { name: 'Close bookmark settings' }).click()
     await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 640, height: 400 }), native.id)
     await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(640)
     await expect.poll(() => dialog.evaluate(element => {
       let bounds = element.getBoundingClientRect()
       return Math.round(bounds.width) === Math.round(innerWidth * .9) && bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 28 && bounds.bottom <= innerHeight - 12
     })).toBe(true)
+    await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
+    await expect(settings).toBeVisible()
+    await expect.poll(() => dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    let listBounds = (await dialog.locator('[data-bookmark-scroll]').boundingBox())!, settingsBounds = (await settings.boundingBox())!
+    expect(settingsBounds.x).toBeGreaterThan(listBounds.x + listBounds.width)
+    await dialog.screenshot({ path: path.resolve('artifacts/bookmark-settings-small.png') })
   } finally { await application.evaluate(({ BaseWindow }, native) => BaseWindow.fromId(native.id)?.setBounds(native.bounds), native) }
 })
 
@@ -1141,6 +1152,11 @@ test('bookmark parameter controls customize the opened URL and persist removed k
   await expect(bookmark).toHaveAttribute('data-active', 'true')
   await expect(bookmark).toHaveCSS('background-color', 'rgb(52, 71, 56)')
   await expect(customize).toHaveCSS('background-color', 'rgb(52, 71, 56)')
+  let settings = group.getByRole('complementary', { name: 'Bookmark settings' })
+  await expect(settings).toBeVisible()
+  await expect(group.getByRole('combobox', { name: 'Add bookmark plugin' })).toHaveCount(0)
+  expect((await settings.boundingBox())!.x).toBeGreaterThan((await group.locator('[data-bookmark-scroll]').boundingBox())!.x + (await group.locator('[data-bookmark-scroll]').boundingBox())!.width)
+  await chrome.getByRole('dialog', { name: 'Bookmarks' }).screenshot({ path: path.resolve('artifacts/bookmark-settings-side-by-side.png') })
   await group.getByRole('textbox', { name: 'q', exact: true }).fill('new words')
   await group.getByRole('spinbutton', { name: 'limit', exact: true }).fill('25')
   await expect(group.getByRole('slider', { name: 'limit slider' })).toHaveValue('25')

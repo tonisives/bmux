@@ -17,7 +17,7 @@ export let BookmarkPlugins = ({ state, profileId, bookmarkId, url, run }: Props)
   }
   return <div className={css.plugins} aria-label="Bookmark plugins">
     {attachments.map(attachment => <BookmarkPluginSettings key={attachment.id} attachment={attachment} plugin={state.plugins?.find(plugin => plugin.id === attachment.id)} update={update} />)}
-    <label>Add plugin<select aria-label="Add bookmark plugin" value="" onChange={add}><option value="">{available.length ? 'Choose plugin' : 'No matching enabled plugins'}</option>{available.map(plugin => <option key={plugin.id} value={plugin.id}>{plugin.name}</option>)}</select></label>
+    {!!available.length && <label>Add plugin<select aria-label="Add bookmark plugin" value="" onChange={add}><option value="">Choose plugin</option>{available.map(plugin => <option key={plugin.id} value={plugin.id}>{plugin.name}</option>)}</select></label>}
   </div>
 }
 let BookmarkPluginSettings = ({ attachment, plugin, update }: { attachment: BookmarkPluginAttachment; plugin?: PluginInfo; update: (attachment: BookmarkPluginAttachment, remove?: boolean) => Promise<unknown> }) => {
