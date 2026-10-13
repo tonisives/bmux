@@ -2295,7 +2295,8 @@ let useBookmarkNavigation = (onMetaEnter: (row: HTMLButtonElement) => void, init
   }
   let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => { if (vim.enabled) vim.keys(event) }
   let bookmarkKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.altKey) return
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey) return
+    if (event.metaKey) { keys(event); return }
     let target = event.target as HTMLElement, editing = target === input.current
     if (!editing && target.closest('input, textarea, select, [data-picker-action], [role="menu"]')) return
     if (!editing && !event.ctrlKey && event.key === 'Escape' && (count || pendingG.current)) {
