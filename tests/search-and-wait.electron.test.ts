@@ -944,6 +944,23 @@ test('all-profile bookmarks preserve owning profiles, duplicate IDs, parameters,
   await expect(scope).not.toBeChecked()
 })
 
+for (let query of ['', 'sessions']) test(`reopening bookmarks highlights the remembered row after mouse interaction (${query ? 'search results' : 'full list'})`, async () => {
+  await open('bookmarks')
+  let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
+  let group = dialog.getByRole('group', { name: 'Choose bookmark', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  let row = group.getByRole('button', { name: 'Sessions', exact: true })
+  await search.fill(query)
+  await row.focus()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await open('bookmarks')
+  await expect(search).toHaveValue(query)
+  await expect(row).toBeFocused()
+  await expect.poll(() => row.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(48, 57, 68)')
+  await expect.poll(() => group.locator('button[data-bookmark-id]').evaluateAll(rows => rows.filter(row => getComputedStyle(row).backgroundColor === 'rgb(48, 57, 68)').map(row => row.textContent))).toEqual(['Sessions'])
+})
+
 test('bookmark search preserves folders, excludes other profiles, and keeps unsupported URLs disabled', async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })

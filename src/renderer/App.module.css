@@ -160,8 +160,9 @@
 .remoteSession { display: flex !important; align-items: baseline; justify-content: space-between; gap: 12px; }
 .remoteSession span { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .panel [data-bookmark-picker] .bookmarkRow > .listRow:focus-visible { outline: none; }
+.panel [data-bookmark-picker] .bookmarkRow > .listRow:focus:not([data-active="true"]) { background: #303944; color: #f0f2f5; }
 .panel [data-bookmark-picker][data-pointer-mode="true"]:has(.bookmarkRow > .listRow:hover) .bookmarkRow > .listRow:not(:hover) { background: transparent; color: inherit; font-weight: 400; outline: none; }
-.panel [data-bookmark-picker][data-pointer-mode="false"] .bookmarkRow > .listRow:hover:not(:focus-visible):not([data-search-selected="true"]):not([data-active="true"]) { background: transparent; color: inherit; }
+.panel [data-bookmark-picker][data-pointer-mode="false"] .bookmarkRow > .listRow:hover:not(:focus):not([data-search-selected="true"]):not([data-active="true"]) { background: transparent; color: inherit; }
 .profileHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #eceef2; }
 .profileHeading .profileAvatar { width: 28px; height: 28px; flex-basis: 28px; }
 .panel .profileName { padding: 0; background: transparent; color: inherit; cursor: text; font-weight: 700; white-space: normal; text-align: left; }
