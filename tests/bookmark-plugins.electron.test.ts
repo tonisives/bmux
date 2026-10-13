@@ -102,8 +102,12 @@ test('bookmark plugins remain pane-scoped and the overlay toggles and configures
 })
 test('bookmark plugins expose settings without URL parameters and support old Reddit markup', async () => {
   await configure({})
-  let current = await state(); await rpc('activate-client', { client }); await rpc('select-window', { window: current.model.sessions[0].windows[0].id, client })
+  let current = await state(), first = current.model.sessions[0].windows[0]
+  await rpc('select-window', { window: first.id, client })
+  await expect(chrome.locator(`[data-pane-id="${first.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+  await expect.poll(async () => { await rpc('activate-client', { client }); return (await state()).focusedClientId }).toBe(client)
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+  await expect(chrome.getByRole('combobox', { name: 'Command', exact: true })).toBeFocused()
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).fill('bookmarks'); await chrome.getByRole('combobox', { name: 'Command', exact: true }).press('Enter')
   await chrome.getByRole('button', { name: 'Customize Reddit search fixture', exact: true }).click()
   await expect(chrome.getByRole('combobox', { name: 'Add bookmark plugin' })).toBeVisible()
