@@ -2,6 +2,7 @@ import { test, expect } from 'vitest'
 import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, searchRecentWindows } from '../src/shared/picker-search'
 import { newSession, newWindow } from '../src/main/model'
 import { waitOptions } from '../src/main/wait'
+import { moveBookmark } from '../src/main/bookmarks'
 import type { Bookmark } from '../src/shared/types'
 
 let bookmarks: Bookmark[] = [{ id: 'work', title: 'Work', children: [
@@ -76,6 +77,32 @@ test('bookmark search ranks titles before folders and URLs', () => {
     { id: 'title', title: 'X.com guide', url: 'https://example.test/guide' },
   ]
   expect(searchBookmarks(ranked, 'x.com').map(bookmark => bookmark.id)).toEqual(['title', 'folder', 'url'])
+})
+
+test('bookmark reorder search preserves saved order through nested folders and hidden siblings', () => {
+  let bookmarks: Bookmark[] = [
+    { id: 'folder', title: 'Folder', children: [
+      { id: 'url', title: 'Social home', url: 'https://x.com' },
+      { id: 'hidden', title: 'Unrelated', url: 'https://example.test' },
+      { id: 'title', title: 'X.com guide', url: 'https://example.test/guide' },
+    ] },
+    { id: 'exact', title: 'x.com', url: 'https://example.test/exact' },
+  ]
+  let profile = { id: 'profile', name: 'Profile', background: false, bookmarks }
+  let before = structuredClone(bookmarks)
+  let results = searchBookmarks(bookmarks, 'x.com', { preserveOrder: true })
+  expect(results.map(bookmark => bookmark.id)).toEqual(['folder', 'exact'])
+  expect(results[0].children?.map(bookmark => bookmark.id)).toEqual(['url', 'title'])
+  expect(bookmarks).toEqual(before)
+  expect(moveBookmark(profile, 'title', 'url', 'before')).toEqual({ moved: true })
+  expect(searchBookmarks(bookmarks, 'x.com', { preserveOrder: true })[0].children?.map(bookmark => bookmark.id)).toEqual(['title', 'url'])
+  expect(moveBookmark(profile, 'url', 'title', 'before')).toEqual({ moved: true })
+  expect(searchBookmarks(bookmarks, 'x.com', { preserveOrder: true })[0].children?.map(bookmark => bookmark.id)).toEqual(['url', 'title'])
+  expect(searchBookmarks(bookmarks, 'x.com').map(bookmark => bookmark.id)).toEqual(['exact', 'folder'])
+  expect(searchBookmarks(bookmarks, 'x.com')[1].children?.map(bookmark => bookmark.id)).toEqual(['title', 'url'])
+  expect(searchBookmarks(bookmarks, 'Folder', { preserveOrder: true })[0].children).toBe(bookmarks[0].children)
+  expect(searchBookmarks(bookmarks, '   ', { preserveOrder: true })).toBe(bookmarks)
+  expect(searchBookmarks(bookmarks, 'missing', { preserveOrder: true })).toEqual([])
 })
 
 test('history search matches titles and URLs without changing recency order', () => {

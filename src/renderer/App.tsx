@@ -2382,7 +2382,7 @@ let BookmarkPicker = () => {
     if (event.target === input.current || (key && key !== expandedBookmarkId)) setExpandedBookmarkId(null)
   }
   let profiles = profile ? [profile, ...(allBookmarkProfiles ? state.model.profiles.filter(item => item.id !== profile.id) : [])] : []
-  groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query) })).filter(group => group.bookmarks.length)
+  groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query, { preserveOrder: reordering }) })).filter(group => group.bookmarks.length)
   let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
   let focusSearch = () => input.current?.focus()
   return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
