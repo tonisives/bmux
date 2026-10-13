@@ -789,7 +789,7 @@ test('bookmark relative numbers align right and follow filtering, folder visibil
   await rows.nth(1).focus()
   await expect(rows.first().locator('..').locator('[data-bookmark-number]')).toHaveText('1')
   await search.fill('sessions'); await expect.poll(numbers).toEqual(['0', '1'])
-  await search.press('j'); await expect(rows.last()).toBeFocused(); await expect.poll(numbers).toEqual(['1', '0'])
+  await search.press('ArrowDown'); await expect(rows.last()).toBeFocused(); await expect.poll(numbers).toEqual(['1', '0'])
   await chrome.keyboard.press('Escape'); await expect(group).toHaveCount(0)
   await open('bookmarks'); await expect(search).toHaveValue('sessions')
   await expect(rows.last()).toBeFocused(); await expect.poll(numbers).toEqual(['1', '0'])
