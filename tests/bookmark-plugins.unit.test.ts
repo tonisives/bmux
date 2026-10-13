@@ -93,7 +93,8 @@ describe('Reddit filtering', () => {
 })
 test('isolated world updates are document-bound and cannot target other bookmarks', async () => {
   let debug = new EventEmitter(), attachments = [{ id: 'test', enabled: true, values: {} }], update = vi.fn(async () => undefined)
-  let contents = { getURL: () => 'https://example.test/search', isDestroyed: () => false, debugger: debug }
+  let destroyed = false
+  let contents = { getURL: () => 'https://example.test/search', isDestroyed: () => destroyed, get debugger() { if (destroyed) throw new Error('Object has been destroyed'); return debug } }
   let cdp = vi.fn(async (_tab: string, method: string) => method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'frame' } } } : method === 'Page.createIsolatedWorld' ? { executionContextId: 42 } : { result: { value: [] } })
   let pages = createBookmarkPluginPages({ cdp, attachments: () => attachments, definitions: () => [{ id: 'test', name: 'Test', contribution: { matches: ['https://example.test/*'], script: 'test.js', controls: [] }, source: '() => () => {}' }], changed: vi.fn(), update })
   pages.attach('pane', contents as any); await pages.refresh('pane')
@@ -102,5 +103,5 @@ test('isolated world updates are document-bound and cannot target other bookmark
   message(1); message(42, 'other'); expect(update).not.toHaveBeenCalled()
   message(42); expect(update).toHaveBeenCalledOnce(); expect(update).toHaveBeenCalledWith('pane', { id: 'test', enabled: false, values: {} })
   pages.invalidate('pane'); message(42); expect(update).toHaveBeenCalledOnce(); expect(update).toHaveBeenCalledWith('pane', { id: 'test', enabled: false, values: {} })
-  attachments = []; await pages.refresh('pane'); pages.dispose('pane'); expect(debug.listenerCount('message')).toBe(0)
+  attachments = []; await pages.refresh('pane'); destroyed = true; pages.dispose('pane'); expect(debug.listenerCount('message')).toBe(0)
 })

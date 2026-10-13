@@ -5,7 +5,7 @@ import { mountBookmarkPluginOverlay } from './bookmark-plugin-overlay'
 
 type Definition = { id: string; name: string; contribution: BookmarkPluginContribution; source: string; error?: string }
 type Options = { definitions: () => Definition[]; attachments: (tabId: string) => BookmarkPluginAttachment[]; cdp: (tabId: string, method: string, args?: Record<string, unknown>) => Promise<any>; update: (tabId: string, attachment: BookmarkPluginAttachment) => Promise<unknown>; changed: () => void }
-type Target = { contents: WebContents; revision: number; contextId?: number; work: Promise<void>; message: (event: unknown, method: string, args: any) => void }
+type Target = { contents: WebContents; debugger: WebContents['debugger']; revision: number; contextId?: number; work: Promise<void>; message: (event: unknown, method: string, args: any) => void }
 let world = 'bmux:bookmark-plugins', binding = '__bmuxBookmarkSettings'
 export let createBookmarkPluginPages = (options: Options) => {
   let targets = new Map<string, Target>(), errors: Record<string, string> = {}
@@ -61,7 +61,7 @@ export let createBookmarkPluginPages = (options: Options) => {
     return target.work
   }
   let attach = (tabId: string, contents: WebContents) => {
-    let target: Target = { contents, revision: 0, work: Promise.resolve(), message: (_event, method, args) => {
+    let target: Target = { contents, debugger: contents.debugger, revision: 0, work: Promise.resolve(), message: (_event, method, args) => {
       if (method !== 'Runtime.bindingCalled' || args.name !== binding || args.executionContextId !== target.contextId || typeof args.payload !== 'string' || args.payload.length > 16384) return
       try {
         let value = JSON.parse(args.payload) as BookmarkPluginAttachment
@@ -69,10 +69,10 @@ export let createBookmarkPluginPages = (options: Options) => {
         void options.update(tabId, { id: value.id, enabled: value.enabled, values: value.values }).catch(() => { errors[tabId] = 'Could not save plugin settings'; options.changed() })
       } catch { /* Ignore invalid page messages. */ }
     } }
-    targets.set(tabId, target); contents.debugger.on('message', target.message)
+    targets.set(tabId, target); target.debugger.on('message', target.message)
   }
   let invalidate = (tabId: string) => { let target = targets.get(tabId); if (target) { ++target.revision; target.contextId = undefined }; delete errors[tabId] }
-  let dispose = (tabId: string) => { let target = targets.get(tabId); if (!target) return; ++target.revision; target.contents.debugger.off('message', target.message); targets.delete(tabId); delete errors[tabId] }
+  let dispose = (tabId: string) => { let target = targets.get(tabId); if (!target) return; ++target.revision; target.debugger.off('message', target.message); targets.delete(tabId); delete errors[tabId] }
   let refreshAll = () => Promise.all([...targets.keys()].map(refresh))
   return { attach, refresh, refreshAll, invalidate, dispose, errors: () => ({ ...errors }), close: () => { for (let tabId of targets.keys()) dispose(tabId) } }
 }
