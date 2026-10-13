@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Page, Locator } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -9,7 +9,7 @@ import { closeTestApplication } from './electron-fixture'
 
 test('bookmark viewing position survives app restarts with folders, search, and profile scope', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-bookmark-view-'))
-  let application: ElectronApplication | undefined, chrome!: Page
+  let application: ElectronApplication | undefined, chrome!: Page, group!: Locator, search!: Locator, list!: Locator
   let model = initialModel(), profile = model.profiles[0], other = model.profiles[1]
   let fixture = path.join(directory, 'fixture.html'), url = pathToFileURL(fixture).href
   let launch = async () => {
@@ -24,6 +24,9 @@ test('bookmark viewing position survives app restarts with folders, search, and 
     await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
     let input = chrome.getByRole('combobox', { name: 'Command', exact: true })
     await input.fill('bookmarks'); await input.press('Enter')
+    group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+    search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+    list = group.locator('[data-bookmark-scroll]')
   }
   try {
     await fs.writeFile(fixture, '<!doctype html><title>Bookmark fixture</title><h1>Bookmark fixture</h1>')
@@ -33,9 +36,6 @@ test('bookmark viewing position survives app restarts with folders, search, and 
     model.sessions[0].windows[0].panes[0].url = url
     await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
     await launch(); await open()
-    let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
-    let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
-    let list = group.locator('[data-bookmark-scroll]')
     await group.getByRole('checkbox', { name: 'All profiles' }).check()
     await group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Collapsed folder$/ }).click()
     await expect(group.getByRole('button', { name: 'Hidden child', exact: true })).toBeHidden()
