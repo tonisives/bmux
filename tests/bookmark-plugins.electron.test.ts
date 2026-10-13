@@ -41,6 +41,8 @@ let configure = (values: Record<string, unknown>, enabled = true) => rpc('bookma
 let openBookmark = async () => (await rpc('bookmark.open', { profile, bookmark, session, client })).panes[0].id as string
 let modern = '<shreddit-post id="t3_low" post-title="Low" score="1" comment-count="1">Low</shreddit-post><shreddit-post id="t3_first" post-title="First" score="5" comment-count="5"><h2>First</h2></shreddit-post><shreddit-post id="t3_repeat" post-title=" FIRST " score="10" comment-count="10">Repeated title</shreddit-post><shreddit-post id="t3_unknown" post-title="Unknown" comment-count="1">Unknown score</shreddit-post>'
 let old = '<div class="search-result-link" id="t3_low"><a class="search-title" href="/r/test/comments/low/title">Low</a><span class="search-score">1 point</span><a class="search-comments">1 comment</a></div><div class="search-result-link" id="t3_first"><a class="search-title" href="/r/test/comments/first/title">First</a><span class="search-score">5 points</span><a class="search-comments">5 comments</a></div><div class="search-result-link" id="t3_repeat"><a class="search-title" href="/r/test/comments/repeat/title"> FIRST </a><span class="search-score">10 points</span><a class="search-comments">10 comments</a></div>'
+let searchCard = (key: string, id: string, title: string, score: number, comments: number) => `<search-telemetry-tracker data-testid="search-sdui-post"><div data-testid="search-post-unit" id="${key}"><search-telemetry-tracker><a data-testid="post-title" href="/r/test/comments/${id}/title" aria-label="${title}"></a></search-telemetry-tracker><div data-testid="sdui-post-unit"><h2><a data-testid="post-title-text" href="/r/test/comments/${id}/title">${title}</a></h2><div data-testid="search-counter-row"><span><faceplate-number number="${comments}">${comments}</faceplate-number> comments</span><span>·</span><span><faceplate-number number="${score}">${score >= 1000 ? '1.5k' : score}</faceplate-number> votes</span></div></div></div></search-telemetry-tracker>`
+let sdui = searchCard('sdui_zero', 'zero', 'Zero score', 0, 1) + searchCard('sdui_low', 'low', 'A title mentioning 100 votes and 100 comments', 1, 1) + searchCard('sdui_comments', 'comments', 'Low comments', 5, 1) + searchCard('sdui_first', 'first', 'First card', 1500, 5) + searchCard('sdui_repeat', 'repeat', ' FIRST  CARD ', 5, 5) + searchCard('sdui_same_post', 'first', 'Another title', 5, 5)
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-bookmark-plugin-gui-'))
   let folder = path.join(directory, 'plugins/fixture.reddit'); await fs.mkdir(folder, { recursive: true })
@@ -51,7 +53,7 @@ test.beforeAll(async () => {
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
-    response.end(`<!doctype html><title>Search fixture</title><style>shreddit-post,.search-result-link{display:block;padding:15px;margin:8px;border:1px solid gray}body{min-height:1800px}</style><h1>Search fixture</h1>${request.url?.includes('old') ? old : modern}`)
+    response.end(`<!doctype html><title>Search fixture</title><style>shreddit-post,.search-result-link,[data-testid="search-post-unit"]{display:block;padding:15px;margin:8px;border:1px solid gray}body{min-height:1800px}</style><h1>Search fixture</h1>${request.url?.includes('sdui') ? sdui : request.url?.includes('old') ? old : modern}`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); base = `http://127.0.0.1:${(server.address() as any).port}`
   await launch()
@@ -143,4 +145,25 @@ test('address bookmark suggestions attach plugins while preserving the selected 
   expect(current.model.sessions[0].windows).toHaveLength(count)
   expect(current.model.clients.find((item: any) => item.id === client).paneId).toBe(pane)
   expect(current.model.sessions[0].windows[0].panes[0].bookmarkSource).toEqual({ profileId: profile, bookmarkId: bookmark })
+})
+test('Reddit search unit cards filter numeric counters, duplicates and loaded updates', async () => {
+  await configure({})
+  let pane = await openBookmark(), page = await pageFor(pane)
+  await rpc('navigate', { tab: pane, url: `${base}/search?sdui=1` })
+  for (let id of ['sdui_zero', 'sdui_low', 'sdui_comments', 'sdui_repeat', 'sdui_same_post']) await expect(page.locator(`#${id}`)).toBeHidden()
+  await expect(page.locator('#sdui_first')).toBeVisible()
+  await configure({ minScore: 1501 })
+  await expect(page.locator('#sdui_first')).toBeHidden()
+  await configure({})
+  await page.locator('#sdui_zero').evaluate(node => {
+    let numbers = node.querySelectorAll('faceplate-number')
+    numbers[0].setAttribute('number', '5'); numbers[1].setAttribute('number', '5')
+  })
+  await expect(page.locator('#sdui_zero')).toBeVisible()
+  await page.evaluate(html => document.body.insertAdjacentHTML('beforeend', html), searchCard('sdui_appended', 'appended', 'first card', 5, 5))
+  await expect(page.locator('#sdui_appended')).toBeHidden()
+  await configure({}, false)
+  for (let id of ['sdui_low', 'sdui_comments', 'sdui_repeat', 'sdui_same_post', 'sdui_appended']) await expect(page.locator(`#${id}`)).toBeVisible()
+  await configure({})
+  await expect(page.locator('#sdui_low')).toBeHidden()
 })

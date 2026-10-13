@@ -20,15 +20,17 @@
   let postId = value => String(value ?? '').match(/(?:t3_|\/comments\/)([a-z0-9]+)/i)?.[1]?.toLowerCase() ?? ''
   let originals = new Map(), timer, closed = false
   let roots = () => {
-    let nodes = [...document.querySelectorAll('shreddit-post, [data-testid="search-post"], [data-testid="post-container"], .search-result-link')]
+    let nodes = [...document.querySelectorAll('shreddit-post, [data-testid="search-post-unit"], [data-testid="search-post"], [data-testid="post-container"], .search-result-link')]
     return nodes.filter(node => !nodes.some(other => other !== node && other.contains(node)))
   }
   let read = node => {
     let permalink = node.getAttribute('permalink') || node.querySelector('a.search-title, a[data-testid="post-title"], a[slot="title"], a[href*="/comments/"]')?.getAttribute('href') || ''
-    let title = node.getAttribute('post-title') || node.querySelector('a.search-title, [data-testid="post-title"], [slot="title"], h2, h3')?.textContent || ''
-    let countText = node.textContent || ''
-    let score = parseCount(node.getAttribute('score') ?? node.getAttribute('data-score') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.getAttribute('number') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.textContent ?? countText.match(/(-?[\d,.]+\s*[kKmM]?)\s+(?:votes?|points?)\b/i)?.[1])
-    let comments = parseCount(node.getAttribute('comment-count') ?? node.getAttribute('data-comments') ?? node.querySelector('[data-testid="comments-count"], .search-comments, a[data-click-id="comments"]')?.textContent ?? countText.match(/([\d,.]+\s*[kKmM]?)\s+comments?\b/i)?.[1])
+    let titleNode = node.querySelector('[data-testid="post-title-text"]') || node.querySelector('a.search-title, [data-testid="post-title"], [slot="title"], h2, h3')
+    let title = node.getAttribute('post-title') || titleNode?.textContent || titleNode?.getAttribute('aria-label') || ''
+    let counter = node.querySelector('[data-testid="search-counter-row"]'), countText = (counter || node).textContent || ''
+    let counterNumber = label => [...(counter?.querySelectorAll('faceplate-number[number]') ?? [])].find(element => label.test(element.parentElement?.textContent || ''))?.getAttribute('number')
+    let score = parseCount(node.getAttribute('score') ?? node.getAttribute('data-score') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.getAttribute('number') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.textContent ?? counterNumber(/\b(?:votes?|points?)\b/i) ?? countText.match(/(-?[\d,.]+\s*[kKmM]?)\s+(?:votes?|points?)\b/i)?.[1])
+    let comments = parseCount(node.getAttribute('comment-count') ?? node.getAttribute('data-comments') ?? node.querySelector('[data-testid="comments-count"], .search-comments, a[data-click-id="comments"]')?.textContent ?? counterNumber(/\bcomments?\b/i) ?? countText.match(/([\d,.]+\s*[kKmM]?)\s+comments?\b/i)?.[1])
     let external = node.getAttribute('content-href') || node.querySelector('a.search-link, a[data-testid="outbound-link"], a[data-click-id="body"]')?.getAttribute('href') || ''
     return { id: postId(node.getAttribute('id') || node.getAttribute('data-fullname')) || postId(permalink), parent: postId(node.getAttribute('crosspost-parent-id') || node.getAttribute('crosspost-parent')), title: titleKey(title), link: linkKey(external), score, comments }
   }
@@ -64,7 +66,7 @@
         if (result.title) titles.add(result.title)
       }
     }
-    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['score', 'data-score', 'comment-count', 'data-comments', 'post-title', 'href', 'content-href', 'crosspost-parent-id', 'crosspost-parent', 'id', 'data-fullname', 'permalink'] })
+    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['score', 'data-score', 'comment-count', 'data-comments', 'number', 'data-testid', 'aria-label', 'post-title', 'href', 'content-href', 'crosspost-parent-id', 'crosspost-parent', 'id', 'data-fullname', 'permalink'] })
   }
   let observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(apply, 50) })
   apply()
