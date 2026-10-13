@@ -11,8 +11,9 @@ available. Searches are remembered per profile during
 the running UI session. This is not cross-device synchronization.
 
 Navigate bookmark rows with `j`/`k`, counts such as `3j`, `gg`/`G`, or
-Ctrl+N/Ctrl+P. Ctrl+F/Ctrl+B move ten rows. Hidden and unsupported bookmarks
-are skipped. Press `/`, `i`, or `a` from a row to edit the search. With **Vim
+Ctrl+N/Ctrl+P. Ctrl+F/Ctrl+B move ten rows. Relative numbers on the right show
+the distance from the selected row, which displays 0. Hidden and unsupported
+bookmarks are skipped. Press `/`, `i`, or `a` from a row to edit the search. With **Vim
 editing** enabled, the search supports the same normal, insert, and visual modes
 as the address field, including word motions and delete/change commands. Escape
 returns to normal mode; `j`/`k` then selects results. Escape in normal mode closes

@@ -2288,6 +2288,24 @@ let useBookmarkNavigation = (onMetaEnter: (row: HTMLButtonElement) => void, init
   let [count, setCount] = useState(''), [searchFocused, setSearchFocused] = useState(false)
   let pendingG = useRef(false)
   let rows = () => [...(ref.current?.querySelectorAll<HTMLButtonElement>('button[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])') ?? [])].filter(row => row.getClientRects().length)
+  useLayoutEffect(() => {
+    let picker = ref.current!
+    let updateNumbers = () => {
+      let items = rows(), selected = items.indexOf(document.activeElement as HTMLButtonElement)
+      if (selected < 0) selected = document.activeElement === input.current ? 0 : items.findIndex(row => row.dataset.active === 'true')
+      let values = new Map(items.map((row, index) => [row.closest('.' + css.bookmarkRow)?.querySelector<HTMLElement>('[data-bookmark-number]'), String(Math.abs(index - Math.max(0, selected)))]))
+      picker.querySelectorAll<HTMLElement>('[data-bookmark-number]').forEach(number => {
+        let value = values.get(number) ?? ''
+        if (number.textContent !== value) number.textContent = value
+      })
+    }
+    let observer = new MutationObserver(changes => {
+      if (changes.some(change => !(change.target instanceof Element) || !change.target.closest('[data-bookmark-number]'))) updateNumbers()
+    })
+    observer.observe(picker, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-disabled'] })
+    picker.addEventListener('focusin', updateNumbers); updateNumbers()
+    return () => { observer.disconnect(); picker.removeEventListener('focusin', updateNumbers) }
+  })
   let focusRow = (position: number) => {
     let items = rows(), index = Math.max(0, Math.min(items.length - 1, position)), row = items[index]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
@@ -2439,6 +2457,7 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
   return <div className={css.bookmarkItem}>
     <div className={css.bookmarkRow} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}{editing === key ? <BookmarkTitle bookmark={bookmark} profileId={profileId} /> : <button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} aria-disabled={!supported || undefined} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></button>}
       {supported && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize bookmark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
+      <span className={css.bookmarkNumber} data-bookmark-number aria-hidden="true" />
     </div>
     {expanded && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
       let value = settings.values[key] ?? initial
