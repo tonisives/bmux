@@ -148,8 +148,10 @@ test('address bookmark suggestions attach plugins while preserving the selected 
 })
 test('Reddit search unit cards filter numeric counters, duplicates and loaded updates', async () => {
   await configure({})
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search?sdui=1` })
   let pane = await openBookmark(), page = await pageFor(pane)
-  await rpc('navigate', { tab: pane, url: `${base}/search?sdui=1` })
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
+  await expect(page.locator('[data-testid="search-post-unit"]')).toHaveCount(6)
   for (let id of ['sdui_zero', 'sdui_low', 'sdui_comments', 'sdui_repeat', 'sdui_same_post']) await expect(page.locator(`#${id}`)).toBeHidden()
   await expect(page.locator('#sdui_first')).toBeVisible()
   await configure({ minScore: 1501 })
