@@ -63,3 +63,30 @@ the panel remain follow-up work.
 See [Import from Chrome](chrome.md) for existing folders and the
 [bookmark walkthrough](https://bmux.cc/articles/bookmarks/) for parameter examples
 and a Tart demonstration.
+
+## Bookmark plugins
+
+Enable **Reddit search filter** in the Plugins panel, then open a Reddit search
+bookmark's sliders and choose it under **Add plugin**. The sliders are available
+on bookmarks without query parameters too. Configure minimum score and comments
+(default 2 each), whether results must meet both or either minimum, and duplicate
+post, link/crosspost, and title filtering. A minimum of 0 disables that threshold.
+Unknown counts remain visible. The first qualifying duplicate stays visible;
+matching titles ignore case and repeated whitespace but preserve punctuation.
+
+Opening the bookmark attaches its plugins to the new pane. Other panes, copied
+windows, and links opened in new panes do not inherit them. Attachments survive
+reloads and browser restoration, and run only on matching pages. The Reddit
+filter affects post search results, including infinite scrolling, rather than
+feeds or discussion comments. Filtering uses loaded page data and does not fetch
+additional results.
+
+A compact overlay appears on matching pages with an on/off toggle and
+**Configure** controls for each attached plugin. Changes update the bookmark and
+its existing open panes. Turning a filter off restores the results it hid; the
+overlay remains available to turn it back on. Removing an attachment removes its
+overlay too. Missing or globally disabled plugins are shown as unavailable.
+
+Attachments live in `bookmark-plugins.yaml` beside `config.yaml`, keyed by profile
+and bookmark ID. Like bookmark YAML, manual edits are loaded at startup. Use the
+sliders or overlay for live changes.

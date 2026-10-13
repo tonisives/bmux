@@ -239,3 +239,55 @@ Saved forms are bundled actions. The `browser.forms`
 capability and browser userscript settings are described in [Browser tools](browser-tools.md).
 Use the plugin panel to enable or disable individual plugins; hooks remain a
 separate opt-in in config. Bundled IDs take precedence over local plugin folders.
+
+## Bookmark contributions
+
+A plugin can declare a `bookmark` contribution independently of actions and
+hooks. Enable the plugin in the Plugins panel, then attach it through a matching
+bookmark's sliders. Global hooks need not be enabled. The bundled
+`bmux.reddit-search` plugin provides Reddit post search filtering and starts
+disabled.
+
+```yaml
+bookmark:
+  matches: ['https://example.com/search*']
+  script: ./filter.js
+  controls:
+    - { name: minimum, title: Minimum score, kind: number, default: 2, min: 0, step: 1 }
+    - { name: duplicates, title: Remove duplicates, kind: boolean, default: true }
+```
+
+Controls support `number`, `boolean`, `text`, and `choice`. Each requires a
+`default`; choice controls require `choices`. Number controls optionally declare
+`min`, `max`, and `step`. Matches use the same anchored URL globs as hooks. The
+JavaScript file must be inside the plugin directory and at most 256 KiB.
+
+The file contains a JavaScript function expression receiving validated settings
+and returning a synchronous cleanup function:
+
+```js
+(settings) => {
+  let observer = new MutationObserver(() => { /* Update matching page content. */ })
+  observer.observe(document.documentElement, { childList: true, subtree: true })
+  return () => { observer.disconnect(); /* Restore modifications. */ }
+}
+```
+
+Bookmark scripts execute at DOM readiness in a separate isolated world in the
+attached pane. They share its page DOM but receive no Node, bmux host API, or
+Chrome extension APIs. Cleanup runs before settings updates and same-document
+navigation; a replaced document destroys its world. Keep work short, use observers
+for later content, and reverse all DOM changes during cleanup. Script installation
+has a one-second execution bound. Trust plugin code before enabling it; manifest
+commands retain the existing OS-user execution model.
+
+The overlay is owned by bmux in a closed shadow root. Its isolated-world binding
+only updates validated settings for an existing attachment on the current
+bookmark and document. The website's main JavaScript world receives no binding.
+
+`bookmark.open` accepts `profile`, `bookmark`, and the existing `session`/`client`
+selection arguments. It opens the owning profile's parameterized bookmark in a
+new window and binds its plugins before navigation. `bookmark.plugins.update`
+accepts `profile`, `bookmark`, `id`, `enabled`, and `values`; use `remove: true`
+with the IDs to remove an attachment. Saved settings are separate from URL
+parameters and keyed by profile and bookmark ID.

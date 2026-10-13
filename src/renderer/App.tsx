@@ -32,6 +32,7 @@ import { backOpener } from '../shared/opener-navigation'
 import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
 import { deduplicateAddressEntries } from '../shared/address-result-deduplication'
 import { deleteWordBackward } from '../shared/text-edit'
+import { BookmarkPlugins } from './BookmarkPlugins'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
 import { DEFAULT_SEARCH_APPS, SEARCH_APPS } from '../shared/search-app'
@@ -724,6 +725,14 @@ let useDismissAddressOnOutsideClick = (form: RefObject<HTMLFormElement | null>, 
   }, [form, list, dismiss, finish])
 }
 
+let useOpenAddressBookmark = (finish: () => void) => {
+  let { state, run } = useUI(), { profile, client } = selection(state)
+  return async (bookmarkId: string) => {
+    let result = await run('bookmark.open', { bookmark: bookmarkId, profile: profile!.id, session: client!.sessionId, client: client!.id })
+    if (result !== undefined) finish()
+  }
+}
+
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
@@ -752,7 +761,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
   let results = suggestionsHidden ? [] : [
     ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
-    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
+    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url!, bookmarkId: bookmark.id })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
   ]
@@ -791,8 +800,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
     finish()
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); if (selectedResult?.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { if (event.currentTarget.dataset.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(event.currentTarget.dataset.value!) }
+  let chooseBookmark = useOpenAddressBookmark(finish), submit = (event: FormEvent) => { event.preventDefault(); if (selectedResult && 'bookmarkId' in selectedResult && selectedResult.bookmarkId) { void chooseBookmark(selectedResult.bookmarkId); return }; if (selectedResult?.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { let result = results.find(result => result.kind === 'bookmark' && result.value === event.currentTarget.dataset.value); if (result && 'bookmarkId' in result && result.bookmarkId) { void chooseBookmark(result.bookmarkId); return }; if (event.currentTarget.dataset.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(event.currentTarget.dataset.value!) }
   let removeHistory = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     let url = event.currentTarget.dataset.value!
@@ -2271,7 +2280,7 @@ let BookmarkEditor = () => {
 type BookmarkDrag = { id: string; parentId: string; profileId: string }
 type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after' }
 let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
-let BookmarkExpansionContext = createContext<{ canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
+let BookmarkExpansionContext = createContext<{ canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
 let BookmarkPicker = () => {
   let { state, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
@@ -2282,11 +2291,10 @@ let BookmarkPicker = () => {
   let dragSource = useRef<BookmarkDrag | null>(null)
   let [dropTarget, setDropTarget] = useState<BookmarkDrop | null>(null)
   let groups: { profile: Profile; bookmarks: Bookmark[] }[] = []
-  let activate = async (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => {
+  let activate = async (bookmark: Bookmark, profileId: string) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
     if (profile) rememberBookmarkSelection(profile.id, bookmarkKey(profileId, bookmark.id))
-    let url = parameterizedBookmarkUrl(bookmark.url, settings ?? state.bookmarkParameters?.[profileId]?.[bookmark.id])
-    let result = await run('new-window', { session: session?.id, profile: profileId, client: client.id, url })
+    let result = await run('bookmark.open', { session: session?.id, profile: profileId, client: client.id, bookmark: bookmark.id })
     if (result !== undefined) dismiss()
   }
   let { ref, keys, input, query, change } = usePickerNavigation(row => {
@@ -2359,7 +2367,7 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
   let parameters = bookmark.url ? editableBookmarkParameters(bookmark.url, settings) : []
   let visible = parameters.filter(([key]) => !settings.hidden.includes(key))
   let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
-  let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, profileId, settings) }
+  let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, profileId) }
   let click = () => { if (supported) void open() }
   let toggle = () => setExpandedBookmarkId(expanded ? null : key)
   let update = (key: string, value: string) => setSettings(current => ({ ...current, values: { ...current.values, [key]: value } }))
@@ -2375,9 +2383,9 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
   if (bookmark.children) return <details className={css.folder} open><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}><svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} />)}</div></details>
   return <div className={css.bookmarkItem}>
     <div className={css.bookmarkRow} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}{editing === key ? <BookmarkTitle bookmark={bookmark} profileId={profileId} /> : <button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} aria-disabled={!supported || undefined} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></button>}
-      {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
+      {supported && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize bookmark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
     </div>
-    {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
+    {expanded && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
       let value = settings.values[key] ?? initial
       let { label, help } = bookmarkParameterPresentation(bookmark.url!, key)
       let numeric = /^-?\d+(?:\.\d+)?$/.test(initial) && Number.isFinite(Number(initial))
@@ -2387,7 +2395,7 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
       let changeValue = (event: ChangeEvent<HTMLInputElement>) => update(key, event.target.value)
       let remove = () => hide(key)
       return <div className={css.bookmarkParameter} key={key}><label><span title={help ?? label}>{label}</span><input aria-label={label} title={help} type={numeric ? 'number' : 'text'} value={value} step={numeric ? step : undefined} onChange={changeValue} onBlur={save} autoComplete="off" spellCheck={false} /></label>{numeric && <input aria-label={`${label} slider`} title={help} type="range" min={minimum} max={maximum} step={step} value={value} onChange={changeValue} onPointerUp={save} onBlur={save} />}<button type="button" data-picker-action className={css.bookmarkRemoveParameter} aria-label={`Remove ${label} parameter`} title={`Remove ${label} from this bookmark URL`} onClick={remove}>×</button></div>
-    })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
+    })}<BookmarkPlugins state={state} profileId={profileId} bookmarkId={bookmark.id} url={bookmark.url!} run={run} /><button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
   </div>
 }
 let BookmarkDragHandle = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {

@@ -35,7 +35,11 @@ import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
 import { bookmarkById, createBookmarkFolder, moveBookmark, removeBookmark, reorderBookmark, saveBookmark, updateBookmark } from './bookmarks'
 import { bookmarkParametersPath, readBookmarkParameters, writeBookmarkParameters } from './bookmark-parameters'
-import { editableBookmarkParameters } from '../shared/bookmark-parameters'
+import { createBookmarkPluginPages } from './bookmark-plugin-pages'
+import { readBookmarkPlugins, writeBookmarkPlugins } from './bookmark-plugin-store'
+import { bookmarkPluginValues, matchesBookmarkPlugin } from '../shared/bookmark-plugins'
+import type { BookmarkPluginAttachment } from '../shared/plugins'
+import { editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { DEFAULT_SEARCH_APPS } from '../shared/search-app'
 import type { SearchApp } from '../shared/search-app'
 import { normalizeUrl } from './url'
@@ -160,6 +164,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let recoveryTabs = new Set(crashRecovery.serializeRestores ? walkPanes(model).map(({ pane }) => pane.id) : [])
   let closedTabs: ({ kind: 'window'; sessionId: string; index: number; window: InternalWindow } | { kind: 'pane'; windowId: string; index: number; pane: Pane; layout: InternalWindow['layout']; floating: InternalWindow['floating']; remainingPaneIds: string[] })[] = []
   let bookmarkParameters = readBookmarkParameters(parameterFile)
+  let bookmarkPluginFile = path.join(path.dirname(parameterFile), 'bookmark-plugins.yaml')
+  let bookmarkPlugins = readBookmarkPlugins(bookmarkPluginFile)
   let clients = new Map<string, LiveClient>()
   let tabs = new Map<string, LiveTab>()
   let deferredTabs = new Set<string>()
@@ -277,6 +283,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let filters: ReturnType<typeof createRequestFilters> | undefined
   let savedForms: ReturnType<typeof createSavedForms> | undefined
   let textClipboard = createTextClipboard(clipboard)
+  let bookmarkPluginPages: ReturnType<typeof createBookmarkPluginPages> | undefined
   let pageTools: ReturnType<typeof createPageTools> | undefined
   let doubleTap = createDoubleTapTracker()
   let publishClickMode = () => {}
@@ -336,7 +343,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -893,6 +900,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     // Lazy pages may first load after client restoration or a later selection.
     let serializedRestore = recoveryTabs.delete(tabId)
     tabs.set(tabId, live)
+    bookmarkPluginPages?.attach(tabId, contents)
     audio[tabId] = { playing: contents.isCurrentlyAudible(), muted: contents.isAudioMuted() }
     lastTabUse.set(tabId, Date.now())
     idleUnloaded.delete(tabId)
@@ -964,9 +972,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('render-process-gone', () => { delete findResults[tabId] })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
-    contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) invalidate() })
-    contents.on('dom-ready', () => { if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ paneId: tabId })) })
-    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ paneId: tabId })) })
+    contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame) { invalidate(); if (!inPlace) bookmarkPluginPages?.invalidate(tabId) } })
+    contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) void bookmarkPluginPages?.refresh(tabId); if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ paneId: tabId })) })
+    contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) void bookmarkPluginPages?.refresh(tabId); if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ paneId: tabId })) })
     contents.once('destroyed', () => {
       if (live.disposed || live.closing || shuttingDown || tabs.get(tabId) !== live) return
       let { tab, pane, window } = tabById(model, tabId)
@@ -1340,6 +1348,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let automationToken = tabAutomation.get(tabId)
     if (automationToken) { try { automation?.release(automationToken) } catch { /* Lease already expired. */ } }
     tabAutomation.delete(tabId)
+    bookmarkPluginPages?.dispose(tabId)
     pageTools?.dispose(tabId)
     filters?.reset(tabId)
     documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId)
@@ -2012,6 +2021,33 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       configuration.update(['plugins', id, 'enabled'], args.enabled); return plugins.list()
     }
     if (method === 'browser.status') return toolsState()
+    if (method === 'bookmark.open') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let bookmark = bookmarkById(profile.bookmarks ?? [], required(args, 'bookmark'))
+      if (!bookmark?.url || !/^(https?:|file:)/i.test(bookmark.url)) throw new Error('Supported bookmark required')
+      return execute({ method: 'new-window', args: { session: args.session, client: args.client, profile: profile.id, url: parameterizedBookmarkUrl(bookmark.url, bookmarkParameters[profile.id]?.[bookmark.id]), _bookmarkSource: { profileId: profile.id, bookmarkId: bookmark.id } } }, sourceClientId)
+    }
+    if (method === 'bookmark.plugins.update') {
+      let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      let bookmark = bookmarkById(profile.bookmarks ?? [], required(args, 'bookmark'))
+      if (!bookmark?.url) throw new Error('Bookmark not found')
+      let pluginId = required(args, 'id'), previous = bookmarkPlugins[profile.id]?.[bookmark.id] ?? []
+      let attachments = previous.filter(item => item.id !== pluginId)
+      if (args.remove !== true) {
+        let plugin = plugins?.list().find(item => item.id === pluginId)
+        if (!plugin?.enabled || !plugin.bookmark) throw new Error('Bookmark plugin unavailable or disabled')
+        if (!matchesBookmarkPlugin(plugin.bookmark.matches, bookmark.url)) throw new Error('Plugin does not match this bookmark')
+        if (typeof args.enabled !== 'boolean') throw new Error('Plugin enabled flag required')
+        let attachment: BookmarkPluginAttachment = { id: pluginId, enabled: args.enabled, values: bookmarkPluginValues(plugin.bookmark, args.values) }
+        let index = previous.findIndex(item => item.id === pluginId)
+        attachments.splice(index < 0 ? attachments.length : index, 0, attachment)
+        if (attachments.length > 32) throw new Error('Too many bookmark plugins')
+      }
+      let next = { ...bookmarkPlugins, [profile.id]: { ...bookmarkPlugins[profile.id], [bookmark.id]: attachments } }
+      writeBookmarkPlugins(bookmarkPluginFile, next); bookmarkPlugins = next; publish()
+      await bookmarkPluginPages?.refreshAll()
+      return attachments
+    }
     if (method === 'bookmark.add') {
       let { tab, pane } = tabById(model, required(args, 'tab'))
       let profile = resolve(model.profiles, args.profile ?? pane.profileId, 'Profile')
@@ -2063,12 +2099,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let bookmark = bookmarkById(profile.bookmarks ?? [], bookmarkId)
       if (!bookmark) throw new Error('Bookmark not found')
       let removedIds = (item: typeof bookmark): string[] => [item.id, ...(item.children ?? []).flatMap(removedIds)]
+      let pluginSettings = { ...bookmarkPlugins[profile.id] }
+      for (let id of removedIds(bookmark)) delete pluginSettings[id]
+      let nextPlugins = { ...bookmarkPlugins, [profile.id]: pluginSettings }
+      writeBookmarkPlugins(bookmarkPluginFile, nextPlugins)
+      bookmarkPlugins = nextPlugins
       let settings = { ...bookmarkParameters[profile.id] }
       for (let id of removedIds(bookmark)) delete settings[id]
       let next = { ...bookmarkParameters, [profile.id]: settings }
       writeBookmarkParameters(parameterFile, next)
       removeBookmark(profile, bookmarkId)
       bookmarkParameters = next
+      await bookmarkPluginPages?.refreshAll()
       save()
       return { removed: true }
     }
@@ -2467,6 +2509,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
+      if (args._bookmarkSource) window.panes[0].bookmarkSource = args._bookmarkSource as { profileId: string; bookmarkId: string }
       if (typeof args.agentId === 'string') window.panes[0].agentId = args.agentId
       if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, agentId: window.panes[0].agentId })
       if (session.device) window.panes[0].device = session.device
@@ -3102,7 +3145,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: publish, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, cdp, execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    bookmarkPluginPages = createBookmarkPluginPages({ definitions: () => plugins?.bookmarks() ?? [], attachments: tabId => {
+      let source = tabById(model, tabId).pane.bookmarkSource
+      return source ? bookmarkPlugins[source.profileId]?.[source.bookmarkId] ?? [] : []
+    }, cdp: (tabId, method, args) => cdp(tabId, method, args, undefined, true), changed: publish, update: async (tabId, attachment) => {
+      let source = tabById(model, tabId).pane.bookmarkSource
+      if (!source) throw new Error('Bookmark attachment unavailable')
+      return execute({ method: 'bookmark.plugins.update', args: { id: attachment.id, enabled: attachment.enabled, values: attachment.values, profile: source.profileId, bookmark: source.bookmarkId } })
+    } })
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -3132,6 +3183,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     crashRecovery.close()
     extensions.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
+    bookmarkPluginPages?.close()
     pageTools?.close()
     filters?.close()
     plugins?.close()

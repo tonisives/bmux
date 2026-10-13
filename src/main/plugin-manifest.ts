@@ -1,5 +1,6 @@
 import { parseDocument } from 'yaml'
-import type { PluginAction, PluginCapability, PluginHook, PluginManifest, PluginParameter, PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
+import { bookmarkPluginValues } from '../shared/bookmark-plugins'
+import type { BookmarkPluginContribution, BookmarkPluginControl, PluginAction, PluginCapability, PluginHook, PluginManifest, PluginParameter, PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
 let object = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a mapping')
@@ -41,6 +42,28 @@ let proxyProvider = (raw: unknown): PluginProxyProvider => {
   if (new Set(regions.map(region => region.host)).size !== regions.length) throw new Error('Duplicate proxy region host')
   return { id: identifier(value.id), title: text(value.title), help: value.help === undefined ? undefined : text(value.help), authenticated: value.authenticated, regions }
 }
+let bookmarkContribution = (raw: unknown): BookmarkPluginContribution => {
+  let value = object(raw), matches = strings(value.matches), script = text(value.script)
+  if (!matches.length || matches.some(pattern => !/^https?:\/\//.test(pattern))) throw new Error('Bookmark plugins require HTTP site matches')
+  if (!/^(?:\.\/)?[a-zA-Z0-9_./-]+\.js$/.test(script) || script.startsWith('/') || script.split('/').includes('..')) throw new Error('Bookmark script must be a relative JavaScript file')
+  if (!Array.isArray(value.controls) || value.controls.length > 32) throw new Error('Bookmark controls must be a list')
+  let controls = value.controls.map((raw): BookmarkPluginControl => {
+    let value = object(raw), kind = value.kind as BookmarkPluginControl['kind']
+    if (!['number', 'boolean', 'text', 'choice'].includes(kind)) throw new Error('Unknown bookmark control kind')
+    let control: BookmarkPluginControl = { name: identifier(value.name), title: text(value.title), kind, default: value.default as BookmarkPluginControl['default'] }
+    if (kind === 'choice') { control.choices = strings(value.choices); if (!control.choices.length || new Set(control.choices).size !== control.choices.length) throw new Error('Invalid bookmark choices') }
+    for (let key of ['min', 'max', 'step'] as const) if (value[key] !== undefined) {
+      if (kind !== 'number' || typeof value[key] !== 'number' || !Number.isFinite(value[key]) || (key === 'step' && value[key] <= 0)) throw new Error('Invalid bookmark number bounds')
+      control[key] = value[key]
+    }
+    if ((control.min ?? -Infinity) > (control.max ?? Infinity)) throw new Error('Invalid bookmark number bounds')
+    return control
+  })
+  if (new Set(controls.map(control => control.name)).size !== controls.length) throw new Error('Duplicate bookmark control')
+  let contribution = { matches, script, controls }
+  bookmarkPluginValues(contribution, {})
+  return contribution
+}
 export let parsePluginManifest = (source: string): PluginManifest => {
   if (source.length > 262144) throw new Error('Manifest too large')
   let document = parseDocument(source)
@@ -61,7 +84,7 @@ export let parsePluginManifest = (source: string): PluginManifest => {
   let all = [...actions, ...hooks]
   if (all.length > 100 || new Set(all.map(item => item.id)).size !== all.length) throw new Error('Too many or duplicate actions/hooks')
   if (proxyProviders.length > 20 || new Set(proxyProviders.map(item => item.id)).size !== proxyProviders.length) throw new Error('Too many or duplicate proxy providers')
-  return { schema_version: 1, id: identifier(value.id), name: text(value.name), version: text(value.version), actions, hooks, proxyProviders }
+  return { schema_version: 1, id: identifier(value.id), name: text(value.name), version: text(value.version), actions, hooks, proxyProviders, ...(value.bookmark === undefined ? {} : { bookmark: bookmarkContribution(value.bookmark) }) }
 }
 export let matchesPluginUrl = (pattern: string, url: string) => {
   let expression = pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')
