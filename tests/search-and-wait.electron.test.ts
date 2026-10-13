@@ -722,6 +722,83 @@ test('bookmark arrows wrap across visible selectable rows', async () => {
   await expect(rows.last()).toBeFocused()
 })
 
+test('bookmarks support counted Vim navigation and Vim search editing', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  let mode = group.getByLabel('Bookmark navigation mode', { exact: true })
+  let rows = group.locator('button[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])')
+  await search.fill(''); await search.press('ArrowDown')
+  await expect(rows.first()).toBeFocused(); await expect(mode).toHaveText('NORMAL>')
+  await chrome.keyboard.press('3'); await expect(mode).toHaveText('NORMAL 3>')
+  await chrome.keyboard.press('j'); await expect(rows.nth(3)).toBeFocused()
+  await chrome.keyboard.press('k'); await expect(rows.nth(2)).toBeFocused()
+  await expect(search).toHaveValue('')
+  await chrome.keyboard.press('g'); await chrome.keyboard.press('g'); await expect(rows.first()).toBeFocused()
+  await chrome.keyboard.press('G'); await expect(rows.last()).toBeFocused()
+  await chrome.keyboard.press('2'); await chrome.keyboard.press('g'); await chrome.keyboard.press('g'); await expect(rows.nth(1)).toBeFocused()
+  await chrome.keyboard.press('Control+n'); await expect(rows.nth(2)).toBeFocused()
+  await chrome.keyboard.press('Control+p'); await expect(rows.nth(1)).toBeFocused()
+  await chrome.keyboard.press('/'); await expect(search).toBeFocused(); await expect(mode).toHaveText('INSERT>')
+  await search.pressSequentially('API reference')
+  await expect(rows).toHaveText(['API reference'])
+  await search.press('Escape'); await expect(search).toBeFocused(); await expect(mode).toHaveText('NORMAL>')
+  await expect(group.locator('[data-vim-cursor]')).toBeVisible()
+  await search.press('0'); await search.press('w')
+  expect(await search.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(4)
+  await search.press('0'); await search.press('d'); await search.press('w')
+  await expect(search).toHaveValue('reference'); await expect(mode).toHaveText('INSERT>')
+  await search.pressSequentially('API '); await search.press('Escape')
+  await expect(search).toHaveValue('API reference'); await expect(mode).toHaveText('NORMAL>')
+  await search.press('j'); await expect(rows.first()).toBeFocused()
+  await expect(search).toHaveValue('API reference')
+  await chrome.keyboard.press('i'); await expect(mode).toHaveText('INSERT>')
+  await search.fill(''); await search.pressSequentially('jk'); await expect(search).toHaveValue('jk')
+  await search.press('Escape'); await expect(group).toBeVisible(); await expect(mode).toHaveText('NORMAL>')
+  await search.press('Escape'); await expect(group).toHaveCount(0)
+})
+
+test('bookmark search respects the Vim editing preference while j/k still navigates rows', async () => {
+  let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
+  try {
+    await fs.writeFile(config, `vimEditing: false\n${previous}`); await rpc('settings.reload')
+    await expect.poll(async () => (await state()).vimEditing).toBe(false)
+    await open('bookmarks')
+    let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+    let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+    let rows = group.locator('button[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])')
+    await search.fill(''); await search.pressSequentially('jk')
+    await expect(search).toHaveValue('jk'); await expect(search).toHaveAttribute('data-vim-mode', 'INSERT')
+    await search.fill(''); await search.press('ArrowDown'); await chrome.keyboard.press('j')
+    await expect(rows.nth(1)).toBeFocused(); await expect(search).toHaveValue('')
+    await chrome.keyboard.press('/'); await search.pressSequentially('Sessions'); await expect(search).toHaveValue('Sessions')
+    await search.press('Escape'); await expect(group).toHaveCount(0)
+  } finally { await fs.writeFile(config, previous); await rpc('settings.reload') }
+})
+
+test('bookmarks panel grows by twenty percent and fits smaller native windows', async () => {
+  await activate()
+  let native = await application.evaluate(({ BaseWindow }) => {
+    let window = BaseWindow.getFocusedWindow()!
+    return { id: window.id, bounds: window.getBounds() }
+  })
+  try {
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 1100, height: 800 }), native.id)
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(1100)
+    await open('bookmarks')
+    let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
+    await dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('')
+    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(744)
+    await dialog.screenshot({ path: path.resolve('artifacts/bookmark-vim-expanded.png') })
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 640, height: 400 }), native.id)
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(640)
+    await expect.poll(() => dialog.evaluate(element => {
+      let bounds = element.getBoundingClientRect()
+      return Math.round(bounds.width) === Math.round(innerWidth * .9) && bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 28 && bounds.bottom <= innerHeight - 12
+    })).toBe(true)
+  } finally { await application.evaluate(({ BaseWindow }, native) => BaseWindow.fromId(native.id)?.setBounds(native.bounds), native) }
+})
+
 for (let mobile of [false, true]) test(`opening bookmarks restores native page focus and Vim scrolling (${mobile ? 'mobile' : 'desktop'})`, async () => {
   let config = path.join(directory, 'config.yaml'), previous = await fs.readFile(config, 'utf8')
   try {

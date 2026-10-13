@@ -138,6 +138,7 @@
 .overlay { position: fixed; inset: 28px 0 0; z-index: 100; background: #090b10a8; display: flex; align-items: center; justify-content: center; }
 .app[data-status-bar="bottom"] .overlay { inset: 0 0 28px; }
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.bookmarksPanel { width: min(744px, 90vw); max-height: calc(100% - 24px); }
 .panel header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; min-height: 42px; padding: 6px 8px 6px 20px; border-bottom: 1px solid #363c45; background: #191d23; }
 .panel header strong { font-weight: 500; color: #eceef2; }
 .panelTabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid #444b59; }
@@ -222,7 +223,7 @@
 .folder[open] > summary > .folderChevron { transform: rotate(90deg); }
 .folder > div { padding-left: 16px; }
 .bookmarkToolbar { display: flex; align-items: center; gap: 12px; }
-.bookmarkToolbar > input { flex: 1; min-width: 0; }
+.bookmarkSearch { position: relative; flex: 1; min-width: 0; }
 .bookmarkToolbar label { flex: 0 0 auto; white-space: nowrap; cursor: pointer; }
 .panel .bookmarkReorder { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; color: #8e98a4; cursor: pointer; }
 .bookmarkReorder svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }

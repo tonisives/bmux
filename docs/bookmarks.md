@@ -10,6 +10,16 @@ Opening a bookmark preserves the current layout and keeps its original page
 available. Searches are remembered per profile during
 the running UI session. This is not cross-device synchronization.
 
+Navigate bookmark rows with `j`/`k`, counts such as `3j`, `gg`/`G`, or
+Ctrl+N/Ctrl+P. Ctrl+F/Ctrl+B move ten rows. Hidden and unsupported bookmarks
+are skipped. Press `/`, `i`, or `a` from a row to edit the search. With **Vim
+editing** enabled, the search supports the same normal, insert, and visual modes
+as the address field, including word motions and delete/change commands. Escape
+returns to normal mode; `j`/`k` then selects results. Escape in normal mode closes
+the view and preserves the search. With Vim editing disabled, search accepts
+ordinary typing. The bookmarks panel is 20% wider when space permits and fits
+within smaller windows.
+
 Press Command+D or run `bookmark` to save the current page. The + button in the bookmarks view opens the same menu when the current page can be bookmarked. Run `bookmarks` to search saved pages and folders in the selected profile. Enable **All profiles** to include other profiles, grouped by profile name; this choice is remembered when you reopen the view. Each bookmark opens in its owning profile, with that profile's saved URL parameters. Search results rank title matches first, followed by folder names and URLs, so URL searches such as `x.com` still find matching bookmarks. Press Enter to open a selected bookmark. Each profile keeps its own bookmarks; reordering stays within its profile and folder.
 
 The + button beside each folder opens the current-page menu with that folder selected, in both search results and the full list. In **All profiles**, it saves to the folder's owning profile without changing the current page's profile.
