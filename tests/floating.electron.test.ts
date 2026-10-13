@@ -317,7 +317,7 @@ test('page context menu copies and saves plain and linked images', async () => {
       expect(items[copyIndex - 1].type).toBe('separator')
       expect(items.slice(copyIndex)).toEqual([
         { label: 'Copy image', type: 'normal', enabled: true },
-        { label: 'Copy image URL', type: 'normal', enabled: true },
+        { label: 'Copy image address', type: 'normal', enabled: true },
         { label: 'Save image', type: 'normal', enabled: true },
       ])
       expect(items.some((item: any) => item.label === 'Open link')).toBe(selector === '#linked-image')
@@ -328,7 +328,7 @@ test('page context menu copies and saves plain and linked images', async () => {
         let blob = await item.getType('image/png') as Blob
         return nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer())).getSize()
       })).toEqual({ width: 1, height: 1 })
-      await application.evaluate(() => (globalThis as any).imageMenu.items.find((item: any) => item.label === 'Copy image URL').click())
+      await application.evaluate(() => (globalThis as any).imageMenu.items.find((item: any) => item.label === 'Copy image address').click())
       await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe(`${url}/context-image.png`)
       await application.evaluate(() => (globalThis as any).imageMenu.items.find((item: any) => item.label === 'Save image').click())
       let name = selector === '#plain-image' ? 'context-image.png' : 'context-image (1).png'
@@ -339,7 +339,7 @@ test('page context menu copies and saves plain and linked images', async () => {
     await application.evaluate(() => { (globalThis as any).imageMenu = undefined })
     await page.locator('#plain-text').click({ button: 'right' })
     await expect.poll(() => application.evaluate(() => !!(globalThis as any).imageMenu)).toBe(true)
-    expect(await application.evaluate(() => (globalThis as any).imageMenu.items.some((item: any) => ['Copy image', 'Copy image URL', 'Save image'].includes(item.label)))).toBe(false)
+    expect(await application.evaluate(() => (globalThis as any).imageMenu.items.some((item: any) => ['Copy image', 'Copy image address', 'Save image'].includes(item.label)))).toBe(false)
   } finally { await application.evaluate(() => (globalThis as any).restoreImageMenu()) }
 })
 
