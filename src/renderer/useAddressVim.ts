@@ -73,6 +73,7 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
       }).catch(() => undefined)
       return true
     }
+    let wholeFieldDelete = mode === 'NORMAL' && state.current.operator === 'd' && !state.current.pending && event.key === 'd' && !event.ctrlKey
     let action = mode === 'VISUAL' && ['x', 'd', 'c', 's', 'Backspace', 'Delete'].includes(event.key)
       ? { kind: 'edit' as const, start, end, text: '', insert: true }
       : event.ctrlKey ? { kind: 'redo' as const } : vimInputKey(state.current, input.value, cursor, event.key)
@@ -89,13 +90,13 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
         if (action.kind === 'insert') reset('INSERT')
       }
     } else if (action.kind === 'edit') {
-      let insert = action.insert || !action.text && action.end > action.start
+      let insert = action.insert || !wholeFieldDelete && !action.text && action.end > action.start
       if (!action.text && action.end > action.start) { state.current.register = input.value.slice(action.start, action.end); void bridge.clipboard(state.current.register).catch(() => undefined) }
       input.setSelectionRange(action.start, action.end)
       document.execCommand(action.text ? 'insertText' : 'delete', false, action.text)
       let cursor = insert ? action.start + action.text.length : Math.min(action.start, Math.max(0, input.value.length - 1))
       input.setSelectionRange(cursor, cursor)
-      if (insert) reset('INSERT')
+      if (insert || wholeFieldDelete) reset(insert ? 'INSERT' : 'NORMAL')
     } else if (action.kind === 'undo' || action.kind === 'redo') document.execCommand(action.kind)
     else if (action.kind === 'suggestion') moveSuggestion?.(action.direction)
     return true
