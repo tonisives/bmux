@@ -1171,7 +1171,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (params.mediaType === 'image') template.push(
           { type: 'separator' },
           { label: 'Copy image', enabled: params.hasImageContents, click: () => contents.copyImageAt(params.x, params.y) },
-          { label: 'Copy image URL', enabled: !!params.srcURL, click: () => clipboard.writeText(params.srcURL) },
+          { label: 'Copy image address', enabled: !!params.srcURL, click: () => clipboard.writeText(params.srcURL) },
           { label: 'Save image', enabled: !!params.srcURL, click: () => contents.downloadURL(params.srcURL) },
         )
         Menu.buildFromTemplate(template).popup({ window: owner.window, frame: frame.isDestroyed() ? undefined : frame })
