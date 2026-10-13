@@ -956,7 +956,7 @@ for (let query of ['', 'sessions']) test(`reopening bookmarks highlights the rem
   await expect(dialog).toHaveCount(0)
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).fill('bookmarks')
-  await chrome.getByRole('button', { name: 'Submit', exact: true }).click()
+  await chrome.locator('[data-command="bookmarks"]').click()
   await expect(search).toHaveValue(query)
   await expect(row).toBeFocused()
   await expect.poll(() => row.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(48, 57, 68)')
