@@ -2289,7 +2289,7 @@ let BookmarkEditor = () => {
 type BookmarkDrag = { id: string; parentId: string; profileId: string }
 type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after' }
 let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
-let BookmarkExpansionContext = createContext<{ canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
+let BookmarkExpansionContext = createContext<{ searching: boolean; canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
 let useBookmarkNavigation = (onMetaEnter: (row: HTMLButtonElement) => void, initialQuery: string, onQueryChange: (query: string) => void) => {
   let { state, dismiss } = useUI()
@@ -2427,7 +2427,7 @@ let BookmarkPicker = () => {
   let scroll = () => { if (profile && list.current) rememberBookmarkView(profile.id, { scroll: list.current.scrollTop }) }
   let expanded = groups.flatMap(group => flattenBookmarkPages(group.bookmarks).map(bookmark => ({ bookmark, profileId: group.profile.id }))).find(item => bookmarkKey(item.profileId, item.bookmark.id) === expandedBookmarkId)
   let bookmarks = <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
-  return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} className={css.bookmarkPicker} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
+  return <BookmarkExpansionContext.Provider value={{ searching: !!query.trim(), canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} className={css.bookmarkPicker} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
     <div className={css.bookmarkToolbar}><VimMode mode={`${mode}${count && ` ${count}`}`} label="Bookmark navigation mode" /><div className={css.bookmarkSearch}><SearchInput ref={input} aria-label="Search bookmarks" data-vim-mode={vim.mode} value={query} onChange={changeQuery} onKeyDown={searchKeys} onMouseUp={vim.select} /><VimCursor input={input} mode={vim.mode} value={query} /></div><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
     <div className={css.bookmarkColumns} data-settings-open={!!expanded}><div ref={list} className={css.bookmarkList} data-bookmark-scroll onScroll={scroll}>{bookmarks}
     {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
@@ -2447,7 +2447,7 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
 }
 let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
   let { show, bookmarkViews, rememberBookmarkView } = useUI()
-  let { canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
+  let { searching, canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
   let key = bookmarkKey(profileId, bookmark.id)
   let { editing, menu, menuKeys } = useBookmarkActions()
   let contextMenu = (event: MouseEvent<HTMLElement>) => menu(event, { bookmark, profileId })
@@ -2460,10 +2460,12 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
   let drag = { id: bookmark.id, parentId, profileId }
   let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.profileId === profileId && dropTarget.id === bookmark.id ? dropTarget.position : undefined }
   let handle = reordering ? <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} /> : null
-  let folderOpen = bookmarkViews[profileId]?.folders?.[bookmark.id] !== false
+  let [folderOpen, setFolderOpen] = useState(() => searching || bookmarkViews[profileId]?.folders?.[bookmark.id] !== false)
   let toggleFolder = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
     let open = event.currentTarget.open
-    if (open !== folderOpen) rememberBookmarkView(profileId, { folders: { ...bookmarkViews[profileId]?.folders, [bookmark.id]: open } })
+    if (open === folderOpen) return
+    setFolderOpen(open)
+    if (!searching) rememberBookmarkView(profileId, { folders: { ...bookmarkViews[profileId]?.folders, [bookmark.id]: open } })
   }
   if (bookmark.children) return <details className={css.folder} open={folderOpen} onToggle={toggleFolder}><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}><svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} />)}</div></details>
   return <div className={css.bookmarkItem}>
