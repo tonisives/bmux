@@ -26,7 +26,7 @@ let install = (): PageVim => {
   let clipboard = (operation: string, text?: string) => new Promise<string>(resolve => { let id = ++sequence; requests.set(id, resolve); clipboardScope.bmuxVimClipboard(JSON.stringify({ id, operation, text })) })
   let clipboardAuthorized = false
   let registers = Vim.getRegisterController(), pushText = registers.pushText.bind(registers)
-  registers.pushText = (...args) => { pushText(...args); if (clipboardAuthorized && args[0] !== '_') void clipboard('write', registers.getRegister('"').toString()).catch(() => undefined) }
+  registers.pushText = (...args) => { pushText(...args); if (clipboardAuthorized && args[0] !== '_' && args[1] === 'yank') void clipboard('write', registers.getRegister('"').toString()).catch(() => undefined) }
 
   let shortcuts: string[] = [], platform: NodeJS.Platform = 'darwin'
   let enabled = true, active: { host: HTMLElement; close: (save: boolean) => void } | undefined

@@ -279,9 +279,17 @@ test('website Vim edits update page counts and native selections before saving',
 })
 
 test('website Vim yanks share the system clipboard across editors and browser fields', async () => {
+  await page.locator('#notes').fill('alpha bravo\ncharlie delta')
   let { overlay, editor } = await open(page.locator('#notes'))
   await editor.pressSequentially('gg0yy')
   await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('alpha bravo\n')
+  await editor.pressSequentially('dd')
+  await expect(editor).not.toContainText('alpha bravo')
+  await editor.pressSequentially('x')
+  await expect(editor).toContainText('harlie delta')
+  // Read through the native queue so any preceding clipboard writes have settled.
+  let chromeClipboard = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  expect(await chromeClipboard.evaluate(() => (window as any).bmux.clipboard())).toBe('alpha bravo\n')
   await ex(editor, 'q')
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()

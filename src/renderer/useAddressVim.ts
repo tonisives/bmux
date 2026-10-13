@@ -91,7 +91,7 @@ export let useAddressVim = (moveSuggestion?: (direction: number) => void, focusV
       }
     } else if (action.kind === 'edit') {
       let insert = action.insert || !wholeFieldDelete && !action.text && action.end > action.start
-      if (!action.text && action.end > action.start) { state.current.register = input.value.slice(action.start, action.end); void bridge.clipboard(state.current.register).catch(() => undefined) }
+      if (!action.text && action.end > action.start) state.current.register = input.value.slice(action.start, action.end)
       input.setSelectionRange(action.start, action.end)
       document.execCommand(action.text ? 'insertText' : 'delete', false, action.text)
       let cursor = insert ? action.start + action.text.length : Math.min(action.start, Math.max(0, input.value.length - 1))
