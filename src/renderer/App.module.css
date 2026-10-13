@@ -260,7 +260,7 @@
 .bookmarkParameter label span { width: 95px; flex: 0 0 95px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aab4bf; }
 .bookmarkParameter input[type="text"], .bookmarkParameter input[type="number"] { min-width: 0; width: 100%; background: #11161c; color: #eceef2; border: 1px solid #414b58; padding: 4px 6px; font: inherit; }
 .bookmarkParameter input[type="range"] { width: 95px; flex: 0 0 95px; accent-color: #a7b69c; }
-.panel .bookmarkRemoveParameter { flex: 0 0 20px; color: #8e98a4; font-size: 18px; line-height: 20px; cursor: pointer; }
+.panel .bookmarkRemoveParameter { flex: 0 0 20px; padding: 0; color: #8e98a4; font-size: 18px; line-height: 20px; cursor: pointer; }
 .panel .bookmarkRemoveParameter:hover { color: #e6a69c; }
 @media (max-width: 800px) {
   .bookmarkColumns[data-settings-open="true"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
