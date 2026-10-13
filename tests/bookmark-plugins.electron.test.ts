@@ -56,17 +56,21 @@ test.beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); base = `http://127.0.0.1:${(server.address() as any).port}`
   await launch()
   let current = await state(), pane = current.model.sessions[0].windows[0].panes[0].id
-  await rpc('navigate', { tab: pane, url: `${base}/search` })
+  await rpc('navigate', { tab: pane, url: `${base}/search?initial=1` })
   let saved = await rpc('bookmark.add', { tab: pane, title: 'Reddit search fixture' }); bookmark = saved.bookmark.id
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
 })
+test.afterEach(async ({}, info) => { if (info.status !== info.expectedStatus) { let current = await state(); await info.attach('bookmark-plugin-state', { body: JSON.stringify({ plugins: current.plugins, attachments: current.bookmarkPlugins, errors: current.bookmarkPluginErrors, windows: current.model.sessions[0].windows }), contentType: 'application/json' }) } })
 test.afterAll(async () => {
   if (application) await closeTestApplication(application)
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
   if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 test('bookmark plugins remain pane-scoped and the overlay toggles and configures them', async () => {
-  await configure({})
+  expect(await configure({})).toMatchObject([{ id: 'fixture.reddit', enabled: true, values: { minScore: 2 } }])
   let pane = await openBookmark(), page = await pageFor(pane)
+  expect((await state()).bookmarkPluginErrors[pane]).toBeUndefined()
+  await expect(page.locator('[data-bmux-bookmark-plugins]')).toBeVisible()
   await expect(page.locator('#t3_low')).toBeHidden(); await expect(page.locator('#t3_repeat')).toBeHidden(); await expect(page.locator('#t3_unknown')).toBeVisible()
   await expect(page.locator('[data-bmux-bookmark-plugins]')).toBeVisible()
   expect(await page.evaluate(() => ({ node: typeof (window as any).require, binding: typeof (window as any).__bmuxBookmarkSettings }))).toEqual({ node: 'undefined', binding: 'undefined' })
@@ -95,6 +99,7 @@ test('bookmark plugins remain pane-scoped and the overlay toggles and configures
   await fs.mkdir('artifacts', { recursive: true }); await page.screenshot({ path: 'artifacts/bookmark-plugin-overlay.png' })
 })
 test('bookmark plugins expose settings without URL parameters and support old Reddit markup', async () => {
+  await configure({})
   let current = await state(); await rpc('activate-client', { client }); await rpc('select-window', { window: current.model.sessions[0].windows[0].id, client })
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
   await chrome.getByRole('combobox', { name: 'Command', exact: true }).fill('bookmarks'); await chrome.getByRole('combobox', { name: 'Command', exact: true }).press('Enter')

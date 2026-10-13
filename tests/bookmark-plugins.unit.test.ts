@@ -54,7 +54,7 @@ let row = (id: string, score: string | null, comments: string | null, title = id
 }
 let filter = (rows: ReturnType<typeof row>[], settings = {}) => {
   let notify: () => void = () => undefined, disconnect = vi.fn()
-  let context = { location: { href: 'https://www.reddit.com/search/?q=foo&type=posts' }, URL, setTimeout, clearTimeout, document: { documentElement: {}, querySelectorAll: () => rows }, MutationObserver: class { constructor(callback: () => void) { notify = callback }; disconnect = disconnect; observe = vi.fn() } }
+  let context = { location: { href: 'http://127.0.0.1/search/?q=foo&type=posts' }, URL, setTimeout, clearTimeout, document: { documentElement: {}, querySelectorAll: () => rows }, MutationObserver: class { constructor(callback: () => void) { notify = callback }; disconnect = disconnect; observe = vi.fn() } }
   let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings))
   return { cleanup, context, notify: () => notify(), disconnect }
 }

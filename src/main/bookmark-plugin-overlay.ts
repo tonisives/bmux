@@ -15,7 +15,7 @@ export let mountBookmarkPluginOverlay = (entries: Entry[], send: (value: string)
   let section = document.createElement('section')
   section.setAttribute('aria-label', 'Bookmark plugins')
   for (let entry of entries) {
-    let values = { ...entry.attachment.values }, enabled = entry.attachment.enabled
+    let values = Object.fromEntries(entry.contribution?.controls.map(control => [control.name, entry.attachment.values[control.name] ?? control.default]) ?? Object.entries(entry.attachment.values)), enabled = entry.attachment.enabled
     let save = () => send(JSON.stringify({ id: entry.attachment.id, enabled, values }))
     let label = document.createElement('label'), toggle = document.createElement('input')
     toggle.type = 'checkbox'; toggle.checked = enabled; toggle.disabled = !entry.contribution || !!entry.error

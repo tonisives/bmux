@@ -8,6 +8,7 @@
   }
   let titleKey = title => title.normalize('NFKC').toLowerCase().trim().replace(/\s+/g, ' ')
   let linkKey = href => {
+    if (!href) return ''
     try {
       let url = new URL(href, location.href)
       if (!['http:', 'https:'].includes(url.protocol) || /(^|\.)reddit\.com$/.test(url.hostname) || /(^|\.)redd\.it$/.test(url.hostname)) return ''
@@ -26,7 +27,7 @@
     let permalink = node.getAttribute('permalink') || node.querySelector('a.search-title, a[data-testid="post-title"], a[slot="title"], a[href*="/comments/"]')?.getAttribute('href') || ''
     let title = node.getAttribute('post-title') || node.querySelector('a.search-title, [data-testid="post-title"], [slot="title"], h2, h3')?.textContent || ''
     let countText = node.textContent || ''
-    let score = parseCount(node.getAttribute('score') ?? node.getAttribute('data-score') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted, faceplate-number[number]')?.getAttribute('number') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.textContent ?? countText.match(/(-?[\d,.]+\s*[kKmM]?)\s+(?:votes?|points?)\b/i)?.[1])
+    let score = parseCount(node.getAttribute('score') ?? node.getAttribute('data-score') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.getAttribute('number') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.textContent ?? countText.match(/(-?[\d,.]+\s*[kKmM]?)\s+(?:votes?|points?)\b/i)?.[1])
     let comments = parseCount(node.getAttribute('comment-count') ?? node.getAttribute('data-comments') ?? node.querySelector('[data-testid="comments-count"], .search-comments, a[data-click-id="comments"]')?.textContent ?? countText.match(/([\d,.]+\s*[kKmM]?)\s+comments?\b/i)?.[1])
     let external = node.getAttribute('content-href') || node.querySelector('a.search-link, a[data-testid="outbound-link"], a[data-click-id="body"]')?.getAttribute('href') || ''
     return { id: postId(node.getAttribute('id') || node.getAttribute('data-fullname')) || postId(permalink), parent: postId(node.getAttribute('crosspost-parent-id') || node.getAttribute('crosspost-parent')), title: titleKey(title), link: linkKey(external), score, comments }

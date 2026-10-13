@@ -16,7 +16,9 @@ export let createBookmarkPluginPages = (options: Options) => {
     target.work = target.work.catch(() => undefined).then(async () => {
       let current = () => targets.get(tabId) === target && revision === target.revision && !target.contents.isDestroyed()
       if (!current()) return
-      let attachments = options.attachments(tabId), url = target.contents.getURL(), definitions = options.definitions()
+      let attachments: BookmarkPluginAttachment[]
+      try { attachments = options.attachments(tabId) } catch { return }
+      let url = target.contents.getURL(), definitions = options.definitions()
       let entries = (/^https?:/.test(url) ? attachments : []).flatMap<{ attachment: BookmarkPluginAttachment; name: string; contribution?: BookmarkPluginContribution; source: string; error?: string }>(attachment => {
         let definition = definitions.find(item => item.id === attachment.id)
         if (definition && !matchesBookmarkPlugin(definition.contribution.matches, url)) return []
