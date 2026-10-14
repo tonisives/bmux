@@ -39,11 +39,9 @@ let install = (): PageVim => {
     host.setAttribute('aria-label', 'Vim editor')
     let root = host.attachShadow({ mode: 'open' }), sheet = new CSSStyleSheet()
     sheet.replaceSync(css); root.adoptedStyleSheets = [sheet]
-    let shell = document.createElement('div'), container = document.createElement('div'), status = document.createElement('div')
-    shell.className = 'shell'; container.className = 'editor'; status.className = 'status'; status.hidden = true
-    status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite')
-    shell.append(container, status); root.append(shell)
-    let report = (message: string) => { status.textContent = message; status.hidden = false }
+    let shell = document.createElement('div'), container = document.createElement('div')
+    shell.className = 'shell'; container.className = 'editor'
+    shell.append(container); root.append(shell)
     let inline = mountInlineEditor(field, host)
     let cursor = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.selectionStart ?? 0 : original.length
     let savedSelection = { anchor: cursor, head: cursor }
@@ -79,9 +77,9 @@ let install = (): PageVim => {
       return result
     }
     let sync = () => {
-      if (readField(field) !== synced) { report('Field changed on the page. Copy your draft or use :q to discard.'); return false }
-      if (!write(view.state.doc.toString(), view.state.selection.main)) { report('Could not update this field. Copy your draft or use :q to discard.'); return false }
-      synced = readField(field); status.hidden = true
+      if (readField(field) !== synced) return false
+      if (!write(view.state.doc.toString(), view.state.selection.main)) return false
+      synced = readField(field)
       return true
     }
     let save = () => {
@@ -92,8 +90,7 @@ let install = (): PageVim => {
     let discard = () => {
       // Leave independent page changes intact; otherwise restore the last :w.
       if (readField(field) !== synced || synced === original || !field.isConnected) return true
-      if (!write(original, savedSelection)) { report('Could not restore this field. Copy your draft or save to close.'); return false }
-      return true
+      return write(original, savedSelection)
     }
     let close = (commit: boolean) => {
       if (closing || !(commit ? save() : discard())) return
@@ -103,11 +100,7 @@ let install = (): PageVim => {
       if (field.isConnected) field.focus({ preventScroll: true })
     }
     active = { host, close }
-    let observer = new MutationObserver(() => {
-      inline.retain()
-      let message = 'Field no longer available. Copy your draft or use :q to discard.'
-      if (!field.isConnected && status.textContent !== message) report(message)
-    })
+    let observer = new MutationObserver(() => inline.retain())
     observer.observe(document, { subtree: true, childList: true })
     let fieldRoot = field.getRootNode()
     if (fieldRoot !== document) observer.observe(fieldRoot, { subtree: true, childList: true })
