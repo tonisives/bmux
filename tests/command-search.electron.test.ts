@@ -217,6 +217,8 @@ test('movew opens the index prompt and reorders windows from the finder and CLI'
     await expect(chrome.locator(`[data-window-id="${source.id}"]`)).toContainText(`${source.number}:`)
     await rpc('command', { client: client.id, line: `select-window -t ${source.number}` })
     expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id).windowId).toBe(source.id)
+    await rpc('move-window', { client: client.id, window: source.id, position: 'first' })
+    expect((await windows())[0].number).toBe(source.number)
     await activate()
     await rpc('focus-page', { client: client.id })
     await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode: 'E', modifiers: ['shift'] }])
