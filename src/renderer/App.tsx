@@ -2380,7 +2380,7 @@ let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) =
       return
     }
     if (!editing && !event.ctrlKey && event.key.length === 1 && event.key !== ' ') vim.reset('INSERT')
-    if (['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key) && (!editing || !['Home', 'End'].includes(event.key))) {
+    if (!event.ctrlKey && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key) && (!editing || !['Home', 'End'].includes(event.key))) {
       let hovered = onNavigate()
       if (hovered && editing) {
         event.preventDefault()

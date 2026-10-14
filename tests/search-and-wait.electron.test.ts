@@ -1305,8 +1305,8 @@ test('bookmark keyboard scrolling keeps the preview after rows move beneath a st
     return { id: window.id, bounds: window.getBounds() }
   })
   try {
-    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 1000, height: 300 }), native.id)
-    await expect.poll(() => chrome.evaluate(() => innerHeight)).toBe(300)
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 1000, height: 400 }), native.id)
+    await expect.poll(() => chrome.evaluate(() => innerHeight)).toBe(400)
     await open('bookmarks')
     let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
     await search.fill(''); await search.hover()
