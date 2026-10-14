@@ -9,7 +9,7 @@ let state = (): PublicState => {
   model.clients.push({ id: 'client', sessionId: session.id, windowId: window.id, paneId: window.panes[0].id, width: 1280, height: 850 })
   let target = newSession('bmux-marketing', session.defaultProfileId)
   target.windows[0].name = 'research'
-  target.windows.push(newSession('other', session.defaultProfileId).windows[0])
+  target.windows.push(newWindow('other', session.defaultProfileId))
   target.windows[1].name = 'research'
   model.sessions.push(target)
   return { model, clientId: 'client', focusedClientId: 'client', snapshots: {}, crashes: {}, loading: {}, audio: {}, favicons: {}, pendingUrls: {}, navigation: {}, permissions: [], downloads: [], profileCaches: {}, profileProxyTests: {}, profileProxyFailures: {} }

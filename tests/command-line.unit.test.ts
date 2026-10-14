@@ -24,7 +24,7 @@ it('routes manual automation resume to the selected pane', () => {
 })
 it('resolves current targets, numeric indices, and confirmation flags', () => {
   let current = state(), session = current.model.sessions[0], window = session.windows[0]
-  let secondWindow = newSession('second', session.defaultProfileId).windows[0]
+  let secondWindow = newWindow('second', session.defaultProfileId)
   session.windows.push(secondWindow)
   expect(parseCommandLine('select-window -t 1', current)).toMatchObject({ args: { window: window.id } })
   expect(parseCommandLine('select-window -t 2', current)).toMatchObject({ args: { window: secondWindow.id } })
