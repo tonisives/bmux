@@ -68,6 +68,54 @@ test.afterAll(async () => {
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
   if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
+test('bookmark plugin previews keep the panel and rows stationary and scroll independently', async () => {
+  await configure({})
+  let current = await state(), first = current.model.sessions[0].windows[0]
+  await rpc('select-window', { window: first.id, client }); await rpc('activate-client', { client })
+  await rpc('navigate', { tab: first.panes[0].id, url: `${base}/plain` })
+  let sibling = (await rpc('bookmark.add', { tab: first.panes[0].id, title: 'Plain bookmark with a title long enough to wrap across multiple lines beside the settings preview' })).bookmark.id
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search?${new URLSearchParams(Array.from({ length: 24 }, (_, index) => [`field${index}`, 'value']))}` })
+  try {
+    await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+    let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+    await command.fill('bookmarks'); await command.press('Enter')
+    let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true }), search = dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+    await search.fill(''); await search.hover()
+    let tall = dialog.locator(`div[data-bookmark-id="${bookmark}"]`), short = dialog.locator(`div[data-bookmark-id="${sibling}"]`), settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
+    let geometry = async () => ({ panel: await dialog.boundingBox(), tall: await tall.boundingBox(), short: await short.boundingBox() })
+    let before = await geometry()
+    expect(before.panel!.height).toBeGreaterThanOrEqual(520)
+    for (let index = 0; index < 4; index++) {
+      await short.hover(); await expect(settings.locator('strong')).toContainText('Plain bookmark')
+      await tall.hover(); await expect(settings.getByRole('spinbutton', { name: 'Minimum score', exact: true })).toBeVisible()
+      expect(await geometry()).toEqual(before)
+      let samples = await dialog.evaluate(async element => {
+        let values = []
+        for (let frame = 0; frame < 12; frame++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+          let bounds = element.getBoundingClientRect()
+          values.push({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, active: element.querySelector('[data-bookmark-id][data-active="true"]')?.getAttribute('data-bookmark-id') })
+        }
+        return values
+      })
+      expect(new Set(samples.map(value => JSON.stringify(value))).size).toBe(1)
+      expect(samples[0].active).toBe(bookmark)
+    }
+    expect(await settings.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+    await settings.getByRole('button', { name: 'Open in new tab', exact: true }).scrollIntoViewIfNeeded()
+    expect(await settings.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    expect(await dialog.locator('[data-bookmark-scroll]').evaluate(element => element.scrollTop)).toBe(0)
+    expect(await geometry()).toEqual(before)
+    await fs.mkdir('artifacts', { recursive: true }); await dialog.screenshot({ path: 'artifacts/bookmark-plugin-stable-preview.png' })
+    await search.hover(); await settings.getByRole('button', { name: 'Close bookmark settings', exact: true }).click()
+    await expect(settings).toHaveCount(0); expect(await geometry()).toEqual(before)
+  } finally {
+    await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
+    await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
+    await rpc('bookmark.remove', { profile, bookmark: sibling })
+  }
+})
+
 test('bookmark plugins remain pane-scoped and the overlay toggles and configures them', async () => {
   expect(await configure({})).toMatchObject([{ id: 'fixture.reddit', enabled: true, values: { minScore: 2 } }])
   let pane = await openBookmark(), page = await pageFor(pane)

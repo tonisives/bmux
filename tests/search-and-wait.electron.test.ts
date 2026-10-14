@@ -817,7 +817,7 @@ test('bookmark search respects the Vim editing preference while j/k still naviga
   } finally { await fs.writeFile(config, previous); await rpc('settings.reload') }
 })
 
-test('bookmarks panel grows by twenty percent and fits smaller native windows', async () => {
+test('bookmarks panel keeps its width when previewing and fits smaller native windows', async () => {
   await activate()
   let native = await application.evaluate(({ BaseWindow }) => {
     let window = BaseWindow.getFocusedWindow()!
@@ -829,7 +829,7 @@ test('bookmarks panel grows by twenty percent and fits smaller native windows', 
     await open('bookmarks')
     let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
     await dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('')
-    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(744)
+    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1056)
     await dialog.screenshot({ path: path.resolve('artifacts/bookmark-vim-expanded.png') })
     await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
     let settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
@@ -840,7 +840,7 @@ test('bookmarks panel grows by twenty percent and fits smaller native windows', 
     await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(640)
     await expect.poll(() => dialog.evaluate(element => {
       let bounds = element.getBoundingClientRect()
-      return Math.round(bounds.width) === Math.round(innerWidth * .9) && bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 28 && bounds.bottom <= innerHeight - 12
+      return Math.round(bounds.width) === Math.round(innerWidth * .96) && bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 28 && bounds.bottom <= innerHeight - 12
     })).toBe(true)
     await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
     await expect(settings).toBeVisible()
@@ -1316,6 +1316,56 @@ test('bookmark folders are numbered before their chevrons and collapse from keyb
   let positions = await group.locator('[data-bookmark-id]:visible [data-bookmark-number]').evaluateAll(numbers => numbers.map(number => number.getBoundingClientRect().left))
   expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(1)
   expect((await nested.locator('[data-bookmark-number]').boundingBox())!.x).toBeLessThan((await nested.locator('[data-bookmark-chevron]').boundingBox())!.x)
+})
+
+for (let fromSearch of [false, true]) test(`bookmark normal-mode o and Shift+O open the current tab and a new window (${fromSearch ? 'search' : 'row'})`, async () => {
+  let before = await state(), client = before.model.clients.find((item: any) => item.id === before.clientId)
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  let prepare = async () => {
+    await open('bookmarks'); await search.fill('API reference'); await search.hover()
+    if (fromSearch) {
+      await search.press('i'); await search.press('Escape')
+      await expect(group.getByLabel('Bookmark navigation mode', { exact: true })).toHaveText('NORMAL>')
+    } else await group.getByRole('button', { name: 'API reference', exact: true }).focus()
+  }
+  try {
+    await prepare(); await chrome.keyboard.press('o'); await expect(group).toHaveCount(0)
+    await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === client.paneId)?.url).toBe(`${url}/docs`)
+    expect((await state()).model.sessions[0].windows).toHaveLength(before.model.sessions[0].windows.length)
+    await prepare(); await chrome.keyboard.press('Shift+O'); await expect(group).toHaveCount(0)
+    let after = await state(), selected = after.model.clients.find((item: any) => item.id === client.id)
+    expect(after.model.sessions[0].windows).toHaveLength(before.model.sessions[0].windows.length + 1)
+    expect(selected.windowId).not.toBe(client.windowId)
+    expect(after.model.sessions[0].windows.find((item: any) => item.id === selected.windowId).panes[0].url).toBe(`${url}/docs`)
+  } finally { await rpc('select-window', { client: client.id, window: client.windowId }); await rpc('navigate', { tab: client.paneId, url: `${url}/fixture` }) }
+})
+
+test('bookmark o shortcuts respect mouse priority and leave insert mode and settings editable', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill(''); await search.press('i'); await search.pressSequentially('oO'); await expect(search).toHaveValue('oO')
+  await search.fill('search'); await search.hover()
+  let first = group.getByRole('button', { name: 'Parameterized search', exact: true }), hovered = group.getByRole('button', { name: 'Search suggestions', exact: true })
+  await first.focus(); await hovered.getByRole('button', { name: /^Customize / }).hover(); await expect(hovered).toHaveAttribute('data-active', 'true')
+  await chrome.keyboard.press('o'); await expect(group).toHaveCount(0)
+  await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === original)?.url).toBe(`${url}/suggestions`)
+  await open('bookmarks'); await search.fill('Parameterized search'); await search.hover(); await first.focus()
+  let input = group.getByRole('textbox', { name: 'q', exact: true }), previous = await input.inputValue()
+  try {
+    await input.fill(''); await input.pressSequentially('oO'); await expect(input).toHaveValue('oO'); await expect(group).toBeVisible()
+  } finally { await input.fill(previous); await search.focus() }
+})
+
+test('bookmark o cannot replace a tab from a different profile', async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await group.getByRole('checkbox', { name: 'All profiles', exact: true }).check()
+  try {
+    await search.fill('Bot-only docs'); await search.hover()
+    await group.getByRole('button', { name: 'Bot-only docs', exact: true }).focus(); await chrome.keyboard.press('o')
+    await expect(group).toBeVisible()
+    expect((await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === original)?.url).toBe(`${url}/fixture`)
+  } finally { await group.getByRole('checkbox', { name: 'All profiles', exact: true }).uncheck() }
 })
 
 for (let sidepanel of [false, true]) test(`bookmark Open actions support the same tab and a new tab (${sidepanel ? 'settings' : 'list'})`, async () => {

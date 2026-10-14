@@ -138,12 +138,10 @@
 .overlay { position: fixed; inset: 28px 0 0; z-index: 100; background: #090b10a8; display: flex; align-items: center; justify-content: center; }
 .app[data-status-bar="bottom"] .overlay { inset: 0 0 28px; }
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.bookmarksPanel { display: flex; flex-direction: column; width: min(744px, 90vw); max-height: calc(100% - 24px); overflow: hidden; }
-.bookmarksPanel:has([data-settings-open="true"]) { width: min(1104px, 96vw); min-height: min(520px, calc(100% - 24px)); }
+.bookmarksPanel { display: flex; flex-direction: column; width: min(1104px, 96vw); height: clamp(520px, var(--bookmark-panel-height, 520px), calc(100% - 24px)); max-height: calc(100% - 24px); overflow: hidden; }
 .bookmarksPanel > .panelBody { display: flex; flex: 1; min-height: 0; }
 .bookmarkPicker { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; width: 100%; }
-.bookmarkColumns { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr); min-height: 0; }
-.bookmarkColumns[data-settings-open="true"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.bookmarkColumns { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; min-height: 0; }
 .bookmarkList { min-width: 0; overflow: auto; }
 .bookmarkSettingsHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bookmarkSettingsHeading strong { min-width: 0; overflow-wrap: anywhere; font-weight: 500; color: #eceef2; }
@@ -254,7 +252,8 @@
 .panel .bookmarkOpen:disabled { opacity: .35; cursor: default; }
 .bookmarkOpen svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .bookmarkCustomize svg { width: 16px; height: 16px; fill: #191d23; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
-.bookmarkParameters { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; padding: 0 0 0 16px; border-left: 1px solid #363c45; }
+.bookmarkParameters { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: auto; padding: 0 0 0 16px; border-left: 1px solid #363c45; }
+.bookmarkParameters > * { flex-shrink: 0; }
 .bookmarkParameters > div[aria-label] { display: flex; flex-direction: column; gap: 9px; padding-top: 12px; }
 .bookmarkParameter { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .bookmarkParameter label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
@@ -264,7 +263,7 @@
 .panel .bookmarkRemoveParameter { flex: 0 0 20px; padding: 0; color: #8e98a4; font-size: 18px; line-height: 20px; cursor: pointer; }
 .panel .bookmarkRemoveParameter:hover { color: #e6a69c; }
 @media (max-width: 800px) {
-  .bookmarkColumns[data-settings-open="true"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .bookmarkColumns { gap: 10px; }
   .bookmarkParameter { flex-wrap: wrap; }
   .bookmarkParameter label { flex-basis: calc(100% - 28px); }
   .bookmarkParameter label span { width: 75px; flex-basis: 75px; }
