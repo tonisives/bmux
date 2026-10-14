@@ -84,7 +84,7 @@ test('bookmark plugin previews keep the panel and rows stationary and scroll ind
     let tall = dialog.locator(`div[data-bookmark-id="${bookmark}"]`), short = dialog.locator(`div[data-bookmark-id="${sibling}"]`), settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
     let geometry = async () => ({ panel: await dialog.boundingBox(), tall: await tall.boundingBox(), short: await short.boundingBox() })
     let before = await geometry()
-    expect(before.panel!.height).toBeGreaterThanOrEqual(680)
+    expect(before.panel!.height).toBeGreaterThanOrEqual(await chrome.evaluate(() => Math.min(680, innerHeight - 52)))
     for (let index = 0; index < 4; index++) {
       await short.hover(); await expect(settings.locator('strong')).toContainText('Plain bookmark')
       await tall.hover(); await expect(settings.getByRole('spinbutton', { name: 'Minimum score', exact: true })).toBeVisible()

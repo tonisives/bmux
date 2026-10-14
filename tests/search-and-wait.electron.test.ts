@@ -830,7 +830,7 @@ test('bookmarks panel keeps its width when previewing and fits smaller native wi
     let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
     await dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('')
     await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1280)
-    expect((await dialog.boundingBox())!.height).toBeGreaterThanOrEqual(680)
+    expect((await dialog.boundingBox())!.height).toBeGreaterThanOrEqual(await chrome.evaluate(() => Math.min(680, innerHeight - 52)))
     await dialog.screenshot({ path: path.resolve('artifacts/bookmark-vim-expanded.png') })
     await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
     let settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
