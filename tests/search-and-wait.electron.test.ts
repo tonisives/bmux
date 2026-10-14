@@ -1298,6 +1298,44 @@ test('bookmark keyboard navigation takes over mouse hover until the pointer move
   await chrome.getByRole('dialog', { name: 'Bookmarks', exact: true }).screenshot({ path: path.resolve('artifacts/bookmark-hover-preview.png') })
 })
 
+for (let fromSearch of [false, true]) test(`bookmark hovering selects a row and keeps its details across the sidebar gap (${fromSearch ? 'search' : 'row'})`, async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill('search'); await search.hover()
+  let rows = group.locator('div[data-bookmark-id]:not([aria-disabled="true"])')
+  let hovered = group.getByRole('button', { name: 'Parameterized search', exact: true }), settings = group.getByRole('complementary', { name: 'Bookmark settings' })
+  await rows.last().focus(); await chrome.keyboard.press('k')
+  if (fromSearch) {
+    await chrome.keyboard.press('i'); await search.press('Escape')
+    await expect(search).toBeFocused()
+  }
+  await hovered.getByRole('button', { name: /^Customize / }).hover()
+  await expect(hovered).toHaveAttribute('data-active', 'true')
+  if (fromSearch) await expect(search).toBeFocused()
+  else await expect(hovered).toBeFocused()
+  let listBounds = (await group.locator('[data-bookmark-scroll]').boundingBox())!, settingsBounds = (await settings.boundingBox())!, rowBounds = (await hovered.boundingBox())!
+  await chrome.mouse.move((listBounds.x + listBounds.width + settingsBounds.x) / 2, rowBounds.y + rowBounds.height / 2)
+  await expect(hovered).toHaveAttribute('data-active', 'true')
+  await expect(settings.locator('strong').first()).toHaveText('Parameterized search')
+  await chrome.keyboard.press('j'); await expect(rows.nth(1)).toBeFocused()
+  await expect(rows.nth(1)).toHaveAttribute('data-active', 'true')
+  await hovered.getByRole('button', { name: /^Customize / }).hover()
+  await chrome.mouse.move((listBounds.x + listBounds.width + settingsBounds.x) / 2, rowBounds.y + rowBounds.height / 2)
+  await expect(settings.locator('strong').first()).toHaveText('Parameterized search')
+  let parameter = settings.getByRole('textbox', { name: 'q', exact: true }), previous = await parameter.inputValue()
+  await parameter.hover(); await expect(settings.locator('strong').first()).toHaveText('Parameterized search')
+  await parameter.click()
+  try {
+    await parameter.fill('sidebar hover draft'); await expect(parameter).toHaveValue('sidebar hover draft')
+    await settings.getByRole('button', { name: 'Open in same tab', exact: true }).hover()
+    await expect(hovered).toHaveAttribute('data-active', 'true')
+    await expect(parameter).toBeFocused()
+  } finally { await parameter.fill(previous); await search.focus() }
+  await chrome.getByRole('dialog', { name: 'Bookmarks', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+  await open('bookmarks'); await expect(hovered).toBeFocused()
+  await expect(hovered).toHaveAttribute('data-active', 'true')
+})
+
 test('bookmark keyboard scrolling keeps the preview after rows move beneath a stationary mouse', async () => {
   await activate()
   let native = await application.evaluate(({ BaseWindow }) => {

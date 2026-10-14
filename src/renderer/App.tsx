@@ -2397,14 +2397,14 @@ let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) =
   return { ref, input, query, change, keys: bookmarkKeys, searchKeys, focusMode, vim, mode: searchFocused ? vim.mode : 'NORMAL', count }
 }
 
-let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () => boolean) => {
+let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () => boolean, rememberSelection: (key: string) => void) => {
   let [selectedBookmarkId, setSelectedBookmarkId] = useState<string | null>(null)
   let [hoveredBookmarkId, setHoveredBookmarkId] = useState<string | null>(null)
   let [settingsClosed, setSettingsClosed] = useState(false)
   let pointer = useRef<{ x: number; y: number } | null>(null)
   let lastPointer = useRef<{ x: number; y: number } | null>(null)
   let keyboardNavigation = () => {
-    let row = [...(list.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === hoveredBookmarkId)
+    let row = [...(list.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === (hoveredBookmarkId ?? selectedBookmarkId))
     pointer.current = null; setHoveredBookmarkId(null)
     return row ?? null
   }
@@ -2418,7 +2418,11 @@ let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () =
     let row = target?.closest<HTMLElement>('[data-bookmark-id]')
     if (row && list.current?.contains(row)) {
       let key = bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '')
-      if (key !== hoveredBookmarkId) { setHoveredBookmarkId(key); setSettingsClosed(false) }
+      if (key !== hoveredBookmarkId) {
+        setHoveredBookmarkId(key); setSelectedBookmarkId(key); setSettingsClosed(false); rememberSelection(key)
+        // Keep row navigation in sync without taking focus from search or settings inputs.
+        if (document.activeElement?.matches('[data-bookmark-id]') && list.current.contains(document.activeElement) && row.getAttribute('aria-disabled') !== 'true') row.focus({ preventScroll: true })
+      }
     } else if (!target?.closest('[aria-label="Bookmark settings"]')) setHoveredBookmarkId(null)
   }
   let pointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -2437,7 +2441,7 @@ let BookmarkPicker = () => {
   let [reordering, setReordering] = useState(false)
   let dragSource = useRef<BookmarkDrag | null>(null)
   let [dropTarget, setDropTarget] = useState<BookmarkDrop | null>(null)
-  let { setSelectedBookmarkId, hoveredBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover, keyboardNavigation } = useBookmarkPreview(list, () => !!dragSource.current)
+  let { setSelectedBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover, keyboardNavigation } = useBookmarkPreview(list, () => !!dragSource.current, key => { if (profile) rememberBookmarkSelection(profile.id, key) })
   let groups: { profile: Profile; bookmarks: Bookmark[] }[] = []
   let activate = async (bookmark: Bookmark, profileId: string, sameTab = false) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
@@ -2447,8 +2451,8 @@ let BookmarkPicker = () => {
     if (result !== undefined) dismiss()
   }
   let { ref, keys, input, query, change, searchKeys, focusMode, vim, mode, count } = useBookmarkNavigation((row, sameTab) => {
-    let hovered = hoveredBookmarkId && [...(ref.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]:not([aria-disabled="true"])') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === hoveredBookmarkId)
-    let target = hovered || row
+    let selected = expandedBookmarkId && [...(ref.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]:not([aria-disabled="true"])') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === expandedBookmarkId)
+    let target = selected || row
     if (target.tagName === 'SUMMARY') { if (sameTab === undefined) target.click(); return }
     let group = groups.find(item => item.profile.id === target.dataset.bookmarkProfile)
     let bookmark = findBookmark(group?.bookmarks ?? [], target.dataset.bookmarkId ?? '')
