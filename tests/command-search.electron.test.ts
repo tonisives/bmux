@@ -215,7 +215,7 @@ test('movew opens the index prompt and reorders windows from the finder and CLI'
     }
     expect((await windows()).find((window: { id: string }) => window.id === source.id).number).toBe(source.number)
     await expect(chrome.locator(`[data-window-id="${source.id}"]`)).toContainText(`${source.number}:`)
-    await rpc('command', { client: client.id, line: `select-window -t ${source.number}` })
+    await rpc('command-line', { client: client.id, line: `select-window -t ${source.number}` })
     expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id).windowId).toBe(source.id)
     await rpc('move-window', { client: client.id, window: source.id, position: 'first' })
     expect((await windows())[0].number).toBe(source.number)
@@ -223,7 +223,7 @@ test('movew opens the index prompt and reorders windows from the finder and CLI'
     await rpc('focus-page', { client: client.id })
     await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode: 'E', modifiers: ['shift'] }])
     await expect.poll(async () => (await windows()).map((window: { number: number }) => window.number)).toEqual((await windows()).map((_: unknown, index: number) => index + 1))
-    await rpc('command', { client: client.id, line: 'movew -r' })
+    await rpc('command-line', { client: client.id, line: 'movew -r' })
     expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id)).toMatchObject({ sessionId: client.sessionId, windowId: source.id, paneId: source.panes[0].id })
     await expect.poll(nativeVisible).toBe(true)
   } finally {
