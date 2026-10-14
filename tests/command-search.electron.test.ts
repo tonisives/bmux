@@ -1,6 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { closeTestApplication } from './electron-fixture'
-import { observeNativeFocus, recordNativeFocus } from './native-focus'
+import { observeNativeFocus, recordNativeFocus, sendNativeKeys } from './native-focus'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -213,6 +213,14 @@ test('movew opens the index prompt and reorders windows from the finder and CLI'
       expect(JSON.parse(stdout)).toMatchObject({ ok: true, result: { id: source.id } })
       await expect.poll(async () => (await windows())[Number(index) - 1].id).toBe(source.id)
     }
+    expect((await windows()).find((window: { id: string }) => window.id === source.id).number).toBe(source.number)
+    await rpc('command', { client: client.id, line: `select-window -t ${source.number}` })
+    expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id).windowId).toBe(source.id)
+    await activate()
+    await rpc('focus-page', { client: client.id })
+    await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode: 'E', modifiers: ['shift'] }])
+    await expect.poll(async () => (await windows()).map((window: { number: number }) => window.number)).toEqual((await windows()).map((_: unknown, index: number) => index + 1))
+    await rpc('command', { client: client.id, line: 'movew -r' })
     expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id)).toMatchObject({ sessionId: client.sessionId, windowId: source.id, paneId: source.panes[0].id })
     await expect.poll(nativeVisible).toBe(true)
   } finally {

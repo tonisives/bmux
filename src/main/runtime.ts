@@ -8,6 +8,7 @@ import type { DownloadItem, View, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
+import { renumberWindows } from '../shared/window-number'
 import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -2364,6 +2365,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let session = model.sessions.find(session => session.id === closed.sessionId)
           ?? (client ? resolve(model.sessions, client.sessionId, 'Session') : undefined)
         if (!session) throw new Error('No session available for the closed window')
+        if (session.windows.some(window => window.number === closed.window.number)) delete closed.window.number
         reassignConflictingPaneIds(closed.window, model)
         session.windows.splice(Math.min(closed.index, session.windows.length), 0, closed.window)
         if (client) { client.sessionId = session.id; client.windowId = closed.window.id; client.paneId = closed.window.panes[0]?.id ?? null }
@@ -2391,7 +2393,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = moveWindow(model, args)
       changed(); await visualQueue; return window
     }
-    if (method === 'renumber-windows') return resolve(model.sessions, args.session, 'Session').windows
+    if (method === 'renumber-windows') {
+      let windows = renumberWindows(resolve(model.sessions, args.session, 'Session'))
+      changed(); await visualQueue; return windows
+    }
     if (method === 'reorder-window') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, client.sessionId, 'Session')

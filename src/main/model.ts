@@ -1,3 +1,4 @@
+import { assignWindowNumbers, windowNumber } from '../shared/window-number'
 import { randomUUID } from 'node:crypto'
 import type { Layout, Model, Pane, Profile, WorkspaceSession, InternalWindow } from '../shared/types'
 import { parseProfileProxy } from './profile-proxy'
@@ -57,7 +58,10 @@ export let resolveWindow = (model: Model, value: unknown): InternalWindow => {
       let session = resolve(model.sessions, value.slice(0, separator), 'Session')
       let selector = value.slice(separator + 1)
       let index = /^[1-9]\d*$/.test(selector) ? Number(selector) - 1 : -1
-      if (index >= 0 && index < session.windows.length) return session.windows[index]
+      if (index >= 0) {
+        let window = session.windows.find((window, position) => windowNumber(window, position) === index + 1)
+        if (window) return window
+      }
       return resolve(session.windows, selector, 'Window')
     }
   }
@@ -143,6 +147,7 @@ export let cloneWindow = (window: InternalWindow, model?: Model): InternalWindow
   let copy = structuredClone(window)
   let paneIds = new Map<string, string>()
   copy.id = id('win')
+  delete copy.number
   for (let pane of copy.panes) {
     let paneId = model ? nextPaneId(model, paneIds.values()) : id('pane')
     paneIds.set(pane.id, paneId)
@@ -280,14 +285,14 @@ export let validateModel = (value: unknown): Model => {
     }
   }
   for (let profile of model.profiles) delete profile.device
-  for (let session of model.sessions) orderPinnedWindows(session)
+  for (let session of model.sessions) { assignWindowNumbers(session); orderPinnedWindows(session) }
   if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
   if (model.newSessionProfileId !== undefined && !model.profiles.some(profile => profile.id === model.newSessionProfileId)) throw new Error('Invalid new session profile')
   return model
 }
 
 export let repairClientSelections = (model: Model) => {
-  for (let session of model.sessions) orderPinnedWindows(session)
+  for (let session of model.sessions) { assignWindowNumbers(session); orderPinnedWindows(session) }
   let panes = walkPanes(model).map(item => item.pane), paneIds = new Set(panes.map(pane => pane.id))
   // Pane numbers can be reused after closure. Never return to an unrelated page.
   for (let pane of panes) if (pane.backToOpener && !paneIds.has(pane.openerPaneId!)) pane.backToOpener = false

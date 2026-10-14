@@ -53,6 +53,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'previous-window', description: 'Switch to the previous window', action: 'previous-window' },
   { command: 'move-window', usage: 'move-window -t INDEX', description: 'Move the current window to an index', action: 'move-window', control: 'move-window' },
   { command: 'movew', usage: 'movew -t INDEX', description: 'Move the current window to an index', action: 'move-window', control: 'move-window' },
+  { command: 'renumber-windows', description: 'Renumber windows in their current order', action: 'renumber-windows' },
   { command: 'move-window-left', description: 'Move the current window left, wrapping at the start', action: 'move-window-left' },
   { command: 'move-window-right', description: 'Move the current window right, wrapping at the end', action: 'move-window-right' },
   { command: 'move-window-first', description: 'Move the current window to the first position', action: 'move-window-first' },

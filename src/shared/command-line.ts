@@ -155,6 +155,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'switch-client' || name === 'attach-session') return { method: name, args: { ...current, ...options, session: target ?? positional[0] ?? client.sessionId } }
   if (name === 'new-window') return { method: name, args: { ...current, session: client.sessionId, ...options, ...(positional.length ? { name: positional[0] } : {}) } }
   if (name === 'reopen-closed' || name === 'reopen-closed-tab') return { method: 'reopen-closed', args: current }
+  if (name === 'renumber-windows') return { method: name, args: { session: target ?? options.session ?? client.sessionId } }
   if (name === 'move-window-left' || name === 'move-window-right') return { method: 'swap-window', args: { ...current, direction: name === 'move-window-left' ? -1 : 1 } }
   if (name === 'move-window-first' || name === 'move-window-last') return { method: 'move-window', args: { ...current, position: name === 'move-window-first' ? 'first' : 'last' } }
   if (name === 'move-window') {

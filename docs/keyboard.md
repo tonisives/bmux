@@ -220,3 +220,5 @@ roots. Selecting ordinary page text does not count as focusing a text field.
 `when: always` (or omitting `when`) preserves global shortcut behavior. Existing
 string values remain valid, and `null` disables a binding. Prefix bindings keep
 their existing behavior. Contexts appear alongside bindings in shortcut help.
+
+Window numbers stay with their windows when reordered, pinned, or closed. Numeric selection shortcuts and command targets use these numbers. Prefix then `E` renumbers the current session in its displayed order, starting at 1. The command finder accepts `renumber-windows`; the tmux-style command is `move-window -r` (or `movew -r -t SESSION:`). Moving to an index still uses the destination position in the list.

@@ -1,3 +1,4 @@
+import { windowNumber } from './window-number'
 import type { InternalWindow, Layout, PublicState, WorkspaceSession } from './types'
 
 export let paneOrder = (window: InternalWindow): string[] => {
@@ -47,6 +48,7 @@ export let windowInSession = (state: PublicState, session: WorkspaceSession, sel
     let offset = Number(token.slice(1) || 1) * (token[0] === '-' ? -1 : 1)
     return session.windows[((index + offset) % session.windows.length + session.windows.length) % session.windows.length]
   }
+  if (/^[1-9]\d*$/.test(token)) return session.windows.find((window, index) => windowNumber(window, index) === Number(token))
   return indexedTarget(session.windows, selector.replace(/^\{(.+)\}$/, '$1'), 'Window')
 }
 

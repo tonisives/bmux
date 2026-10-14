@@ -1,3 +1,4 @@
+import { assignWindowNumbers } from '../shared/window-number'
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseDocument, stringify } from 'yaml'
@@ -77,6 +78,7 @@ export let readModel = (directory: string, bookmarkFile = path.join(directory, '
   return model
 }
 export let writeModel = (directory: string, model: Model, bookmarkFile = path.join(directory, 'bookmarks.yaml')) => {
+  for (let session of model.sessions) assignWindowNumbers(session)
   let profiles = bookmarkProfiles(model)
   // Leave hand-edited formatting and comments intact when only session state changed.
   if (!fs.existsSync(bookmarkFile) || JSON.stringify(parseBookmarks(fs.readFileSync(bookmarkFile, 'utf8'))) !== JSON.stringify(profiles)) writeAtomic(bookmarkFile, stringify({ profiles }))

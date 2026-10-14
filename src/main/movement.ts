@@ -1,3 +1,4 @@
+import { assignWindowNumbers } from '../shared/window-number'
 import type { InternalWindow, Model, WorkspaceSession } from '../shared/types'
 import { mapLayout, orderPinnedWindows, paneById, removeSession, resolve } from './model'
 import { layoutPaneIds } from './floating'
@@ -9,6 +10,7 @@ export let checkSessionTransfer = (from: WorkspaceSession, to: WorkspaceSession)
 export let toggleWindowPin = (model: Model, windowId: unknown) => {
   let window = resolve(model.sessions.flatMap(session => session.windows), windowId, 'Window')
   let session = model.sessions.find(session => session.windows.includes(window))!
+  assignWindowNumbers(session)
   window.pinned = !window.pinned
   orderPinnedWindows(session)
   return window
@@ -32,8 +34,11 @@ export let moveWindow = (model: Model, args: Record<string, unknown>) => {
     if ((args.before === true || args.after === true) && index < destination) destination--
     destination = Math.min(destination, to.windows.length - 1)
   }
+  assignWindowNumbers(from); assignWindowNumbers(to)
+  if (from !== to) delete window.number
   from.windows.splice(index, 1)
   to.windows.splice(destination, 0, window)
+  assignWindowNumbers(to)
   orderPinnedWindows(to)
   if (client && args.background !== true) {
     client.sessionId = to.id; client.windowId = window.id
@@ -52,6 +57,8 @@ export let swapWindows = (model: Model, args: Record<string, unknown>) => {
   checkSessionTransfer(from, to)
   if (from === to && !!source.pinned !== !!destination.pinned) return source
   let sourceIndex = from.windows.indexOf(source), destinationIndex = to.windows.indexOf(destination)
+  assignWindowNumbers(from); assignWindowNumbers(to)
+  if (from !== to) { let number = source.number; source.number = destination.number; destination.number = number }
   from.windows[sourceIndex] = destination; to.windows[destinationIndex] = source
   orderPinnedWindows(from); orderPinnedWindows(to)
   for (let client of model.clients) {

@@ -1,3 +1,6 @@
+import { assignWindowNumbers, renumberWindows } from '../src/shared/window-number'
+import { parseCommandLine } from '../src/shared/command-line'
+import type { PublicState } from '../src/shared/types'
 import { expect, test } from 'vitest'
 import { initialModel, newPane, newSession, newWindow, repairClientSelections, splitLayout, validateModel } from '../src/main/model'
 import { liftPane, layoutPaneIds } from '../src/main/floating'
@@ -135,4 +138,39 @@ test('pane rotation rotates tiled positions in both directions and leaves floati
   expect(client.paneId).toBe(source.id)
   expect(client.zoomedPaneId).toBeNull()
   expect(validateModel(structuredClone(model))).toBeDefined()
+})
+
+
+test('window numbers survive movement, pinning, closure, and saved-state restoration until explicitly renumbered', () => {
+  let { model, session, first, second, third, client } = fixture()
+  assignWindowNumbers(session)
+  expect(session.windows.map(window => window.number)).toEqual([1, 2, 3])
+  moveWindow(model, { window: third.id, position: 'first' })
+  toggleWindowPin(model, second.id)
+  expect(session.windows.map(window => window.number)).toEqual([2, 3, 1])
+  let state = { model, clientId: client.id } as PublicState
+  expect(parseCommandLine('select-window -t 1', state).args?.window).toBe(first.id)
+  expect(parseCommandLine('select-pane -t :3.0', state).args?.pane).toBe(third.panes[0].id)
+  session.windows.splice(session.windows.indexOf(first), 1)
+  repairClientSelections(model)
+  let restored = validateModel(JSON.parse(JSON.stringify(model)))
+  expect(restored.sessions[0].windows.map(window => window.number)).toEqual([2, 3])
+  renumberWindows(session)
+  expect(session.windows.map(window => window.number)).toEqual([1, 2])
+  expect(parseCommandLine('select-window -t 1', state).args?.window).toBe(second.id)
+  expect(parseCommandLine('movew -r', state)).toEqual({ method: 'renumber-windows', args: { session: session.id } })
+  expect(parseCommandLine('renumber-windows', state)).toEqual({ method: 'renumber-windows', args: { session: session.id } })
+})
+
+test('new and transferred windows receive free numbers without renumbering existing windows', () => {
+  let { model, session, first, second, third, work } = fixture()
+  assignWindowNumbers(session); assignWindowNumbers(work)
+  session.windows.splice(session.windows.indexOf(second), 1)
+  let added = newWindow('added', session.defaultProfileId, false, model)
+  session.windows.push(added)
+  repairClientSelections(model)
+  expect([first.number, third.number, added.number]).toEqual([1, 3, 2])
+  moveWindow(model, { window: first.id, session: work.id })
+  expect(work.windows.map(window => window.number)).toEqual([1, 2])
+  expect([third.number, added.number]).toEqual([3, 2])
 })

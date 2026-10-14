@@ -1,3 +1,4 @@
+import { windowNumber } from './window-number'
 import { COMMAND_ALIASES, commandTokens } from './command-line'
 import { paneOrder, resolvePaneTarget, resolveWindowTarget } from './command-target'
 import { fuzzyMatch } from './command-search'
@@ -45,19 +46,20 @@ export let commandTargetSuggestions = (line: string, state: PublicState): { quer
     let sessionSelector = session.name.includes(':') || /^\d+$/.test(session.name) || state.model.sessions.filter(item => item.name === session.name).length > 1 ? session.id : session.name
     if (!source && !paneTarget && flag !== '--window' && !currentSessionTarget && ['move-pane', 'join-pane', 'break-pane', 'move-window'].includes(name)) candidates.push({ value: `${sessionSelector}:`, label: `${session.name}:`, description: name === 'break-pane' ? 'New window in session' : name === 'move-window' ? 'Move window to session' : 'Join selected window in session' })
     for (let [index, window] of session.windows.entries()) {
+      let number = !source && ['move-window', 'break-pane'].includes(name) ? index + 1 : windowNumber(window, index)
       if (query.startsWith('.') && window.id !== client?.windowId) continue
       if (coordinateWindow && window !== coordinateWindow) continue
       if (paneTarget || !windowCommand && window === sourceWindow && ['move-pane', 'join-pane'].includes(name)) {
         for (let [paneIndex, paneId] of paneOrder(window).entries()) {
           if (/^\d+$/.test(coordinatePane) && paneIndex !== Number(coordinatePane)) continue
           if (!source && ['move-pane', 'join-pane'].includes(name) && (paneId === sourcePaneId || window.floating?.some(item => item.paneId === paneId))) continue
-          let prefix = query.startsWith('.') ? '' : `${currentSessionTarget ? '' : sessionSelector}:${index + 1}`
+          let prefix = query.startsWith('.') ? '' : `${currentSessionTarget ? '' : sessionSelector}:${number}`
           let value = query.startsWith('%') || source && !query.includes(':') && !query.includes('.') ? paneId : `${prefix}.${paneIndex}`
           candidates.push({ value, label: `${prefix}.${paneIndex} ${window.name} · ${paneId}`, description: source ? 'Source pane' : 'Destination pane' })
         }
       } else if (windowCommand || name === 'break-pane' || window !== sourceWindow) {
-        let value = flag === '--window' ? window.id : `${currentSessionTarget ? '' : sessionSelector}:${index + 1}`
-        candidates.push({ value, label: `${currentSessionTarget ? '' : session.name}:${index + 1} ${window.name}`, description: windowCommand ? source ? 'Source window' : 'Destination window' : name === 'break-pane' ? 'New window at index' : 'Join window' })
+        let value = flag === '--window' ? window.id : `${currentSessionTarget ? '' : sessionSelector}:${number}`
+        candidates.push({ value, label: `${currentSessionTarget ? '' : session.name}:${number} ${window.name}`, description: windowCommand ? source ? 'Source window' : 'Destination window' : name === 'break-pane' ? 'New window at index' : 'Join window' })
       }
     }
   }
