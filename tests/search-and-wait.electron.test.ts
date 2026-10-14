@@ -824,17 +824,18 @@ test('bookmarks panel keeps its width when previewing and fits smaller native wi
     return { id: window.id, bounds: window.getBounds() }
   })
   try {
-    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 1100, height: 800 }), native.id)
-    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(1100)
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 1440, height: 900 }), native.id)
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(1440)
     await open('bookmarks')
     let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
     await dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('')
-    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1056)
+    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1280)
+    expect((await dialog.boundingBox())!.height).toBeGreaterThanOrEqual(680)
     await dialog.screenshot({ path: path.resolve('artifacts/bookmark-vim-expanded.png') })
     await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
     let settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
     await expect(settings).toBeVisible()
-    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1056)
+    await expect.poll(async () => Math.round((await dialog.boundingBox())!.width)).toBe(1280)
     await settings.getByRole('button', { name: 'Close bookmark settings' }).click()
     await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 640, height: 400 }), native.id)
     await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(640)
@@ -845,6 +846,7 @@ test('bookmarks panel keeps its width when previewing and fits smaller native wi
     await dialog.getByRole('button', { name: 'Customize Parameterized search', exact: true }).click()
     await expect(settings).toBeVisible()
     await expect.poll(() => dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    expect(await settings.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     let listBounds = (await dialog.locator('[data-bookmark-scroll]').boundingBox())!, settingsBounds = (await settings.boundingBox())!
     expect(settingsBounds.x).toBeGreaterThan(listBounds.x + listBounds.width)
     await dialog.screenshot({ path: path.resolve('artifacts/bookmark-settings-small.png') })
@@ -1260,7 +1262,7 @@ test('search highlights only the focused bookmark or its open parameter editor',
   await expect.poll(highlightedRows).toEqual([await rows.first().getAttribute('data-bookmark-id')])
 })
 
-test('mouse hover including row actions takes priority over keyboard bookmark focus', async () => {
+test('bookmark keyboard navigation takes over mouse hover until the pointer moves', async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
   let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
@@ -1274,16 +1276,77 @@ test('mouse hover including row actions takes priority over keyboard bookmark fo
   let hoveredId = await hovered.getAttribute('data-bookmark-id')
   await expect.poll(highlightedRows).toEqual([hoveredId])
   await expect(settings.locator('strong').first()).toHaveText(await hovered.getAttribute('aria-label') as string)
-  await chrome.keyboard.press('ArrowDown'); await chrome.keyboard.press('ArrowDown')
+  await chrome.keyboard.press('ArrowDown')
   await expect(rows.nth(2)).toBeFocused()
-  await expect.poll(highlightedRows).toEqual([hoveredId])
+  await expect.poll(highlightedRows).toEqual([await rows.nth(2).getAttribute('data-bookmark-id')])
+  await expect(settings.locator('strong').first()).toHaveText(await rows.nth(2).getAttribute('aria-label') as string)
+  await chrome.keyboard.press('k'); await expect(hovered).toBeFocused()
+  await chrome.keyboard.press('j'); await expect(rows.nth(2)).toBeFocused()
+  await expect.poll(highlightedRows).toEqual([await rows.nth(2).getAttribute('data-bookmark-id')])
   await hovered.getByRole('button', { name: / in new tab$/ }).hover()
   await expect.poll(highlightedRows).toEqual([hoveredId])
   await expect(hovered.getByRole('button', { name: / in new tab$/ })).toHaveCSS('background-color', 'rgb(72, 84, 97)')
-  await search.hover()
+  await search.focus(); await search.press('i'); await search.press('Escape'); await search.press('j')
+  await expect(rows.nth(2)).toBeFocused()
   await expect.poll(highlightedRows).toEqual([await rows.nth(2).getAttribute('data-bookmark-id')])
+  await hovered.getByRole('button', { name: /^Customize / }).hover()
+  await search.focus(); await search.press('ArrowDown')
+  await expect(rows.nth(2)).toBeFocused()
+  await expect.poll(highlightedRows).toEqual([await rows.nth(2).getAttribute('data-bookmark-id')])
+  await search.hover()
   await expect(settings.locator('strong').first()).toHaveText(await rows.nth(2).getAttribute('aria-label') as string)
   await chrome.getByRole('dialog', { name: 'Bookmarks', exact: true }).screenshot({ path: path.resolve('artifacts/bookmark-hover-preview.png') })
+})
+
+test('bookmark keyboard scrolling keeps the preview after rows move beneath a stationary mouse', async () => {
+  await activate()
+  let native = await application.evaluate(({ BaseWindow }) => {
+    let window = BaseWindow.getFocusedWindow()!
+    return { id: window.id, bounds: window.getBounds() }
+  })
+  try {
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 1000, height: 300 }), native.id)
+    await expect.poll(() => chrome.evaluate(() => innerHeight)).toBe(300)
+    await open('bookmarks')
+    let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+    await search.fill(''); await search.hover()
+    let rows = group.locator('[data-bookmark-id]:visible:not([aria-disabled="true"])'), list = group.locator('[data-bookmark-scroll]')
+    for (let key of ['G', 'PageDown', 'Control+f']) {
+      await search.hover(); await rows.first().focus(); await list.evaluate(element => { element.scrollTop = 0 })
+      await rows.first().hover(); await chrome.keyboard.press(key)
+      await expect(rows.last()).toBeFocused(); await expect(rows.last()).toHaveAttribute('data-active', 'true')
+      await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+      let lastId = await rows.last().getAttribute('data-bookmark-id')
+      expect(await group.evaluate(async element => {
+        let selected = []
+        for (let frame = 0; frame < 12; frame++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+          selected.push(element.querySelector('[data-bookmark-id][data-active="true"]')?.getAttribute('data-bookmark-id'))
+        }
+        return [...new Set(selected)]
+      })).toEqual([lastId])
+      await chrome.keyboard.press('k'); await expect(rows.nth(await rows.count() - 2)).toBeFocused()
+      await expect(rows.nth(await rows.count() - 2)).toHaveAttribute('data-active', 'true')
+    }
+  } finally { await application.evaluate(({ BaseWindow }, native) => BaseWindow.fromId(native.id)?.setBounds(native.bounds), native) }
+})
+
+for (let sidepanel of [false, true]) test(`bookmark Open button tooltips show normal-mode shortcuts (${sidepanel ? 'settings' : 'row'})`, async () => {
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('API reference')
+  await group.getByRole('button', { name: 'Customize API reference', exact: true }).hover()
+  let area = sidepanel ? group.getByRole('complementary', { name: 'Bookmark settings' }) : group.locator('div[data-bookmark-id="api"]')
+  let same = area.getByRole('button', { name: / in same tab$/, exact: false }), fresh = area.getByRole('button', { name: / in new tab$/, exact: false })
+  await same.hover(); await expect(chrome.getByRole('tooltip')).toHaveText('Open in same tab (o)')
+  let bounds = (await chrome.getByRole('tooltip').boundingBox())!
+  expect(bounds.y).toBeGreaterThanOrEqual(0)
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(await chrome.evaluate(() => innerWidth))
+  await fresh.hover(); await expect(chrome.getByRole('tooltip')).toHaveText('Open in new window (Shift+O)')
+  await group.getByRole('textbox', { name: 'Search bookmarks', exact: true }).hover()
+  await expect(chrome.getByRole('tooltip')).toHaveCount(0)
+  await same.focus(); await expect(chrome.getByRole('tooltip')).toHaveText('Open in same tab (o)')
+  await fresh.focus(); await expect(chrome.getByRole('tooltip')).toHaveText('Open in new window (Shift+O)')
 })
 
 test('bookmark hover previews save URL parameter drafts before switching rows', async () => {

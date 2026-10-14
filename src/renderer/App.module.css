@@ -138,11 +138,11 @@
 .overlay { position: fixed; inset: 28px 0 0; z-index: 100; background: #090b10a8; display: flex; align-items: center; justify-content: center; }
 .app[data-status-bar="bottom"] .overlay { inset: 0 0 28px; }
 .panel { background: #191d23; color: #c0c6ce; border: 1px solid #363c45; width: min(620px, 90vw); max-height: 85%; overflow: auto; outline: none; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.bookmarksPanel { display: flex; flex-direction: column; width: min(1104px, 96vw); height: clamp(520px, var(--bookmark-panel-height, 520px), calc(100% - 24px)); max-height: calc(100% - 24px); overflow: hidden; }
+.bookmarksPanel { display: flex; flex-direction: column; width: min(1280px, 96vw); height: clamp(680px, var(--bookmark-panel-height, 680px), calc(100% - 24px)); max-height: calc(100% - 24px); overflow: hidden; }
 .bookmarksPanel > .panelBody { display: flex; flex: 1; min-height: 0; }
 .bookmarkPicker { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; width: 100%; }
 .bookmarkColumns { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; min-height: 0; }
-.bookmarkList { min-width: 0; overflow: auto; }
+.bookmarkList { min-width: 0; overflow-y: auto; overflow-x: hidden; }
 .bookmarkSettingsHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bookmarkSettingsHeading strong { min-width: 0; overflow-wrap: anywhere; font-weight: 500; color: #eceef2; }
 .panel header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; min-height: 42px; padding: 6px 8px 6px 20px; border-bottom: 1px solid #363c45; background: #191d23; }
@@ -250,9 +250,10 @@
 .panel .bookmarkCustomize, .panel .bookmarkOpen { display: grid; place-items: center; flex: 0 0 30px; color: #8e98a4; cursor: pointer; }
 .panel :is(.bookmarkCustomize, .bookmarkOpen):is(:hover, :focus-visible):not(:disabled) { color: #f0f2f5; background: #485461; }
 .panel .bookmarkOpen:disabled { opacity: .35; cursor: default; }
+.bookmarkOpenTooltip { position: fixed; z-index: 110; width: max-content; max-width: min(240px, calc(100vw - 16px)); padding: 4px 7px; border: 1px solid #48515e; background: #11161c; color: #eceef2; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: normal; text-align: left; pointer-events: none; }
 .bookmarkOpen svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .bookmarkCustomize svg { width: 16px; height: 16px; fill: #191d23; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
-.bookmarkParameters { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: auto; padding: 0 0 0 16px; border-left: 1px solid #363c45; }
+.bookmarkParameters { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 0 0 16px; border-left: 1px solid #363c45; }
 .bookmarkParameters > * { flex-shrink: 0; }
 .bookmarkParameters > div[aria-label] { display: flex; flex-direction: column; gap: 9px; padding-top: 12px; }
 .bookmarkParameter { display: flex; align-items: center; gap: 8px; min-width: 0; }

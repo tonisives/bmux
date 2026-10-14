@@ -12,7 +12,7 @@ import { automationExclusionActive, automationProfileLimits, automationSiteExclu
 import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
@@ -2291,7 +2291,7 @@ type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after
 let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
 let BookmarkExpansionContext = createContext<{ searching: boolean; canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string, sameTab?: boolean) => void; expandedBookmarkId: string | null; settingsClosed: boolean; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
 
-let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) => void, initialQuery: string, onQueryChange: (query: string) => void) => {
+let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) => void, initialQuery: string, onQueryChange: (query: string) => void, onNavigate: () => HTMLElement | null) => {
   let { state, dismiss } = useUI()
   let { ref, input, query, change, keys } = usePickerNavigation(onActivate, initialQuery, onQueryChange, false, '[data-bookmark-id]:not([aria-disabled="true"])', onActivate, 'div[data-bookmark-id]:not([aria-disabled="true"])')
   let [count, setCount] = useState(''), [searchFocused, setSearchFocused] = useState(false)
@@ -2316,13 +2316,15 @@ let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) =
     return () => { observer.disconnect(); picker.removeEventListener('focusin', updateNumbers) }
   })
   let focusRow = (position: number, items = rows()) => {
+    onNavigate()
     let index = Math.max(0, Math.min(items.length - 1, position)), row = items[index]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
   }
   let move = (direction: number) => {
+    let hovered = onNavigate()
     let searching = document.activeElement === input.current && !!query
-    let items = rows().filter(row => !searching || row.tagName !== 'SUMMARY'), index = items.indexOf(document.activeElement as HTMLElement)
-    if (searching) index = 0
+    let items = rows().filter(row => !searching || row.tagName !== 'SUMMARY'), index = items.indexOf(hovered ?? document.activeElement as HTMLElement)
+    if (searching && !hovered) index = 0
     focusRow(index + direction, items)
   }
   let vim = useAddressVim(move, undefined, 'NORMAL', state.vimEditing !== false, input, dismiss)
@@ -2378,6 +2380,18 @@ let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) =
       return
     }
     if (!editing && !event.ctrlKey && event.key.length === 1 && event.key !== ' ') vim.reset('INSERT')
+    if (['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key) && (!editing || !['Home', 'End'].includes(event.key))) {
+      let hovered = onNavigate()
+      if (hovered && editing) {
+        event.preventDefault()
+        let items = rows().filter(row => !query || row.tagName !== 'SUMMARY'), index = items.indexOf(hovered)
+        let direction = ['ArrowDown', 'PageDown'].includes(event.key) ? 1 : -1
+        let next = index + direction * (event.key.startsWith('Page') ? 10 : 1)
+        focusRow(event.key.startsWith('Arrow') ? (next + items.length) % items.length : next, items)
+        setCount(''); return
+      }
+      hovered?.focus({ preventScroll: true })
+    }
     setCount(''); keys(event)
   }
   return { ref, input, query, change, keys: bookmarkKeys, searchKeys, focusMode, vim, mode: searchFocused ? vim.mode : 'NORMAL', count }
@@ -2388,6 +2402,12 @@ let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () =
   let [hoveredBookmarkId, setHoveredBookmarkId] = useState<string | null>(null)
   let [settingsClosed, setSettingsClosed] = useState(false)
   let pointer = useRef<{ x: number; y: number } | null>(null)
+  let lastPointer = useRef<{ x: number; y: number } | null>(null)
+  let keyboardNavigation = () => {
+    let row = [...(list.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === hoveredBookmarkId)
+    pointer.current = null; setHoveredBookmarkId(null)
+    return row ?? null
+  }
   let expandedBookmarkId = hoveredBookmarkId ?? selectedBookmarkId
   let setExpandedBookmarkId = (key: string | null) => {
     if (key === null) { setSettingsClosed(true); return }
@@ -2401,10 +2421,13 @@ let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () =
       if (key !== hoveredBookmarkId) { setHoveredBookmarkId(key); setSettingsClosed(false) }
     } else if (!target?.closest('[aria-label="Bookmark settings"]')) setHoveredBookmarkId(null)
   }
-  let pointerMove = (event: PointerEvent<HTMLDivElement>) => { pointer.current = { x: event.clientX, y: event.clientY }; hover(event.target as Element) }
-  let pointerLeave = () => { pointer.current = null; if (!list.current?.querySelector('[data-menu-open="true"]')) setHoveredBookmarkId(null) }
+  let pointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (lastPointer.current?.x === event.clientX && lastPointer.current?.y === event.clientY) return
+    pointer.current = lastPointer.current = { x: event.clientX, y: event.clientY }; hover(event.target as Element)
+  }
+  let pointerLeave = () => { pointer.current = lastPointer.current = null; if (!list.current?.querySelector('[data-menu-open="true"]')) setHoveredBookmarkId(null) }
   let updateHover = () => { if (pointer.current) hover(document.elementFromPoint(pointer.current.x, pointer.current.y)) }
-  return { selectedBookmarkId, setSelectedBookmarkId, hoveredBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover }
+  return { selectedBookmarkId, setSelectedBookmarkId, hoveredBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover, keyboardNavigation }
 }
 
 let BookmarkPicker = () => {
@@ -2414,7 +2437,7 @@ let BookmarkPicker = () => {
   let [reordering, setReordering] = useState(false)
   let dragSource = useRef<BookmarkDrag | null>(null)
   let [dropTarget, setDropTarget] = useState<BookmarkDrop | null>(null)
-  let { setSelectedBookmarkId, hoveredBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover } = useBookmarkPreview(list, () => !!dragSource.current)
+  let { setSelectedBookmarkId, hoveredBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover, keyboardNavigation } = useBookmarkPreview(list, () => !!dragSource.current)
   let groups: { profile: Profile; bookmarks: Bookmark[] }[] = []
   let activate = async (bookmark: Bookmark, profileId: string, sameTab = false) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
@@ -2430,7 +2453,7 @@ let BookmarkPicker = () => {
     let group = groups.find(item => item.profile.id === target.dataset.bookmarkProfile)
     let bookmark = findBookmark(group?.bookmarks ?? [], target.dataset.bookmarkId ?? '')
     if (bookmark && group) void activate(bookmark, group.profile.id, sameTab)
-  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) })
+  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) }, keyboardNavigation)
   useEffect(() => {
     let selected = [...(ref.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? [])].find(row => bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') === bookmarkSelections[profile?.id ?? ''])
     if (selected?.getClientRects().length && !selected.hasAttribute('aria-disabled')) selected.focus({ preventScroll: true })
@@ -2551,12 +2574,25 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
 let BookmarkSettingsIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg>
 let BookmarkDepthContext = createContext(0)
 let BookmarkOpenIcon = ({ sameTab = false }: { sameTab?: boolean }) => <svg viewBox="0 0 16 16" aria-hidden="true">{sameTab ? <path d="M3 8h10m-4-4 4 4-4 4" /> : <><path d="M9 3h4v4m0-4-7 7" /><path d="M7 3H3v10h10V9" /></>}</svg>
+let BookmarkOpenButton = ({ label, tooltip, disabled = false, sameTab = false, onClick }: { label: string; tooltip: string; disabled?: boolean; sameTab?: boolean; onClick: () => void }) => {
+  let tooltipId = useId(), button = useRef<HTMLButtonElement>(null), hint = useRef<HTMLSpanElement>(null)
+  let [visible, setVisible] = useState(false)
+  let show = () => setVisible(true), hide = () => setVisible(false)
+  useLayoutEffect(() => {
+    if (!visible || !button.current || !hint.current) return
+    let bounds = button.current.getBoundingClientRect(), size = hint.current.getBoundingClientRect()
+    hint.current.style.left = `${Math.max(8, Math.min(bounds.right - size.width, innerWidth - size.width - 8))}px`
+    hint.current.style.top = `${Math.max(8, bounds.top - size.height - 4)}px`
+  }, [visible, tooltip])
+  return <><button ref={button} type="button" data-picker-action className={css.bookmarkOpen} aria-label={label} aria-describedby={visible ? tooltipId : undefined} disabled={disabled} onClick={onClick} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}><BookmarkOpenIcon sameTab={sameTab} /></button>{visible && createPortal(<span ref={hint} id={tooltipId} className={css.bookmarkOpenTooltip} role="tooltip">{tooltip}</span>, document.body)}</>
+}
 let BookmarkOpenButtons = ({ bookmark, profileId, sameTabEnabled, open }: { bookmark: Bookmark; profileId: string; sameTabEnabled: boolean; open?: (sameTab: boolean) => void }) => {
   let { activate } = useContext(BookmarkExpansionContext)!
   let sameTab = () => open ? open(true) : activate(bookmark, profileId, true)
   let newTab = () => open ? open(false) : activate(bookmark, profileId)
   let title = open ? '' : ` ${bookmark.title || bookmark.url}`
-  return <><button type="button" data-picker-action className={css.bookmarkOpen} aria-label={`Open${title} in same tab`} title={sameTabEnabled ? 'Open in same tab (o)' : 'Same tab requires the current profile'} disabled={!sameTabEnabled} onClick={sameTab}><BookmarkOpenIcon sameTab /></button><button type="button" data-picker-action className={css.bookmarkOpen} aria-label={`Open${title} in new tab`} title="Open in new window (Shift+O)" onClick={newTab}><BookmarkOpenIcon /></button></>
+  let sameTabTooltip = sameTabEnabled ? 'Open in same tab (o)' : 'Open in same tab (o): requires the current profile'
+  return <><BookmarkOpenButton label={`Open${title} in same tab`} tooltip={sameTabTooltip} disabled={!sameTabEnabled} sameTab onClick={sameTab} /><BookmarkOpenButton label={`Open${title} in new tab`} tooltip="Open in new window (Shift+O)" onClick={newTab} /></>
 }
 let BookmarkSettings = ({ bookmark, profileId }: { bookmark: Bookmark; profileId: string }) => {
   let { state, run } = useUI()

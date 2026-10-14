@@ -84,7 +84,7 @@ test('bookmark plugin previews keep the panel and rows stationary and scroll ind
     let tall = dialog.locator(`div[data-bookmark-id="${bookmark}"]`), short = dialog.locator(`div[data-bookmark-id="${sibling}"]`), settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
     let geometry = async () => ({ panel: await dialog.boundingBox(), tall: await tall.boundingBox(), short: await short.boundingBox() })
     let before = await geometry()
-    expect(before.panel!.height).toBeGreaterThanOrEqual(520)
+    expect(before.panel!.height).toBeGreaterThanOrEqual(680)
     for (let index = 0; index < 4; index++) {
       await short.hover(); await expect(settings.locator('strong')).toContainText('Plain bookmark')
       await tall.hover(); await expect(settings.getByRole('spinbutton', { name: 'Minimum score', exact: true })).toBeVisible()
@@ -101,6 +101,7 @@ test('bookmark plugin previews keep the panel and rows stationary and scroll ind
       expect(new Set(samples.map(value => JSON.stringify(value))).size).toBe(1)
       expect(samples[0].active).toBe(bookmark)
     }
+    expect(await settings.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     expect(await settings.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
     await settings.getByRole('button', { name: 'Open in new tab', exact: true }).scrollIntoViewIfNeeded()
     expect(await settings.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
@@ -114,6 +115,21 @@ test('bookmark plugin previews keep the panel and rows stationary and scroll ind
     await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
     await rpc('bookmark.remove', { profile, bookmark: sibling })
   }
+})
+
+test('bookmark default view fits the Reddit plugin without horizontal or vertical overflow', async () => {
+  await configure({})
+  await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+  let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+  await command.fill('bookmarks'); await command.press('Enter')
+  let dialog = chrome.getByRole('dialog', { name: 'Bookmarks', exact: true })
+  await dialog.getByRole('textbox', { name: 'Search bookmarks', exact: true }).fill('Reddit search fixture')
+  await dialog.getByRole('button', { name: 'Customize Reddit search fixture', exact: true }).hover()
+  let settings = dialog.getByRole('complementary', { name: 'Bookmark settings' })
+  await expect(settings.getByRole('spinbutton', { name: 'Minimum score', exact: true })).toBeVisible()
+  expect(await settings.evaluate(element => ({ horizontal: element.scrollWidth - element.clientWidth, vertical: element.scrollHeight - element.clientHeight }))).toEqual({ horizontal: 0, vertical: 0 })
+  await fs.mkdir('artifacts', { recursive: true }); await dialog.screenshot({ path: 'artifacts/bookmark-plugin-default-size.png' })
+  await chrome.keyboard.press('Escape')
 })
 
 test('bookmark plugins remain pane-scoped and the overlay toggles and configures them', async () => {
