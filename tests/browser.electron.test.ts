@@ -924,6 +924,10 @@ for (let field of ['tiled URL', 'floating URL', 'window name', 'session name']) 
     await expect.poll(() => application.evaluate(({ clipboard }) => clipboard.readText())).toBe('alpha bravo charlie')
     let modeBounds = (await indicator.boundingBox())!, fieldBounds = (await input.boundingBox())!
     expect(modeBounds.x + modeBounds.width).toBeLessThanOrEqual(fieldBounds.x)
+    if (!field.endsWith('URL')) {
+      let labelBounds = (await controls.locator('label[for="manage"]').boundingBox())!
+      expect(labelBounds.x + labelBounds.width).toBeLessThanOrEqual(modeBounds.x)
+    }
     await input.dblclick({ position: { x: 25, y: 10 } })
     await expect(input).toHaveAttribute('data-vim-mode', 'VISUAL')
     await expect(indicator).toHaveText('VISUAL>')
