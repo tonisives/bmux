@@ -1343,7 +1343,9 @@ for (let fromSearch of [false, true]) test(`bookmark normal-mode o and Shift+O o
 test('bookmark o shortcuts respect mouse priority and leave insert mode and settings editable', async () => {
   await open('bookmarks')
   let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true }), search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
-  await search.fill(''); await search.press('i'); await search.pressSequentially('oO'); await expect(search).toHaveValue('oO')
+  await search.fill(''); await group.locator('summary[data-bookmark-id="work"]').focus(); await chrome.keyboard.press('i')
+  await expect(search).toHaveAttribute('data-vim-mode', 'INSERT')
+  await search.pressSequentially('oO'); await expect(search).toHaveValue('oO')
   await search.fill('search'); await search.hover()
   let first = group.getByRole('button', { name: 'Parameterized search', exact: true }), hovered = group.getByRole('button', { name: 'Search suggestions', exact: true })
   await first.focus(); await hovered.getByRole('button', { name: /^Customize / }).hover(); await expect(hovered).toHaveAttribute('data-active', 'true')
