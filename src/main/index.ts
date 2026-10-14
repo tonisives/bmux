@@ -90,6 +90,11 @@ void app.whenReady().then(async () => {
   runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
   localRemote = createLocalRemote()
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
+  ipcMain.handle('clipboard', (event, text?: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (text !== undefined && typeof text !== 'string') throw new Error('Invalid clipboard text')
+    return runtime!.clipboard(text)
+  })
   ipcMain.handle('state', event => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
@@ -114,15 +119,14 @@ void app.whenReady().then(async () => {
       let pane = workspace.windows.flatMap(window => window.panes).find(item => item.id === client.paneId)
       let profileId = pane?.profileId ?? workspace.defaultProfileId
       localRemote!.preferProfile(profileId)
-      let window = await runtime!.execute({ method: 'new-window', args: { session: workspace.id, profile: profileId, url: localRemote!.origin } }, clientId) as { id: string }
-      await runtime!.createClient(workspace.id, undefined, true, window.id)
+      await runtime!.openRemotePage(clientId, { key: 'sign-in', title: 'Sign in to remote', url: localRemote!.origin })
       return
     }
-    return localRemote!.open(host, session)
+    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page))
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
-  updateMenu = installUpdateMenu({ enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
+  updateMenu = installUpdateMenu({ showMessageDialog: options => runtime!.showMessageDialog(options), enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
   if (process.env.BMUX_REMOTE_CONFIG) remoteHost = startRemoteHost(runtime, dataDirectory, process.env.BMUX_REMOTE_CONFIG)
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))

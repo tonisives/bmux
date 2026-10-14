@@ -248,6 +248,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let remotePicker = local.getByRole('dialog',{name:'Sessions'})
       await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
       await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
+      let windows = (await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)
       await remotePicker.getByRole('button',{name:/main.*remote/}).click()
       await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
       let attached = application!.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
@@ -256,6 +257,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(attached.getByLabel('Remote browser')).toBeVisible()
       await attached.waitForFunction(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames>0,undefined,{timeout:15000})
       await expect(attached.getByRole('button',{name:'Take control'})).toBeVisible()
+      let current = await command('status')
+      expect(current.model.sessions.find((session: { ephemeral?: boolean }) => session.ephemeral)).toMatchObject({ name: 'remote', ephemeral: true })
+      expect((await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(windows)
+      await attached.getByRole('button',{name:'Close',exact:true}).click()
+      await expect.poll(async () => (await command('status')).model.sessions.some((session: { ephemeral?: boolean }) => session.ephemeral)).toBe(false)
+      expect((await command('status')).model.clients.find((client: { id: string }) => client.id === attachedClient.id).sessionId).toBe(status.model.sessions[0].id)
     },{timeout:40000})
     await test.step('Record successful remote usage once',async()=>{
       await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))

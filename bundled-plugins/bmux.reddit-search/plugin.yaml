@@ -1,0 +1,20 @@
+schema_version: 1
+id: bmux.reddit-search
+name: Reddit search filter
+version: 1.0.0
+bookmark:
+  matches:
+    - 'https://www.reddit.com/search*'
+    - 'https://www.reddit.com/r/*/search*'
+    - 'https://reddit.com/search*'
+    - 'https://reddit.com/r/*/search*'
+    - 'https://old.reddit.com/search*'
+    - 'https://old.reddit.com/r/*/search*'
+  script: ./filter.js
+  controls:
+    - { name: minScore, title: Minimum score, kind: number, default: 2, min: 0, step: 1 }
+    - { name: minComments, title: Minimum comments, kind: number, default: 2, min: 0, step: 1 }
+    - { name: rule, title: Threshold rule, kind: choice, default: Require both minimums, choices: [Require both minimums, Require either minimum] }
+    - { name: duplicatePosts, title: Duplicate posts, kind: boolean, default: true }
+    - { name: duplicateLinks, title: Duplicate links and crossposts, kind: boolean, default: true }
+    - { name: duplicateTitles, title: Duplicate titles, kind: boolean, default: true }

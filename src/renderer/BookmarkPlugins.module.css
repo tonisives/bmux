@@ -1,0 +1,10 @@
+.plugins { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.plugins label { min-width: 0; overflow-wrap: anywhere; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.plugins input, .plugins select, .plugins button { color: #e2e5eb; background: #222831; border: 1px solid #48515e; font: inherit; padding: 3px 5px; }
+.plugins input[type='number'] { width: 70px; }
+.plugins input[type='range'] { width: 100%; min-width: 0; margin: 0; }
+.plugins select { min-width: 0; max-width: 100%; }
+.plugin { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.heading { display: flex; justify-content: space-between; gap: 8px; }
+.heading label { justify-content: flex-start; }
+.control { min-width: 0; display: flex; flex-direction: column; gap: 4px; }

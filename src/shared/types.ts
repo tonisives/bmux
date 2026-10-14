@@ -2,7 +2,7 @@ import type { SiteSecurity } from './site-security'
 import type { SearchApps } from './search-app'
 import type { BrowserToolsState } from './browser-tools'
 import type { KeyboardConfig } from './keyboard'
-import type { PluginInfo, PluginPrompt, PluginRun } from './plugins'
+import type { BookmarkPluginSettings, PluginInfo, PluginPrompt, PluginRun } from './plugins'
 import type { ClickModeSettings, ClickModeState } from './click-mode'
 import type { AutomationSafetyState } from './automation'
 export type StatusBarPosition = 'top' | 'bottom'
@@ -20,12 +20,12 @@ export type DevicePreset = 'pixel-8' | 'galaxy-s24' | 'iphone-15-pro' | 'iphone-
 export type DeviceGeolocation = { latitude: number; longitude: number; accuracy: number }
 export type DevicePersona = { preset: DevicePreset; platform: DevicePlatform; width: number; height: number; deviceScaleFactor: number; orientation: DeviceOrientation; locale: string; timezone: string; geolocation?: DeviceGeolocation }
 export type Profile = { id: string; name: string; background: boolean; proxy?: ProfileProxy; connectionId?: string; connections?: ProfileConnection[]; device?: DevicePersona; bookmarks?: Bookmark[]; history?: HistoryEntry[]; braveSource?: { root: string; directory: string } }
-export type Pane = { lastActivityAt?: number; id: string; profileId: string; agentId?: string; connectionId?: string; url: string; title: string; zoom: number; device?: DevicePersona; openerPaneId?: string; backToOpener?: boolean; keepAlive?: boolean; adblock?: boolean }
+export type Pane = { bookmarkSource?: { profileId: string; bookmarkId: string }; lastActivityAt?: number; id: string; profileId: string; agentId?: string; connectionId?: string; url: string; title: string; zoom: number; device?: DevicePersona; openerPaneId?: string; backToOpener?: boolean; keepAlive?: boolean; adblock?: boolean }
 export type Layout = { kind: 'pane'; paneId: string } | { kind: 'split'; id: string; axis: 'horizontal' | 'vertical'; ratio: number; first: Layout; second: Layout }
 export type FloatingPane = { paneId: string; x: number; y: number; width: number; height: number; dock?: { siblingIds: string[]; axis: 'horizontal' | 'vertical'; ratio: number; before: boolean } }
 export type FloatingMemory = { x: number; y: number; width: number; height: number; workspaceWidth: number; workspaceHeight: number }
 export type InternalWindow = { id: string; number?: number; name: string; lastVisitedAt?: number; automaticName?: boolean; pinned?: boolean; layout: Layout | null; panes: Pane[]; floating?: FloatingPane[]; lastFloating?: FloatingMemory }
-export type WorkspaceSession = { id: string; name: string; defaultProfileId: string; device?: DevicePersona; private?: boolean; profileExplicit?: boolean; windows: InternalWindow[] }
+export type WorkspaceSession = { id: string; name: string; defaultProfileId: string; device?: DevicePersona; private?: boolean; ephemeral?: boolean; profileExplicit?: boolean; windows: InternalWindow[] }
 export type Client = { id: string; sessionId: string; sessionHistory?: string[]; windowId: string; windowHistory?: string[]; paneId: string | null; zoomedPaneId?: string | null; width: number; height: number }
 export type SavedLayout = { name: string; window: InternalWindow }
 export type Model = { version: 2; profiles: Profile[]; sessions: WorkspaceSession[]; clients: Client[]; layouts: SavedLayout[]; closedSessionProfiles?: Record<string, string>; newSessionProfileId?: string }
@@ -37,11 +37,14 @@ export type ProfileProxyFailureState = { error: string; failedAt: number }
 export type Snapshot = { image: string; capturedAt: number }
 export type FindResult = { requestId: number; text: string; matches: number; activeMatchOrdinal: number; finalUpdate: boolean }
 export type NavigationStack = { activeIndex: number; entries: { title: string; url: string }[] }
-export type PublicState = { dismissedPermissions?: string[]; automationSafety?: AutomationSafetyState; remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; searchApps?: SearchApps; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; audio: Record<string, { playing: boolean; muted: boolean }>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
+export type MessageDialogOptions = { message: string; detail?: string; buttons?: string[]; defaultId?: number; cancelId?: number }
+export type DialogPrompt = { id: string; message: string; detail?: string; buttons: string[]; defaultId: number; cancelId: number }
+export type PublicState = { bookmarkPlugins?: BookmarkPluginSettings; bookmarkPluginErrors?: Record<string, string>; dialogPrompt?: DialogPrompt; dismissedPermissions?: string[]; automationSafety?: AutomationSafetyState; remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; searchApps?: SearchApps; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; vimEditing?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; audio: Record<string, { playing: boolean; muted: boolean }>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
 export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { paneBounds?: { x: number; y: number; width: number; height: number }; paneId: string; x: number; y: number; width: number; height: number }
 export type RemoteSessionListing = { authenticated: boolean; hosts: { id: string; service: string; sessions: { id: string; name: string; panes: { id: string; title: string }[] }[] }[] }
 export type Bridge = {
+  clipboard: (text?: string) => Promise<string>
   controls: (listener: (control: string) => void) => () => void
   linkPreview: (listener: (url: string) => void) => () => void
   state: () => Promise<PublicState>

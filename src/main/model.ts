@@ -152,6 +152,7 @@ export let cloneWindow = (window: InternalWindow, model?: Model): InternalWindow
     let paneId = model ? nextPaneId(model, paneIds.values()) : id('pane')
     paneIds.set(pane.id, paneId)
     pane.id = paneId
+    delete pane.bookmarkSource
     if (model) pane.connectionId = model.profiles.find(profile => profile.id === pane.profileId)?.connectionId
   }
   for (let pane of copy.panes) if (pane.openerPaneId) pane.openerPaneId = paneIds.get(pane.openerPaneId)
@@ -250,6 +251,7 @@ export let validateModel = (value: unknown): Model => {
     checkId(session.id)
     if (session.device !== undefined) session.device = parseDevicePersona(session.device)
     if (session.private !== undefined && typeof session.private !== 'boolean') throw new Error('Invalid private session setting')
+    if (session.ephemeral !== undefined && typeof session.ephemeral !== 'boolean') throw new Error('Invalid ephemeral session setting')
     if (session.profileExplicit !== undefined && typeof session.profileExplicit !== 'boolean') throw new Error('Invalid explicit profile setting')
     delete (session as WorkspaceSession & { searchApp?: string }).searchApp
     if (!model.profiles.some(profile => profile.id === session.defaultProfileId)) throw new Error('Missing session profile')
@@ -280,6 +282,7 @@ export let validateModel = (value: unknown): Model => {
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
         if (pane.agentId !== undefined && (typeof pane.agentId !== 'string' || !pane.agentId.trim() || pane.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(pane.agentId))) throw new Error('Invalid pane agent identifier')
+        if (pane.bookmarkSource !== undefined && (!pane.bookmarkSource || typeof pane.bookmarkSource.profileId !== 'string' || typeof pane.bookmarkSource.bookmarkId !== 'string' || pane.bookmarkSource.profileId !== pane.profileId)) throw new Error('Invalid bookmark source')
         if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.backToOpener !== undefined && typeof pane.backToOpener !== 'boolean') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }
     }
@@ -318,14 +321,18 @@ export let repairClientSelections = (model: Model) => {
 export let removeSession = (model: Model, session: WorkspaceSession) => {
   let index = model.sessions.indexOf(session)
   if (index < 0) throw new Error(`Session '${session.id}' not found`)
-  if (!session.private) model.closedSessionProfiles = Object.fromEntries([...Object.entries(model.closedSessionProfiles ?? {}).filter(([name]) => name !== session.name), [session.name, session.defaultProfileId]].slice(-50))
+  if (!session.private && !session.ephemeral) model.closedSessionProfiles = Object.fromEntries([...Object.entries(model.closedSessionProfiles ?? {}).filter(([name]) => name !== session.name), [session.name, session.defaultProfileId]].slice(-50))
   model.sessions = model.sessions.filter(item => item !== session)
   let next = model.sessions.length ? model.sessions[index % model.sessions.length] : newSession('main', session.defaultProfileId, false, model)
   if (!model.sessions.length) model.sessions.push(next)
   for (let client of model.clients.filter(client => client.sessionId === session.id)) {
-    client.sessionId = next.id
-    client.windowId = next.windows[0].id
-    client.paneId = next.windows[0].panes[0]?.id ?? null
+    let previousId = client.sessionHistory?.find(id => model.sessions.some(session => session.id === id))
+    let target = session.ephemeral ? model.sessions.find(session => session.id === previousId) ?? next : next
+    let windowId = session.ephemeral ? client.windowHistory?.find(id => target.windows.some(window => window.id === id)) : undefined
+    let window = target.windows.find(window => window.id === windowId) ?? target.windows[0]
+    client.sessionId = target.id
+    client.windowId = window.id
+    client.paneId = window.panes[0]?.id ?? null
     client.zoomedPaneId = null
   }
   repairClientSelections(model)

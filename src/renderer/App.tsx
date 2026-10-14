@@ -1,4 +1,8 @@
-import { activityLabel, windowVisitTime } from '../shared/pane-activity'
+import { MessageDialog } from './MessageDialog'
+import { VimMode } from './VimMode'
+import { VimCursor } from './VimCursor'
+import { useAddressVim } from './useAddressVim'
+import { activityAge, activityLabel, windowVisitTime } from '../shared/pane-activity'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -8,7 +12,7 @@ import { automationExclusionActive, automationProfileLimits, automationSiteExclu
 import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
@@ -28,6 +32,7 @@ import { backOpener } from '../shared/opener-navigation'
 import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
 import { deduplicateAddressEntries } from '../shared/address-result-deduplication'
 import { deleteWordBackward } from '../shared/text-edit'
+import { BookmarkPlugins } from './BookmarkPlugins'
 import { bookmarkParameterPresentation, editableBookmarkParameters, parameterizedBookmarkUrl } from '../shared/bookmark-parameters'
 import { clampFloat } from '../shared/floating'
 import { DEFAULT_SEARCH_APPS, SEARCH_APPS } from '../shared/search-app'
@@ -45,7 +50,8 @@ type AddressSelection = { start: number; end: number; direction: 'forward' | 'ba
 type Notification = { id: string; text: string; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
-type UIContext = { settingsMemory: Map<string, { initial: unknown; value: unknown }>; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
+type UIContext = { bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -55,11 +61,11 @@ export let App = () => {
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
-  let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useBookmarkMemory()
+  let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
-  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false)
+  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
@@ -70,7 +76,8 @@ export let App = () => {
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
     knownPanes.current = new Set(paneIds)
-    if (next.pluginPrompt) setControl('plugin-dialog')
+    if (next.dialogPrompt) { setControl(null); setHistoryPopup(null) }
+    else if (next.pluginPrompt) setControl('plugin-dialog')
     else setControl(current => current === 'plugin-dialog' ? null : current)
     previous.current = target; setState(next)
   }, [])
@@ -110,21 +117,18 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    previousDialogPrompt.current = !!state.dialogPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
-      if (!cancelled && !control && restoreFocus) void run('focus-page', { client: state.clientId })
+    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
+      if (!cancelled && !control && !state.dialogPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, run])
-  useEffect(() => {
-    let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
-    document.addEventListener('keydown', escape)
-    return () => document.removeEventListener('keydown', escape)
-  }, [dismiss])
+  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, run])
+  useEscapeDismiss(dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
@@ -137,15 +141,25 @@ export let App = () => {
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
-  let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, acknowledgeDownload, acknowledgedDownloads }
-  return <Context.Provider value={context}><div className={css.app} data-status-bar={state.statusBar ?? 'top'}>
+  let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
+  let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
+  return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
     <footer className={css.status} aria-label="Browser status">
       {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
+    {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
+}
+
+let useEscapeDismiss = (dismiss: () => void, blocked: boolean) => {
+  useEffect(() => {
+    let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape' && !blocked) dismiss() }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [dismiss, blocked])
 }
 
 let useIgnoredAutomationWarnings = (state: PublicState | null) => {
@@ -189,13 +203,21 @@ let useAddressTabSwitch = (control: Control | null, clientId: string | undefined
   return () => document.removeEventListener('keydown', switchWindow, true)
 }, [control, clientId, run])
 
+type BookmarkMemory = { allProfiles: boolean; searches: Record<string, string>; selections: Record<string, string>; views: Record<string, BookmarkView> }
 let useBookmarkMemory = () => {
-  let [allBookmarkProfiles, setAllBookmarkProfiles] = useState(false)
-  let [bookmarkSearches, setBookmarkSearches] = useState<Record<string, string>>({})
-  let [bookmarkSelections, setBookmarkSelections] = useState<Record<string, string>>({})
-  let rememberBookmarkSearch = useCallback((profileId: string, query: string) => setBookmarkSearches(current => ({ ...current, [profileId]: query })), [])
-  let rememberBookmarkSelection = useCallback((profileId: string, bookmarkId: string) => setBookmarkSelections(current => ({ ...current, [profileId]: bookmarkId })), [])
-  return { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection }
+  let [memory, setMemory] = useState<BookmarkMemory>(() => {
+    try {
+      let saved = JSON.parse(localStorage.getItem('bookmark-view') ?? 'null')
+      if (saved && typeof saved.allProfiles === 'boolean' && saved.searches && saved.selections && saved.views) return saved
+    } catch { /* Ignore an unreadable saved view. */ }
+    return { allProfiles: false, searches: {}, selections: {}, views: {} }
+  })
+  useEffect(() => { localStorage.setItem('bookmark-view', JSON.stringify(memory)) }, [memory])
+  let setAllBookmarkProfiles = useCallback((allProfiles: boolean) => setMemory(current => ({ ...current, allProfiles })), [])
+  let rememberBookmarkSearch = useCallback((profileId: string, query: string) => setMemory(current => ({ ...current, searches: { ...current.searches, [profileId]: query }, views: { ...current.views, [profileId]: { ...current.views[profileId], scroll: 0 } } })), [])
+  let rememberBookmarkSelection = useCallback((profileId: string, bookmarkId: string) => setMemory(current => ({ ...current, selections: { ...current.selections, [profileId]: bookmarkId } })), [])
+  let rememberBookmarkView = useCallback((profileId: string, view: BookmarkView) => setMemory(current => ({ ...current, views: { ...current.views, [profileId]: { ...current.views[profileId], ...view } } })), [])
+  return { allBookmarkProfiles: memory.allProfiles, setAllBookmarkProfiles, bookmarkSearches: memory.searches, rememberBookmarkSearch, bookmarkSelections: memory.selections, rememberBookmarkSelection, bookmarkViews: memory.views, rememberBookmarkView }
 }
 
 // Keep unfinished settings in this renderer only, including proxy credentials.
@@ -285,9 +307,7 @@ let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
   </svg>
 }
 
-let ProfileDeviceIcon = ({ mobile }: { mobile: boolean }) => mobile
-  ? <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="5" y="1.5" width="8" height="15" rx="1" /><path d="M8 14h2" /></svg>
-  : <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="2" y="3" width="14" height="9" rx="1" /><path d="M6 15h6M9 12v3" /></svg>
+let ProfileDeviceIcon = () => <svg className={css.profileRouteIcon} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="device"><rect x="5" y="1.5" width="8" height="15" rx="1" /><path d="M8 14h2" /></svg>
 
 let ProfileConnectionIcon = ({ proxy, verified = false }: { proxy: boolean; verified?: boolean }) => proxy
   ? <svg className={`${css.profileRouteIcon} ${verified ? css.profileRouteIconVerified : ''}`} viewBox="0 0 18 18" aria-hidden="true" data-profile-route-icon="connection" data-proxy-verified={verified || undefined}><circle cx="4" cy="5" r="1.5" /><circle cx="14" cy="4" r="1.5" /><circle cx="13" cy="14" r="1.5" /><path d="m5.5 5 7-1M5 6.2l7 6.6" /></svg>
@@ -327,7 +347,9 @@ let useWindowDrag = () => {
   let { session } = selection(state)
   let windows = useRef<HTMLDivElement>(null)
   let draggedWindow = useRef<string | null>(null)
+  let grabOffset = useRef(0)
   let committingWindowDrag = useRef(false)
+  let pendingDrop = useRef<{ order: string[]; lefts: Map<string, number>; released: { id: string; left: number } } | null>(null)
   let [drop, setDrop] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
   let windowBounds = (tab: HTMLElement) => {
     let bounds = tab.getBoundingClientRect()
@@ -349,14 +371,27 @@ let useWindowDrag = () => {
     let list = windows.current
     if (!list) return
     let tabs = Array.from(list.querySelectorAll<HTMLElement>('[data-window-id]'))
+    let pending = pendingDrop.current
+    if (pending && tabs.every((tab, index) => tab.dataset.windowId === pending.order[index]) && tabs.length === pending.order.length) {
+      let offsets = tabs.map(tab => {
+        let transform = getComputedStyle(tab).transform
+        let offset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41
+        let left = tab.dataset.windowId === pending.released.id ? pending.released.left : pending.lefts.get(tab.dataset.windowId!)! + offset
+        return { tab, offset: left - windowBounds(tab).left }
+      })
+      committingWindowDrag.current = false; pendingDrop.current = null
+      finishWindowDrag()
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) for (let { tab, offset } of offsets) {
+        if (Math.abs(offset) > .5) tab.animate([{ transform: `translateX(${offset}px)` }, { transform: 'translateX(0px)' }], { duration: 160, easing: 'ease' })
+      }
+      return
+    }
     let source = tabs.find(tab => tab.dataset.windowId === draggedWindow.current)
     let target = tabs.find(tab => tab.dataset.windowId === drop?.id)
     let bounds = new Map(tabs.map(tab => [tab, windowBounds(tab)]))
     let preview = tabs.filter(tab => tab !== source)
     if (source && target && source !== target) preview.splice(preview.indexOf(target) + (drop?.position === 'after' ? 1 : 0), 0, source)
     else preview = tabs
-    // Once the saved order arrives, its layout replaces the preview without a second slide.
-    if (committingWindowDrag.current && preview.every((tab, index) => tab === tabs[index])) delete list.dataset.dragging
     let left = bounds.get(tabs[0])?.left ?? 0
     let gap = parseFloat(getComputedStyle(list).columnGap) || 0
     for (let tab of preview) {
@@ -366,9 +401,12 @@ let useWindowDrag = () => {
     }
   }, [drop, session?.windows])
   let startWindowDrag = (event: DragEvent<HTMLDivElement>) => {
+    if (committingWindowDrag.current) { event.preventDefault(); return }
     let button = (event.target as HTMLElement).closest<HTMLElement>(`.${css.windowSelect}`)
     let id = button?.closest<HTMLElement>('[data-window-id]')?.dataset.windowId
     if (!id) return
+    windows.current!.getAnimations({ subtree: true }).forEach(animation => animation.cancel())
+    grabOffset.current = event.clientX - button!.closest<HTMLElement>('[data-window-id]')!.getBoundingClientRect().left
     draggedWindow.current = id
     windows.current!.dataset.dragging = id
     button!.closest<HTMLElement>('[data-window-id]')!.dataset.dragging = 'true'
@@ -376,26 +414,36 @@ let useWindowDrag = () => {
     event.dataTransfer.setData('text/plain', id)
   }
   let overWindow = (event: DragEvent<HTMLDivElement>) => {
-    if (!draggedWindow.current) return
+    if (!draggedWindow.current || committingWindowDrag.current) return
     let target = dropAt(event)
-    if (!target || target.id === draggedWindow.current) { setDrop(null); return }
+    if (!target) { setDrop(null); return }
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
+    if (target.id === draggedWindow.current) { setDrop(null); return }
     setDrop(current => current?.id === target.id && current.position === target.position ? current : target)
   }
   let finishWindowDrag = () => {
     if (committingWindowDrag.current) return
     draggedWindow.current = null; setDrop(null)
+    pendingDrop.current = null
     delete windows.current?.dataset.dragging
     windows.current?.querySelectorAll<HTMLElement>('[data-window-id]').forEach(tab => { delete tab.dataset.dragging; tab.style.removeProperty('--tab-drag-offset') })
   }
   let dropWindow = async (event: DragEvent<HTMLDivElement>) => {
+    if (committingWindowDrag.current) return
     let source = draggedWindow.current, target = dropAt(event)
-    if (!source || !target || source === target.id) { finishWindowDrag(); return }
+    if (!source || !target) { finishWindowDrag(); return }
     event.preventDefault()
+    let tabs = Array.from(windows.current!.querySelectorAll<HTMLElement>('[data-window-id]'))
+    let order = tabs.map(tab => tab.dataset.windowId!)
+    if (source !== target.id) { order = order.filter(id => id !== source); order.splice(order.indexOf(target.id) + (target.position === 'after' ? 1 : 0), 0, source) }
+    let pinned = new Set(session!.windows.filter(window => window.pinned).map(window => window.id))
+    order.sort((first, second) => Number(pinned.has(second)) - Number(pinned.has(first)))
+    pendingDrop.current = { order, lefts: new Map(tabs.map(tab => [tab.dataset.windowId!, windowBounds(tab).left])), released: { id: source, left: event.clientX - grabOffset.current } }
     committingWindowDrag.current = true
-    try { await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position }) }
-    finally { committingWindowDrag.current = false; finishWindowDrag() }
+    setDrop(target)
+    let result = await run('reorder-window', { client: state.clientId, window: source, target: target.id, position: target.position })
+    if (result === undefined) { committingWindowDrag.current = false; finishWindowDrag() }
   }
   return { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
 }
@@ -447,7 +495,7 @@ let Status = () => {
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} />)}</div>
-    <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab"><svg className={css.newTabIcon} viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M2 7h10" /></svg></button>
+    <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
@@ -455,6 +503,12 @@ let Status = () => {
     <button onClick={extensions} aria-label="Extensions" title="Extensions" className={css.extensionsButton}><ExtensionsIcon /></button>
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
+}
+let PageIcon = ({ paneId }: { paneId?: string }) => {
+  let { state } = useUI()
+  if (paneId && state.loading[paneId]) return <span className={css.tabSpinner} aria-hidden="true" data-tab-loading />
+  if (paneId && state.favicons[paneId]) return <img className={css.tabFavicon} src={state.favicons[paneId]} alt="" />
+  return <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>
 }
 let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: number; active: boolean }) => {
   let { state, run } = useUI()
@@ -488,7 +542,7 @@ let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: 
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : undefined} title={window.name} draggable>
-      {tabId && state.loading[tabId] ? <span className={css.tabSpinner} aria-hidden="true" data-tab-loading /> : tabId && state.favicons[tabId] ? <img className={css.tabFavicon} src={state.favicons[tabId]} alt="" /> : <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>}
+      <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
     </button>
     {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
@@ -615,15 +669,16 @@ let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, lis
   }, [form, list, visible, statusBar])
 }
 
-let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: number, takeSelection: () => AddressSelection | undefined) => {
+let useAddressFocus = (ref: RefObject<HTMLInputElement | null>, focusVersion: number, takeSelection: () => AddressSelection | undefined, vimEnabled: boolean) => {
   useEffect(() => {
     let input = ref.current
     if (!input) return
     input.focus()
     let selection = takeSelection()
     if (selection) input.setSelectionRange(selection.start, selection.end, selection.direction)
+    else if (vimEnabled) input.setSelectionRange(0, 0)
     else input.select()
-  }, [focusVersion, ref, takeSelection])
+  }, [focusVersion, ref, takeSelection, vimEnabled])
 }
 
 let useAddressSelectionFocus = () => {
@@ -677,6 +732,14 @@ let useDismissAddressOnOutsideClick = (form: RefObject<HTMLFormElement | null>, 
   }, [form, list, dismiss, finish])
 }
 
+let useOpenAddressBookmark = (finish: () => void) => {
+  let { state, run } = useUI(), { profile, client, tab } = selection(state)
+  return async (bookmarkId: string) => {
+    let result = await run('bookmark.open', { bookmark: bookmarkId, profile: profile!.id, tab: tab?.id, session: client!.sessionId, client: client!.id })
+    if (result !== undefined) finish()
+  }
+}
+
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile } = selection(state)
@@ -691,9 +754,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let selectionFocus = useAddressSelectionFocus()
   let selectAddress = useAddressSelection()
   let deleting = useRef(false)
-  let mounted = useRef(true)
+  let [suggestionsHidden, setSuggestionsHidden] = useState(false), mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useAddressFocus(ref, addressFocusVersion, takeSelection)
+  useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
   let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean) ?? searchUrlDestination(query, [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
   let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : ''
@@ -703,9 +766,9 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = deduplicateAddressEntries(prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url), [...preferredUrls, ...bookmarks])
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
-  let results = [
+  let results = suggestionsHidden ? [] : [
     ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
-    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url! })),
+    ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url!, bookmarkId: bookmark.id })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
   ]
@@ -724,6 +787,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
+    setSuggestionsHidden(deletion); if (deletion) vim.reset('INSERT')
     let completion = deletion ? undefined : profileHistory.map(entry => baseUrlCompletion(value, entry.url) ?? inlineUrlCompletion(value, entry.url)).find(Boolean)
     setQuery(value); setIndex(-1); setPreferRoot(!deletion); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
@@ -743,17 +807,17 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     if (result === undefined) { if (!tab && !pane) onMessage('Create a pane first'); return }
     finish()
   }
-  let submit = (event: FormEvent) => { event.preventDefault(); if (selectedResult?.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { if (event.currentTarget.dataset.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(event.currentTarget.dataset.value!) }
+  let chooseBookmark = useOpenAddressBookmark(finish), submit = (event: FormEvent) => { event.preventDefault(); if (selectedResult && 'bookmarkId' in selectedResult && selectedResult.bookmarkId) { void chooseBookmark(selectedResult.bookmarkId); return }; if (selectedResult?.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(selectedResult?.value ?? inlineUrl?.url ?? text) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { let result = results.find(result => result.kind === 'bookmark' && result.value === event.currentTarget.dataset.value); if (result && 'bookmarkId' in result && result.bookmarkId) { void chooseBookmark(result.bookmarkId); return }; if (event.currentTarget.dataset.kind === 'more') { setExpandedHistory(true); setIndex(-1); return }; void navigate(event.currentTarget.dataset.value!) }
   let removeHistory = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     let url = event.currentTarget.dataset.value!
     if (inlineUrl?.url === url) { setInlineUrl(undefined); setText(query) }
-    setIndex(-1); void run('history.remove', { profile: profile!.id, url })
-    ref.current?.focus()
+    setIndex(-1); void run('history.remove', { profile: profile!.id, url }); ref.current?.focus()
   }
+  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false, ref, finish)
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return
+    if (vim.keys(event) || event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
       event.preventDefault()
       let input = event.currentTarget
@@ -771,9 +835,8 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
       event.preventDefault()
       if (results.length) setIndex(selectedIndex < 0 ? (event.key === 'ArrowDown' ? 0 : results.length - 1) : (selectedIndex + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length)
     }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
-  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}><div className={css.addressInput}><input id="prompt" ref={ref} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /></div>{(message || inlineUrl || selectedResult?.value) && <span className={message ? css.error : undefined} role="status">{message || 'Enter opens · Backspace searches'}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}>{vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={css.addressInput}><input id="prompt" ref={ref} data-vim-mode={vim.mode} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onMouseUp={vim.select} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /><VimCursor input={ref} mode={vim.mode} value={previewText} /></div>{message && <span className={css.error} role="status">{message}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
     {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
@@ -819,12 +882,19 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let { state, run, dismiss } = useUI()
   let { client, session, window, pane } = selection(state)
   let closingPane = mode === 'close-pane', closingWindow = mode === 'close-window', closing = closingPane || closingWindow
+  let ref = useRef<HTMLInputElement>(null)
+  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false, ref, () => finish())
   let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : mode === 'move-window' ? String(session!.windows.indexOf(window!) + 1) : window!.name)
   let [busy, setBusy] = useState(false)
-  let ref = useRef<HTMLInputElement>(null)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
+  useEffect(() => {
+    let input = ref.current
+    if (!input) return
+    input.focus()
+    if (renaming && vim.enabled) input.setSelectionRange(0, 0)
+    else input.select()
+  }, [])
   let finish = () => { dismiss(); void run('focus-page', { client: client!.id }) }
   let apply = async () => {
     if (busy) return
@@ -835,13 +905,15 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
     if (result !== undefined) finish()
   }
   let submit = (event: FormEvent) => { event.preventDefault(); if (closing ? text.toLowerCase() === 'y' : text.trim()) void apply() }
-  let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { if (renaming && (event.nativeEvent as InputEvent).inputType?.startsWith('delete')) vim.reset('INSERT'); setText(event.target.value) }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (renaming && vim.keys(event)) return
     if (event.key === 'Escape' || (closing && event.key.toLowerCase() === 'n')) { event.preventDefault(); finish(); return }
     if (closing && event.key.toLowerCase() === 'y') { event.preventDefault(); void apply() }
   }
+  let selectName = renaming ? vim.select : undefined
   let label = closingPane ? 'Close pane? (y/n)' : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : mode === 'move-window' ? 'Move window to index' : 'Rename window'
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label><input id="manage" ref={ref} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || 'esc'}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label>{renaming && vim.enabled && <VimMode mode={vim.mode} label="Name editing mode" />}<div className={css.addressInput}><input id="manage" ref={ref} data-vim-mode={renaming ? vim.mode : undefined} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} onMouseUp={selectName} autoComplete="off" spellCheck={false} readOnly={busy} />{renaming && <VimCursor input={ref} mode={vim.mode} value={text} />}</div><span className={message ? css.error : undefined} role="status">{message || (renaming ? '' : 'esc')}</span>{renaming && <CloseButton label="Cancel rename" onClick={finish} />}<button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
 let EmptyPane = ({ paneId }: { paneId?: string }) => {
@@ -1003,7 +1075,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
       {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
       {paneId && <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>}
     </div>
-    {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && <ProfileDeviceIcon mobile={!!pane?.device} />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
+    {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && pane?.device && <ProfileDeviceIcon />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
   </div>
 }
@@ -1079,7 +1151,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
     {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>
 }
@@ -1091,7 +1163,7 @@ let Panel = ({ type }: { type: Control }) => {
   let sessionPicker = type === 'sessions' || type === 'remote-sessions'
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
+  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
       <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
@@ -1294,16 +1366,16 @@ let PluginDialog = () => {
     {request.kind === 'pick' && !items.length && <p>No matching items.</p>}
   </form>}</>
 }
-let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initialQuery = '', onQueryChange?: (query: string) => void, clearOnEscape = true) => {
+let usePickerNavigation = (onMetaEnter?: (row: HTMLElement) => void, initialQuery = '', onQueryChange?: (query: string) => void, clearOnEscape = true, rowSelector = 'button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])', activateRow = (row: HTMLElement) => row.click(), searchRowSelector = rowSelector) => {
   let [query, setCurrentQuery] = useState(initialQuery)
   let setQuery = (value: string) => { setCurrentQuery(value); onQueryChange?.(value) }
   let ref = useRef<HTMLDivElement>(null)
   let input = useRef<HTMLInputElement>(null)
-  useEffect(() => { (ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]') ?? input.current)?.focus() }, [])
+  useEffect(() => { (ref.current?.querySelector<HTMLElement>('[data-active="true"]') ?? input.current)?.focus() }, [])
   useEffect(() => {
     let picker = ref.current
     let updateSelection = () => {
-      let rows = picker?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])')
+      let rows = picker?.querySelectorAll<HTMLElement>(rowSelector)
       rows?.forEach((row, index) => { row.dataset.searchSelected = String(!!query && document.activeElement === input.current && index === 0) })
     }
     picker?.addEventListener('focusin', updateSelection)
@@ -1315,7 +1387,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     if (event.nativeEvent.isComposing || event.altKey) return
     if (event.target instanceof HTMLElement && event.target !== input.current && event.target.closest('input, [data-picker-action]')) return
     let editing = event.target === input.current
-    let rows = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([aria-disabled="true"]):not([data-picker-action])')].filter(row => row.getClientRects().length)
+    let rows = [...ref.current!.querySelectorAll<HTMLElement>(editing && query ? searchRowSelector : rowSelector)].filter(row => row.getClientRects().length && !row.closest('details:not([open]) > :not(summary)'))
     if (event.key === 'Enter' && event.metaKey && onMetaEnter) {
       event.preventDefault()
       let selected = rows.find(row => row === document.activeElement) ?? rows[0]
@@ -1326,7 +1398,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     if (event.key === 'Escape' && query && clearOnEscape) { event.preventDefault(); event.stopPropagation(); setQuery(''); input.current?.focus(); return }
     if (event.key === '/' && !editing) { event.preventDefault(); input.current?.focus(); input.current?.select(); return }
     if (!editing && event.key.length === 1 && event.key !== ' ') { event.preventDefault(); setQuery(query + event.key); input.current?.focus(); return }
-    if (editing && event.key === 'Enter') { event.preventDefault(); rows[0]?.click(); return }
+    if (editing && event.key === 'Enter') { event.preventDefault(); if (rows[0]) activateRow(rows[0]); return }
     if (editing && ['Home', 'End'].includes(event.key)) return
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
     event.preventDefault()
@@ -1335,7 +1407,7 @@ let usePickerNavigation = (onMetaEnter?: (row: HTMLButtonElement) => void, initi
     let arrow = event.key === 'ArrowUp' || event.key === 'ArrowDown'
     let nextIndex = arrow && rows.length ? (next + rows.length) % rows.length : Math.max(0, Math.min(rows.length - 1, next)), row = rows[nextIndex]
     row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
-    let panel = ref.current?.querySelector<HTMLElement>('[data-session-list]') ?? ref.current?.closest<HTMLElement>('[role="dialog"]')
+    let panel = ref.current?.querySelector<HTMLElement>('[data-session-list], [data-bookmark-scroll]') ?? ref.current?.closest<HTMLElement>('[role="dialog"]')
     if (panel && nextIndex === 0) panel.scrollTop = 0
     else if (panel && nextIndex === rows.length - 1) panel.scrollTop = panel.scrollHeight
   }
@@ -1515,12 +1587,11 @@ let SessionTree = ({ result: { session, windows, matched }, now, query }: { resu
 let RemoteSessionPicker = () => {
   let { dismiss, onMessage } = useUI()
   let [remote, setRemote] = useState<RemoteSessionListing>()
-  let [waitingForSignIn, setWaitingForSignIn] = useState(false)
   let [openingSignIn, setOpeningSignIn] = useState(false)
   let { ref, keys, input, query, change } = usePickerNavigation()
   useEffect(() => {
     let active = true
-    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) { setRemote(listing); if (listing.authenticated) setWaitingForSignIn(false) } }).catch(() => { if (active) setRemote(undefined) }) }
+    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
     refresh()
     let timer = setInterval(refresh, 2000)
     return () => { active = false; clearInterval(timer) }
@@ -1529,14 +1600,13 @@ let RemoteSessionPicker = () => {
   let openRemote = (host?: string, session?: string) => { void bridge.openRemote(host, session).then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let signIn = () => {
     if (openingSignIn) return
-    setOpeningSignIn(true); setWaitingForSignIn(true)
-    void bridge.openRemote().catch(error => { setWaitingForSignIn(false); onMessage(error instanceof Error ? error.message : String(error)) }).finally(() => setOpeningSignIn(false))
+    setOpeningSignIn(true)
+    void bridge.openRemote().then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))).finally(() => setOpeningSignIn(false))
   }
   return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose remote session">
     <SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} />
     {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
-    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>{waitingForSignIn ? 'open sign-in window again' : 'sign in to remote'}</button>}
-    {waitingForSignIn && <p role="status">Waiting for sign-in in the new bmux window…</p>}
+    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
     {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
   </div>
@@ -1590,9 +1660,9 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionBranch} aria-hidden="true" /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       <SessionAudio panes={window.panes} />
-      {visitedAt && <time className={css.sessionWindowActivity} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
+      {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
 }
@@ -2217,37 +2287,186 @@ let BookmarkEditor = () => {
 type BookmarkDrag = { id: string; parentId: string; profileId: string }
 type BookmarkDrop = { id: string; profileId: string; position: 'before' | 'after' }
 let bookmarkKey = (profileId: string, bookmarkId: string) => JSON.stringify([profileId, bookmarkId])
-let BookmarkExpansionContext = createContext<{ canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => void; expandedBookmarkId: string | null; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
+let BookmarkExpansionContext = createContext<{ searching: boolean; canAdd: boolean; reordering: boolean; activate: (bookmark: Bookmark, profileId: string, sameTab?: boolean) => void; expandedBookmarkId: string | null; settingsClosed: boolean; setExpandedBookmarkId: (bookmarkId: string | null) => void; startDrag: (drag: BookmarkDrag) => void; endDrag: () => void; dragOver: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; drop: (event: DragEvent<HTMLElement>, target: BookmarkDrag) => void; dropTarget: BookmarkDrop | null } | null>(null)
+
+let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) => void, initialQuery: string, onQueryChange: (query: string) => void, onNavigate: () => HTMLElement | null) => {
+  let { state, dismiss } = useUI()
+  let { ref, input, query, change, keys } = usePickerNavigation(onActivate, initialQuery, onQueryChange, false, '[data-bookmark-id]:not([aria-disabled="true"])', onActivate, 'div[data-bookmark-id]:not([aria-disabled="true"])')
+  let [count, setCount] = useState(''), [searchFocused, setSearchFocused] = useState(false)
+  let pendingG = useRef(false)
+  let rows = () => [...(ref.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]:not(:disabled):not([aria-disabled="true"])') ?? [])].filter(row => row.getClientRects().length && !row.closest('details:not([open]) > :not(summary)'))
+  useLayoutEffect(() => {
+    let picker = ref.current!
+    let updateNumbers = () => {
+      let items = rows(), selected = items.indexOf(document.activeElement as HTMLElement)
+      if (selected < 0) selected = document.activeElement === input.current ? 0 : items.findIndex(row => row.dataset.active === 'true')
+      let values = new Map(items.map((row, index) => [row.querySelector<HTMLElement>('[data-bookmark-number]'), String(Math.abs(index - Math.max(0, selected)))]))
+      picker.querySelectorAll<HTMLElement>('[data-bookmark-number]').forEach(number => {
+        let value = values.get(number) ?? ''
+        if (number.textContent !== value) number.textContent = value
+      })
+    }
+    let observer = new MutationObserver(changes => {
+      if (changes.some(change => !(change.target instanceof Element) || !change.target.closest('[data-bookmark-number]'))) updateNumbers()
+    })
+    observer.observe(picker, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-disabled'] })
+    picker.addEventListener('focusin', updateNumbers); updateNumbers()
+    return () => { observer.disconnect(); picker.removeEventListener('focusin', updateNumbers) }
+  })
+  let focusRow = (position: number, items = rows()) => {
+    onNavigate()
+    let index = Math.max(0, Math.min(items.length - 1, position)), row = items[index]
+    row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
+  }
+  let move = (direction: number) => {
+    let hovered = onNavigate()
+    let searching = document.activeElement === input.current && !!query
+    let items = rows().filter(row => !searching || row.tagName !== 'SUMMARY'), index = items.indexOf(hovered ?? document.activeElement as HTMLElement)
+    if (searching && !hovered) index = 0
+    focusRow(index + direction, items)
+  }
+  let vim = useAddressVim(move, undefined, 'NORMAL', state.vimEditing !== false, input, dismiss)
+  let focusMode = (event: FocusEvent<HTMLDivElement>) => {
+    setSearchFocused(event.target === input.current)
+    setCount(''); pendingG.current = false
+  }
+  let openKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey || !['o', 'O'].includes(event.key)) return false
+    let row = document.activeElement === input.current ? rows().find(row => row.dataset.active === 'true') ?? rows().find(row => row.tagName !== 'SUMMARY') : (event.target as HTMLElement).closest<HTMLElement>('[data-bookmark-id]')
+    event.preventDefault(); event.stopPropagation(); setCount(''); pendingG.current = false
+    if (row) onActivate(row, event.key === 'o')
+    return true
+  }
+  let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (vim.enabled && vim.mode === 'NORMAL' && !vim.commandPending() && openKey(event)) return
+    if (vim.enabled) vim.keys(event)
+  }
+  let bookmarkKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey) return
+    if (event.metaKey) { keys(event); return }
+    let target = event.target as HTMLElement, editing = target === input.current
+    if (!editing && target.closest('input, textarea, select, [data-picker-action], [role="menu"]')) return
+    if (!editing && openKey(event)) return
+    let row = target.closest<HTMLElement>('[data-bookmark-id]')
+    if (!editing && !event.ctrlKey && row && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onActivate(row); return }
+    if (!editing && !event.ctrlKey && row?.tagName === 'SUMMARY' && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      event.preventDefault()
+      let folder = row.parentElement as HTMLDetailsElement
+      if (folder.open !== (event.key === 'ArrowRight')) row.click()
+      return
+    }
+    if (!editing && !event.ctrlKey && event.key === 'Escape' && (count || pendingG.current)) {
+      event.preventDefault(); event.stopPropagation(); setCount(''); pendingG.current = false; return
+    }
+    if (!editing && !event.ctrlKey && /^\d$/.test(event.key)) { event.preventDefault(); setCount((count + event.key).slice(0, 6)); return }
+    if (!editing && !event.ctrlKey && event.key === 'g') {
+      event.preventDefault()
+      if (pendingG.current) { focusRow(Number(count || 1) - 1); setCount(''); pendingG.current = false } else pendingG.current = true
+      return
+    }
+    pendingG.current = false
+    if (!editing && !event.ctrlKey && event.key === 'G') { event.preventDefault(); focusRow(count ? Number(count) - 1 : rows().length - 1); setCount(''); return }
+    if ((!editing && !event.ctrlKey && ['j', 'k'].includes(event.key)) || (event.ctrlKey && ['n', 'p', 'f', 'b'].includes(event.key))) {
+      event.preventDefault()
+      let direction = ['j', 'n', 'f'].includes(event.key) ? 1 : -1
+      move(direction * (event.ctrlKey ? ['f', 'b'].includes(event.key) ? 10 : 1 : Number(count || 1)))
+      setCount(''); return
+    }
+    if (!editing && !event.ctrlKey && ['i', 'a', '/'].includes(event.key)) {
+      event.preventDefault(); setCount(''); vim.reset('INSERT'); input.current?.focus()
+      if (event.key === '/') input.current?.select()
+      return
+    }
+    if (!editing && !event.ctrlKey && event.key.length === 1 && event.key !== ' ') vim.reset('INSERT')
+    if (!event.ctrlKey && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key) && (!editing || !['Home', 'End'].includes(event.key))) {
+      let hovered = onNavigate()
+      if (hovered && editing) {
+        event.preventDefault()
+        let items = rows().filter(row => !query || row.tagName !== 'SUMMARY'), index = items.indexOf(hovered)
+        let direction = ['ArrowDown', 'PageDown'].includes(event.key) ? 1 : -1
+        let next = index + direction * (event.key.startsWith('Page') ? 10 : 1)
+        focusRow(event.key.startsWith('Arrow') ? (next + items.length) % items.length : next, items)
+        setCount(''); return
+      }
+      hovered?.focus({ preventScroll: true })
+    }
+    setCount(''); keys(event)
+  }
+  return { ref, input, query, change, keys: bookmarkKeys, searchKeys, focusMode, vim, mode: searchFocused ? vim.mode : 'NORMAL', count }
+}
+
+let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () => boolean, rememberSelection: (key: string) => void) => {
+  let [selectedBookmarkId, setSelectedBookmarkId] = useState<string | null>(null)
+  let [hoveredBookmarkId, setHoveredBookmarkId] = useState<string | null>(null)
+  let [settingsClosed, setSettingsClosed] = useState(false)
+  let pointer = useRef<{ x: number; y: number } | null>(null)
+  let lastPointer = useRef<{ x: number; y: number } | null>(null)
+  let keyboardNavigation = () => {
+    let row = [...(list.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === (hoveredBookmarkId ?? selectedBookmarkId))
+    pointer.current = null; setHoveredBookmarkId(null)
+    return row ?? null
+  }
+  let expandedBookmarkId = hoveredBookmarkId ?? selectedBookmarkId
+  let setExpandedBookmarkId = (key: string | null) => {
+    if (key === null) { setSettingsClosed(true); return }
+    setSelectedBookmarkId(key); setSettingsClosed(false)
+  }
+  let hover = (target: Element | null) => {
+    if (list.current?.querySelector('[data-menu-open="true"]') || dragging()) return
+    let row = target?.closest<HTMLElement>('[data-bookmark-id]')
+    if (row && list.current?.contains(row)) {
+      let key = bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '')
+      if (key !== hoveredBookmarkId) {
+        setHoveredBookmarkId(key); setSelectedBookmarkId(key); setSettingsClosed(false); rememberSelection(key)
+        // Keep row navigation in sync without taking focus from search or settings inputs.
+        if (document.activeElement?.matches('[data-bookmark-id]') && list.current.contains(document.activeElement) && row.getAttribute('aria-disabled') !== 'true') row.focus({ preventScroll: true })
+      }
+    } else if (!target?.closest('[aria-label="Bookmark settings"]')) setHoveredBookmarkId(null)
+  }
+  let pointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (lastPointer.current?.x === event.clientX && lastPointer.current?.y === event.clientY) return
+    pointer.current = lastPointer.current = { x: event.clientX, y: event.clientY }; hover(event.target as Element)
+  }
+  let pointerLeave = () => { pointer.current = lastPointer.current = null; if (!list.current?.querySelector('[data-menu-open="true"]')) setHoveredBookmarkId(null) }
+  let updateHover = () => { if (pointer.current) hover(document.elementFromPoint(pointer.current.x, pointer.current.y)) }
+  return { selectedBookmarkId, setSelectedBookmarkId, hoveredBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover, keyboardNavigation }
+}
 
 let BookmarkPicker = () => {
-  let { state, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection } = useUI()
+  let { state, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useUI()
   let { profile, client, session, tab } = selection(state)
-  let [expandedBookmarkId, setExpandedBookmarkId] = useState<string | null>(null)
-  let [pointerMode, setPointerMode] = useState(false)
+  let list = useRef<HTMLDivElement>(null)
   let [reordering, setReordering] = useState(false)
   let dragSource = useRef<BookmarkDrag | null>(null)
   let [dropTarget, setDropTarget] = useState<BookmarkDrop | null>(null)
+  let { setSelectedBookmarkId, setHoveredBookmarkId, settingsClosed, setSettingsClosed, expandedBookmarkId, setExpandedBookmarkId, pointerMove, pointerLeave, updateHover, keyboardNavigation } = useBookmarkPreview(list, () => !!dragSource.current, key => { if (profile) rememberBookmarkSelection(profile.id, key) })
   let groups: { profile: Profile; bookmarks: Bookmark[] }[] = []
-  let activate = async (bookmark: Bookmark, profileId: string, settings?: BookmarkParameters) => {
+  let activate = async (bookmark: Bookmark, profileId: string, sameTab = false) => {
     if (!bookmark.url || !/^(https?:|file:)/i.test(bookmark.url) || !client?.paneId) return
+    if (sameTab && (profileId !== profile?.id || !tab)) return
     if (profile) rememberBookmarkSelection(profile.id, bookmarkKey(profileId, bookmark.id))
-    let url = parameterizedBookmarkUrl(bookmark.url, settings ?? state.bookmarkParameters?.[profileId]?.[bookmark.id])
-    let result = await run('new-window', { session: session?.id, profile: profileId, client: client.id, url })
+    let result = await run('bookmark.open', { session: session?.id, profile: profileId, client: client.id, bookmark: bookmark.id, ...(sameTab ? { tab: tab?.id } : {}) })
     if (result !== undefined) dismiss()
   }
-  let { ref, keys, input, query, change } = usePickerNavigation(row => {
-    let group = groups.find(item => item.profile.id === row.dataset.bookmarkProfile)
-    let bookmark = findBookmark(group?.bookmarks ?? [], row.dataset.bookmarkId ?? '')
-    if (bookmark && group) void activate(bookmark, group.profile.id)
-  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) }, false)
+  let { ref, keys, input, query, change, searchKeys, focusMode, vim, mode, count } = useBookmarkNavigation((row, sameTab) => {
+    let selected = expandedBookmarkId && [...(ref.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]:not([aria-disabled="true"])') ?? [])].find(item => bookmarkKey(item.dataset.bookmarkProfile ?? '', item.dataset.bookmarkId ?? '') === expandedBookmarkId)
+    let target = selected || row
+    if (target.tagName === 'SUMMARY') { if (sameTab === undefined) target.click(); return }
+    let group = groups.find(item => item.profile.id === target.dataset.bookmarkProfile)
+    let bookmark = findBookmark(group?.bookmarks ?? [], target.dataset.bookmarkId ?? '')
+    if (bookmark && group) void activate(bookmark, group.profile.id, sameTab)
+  }, bookmarkSearches[profile?.id ?? ''] ?? '', value => { if (profile) rememberBookmarkSearch(profile.id, value) }, keyboardNavigation)
   useEffect(() => {
-    let selected = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[data-bookmark-id]') ?? [])].find(row => bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') === bookmarkSelections[profile?.id ?? ''])
-    if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }) }
+    let selected = [...(ref.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? [])].find(row => bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') === bookmarkSelections[profile?.id ?? ''])
+    if (selected?.getClientRects().length && !selected.hasAttribute('aria-disabled')) selected.focus({ preventScroll: true })
+    let scroll = bookmarkViews[profile?.id ?? '']?.scroll
+    if (list.current && scroll !== undefined) list.current.scrollTop = scroll
+    else selected?.scrollIntoView({ block: 'nearest' })
   }, [profile?.id])
-  let changeQuery = (event: ChangeEvent<HTMLInputElement>) => { setExpandedBookmarkId(null); change(event) }
+  let changeQuery = (event: ChangeEvent<HTMLInputElement>) => { setSelectedBookmarkId(null); setHoveredBookmarkId(null); setSettingsClosed(false); if (list.current) list.current.scrollTop = 0; change(event) }
   let endDrag = () => { dragSource.current = null; setDropTarget(null) }
   let toggleReordering = () => { endDrag(); setReordering(current => !current) }
-  let changeProfiles = (event: ChangeEvent<HTMLInputElement>) => { setAllBookmarkProfiles(event.target.checked); setExpandedBookmarkId(null); endDrag(); input.current?.focus() }
+  let changeProfiles = (event: ChangeEvent<HTMLInputElement>) => { setAllBookmarkProfiles(event.target.checked); setSelectedBookmarkId(null); setHoveredBookmarkId(null); setSettingsClosed(false); endDrag(); input.current?.focus() }
   let addBookmark = () => show('bookmark')
   let dragPosition = (event: DragEvent<HTMLElement>): BookmarkDrop['position'] => event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2 ? 'before' : 'after'
   let dragOver = (event: DragEvent<HTMLElement>, target: BookmarkDrag) => {
@@ -2267,22 +2486,51 @@ let BookmarkPicker = () => {
     void run('bookmark.move', { profile: source.profileId, bookmark: source.id, target: target.id, position })
   }
   let focus = (event: FocusEvent<HTMLDivElement>) => {
-    let bookmarkId = event.target instanceof HTMLButtonElement ? event.target.dataset.bookmarkId : undefined
-    let key = bookmarkId && event.target instanceof HTMLButtonElement ? bookmarkKey(event.target.dataset.bookmarkProfile ?? '', bookmarkId) : undefined
-    if (profile && key) rememberBookmarkSelection(profile.id, key)
-    if (event.target === input.current || (key && key !== expandedBookmarkId)) setExpandedBookmarkId(null)
+    focusMode(event)
+    let row = event.target.closest<HTMLElement>('[data-bookmark-id]')
+    let key = row ? bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') : null
+    if (key) {
+      setSelectedBookmarkId(key); setSettingsClosed(false)
+      if (profile) rememberBookmarkSelection(profile.id, key)
+    }
+    if (event.target === input.current) {
+      let first = query && ref.current?.querySelector<HTMLElement>('div[data-bookmark-id]:not([aria-disabled="true"])')
+      setSelectedBookmarkId(first ? bookmarkKey(first.dataset.bookmarkProfile ?? '', first.dataset.bookmarkId ?? '') : null); setSettingsClosed(false)
+    }
   }
+  useLayoutEffect(() => {
+    if (document.activeElement !== input.current || !query) return
+    let row = ref.current?.querySelector<HTMLElement>('div[data-bookmark-id]:not([aria-disabled="true"])')
+    setSelectedBookmarkId(row ? bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') : null)
+  }, [query, allBookmarkProfiles])
   let profiles = profile ? [profile, ...(allBookmarkProfiles ? state.model.profiles.filter(item => item.id !== profile.id) : [])] : []
-  groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query) })).filter(group => group.bookmarks.length)
+  groups = profiles.map(item => ({ profile: item, bookmarks: searchBookmarks(item.bookmarks ?? [], query, { preserveOrder: reordering }) })).filter(group => group.bookmarks.length)
   let canAdd = !!tab && /^(https?:|file:)/i.test(tab.url)
   let focusSearch = () => input.current?.focus()
-  return <BookmarkExpansionContext.Provider value={{ canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-bookmark-picker data-pointer-mode={pointerMode} onPointerMove={() => setPointerMode(true)} onKeyDownCapture={() => setPointerMode(false)} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
-    <div className={css.bookmarkToolbar}><SearchInput ref={input} aria-label="Search bookmarks" value={query} onChange={changeQuery} /><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
-    <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
-    {!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}
+  let scroll = () => { if (profile && list.current) rememberBookmarkView(profile.id, { scroll: list.current.scrollTop }); updateHover() }
+  let preview = useRef<string | null>(null)
+  let pages = groups.flatMap(group => flattenBookmarkPages(group.bookmarks).filter(bookmark => /^(https?:|file:)/i.test(bookmark.url ?? '')).map(bookmark => ({ bookmark, profileId: group.profile.id, key: bookmarkKey(group.profile.id, bookmark.id) })))
+  let activePreview = pages.find(item => item.key === expandedBookmarkId)
+  useLayoutEffect(() => { preview.current = null }, [query, allBookmarkProfiles])
+  useLayoutEffect(() => { if (activePreview) preview.current = activePreview.key }, [activePreview?.key])
+  let expanded = !settingsClosed && (activePreview ?? (expandedBookmarkId && pages.find(item => item.key === preview.current)))
+  useLayoutEffect(() => {
+    let panel = ref.current?.closest<HTMLElement>('[role="dialog"]'), results = list.current?.querySelector<HTMLElement>('[data-bookmark-results]')
+    if (!panel || !results || !list.current) return
+    // Search results size the panel; preview content and folder navigation cannot move it under the pointer.
+    let chromeHeight = panel.getBoundingClientRect().height - list.current.getBoundingClientRect().height
+    panel.style.setProperty('--bookmark-panel-height', `${Math.ceil(results.getBoundingClientRect().height + chromeHeight)}px`)
+  }, [query, allBookmarkProfiles])
+  let bookmarks = <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
+  let results = <div data-bookmark-results>{bookmarks}{!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
+  return <BookmarkExpansionContext.Provider value={{ searching: !!query.trim(), canAdd, reordering, activate, expandedBookmarkId, settingsClosed, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} className={css.bookmarkPicker} data-bookmark-picker onPointerMove={pointerMove} onPointerLeave={pointerLeave} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
+    <div className={css.bookmarkToolbar}><VimMode mode={`${mode}${count && ` ${count}`}`} label="Bookmark navigation mode" /><div className={css.bookmarkSearch}><SearchInput ref={input} aria-label="Search bookmarks" data-vim-mode={vim.mode} value={query} onChange={changeQuery} onKeyDown={searchKeys} onMouseUp={vim.select} /><VimCursor input={input} mode={vim.mode} value={query} /></div><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
+    <div className={css.bookmarkColumns} data-settings-open={!!expanded}><div ref={list} className={css.bookmarkList} data-bookmark-scroll onScroll={scroll}>{results}</div>
+    {expanded && <BookmarkSettings key={expanded.key} bookmark={expanded.bookmark} profileId={expanded.profileId} />}</div>
   </div></BookmarkExpansionContext.Provider>
 }
 let BookmarkReorderIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 12V3m-3 3 3-3 3 3M11 4v9m-3-3 3 3 3-3" /></svg>
+let flattenBookmarkPages = (bookmarks: Bookmark[]): Bookmark[] => bookmarks.flatMap(bookmark => bookmark.children ? flattenBookmarkPages(bookmark.children) : [bookmark])
 let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => {
   for (let bookmark of bookmarks) {
     if (bookmark.id === id) return bookmark
@@ -2293,37 +2541,82 @@ let findBookmark = (bookmarks: Bookmark[], id: string): Bookmark | undefined => 
   }
 }
 let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
-  let { state, run, show } = useUI()
-  let { canAdd, reordering, activate, expandedBookmarkId, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
+  let { state, show, bookmarkViews, rememberBookmarkView } = useUI()
+  let { searching, canAdd, reordering, expandedBookmarkId, settingsClosed, setExpandedBookmarkId, dragOver, drop, dropTarget } = useContext(BookmarkExpansionContext)!
   let key = bookmarkKey(profileId, bookmark.id)
   let { editing, menu, menuKeys } = useBookmarkActions()
   let contextMenu = (event: MouseEvent<HTMLElement>) => menu(event, { bookmark, profileId })
   let contextKeys = (event: KeyboardEvent<HTMLElement>) => menuKeys(event, { bookmark, profileId })
   let expanded = expandedBookmarkId === key
-  let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
   let supported = !!bookmark.url && /^(https?:|file:)/i.test(bookmark.url)
-  let parameters = bookmark.url ? editableBookmarkParameters(bookmark.url, settings) : []
-  let visible = parameters.filter(([key]) => !settings.hidden.includes(key))
-  let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
-  let open = async () => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, profileId, settings) }
-  let click = () => { if (supported) void open() }
-  let toggle = () => setExpandedBookmarkId(expanded ? null : key)
-  let update = (key: string, value: string) => setSettings(current => ({ ...current, values: { ...current.values, [key]: value } }))
-  let hide = (key: string) => {
-    let next = { ...settings, hidden: [...settings.hidden, key] }
-    setSettings(next); void persist(next)
-  }
-  let save = () => { void persist(settings) }
+  let toggle = () => setExpandedBookmarkId(key)
   let addToFolder = (event: MouseEvent<HTMLButtonElement>) => { event.preventDefault(); event.stopPropagation(); show('bookmark', undefined, { profileId, folderId: bookmark.id }) }
   let drag = { id: bookmark.id, parentId, profileId }
   let dragProps = { onDragOver: (event: DragEvent<HTMLElement>) => dragOver(event, drag), onDrop: (event: DragEvent<HTMLElement>) => drop(event, drag), 'data-drop-position': dropTarget?.profileId === profileId && dropTarget.id === bookmark.id ? dropTarget.position : undefined }
   let handle = reordering ? <BookmarkDragHandle bookmark={bookmark} profileId={profileId} parentId={parentId} /> : null
-  if (bookmark.children) return <details className={css.folder} open><summary {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}><svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} />)}</div></details>
+  let [folderOpen, setFolderOpen] = useState(() => searching || bookmarkViews[profileId]?.folders?.[bookmark.id] !== false)
+  let saveFolder = (open: boolean) => {
+    setFolderOpen(open)
+    if (!searching) rememberBookmarkView(profileId, { folders: { ...bookmarkViews[profileId]?.folders, [bookmark.id]: open } })
+  }
+  let toggleFolder = (event: React.SyntheticEvent<HTMLDetailsElement>) => { if (event.currentTarget.open !== folderOpen) saveFolder(event.currentTarget.open) }
+  let clickFolder = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); saveFolder(!folderOpen) }
+  let depth = useContext(BookmarkDepthContext)
+  let indentation = <span className={css.bookmarkIndent} aria-hidden="true">{'  '.repeat(depth)}</span>
+  let number = <span className={css.bookmarkNumber} data-bookmark-number aria-hidden="true" />
+  let rowProps = { 'data-bookmark-id': bookmark.id, 'data-bookmark-profile': profileId, 'data-active': expanded, 'aria-label': bookmark.title || bookmark.url || 'Untitled folder' }
+  let canOpenSameTab = selection(state).profile?.id === profileId
+  if (bookmark.children) return <details className={css.folder} open={folderOpen} onToggle={toggleFolder}><summary className={css.bookmarkRow} {...rowProps} aria-expanded={folderOpen} onClick={clickFolder} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{number}{indentation}<svg className={css.folderChevron} data-bookmark-chevron viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>{handle}<BookmarkTitle bookmark={bookmark} profileId={profileId} />{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label={`Bookmark current page in ${bookmark.title || 'Untitled folder'}`} title="Bookmark current page in this folder" onClick={addToFolder}>+</button>}</summary><BookmarkDepthContext.Provider value={depth + 1}><div>{bookmark.children.map(child => <BookmarkRow key={child.id} bookmark={child} profileId={profileId} parentId={bookmark.id} />)}</div></BookmarkDepthContext.Provider></details>
   return <div className={css.bookmarkItem}>
-    <div className={css.bookmarkRow} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{handle}{editing === key ? <BookmarkTitle bookmark={bookmark} profileId={profileId} /> : <button className={css.listRow} data-bookmark-id={bookmark.id} data-bookmark-profile={profileId} data-active={expanded} aria-disabled={!supported || undefined} onClick={click} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></button>}
-      {!!visible.length && <button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded} onClick={toggle} title="Customize URL parameters"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg></button>}
+    <div className={css.bookmarkRow} {...rowProps} role="button" tabIndex={supported ? 0 : -1} aria-disabled={!supported && editing !== key || undefined} {...dragProps} onContextMenu={contextMenu} onKeyDown={contextKeys}>{number}{indentation}{handle}<span className={css.bookmarkLabel} title={supported ? bookmark.url : 'Unsupported URL type'}><BookmarkTitle bookmark={bookmark} profileId={profileId} /></span>
+      {supported && <><button type="button" data-picker-action className={css.bookmarkCustomize} aria-label={`Customize ${bookmark.title || bookmark.url}`} aria-expanded={expanded && !settingsClosed} onClick={toggle} title="Customize bookmark"><BookmarkSettingsIcon /></button><BookmarkOpenButtons bookmark={bookmark} profileId={profileId} sameTabEnabled={canOpenSameTab} /></>}
     </div>
-    {expanded && !!visible.length && <div className={css.bookmarkParameters} aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
+  </div>
+}
+let BookmarkSettingsIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /><circle cx="6" cy="4" r="1.5" /><circle cx="10" cy="8" r="1.5" /><circle cx="5" cy="12" r="1.5" /></svg>
+let BookmarkDepthContext = createContext(0)
+let BookmarkOpenIcon = ({ sameTab = false }: { sameTab?: boolean }) => <svg viewBox="0 0 16 16" aria-hidden="true">{sameTab ? <path d="M3 8h10m-4-4 4 4-4 4" /> : <><path d="M9 3h4v4m0-4-7 7" /><path d="M7 3H3v10h10V9" /></>}</svg>
+let BookmarkOpenButton = ({ label, tooltip, disabled = false, sameTab = false, onClick }: { label: string; tooltip: string; disabled?: boolean; sameTab?: boolean; onClick: () => void }) => {
+  let tooltipId = useId(), button = useRef<HTMLButtonElement>(null), hint = useRef<HTMLSpanElement>(null)
+  let [visible, setVisible] = useState(false)
+  let show = () => setVisible(true), hide = () => setVisible(false)
+  useLayoutEffect(() => {
+    if (!visible || !button.current || !hint.current) return
+    let bounds = button.current.getBoundingClientRect(), size = hint.current.getBoundingClientRect()
+    hint.current.style.left = `${Math.max(8, Math.min(bounds.right - size.width, innerWidth - size.width - 8))}px`
+    hint.current.style.top = `${Math.max(8, bounds.top - size.height - 4)}px`
+  }, [visible, tooltip])
+  return <><button ref={button} type="button" data-picker-action className={css.bookmarkOpen} aria-label={label} aria-describedby={visible ? tooltipId : undefined} disabled={disabled} onClick={onClick} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}><BookmarkOpenIcon sameTab={sameTab} /></button>{visible && createPortal(<span ref={hint} id={tooltipId} className={css.bookmarkOpenTooltip} role="tooltip">{tooltip}</span>, document.body)}</>
+}
+let BookmarkOpenButtons = ({ bookmark, profileId, sameTabEnabled, open }: { bookmark: Bookmark; profileId: string; sameTabEnabled: boolean; open?: (sameTab: boolean) => void }) => {
+  let { activate } = useContext(BookmarkExpansionContext)!
+  let sameTab = () => open ? open(true) : activate(bookmark, profileId, true)
+  let newTab = () => open ? open(false) : activate(bookmark, profileId)
+  let title = open ? '' : ` ${bookmark.title || bookmark.url}`
+  let sameTabTooltip = sameTabEnabled ? 'Open in same tab (o)' : 'Open in same tab (o): requires the current profile'
+  return <><BookmarkOpenButton label={`Open${title} in same tab`} tooltip={sameTabTooltip} disabled={!sameTabEnabled} sameTab onClick={sameTab} /><BookmarkOpenButton label={`Open${title} in new tab`} tooltip="Open in new window (Shift+O)" onClick={newTab} /></>
+}
+let BookmarkSettings = ({ bookmark, profileId }: { bookmark: Bookmark; profileId: string }) => {
+  let { state, run } = useUI()
+  let { activate, setExpandedBookmarkId } = useContext(BookmarkExpansionContext)!
+  let [settings, setSettings] = useState<BookmarkParameters>(() => state.bookmarkParameters?.[profileId]?.[bookmark.id] ?? { values: {}, hidden: [] })
+  let draft = useRef<{ settings: BookmarkParameters; dirty: boolean }>({ settings, dirty: false })
+  useEffect(() => () => { if (draft.current.dirty) void run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...draft.current.settings }) }, [profileId, bookmark.id, run])
+  let parameters = bookmark.url ? editableBookmarkParameters(bookmark.url, settings) : []
+  let visible = parameters.filter(([key]) => !settings.hidden.includes(key))
+  let persist = async (next: BookmarkParameters) => run('bookmark.parameters.update', { profile: profileId, bookmark: bookmark.id, ...next })
+  let open = async (sameTab: boolean) => { if (parameters.length && await persist(settings) === undefined) return; activate(bookmark, profileId, sameTab) }
+  let update = (key: string, value: string) => {
+    let next = { ...settings, values: { ...settings.values, [key]: value } }
+    draft.current = { settings: next, dirty: true }; setSettings(next)
+  }
+  let hide = (key: string) => {
+    let next = { ...settings, hidden: [...settings.hidden, key] }
+    draft.current = { settings: next, dirty: false }; setSettings(next); void persist(next)
+  }
+  let save = () => { draft.current.dirty = false; void persist(settings) }
+  let close = () => setExpandedBookmarkId(null)
+  return <aside className={css.bookmarkParameters} aria-label="Bookmark settings" data-picker-action><div className={css.bookmarkSettingsHeading}><strong>{bookmark.title || bookmark.url}</strong><CloseButton label="Close bookmark settings" onClick={close} /></div><div aria-label="Bookmark URL parameters">{visible.map(([key, initial]) => {
       let value = settings.values[key] ?? initial
       let { label, help } = bookmarkParameterPresentation(bookmark.url!, key)
       let numeric = /^-?\d+(?:\.\d+)?$/.test(initial) && Number.isFinite(Number(initial))
@@ -2333,9 +2626,9 @@ let BookmarkRow = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; prof
       let changeValue = (event: ChangeEvent<HTMLInputElement>) => update(key, event.target.value)
       let remove = () => hide(key)
       return <div className={css.bookmarkParameter} key={key}><label><span title={help ?? label}>{label}</span><input aria-label={label} title={help} type={numeric ? 'number' : 'text'} value={value} step={numeric ? step : undefined} onChange={changeValue} onBlur={save} autoComplete="off" spellCheck={false} /></label>{numeric && <input aria-label={`${label} slider`} title={help} type="range" min={minimum} max={maximum} step={step} value={value} onChange={changeValue} onPointerUp={save} onBlur={save} />}<button type="button" data-picker-action className={css.bookmarkRemoveParameter} aria-label={`Remove ${label} parameter`} title={`Remove ${label} from this bookmark URL`} onClick={remove}>×</button></div>
-    })}<button type="button" data-picker-action className={css.bookmarkOpenCustomized} onClick={click}>Open</button></div>}
-  </div>
+    })}</div><BookmarkPlugins state={state} profileId={profileId} bookmarkId={bookmark.id} url={bookmark.url!} run={run} /><div className={css.bookmarkSettingsFooter}><BookmarkOpenButtons bookmark={bookmark} profileId={profileId} sameTabEnabled={selection(state).profile?.id === profileId} open={open} /></div></aside>
 }
+
 let BookmarkDragHandle = ({ bookmark, profileId, parentId }: { bookmark: Bookmark; profileId: string; parentId: string }) => {
   let { run } = useUI()
   let { startDrag, endDrag } = useContext(BookmarkExpansionContext)!
@@ -2511,6 +2804,7 @@ let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', labe
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
+  { tab: 'general', label: 'Vim editing', section: 'Text editing', keywords: 'URL address rename tabs sessions normal insert motions website fields Ctrl E', target: '[name="vimEditing"]' },
   { tab: 'general', label: 'Allow page inspection', section: 'Accessibility', keywords: 'screen readers', target: '[name="accessibility"]' },
   { tab: 'general', label: 'Default browser', section: 'Default browser', target: '[data-setting-id="default-browser"]' },
   { tab: 'appearance', label: 'Status bar', section: 'Browser layout', keywords: 'top bottom', target: '[name="statusBar"]' },
@@ -2538,6 +2832,10 @@ let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting:
     {(show('[name="searchApps.normal"]') || show('[name="searchApps.private"]')) && <section className={css.settingsGroup} aria-label="Search apps"><h3>Search apps</h3>
       {show('[name="searchApps.normal"]') && <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>}
       {show('[name="searchApps.private"]') && <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>}
+    </section>}
+    {show('[name="vimEditing"]') && <section className={css.settingsGroup} aria-label="Text editing"><h3>Text editing</h3>
+      <label className={css.settingsRow}><span>Vim editing</span><input type="checkbox" name="vimEditing" checked={state.vimEditing !== false} onChange={changeSetting} /></label>
+      <p className={css.settingsHint}>Use Vim motions in URL bars and tab/session names. Click the Vim hint in website text fields to open an editor. Customize the vim-editor shortcut in your keyboard configuration.</p>
     </section>}
     {show('[name="accessibility"]') && <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
       <label className={css.settingsRow}><span>Allow page inspection</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>

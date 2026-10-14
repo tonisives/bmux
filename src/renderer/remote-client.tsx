@@ -7,7 +7,7 @@ import css from './remote-client.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
 type Selection = { origin: string; host: Host; session: string }
-let bridge = (window as unknown as { remoteClient: { selection: () => Promise<Selection>; connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } }).remoteClient
+let bridge = (window as unknown as { remoteClient: { close: () => Promise<void>; selection: () => Promise<Selection>; connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } }).remoteClient
 
 let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
@@ -81,7 +81,7 @@ let App = () => {
     let modifiers = [event.shiftKey && 'shift', event.ctrlKey && 'control', event.altKey && 'alt', event.metaKey && 'meta'].filter(Boolean)
     viewer?.send({ type: 'input', generation: lease?.generation, viewportGeneration: viewport.generation, event: { type: event.type === 'keyup' ? 'keyUp' : event.key.length === 1 && !event.ctrlKey && !event.metaKey ? 'char' : 'keyDown', keyCode, modifiers } })
   }
-  let close = () => window.close()
+  let close = () => { void bridge.close() }
   return <main className={css.app}>
     <header className={css.bar}><strong>{session?.name ?? selection?.host.sessions.find(item => item.id === selection.session)?.name ?? 'Remote session'}</strong><span>{selection?.host.service}</span><button onClick={close}>Close</button></header>
     {error && <p className={css.error} role="status">{error}</p>}

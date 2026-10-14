@@ -1,3 +1,7 @@
+import { VimMode } from './VimMode'
+import { VimCursor } from './VimCursor'
+import vimCss from './VimCursor.module.css'
+import { useAddressVim } from './useAddressVim'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
@@ -13,6 +17,7 @@ export let FloatingPane = () => {
   let [address, setAddress] = useState('')
   let input = useRef<HTMLInputElement>(null)
   let editing = useRef(false)
+  let vim = useAddressVim(undefined, undefined, address ? 'NORMAL' : 'INSERT', state?.vimEditing !== false, input, () => { input.current?.blur(); void run('focus-page') })
   let selectAddress = useAddressSelection()
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
@@ -26,19 +31,27 @@ export let FloatingPane = () => {
   useEffect(() => {
     let unsubscribe = bridge.subscribe(setState)
     void bridge.state().then(setState).catch(error => setError(String(error)))
-    let controls = bridge.controls(control => { if (control === 'address') { editing.current = true; input.current?.focus(); input.current?.select() } })
-    return () => { unsubscribe(); controls() }
+    return unsubscribe
   }, [])
+  useEffect(() => bridge.controls(control => {
+    if (control !== 'address' || !input.current) return
+    editing.current = true
+    vim.reset(input.current.value ? 'NORMAL' : 'INSERT')
+    input.current.focus()
+    if (vim.enabled) input.current.setSelectionRange(0, 0)
+    else input.current.select()
+  }), [vim.enabled])
   useEffect(() => { if (!editing.current) setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? '') }, [tab?.url, tab?.id])
   useEffect(() => {
     if (tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()
   }, [tab?.id])
   let focus = () => {
     editing.current = true
+    vim.reset(input.current?.value ? 'NORMAL' : 'INSERT')
     void run('select-pane', { focus: false }).then(() => run('focus-ui'))
   }
   let blur = () => { editing.current = false }
-  let change = (event: ChangeEvent<HTMLInputElement>) => setAddress(event.target.value)
+  let change = (event: ChangeEvent<HTMLInputElement>) => { if ((event.nativeEvent as InputEvent).inputType?.startsWith('delete')) vim.reset('INSERT'); setAddress(event.target.value) }
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!tab || !address.trim()) return
@@ -47,7 +60,7 @@ export let FloatingPane = () => {
     await run('navigate', { tab: tab.id, url: address.trim() })
     await run('focus-page')
   }
-  let keys = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Escape') { editing.current = false; setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? ''); void run('focus-page') } }
+  let keys = (event: KeyboardEvent<HTMLInputElement>) => { vim.keys(event) }
   let menu = (event: MouseEvent) => { event.preventDefault(); void run('pane.menu') }
   let close = () => { void run('pane.close') }
   let back = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('back', { tab: tab.id, newWindow: event.metaKey }) }
@@ -65,7 +78,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload">↻</button>
       <div className={css.urlBar}>
         {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-        <input ref={input} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} aria-label="Address" placeholder="Enter URL" spellCheck={false} />
+        {vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} onMouseUp={vim.select} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
         <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />

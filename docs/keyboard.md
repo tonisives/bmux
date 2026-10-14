@@ -192,6 +192,39 @@ within its session. From the shell, use `bmux movew -c CLIENT -t 2`.
 ### Conditional shortcuts
 
 The single-letter Vim-style example above is optional, not enabled by default.
+
+In Vim-enabled URL, rename, bookmark search, and website editors, use `f` followed
+by a character to find it forward, or `F` to find it backward. `2f/` finds the
+second slash; `;` repeats the find and `,` reverses its direction. `t`/`T` stop
+one character before the match. These motions also extend Visual selections and
+work with operators such as `df/` or `cF/`. Escape cancels an unfinished find. In URL and rename fields, Escape in Normal
+mode closes the editor; from Insert or Visual mode, press Escape twice.
+
+With **Vim editing** enabled in General settings (`vimEditing: true`), focus a
+website text field and press **Ctrl+E** (the default `vim-editor` shortcut), or
+click its subtle **v** hint with the mouse or click mode. Change the shortcut
+under `keyboard.shortcuts`, for example `Cmd+E: vim-editor` and `Ctrl+E: null`. This works
+with text inputs, textareas, and contenteditable composers, including frames and
+open shadow roots. Password, disabled, and read-only fields keep their native editing.
+
+The editor replaces the field in the page layout; it does not open a popup.
+It uses the field's width and colors, and taller editors move the surrounding
+content down. The editor starts in Normal mode. Use `i` to type, Vim motions and operators to
+edit, and Escape to return from Insert or Visual mode. Escape in Normal mode or
+`:wq`, `zz`, or `ZZ` saves and restores focus to the original field. Edits update
+the original field live, so website character counts and controlled inputs react
+while you type. Cursor and visual selections also follow Vim in regular inputs
+and textareas. `:w` marks the current text as saved without closing; `:q` restores
+the last saved text, or the opening text if you have not used `:w`. The editor
+uses relative line numbers and highlights Visual selections. Editing does not
+submit the website's form, but its normal input handlers and autosave can run.
+
+The original field stays mounted and hidden while editing, then returns when
+you exit. If the page independently changes its text,
+removes the field, or rejects an update, the editor keeps your draft and reports the problem. Rich-text
+editing writes plain text through the browser's editing commands; embedded media
+and formatting are not part of the Vim draft. Custom editors that reject native
+text insertion can still be edited normally.
 Merge it into your existing `keyboard` mapping without replacing unrelated
 preferences. Website shortcuts outside editable fields can still conflict:
 configured bmux bindings take precedence. See the

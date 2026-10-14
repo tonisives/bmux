@@ -38,7 +38,7 @@ export let createPlugins = (options: Options) => {
   let discoveryErrors: PluginInfo[] = [], active = 0, closed = false, scanning = false
   let { socketPath, directory: socketDirectory } = createPluginSocket()
   let connections = new Set<net.Socket>()
-  let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error }): PluginInfo => ({ id: manifest.id, name: manifest.name, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, error, actions: manifest.actions.map(({ id, title, description }) => ({ id, title, description })), proxyProviders: manifest.proxyProviders })).concat(discoveryErrors)
+  let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error }): PluginInfo => ({ id: manifest.id, name: manifest.name, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, error, actions: manifest.actions.map(({ id, title, description }) => ({ id, title, description })), proxyProviders: manifest.proxyProviders, bookmark: manifest.bookmark })).concat(discoveryErrors)
   let publicRuns = () => [...runs.values()].reverse().map(run => ({ ...run.public }))
   let prompt = (clientId: string) => [...runs.values()].find(run => run.context.clientId === clientId && run.pending)?.pending?.prompt
   let kill = (run: Run) => {
@@ -273,5 +273,14 @@ export let createPlugins = (options: Options) => {
     server.close(() => { if (socketDirectory) fs.rmSync(socketDirectory, { recursive: true, force: true }) })
   }
   reload()
-  return { ready, list, runs: publicRuns, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  let bookmarks = () => [...definitions.values()].filter(definition => definition.manifest.bookmark).map(definition => {
+    let contribution = definition.manifest.bookmark!
+    if (!settings[definition.manifest.id]?.enabled) return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Plugin disabled' }
+    try {
+      let script = fs.realpathSync(path.resolve(definition.directory, contribution.script)), root = fs.realpathSync(definition.directory)
+      if (!script.startsWith(`${root}${path.sep}`) || fs.statSync(script).size > 262144) throw new Error('Invalid bookmark script path')
+      return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
+    } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
+  })
+  return { ready, list, bookmarks, runs: publicRuns, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

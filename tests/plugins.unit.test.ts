@@ -60,6 +60,21 @@ describe('plugin definitions', () => {
     expect(() => parsePluginManifest(stringify({ ...manifest, proxy_providers: [{ ...provider, regions: [{ ...provider.regions[0], protocol: 'invalid' }] }] }))).toThrow()
     expect(() => parsePluginManifest(stringify({ ...manifest, proxy_providers: [{ ...provider, regions: [provider.regions[0], provider.regions[0]] }] }))).toThrow()
   })
+  test('publishes bookmark controls and confines scripts to their plugin directory', () => {
+    let { manifest, plugins, directory, writeManifest, settings } = fixture('')
+    let bookmark = { matches: ['https://example.test/*'], script: './page.js', controls: [{ name: 'minimum', title: 'Minimum', kind: 'number', default: 2, min: 0, step: 1 }] }
+    let file = path.join(directory, 'plugins/test/page.js')
+    fs.writeFileSync(file, '() => () => {}')
+    writeManifest({ ...manifest, bookmark }); plugins.reload()
+    expect(plugins.list()[0].bookmark).toEqual(bookmark)
+    expect(plugins.bookmarks()[0].source).toBe('() => () => {}')
+    settings({ test: { enabled: false, hooks: false } })
+    expect(plugins.bookmarks()[0]).toMatchObject({ source: '', error: 'Plugin disabled' })
+    settings({ test: { enabled: true, hooks: false } })
+    fs.unlinkSync(file); fs.writeFileSync(path.join(directory, 'outside.js'), 'outside')
+    fs.symlinkSync(path.join(directory, 'outside.js'), file)
+    expect(plugins.bookmarks()[0]).toMatchObject({ source: '', error: 'Bookmark script unavailable' })
+  })
   test('keeps keyboard bindings valid before a plugin is installed', () => {
     let config = parseConfig('keyboard:\n  shortcuts:\n    Cmd+Shift+L: plugin:experimental.bitwarden/fill\nplugins:\n  experimental.bitwarden:\n    enabled: true\n')
     expect(config.plugins['experimental.bitwarden']).toEqual({ enabled: true, hooks: false })

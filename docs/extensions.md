@@ -54,6 +54,14 @@ Bitwarden registers its passkey scripts only after an account is signed in.
 For the first manual check, sign in with email and master password, unlock the
 vault, reload the website, and choose that website's passkey sign-in option.
 
+If the vault locks while a website still has Bitwarden's passkey hook, clicking
+passkey sign-in opens Bitwarden's unlock window. The current request rejects
+with `NotAllowedError`, allowing the website to offer its normal sign-in flow.
+Unlock Bitwarden and retry passkey sign-in. Background conditional autofill does
+not open a window. Startup checks and opening the unlock window each have a
+five-second bound and return an actionable error if the extension does not respond.
+Existing bmux-managed 2026.6.1 packages receive this compatibility patch when loaded.
+
 If Bitwarden reports "Attempting to use a disconnected port object", disable
 and re-enable it in the affected pane's profile, then reopen its popup. This
 reloads the extension's background process and retains its saved browser storage.

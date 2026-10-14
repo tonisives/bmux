@@ -214,6 +214,7 @@ test('movew opens the index prompt and reorders windows from the finder and CLI'
       await expect.poll(async () => (await windows())[Number(index) - 1].id).toBe(source.id)
     }
     expect((await windows()).find((window: { id: string }) => window.id === source.id).number).toBe(source.number)
+    await expect(chrome.locator(`[data-window-id="${source.id}"]`)).toContainText(`${source.number}:`)
     await rpc('command', { client: client.id, line: `select-window -t ${source.number}` })
     expect((await state()).model.clients.find((item: { id: string }) => item.id === client.id).windowId).toBe(source.id)
     await activate()
@@ -642,9 +643,11 @@ test('pane address shows profile controls for both default and custom profiles',
   let route = chrome.getByRole('button', { name: `Profile: ${customProfile.name}`, exact: true })
   try {
     await expect(route).toBeVisible()
-    await expect(route.locator(':scope > svg')).toHaveCount(2)
+    await expect(route.locator(':scope > svg')).toHaveCount(1)
     await expect(route.locator('[data-profile-avatar]')).toHaveCount(1)
-    await expect(route.locator('[data-profile-route-icon]')).toHaveCount(1)
+    await expect(route.locator('[data-profile-route-icon]')).toHaveCount(0)
+    await rpc('profile.device.set', { pane: (pane as { id: string }).id, profile: customProfile.id, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+    await expect(route.locator('[data-profile-route-icon="device"]')).toHaveCount(1)
   } finally {
     await rpc('kill-pane', { pane: (pane as { id: string }).id, confirm: true })
   }

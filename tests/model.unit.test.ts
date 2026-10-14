@@ -206,6 +206,23 @@ describe('session layouts and persistence', () => {
       expect(JSON.parse(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).version).toBe(2)
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
+  it('keeps ephemeral sessions out of saved state and returns viewers to their previous session on close', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-ephemeral-unit-'))
+    try {
+      let model = initialModel(), previous = newSession('work', model.profiles[1].id), remote = newSession('remote', model.profiles[0].id)
+      remote.ephemeral = true
+      model.sessions.push(previous, remote)
+      model.clients.push({ id: 'viewer', sessionId: remote.id, windowId: remote.windows[0].id, paneId: remote.windows[0].panes[0].id, width: 800, height: 600, sessionHistory: [remote.id, previous.id, model.sessions[0].id] })
+      writeModel(directory, model)
+      let saved = fs.readFileSync(path.join(directory, 'state.json'), 'utf8')
+      expect(saved).not.toContain(remote.id)
+      expect(readModel(directory).sessions.map(session => session.name)).toEqual(['main', 'work'])
+      removeSession(model, remote)
+      expect(model.clients[0].sessionId).toBe(previous.id)
+      expect(model.closedSessionProfiles).toBeUndefined()
+      expect(() => validateModel({ ...model, sessions: [{ ...previous, ephemeral: 'yes' }] })).toThrow('Invalid ephemeral session setting')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('keeps private sessions and their client selections out of saved state', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-private-unit-'))
     try {

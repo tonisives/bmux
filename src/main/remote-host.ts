@@ -34,7 +34,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let send = (value: unknown) => { if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 262144) socket.send(JSON.stringify(value)) }
   let lastSessions = ''
   let advertise = () => {
-    let sessions = runtime.model.sessions.map(session => ({ id: session.id, name: session.name, panes: session.windows.flatMap(window => window.panes.map(pane => ({ id: pane.id, title: pane.title }))) }))
+    let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({ id: session.id, name: session.name, panes: session.windows.flatMap(window => window.panes.map(pane => ({ id: pane.id, title: pane.title }))) }))
     let serialized = JSON.stringify(sessions)
     if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
   }
