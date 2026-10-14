@@ -94,7 +94,7 @@ let parse = () => {
 let parseCommand = () => {
   let targetIndex = argv.findIndex(item => ['-t', '--target'].includes(item))
   let target = targetIndex >= 0 ? argv[targetIndex + 1] : argv.find(item => /^(?:-t|--target)=/.test(item))?.split('=').slice(1).join('=')
-  let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window'].includes(argv[0])
+  let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window', 'renumber-windows'].includes(argv[0])
     || ['move-pane', 'join-pane'].includes(argv[0]) && !argv.some(item => /^--(?:pane|window|destination|x|y)(?:=|$)/.test(item)) && (argv.some(item => /^(?:-s|--source)(?:=|$)/.test(item)) || !target || !/^(?:%\d+|pane_.+)$/.test(target))
   if (movement) {
     let clientIndex = argv.findIndex(item => ['-c', '--client'].includes(item))

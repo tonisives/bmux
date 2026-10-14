@@ -68,7 +68,7 @@ export let resolveWindowTarget = (state: PublicState, target?: unknown) => {
     value = value.slice(separator + 1)
   }
   let window = windowInSession(state, session, value)
-  if (!window && separator < 0) {
+  if (!window && separator < 0 && !/^[1-9]\d*$/.test(value)) {
     let targetSession = indexedTarget(sessions, value, 'Session')
     if (targetSession) return { session: targetSession, window: selectedWindow(state, targetSession) }
   }
@@ -109,7 +109,7 @@ export let windowPositionTarget = (state: PublicState, target: unknown, sourceSe
       if (!session) throw new Error(`Session '${selector}' not found`)
     }
     value = value.slice(separator + 1)
-  } else if (value && !windowInSession(state, session, value)) {
+  } else if (value && !/^(?:[1-9]\d*|first|last)$/.test(value) && !windowInSession(state, session, value)) {
     let targetSession = indexedTarget(state.model.sessions, value, 'Session')
     if (targetSession) { session = targetSession; value = '' }
   }

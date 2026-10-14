@@ -153,6 +153,8 @@ test('window numbers survive movement, pinning, closure, and saved-state restora
   expect(parseCommandLine('select-pane -t :3.0', state).args?.pane).toBe(third.panes[0].id)
   session.windows.splice(session.windows.indexOf(first), 1)
   repairClientSelections(model)
+  expect(() => parseCommandLine('select-window -t 1', state)).toThrow("Window '1' not found")
+  expect(parseCommandLine('movew -t 1', state)).toMatchObject({ method: 'move-window', args: { session: session.id, position: '1' } })
   let restored = validateModel(JSON.parse(JSON.stringify(model)))
   expect(restored.sessions[0].windows.map(window => window.number)).toEqual([2, 3])
   renumberWindows(session)
