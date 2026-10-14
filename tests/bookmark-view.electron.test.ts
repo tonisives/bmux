@@ -39,10 +39,12 @@ test('bookmark viewing position survives app restarts with folders, search, and 
     await group.getByRole('checkbox', { name: 'All profiles' }).check()
     await group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Collapsed folder$/ }).click()
     await expect(group.getByRole('button', { name: 'Hidden child', exact: true })).toBeHidden()
+    await search.hover()
     await group.getByRole('button', { name: 'Reading 10', exact: true }).focus()
     await list.evaluate(element => { element.scrollTop = 160 })
     await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(160)
     await expect.poll(() => chrome.evaluate(id => JSON.parse(localStorage.getItem('bookmark-view')!).views[id]?.scroll, profile.id)).toBe(160)
+    await expect.poll(() => chrome.evaluate(id => JSON.parse(localStorage.getItem('bookmark-view')!).selections[id], profile.id)).toBe(JSON.stringify([profile.id, 'row-10']))
     await closeTestApplication(application!); application = undefined
     await launch(); await open()
     await expect(search).toHaveValue('')
