@@ -6,7 +6,7 @@ Give recurring pages a recognizable title. In the folder chooser, press `/`
 from a folder row to search folders, then use Up/Down and Enter to select one.
 You can create a folder inside the selected folder.
 
-Opening a bookmark preserves the current layout and keeps its original page
+Opening a bookmark in a new window preserves the current layout and keeps its original page
 available. Search, selection, scroll position, collapsed folders, and the All
 profiles preference are remembered locally across app restarts. Search and
 selection are saved per profile. This is not cross-device synchronization.
@@ -65,7 +65,7 @@ not reload live; edit while bmux is closed and restart, unlike keyboard settings
 
 Run `history` to search visited pages by title or URL within the selected profile.
 Select a result with Up/Down and Enter. History replaces the active page; bookmarks
-keep the previous page available. Each profile keeps its 1,000 most recent distinct
+opened in a new window keep the previous page available. Each profile keeps its 1,000 most recent distinct
 history entries. Visits with the same host, path, and page title share one entry even
 when query parameters change. The most recent URL is kept so the result reopens that
 visit. Pages with different titles remain separate. Google Maps records selected

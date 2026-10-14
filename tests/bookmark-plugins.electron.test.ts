@@ -107,7 +107,7 @@ test('bookmark plugin previews keep the panel and rows stationary and scroll ind
     expect(await dialog.locator('[data-bookmark-scroll]').evaluate(element => element.scrollTop)).toBe(0)
     expect(await geometry()).toEqual(before)
     await fs.mkdir('artifacts', { recursive: true }); await dialog.screenshot({ path: 'artifacts/bookmark-plugin-stable-preview.png' })
-    await search.hover(); await settings.getByRole('button', { name: 'Close bookmark settings', exact: true }).click()
+    await tall.focus(); await search.hover(); await settings.getByRole('button', { name: 'Close bookmark settings', exact: true }).click()
     await expect(settings).toHaveCount(0); expect(await geometry()).toEqual(before)
   } finally {
     await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
