@@ -125,7 +125,7 @@ test('bookmark plugins expose settings without URL parameters and support old Re
   await rpc('bookmark.update', { profile, bookmark, title: 'Reddit search fixture' })
   await minimum.press('Tab')
   await expect.poll(async () => (await state()).bookmarkPlugins[profile][bookmark][0].values.minScore).toBe(4)
-  await chrome.getByRole('button', { name: 'Open', exact: true }).click()
+  await chrome.getByRole('button', { name: 'Open in new tab', exact: true }).click()
   await expect(chrome.getByRole('textbox', { name: 'Search bookmarks' })).toHaveCount(0)
   current = await state(); let pane = current.model.clients.find((item: any) => item.id === client).paneId
   await rpc('navigate', { tab: pane, url: `${base}/search?old=1` }); let page = await pageFor(pane)

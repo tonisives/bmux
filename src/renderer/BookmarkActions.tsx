@@ -16,7 +16,7 @@ export let BookmarkActions = ({ children, run, focusSearch }: { children: ReactN
   let finish = () => setEditing(null)
   let menu = (event: MouseEvent<HTMLElement>, target: Target) => {
     event.preventDefault(); event.stopPropagation()
-    let origin = (event.target as HTMLElement).closest<HTMLElement>('button, summary') ?? event.currentTarget
+    let origin = (event.target as HTMLElement).closest<HTMLElement>('[data-bookmark-id], button, summary') ?? event.currentTarget
     setPopup({ ...target, x: event.clientX, y: event.clientY, origin })
   }
   let menuKeys = (event: KeyboardEvent<HTMLElement>, target: Target) => {
