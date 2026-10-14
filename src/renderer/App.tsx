@@ -885,7 +885,7 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let { client, session, window, pane } = selection(state)
   let closingPane = mode === 'close-pane', closingWindow = mode === 'close-window', closing = closingPane || closingWindow
   let ref = useRef<HTMLInputElement>(null)
-  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false, ref)
+  let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false, ref, () => finish())
   let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : mode === 'move-window' ? String(session!.windows.indexOf(window!) + 1) : window!.name)
   let [busy, setBusy] = useState(false)
   let mounted = useRef(true)
@@ -2340,7 +2340,7 @@ let useBookmarkNavigation = (onActivate: (row: HTMLElement, sameTab?: boolean) =
     return true
   }
   let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (vim.enabled && vim.mode === 'NORMAL' && openKey(event)) return
+    if (vim.enabled && vim.mode === 'NORMAL' && !vim.commandPending() && openKey(event)) return
     if (vim.enabled) vim.keys(event)
   }
   let bookmarkKeys = (event: KeyboardEvent<HTMLDivElement>) => {

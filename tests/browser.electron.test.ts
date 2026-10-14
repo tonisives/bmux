@@ -704,24 +704,24 @@ for (let floating of [false, true]) test(`General Vim editing toggle controls UR
     else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await address.press('Meta+A'); await address.pressSequentially('hjkl')
     await expect(address).toHaveValue('hjkl')
-    await address.press('Escape')
     await expect(address).toBeFocused()
     await expect(address).toHaveValue('hjkl')
     expect(await address.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(4)
     await expect(address.locator('xpath=..').locator('[data-vim-cursor]')).toBeHidden()
     await expect(controls.getByLabel('URL editing mode')).toHaveCount(0)
-    if (!floating) await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
+    await address.press('Escape')
+    if (floating) await expect(address).not.toBeFocused()
+    else await expect(address).toHaveCount(0)
     for (let kind of ['window', 'session']) {
       await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
       await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, kind === 'window' ? { keyCode: ',' } : { keyCode: '$', modifiers: ['shift'] }])
       let input = chrome.getByRole('textbox', { name: kind === 'window' ? 'Rename window' : 'Rename session', exact: true })
       await input.pressSequentially('hjkl')
-      await input.press('Escape')
       await expect(input).toHaveValue('hjkl')
       await expect(input).toBeFocused()
       await expect(input.locator('xpath=..').locator('[data-vim-cursor]')).toBeHidden()
       await expect(chrome.getByLabel('Name editing mode')).toHaveCount(0)
-      await chrome.getByRole('button', { name: 'Cancel rename', exact: true }).click()
+      await input.press('Escape'); await expect(input).toHaveCount(0)
     }
     panel = await settings()
     await expect(panel.getByRole('checkbox', { name: 'Vim editing', exact: true })).not.toBeChecked()
@@ -841,6 +841,53 @@ for (let floating of [false, true]) test(`URL Vim mode uses Escape to leave INSE
   } finally { await cli('detach-client', { client: client.id }) }
 })
 
+for (let field of ['tiled URL', 'floating URL', 'window name', 'session name']) test(`Vim character finds and Escape cancellation work in ${field}`, async () => {
+  let session = await cli('new-session', { name: `find-${field}` }), pane = session.windows[0].panes[0]
+  let client = await cli('attach-session', { session: session.id })
+  try {
+    await cli('activate-client', { client: client.id })
+    let chrome = await rendererForClient(client.id), controls = chrome
+    if (field === 'floating URL') {
+      await cli('break-pane', { pane: pane.id, floating: true, client: client.id })
+      await expect.poll(() => application.context().pages().some(page => page.url().endsWith(`#float=${pane.id}`))).toBe(true)
+      controls = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+    } else if (field === 'tiled URL') await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    else {
+      await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
+      await sendNativeKeys(application, [{ keyCode: 'b', modifiers: ['control'] }, field === 'window name' ? { keyCode: ',' } : { keyCode: '$', modifiers: ['shift'] }])
+    }
+    let input = controls.getByRole('textbox', { name: field === 'tiled URL' ? 'URL or search' : field === 'floating URL' ? 'Address' : field === 'window name' ? 'Rename window' : 'Rename session', exact: true })
+    let draft = 'a/v/x/y/o/v/x/y/o'
+    await input.press('i'); await input.fill(draft); await input.press('Escape'); await input.press('0')
+    let selection = () => input.evaluate(element => ({ start: (element as HTMLInputElement).selectionStart, end: (element as HTMLInputElement).selectionEnd, direction: (element as HTMLInputElement).selectionDirection }))
+    await input.press('2'); await input.press('f'); await input.press('/')
+    await expect.poll(selection).toMatchObject({ start: 3, end: 3 })
+    await input.press(';'); await expect.poll(selection).toMatchObject({ start: 5, end: 5 })
+    await input.press(','); await expect.poll(selection).toMatchObject({ start: 3, end: 3 })
+    await input.press('Shift+F'); await input.press('/')
+    await expect.poll(selection).toMatchObject({ start: 1, end: 1 })
+    await input.press('f'); await input.press('Escape')
+    await expect(input).toBeFocused(); await expect(input).toHaveValue(draft)
+    await input.press('0'); await input.press('v'); await input.press('f'); await input.press('v')
+    await expect(input).toHaveAttribute('data-vim-mode', 'VISUAL')
+    await expect.poll(selection).toMatchObject({ start: 0, end: 3, direction: 'forward' })
+    await input.press('f'); await input.press('x'); await expect.poll(selection).toMatchObject({ start: 0, end: 5 })
+    await input.press('f'); await input.press('y'); await expect.poll(selection).toMatchObject({ start: 0, end: 7 })
+    await input.press('f'); await input.press('o'); await expect.poll(selection).toMatchObject({ start: 0, end: 9 })
+    await input.press('Shift+F'); await input.press('v'); await expect.poll(selection).toMatchObject({ start: 0, end: 3 })
+    await expect(input).toHaveValue(draft); await expect(input).toBeFocused()
+    await input.press('Escape'); await expect(input).toHaveAttribute('data-vim-mode', 'NORMAL')
+    await input.press('Escape')
+    if (field === 'floating URL') await expect(input).not.toBeFocused()
+    else await expect(input).toHaveCount(0)
+    if (field === 'window name' || field === 'session name') {
+      let current = await cli('state')
+      let unchanged = current.model.sessions.find((item: any) => item.id === session.id)
+      expect(field === 'window name' ? unchanged.windows[0].name : unchanged.name).toBe(field === 'window name' ? session.windows[0].name : session.name)
+    }
+  } finally { await cli('detach-client', { client: client.id }) }
+})
+
 for (let field of ['tiled URL', 'floating URL', 'window name', 'session name']) test(`mouse selection enters VISUAL and deletion enters INSERT in ${field}`, async () => {
   let session = await cli('new-session', { name: `visual-${field}` }), pane = session.windows[0].panes[0]
   let client = await cli('attach-session', { session: session.id })
@@ -945,7 +992,7 @@ for (let kind of ['window', 'session']) test(`renaming a ${kind} uses Vim motion
     await expect(input).toHaveAttribute('data-vim-mode', 'INSERT')
     await input.press('Escape'); await input.press('u')
     await expect(input).toHaveValue('alpha bravo delta')
-    await input.fill('alpha u U'); await input.press('Escape'); await input.press('0')
+    await input.press('i'); await input.fill('alpha u U'); await input.press('Escape'); await input.press('0')
     await input.press('f'); await input.press('Shift+U')
     expect(await input.evaluate(input => (input as HTMLInputElement).selectionStart)).toBe(8)
     await expect(input).toHaveValue('alpha u U')
@@ -955,7 +1002,7 @@ for (let kind of ['window', 'session']) test(`renaming a ${kind} uses Vim motion
     await expect.poll(async () => { let block = (await cursor.boundingBox())!, field = (await input.boundingBox())!; return block.x >= field.x && block.x + block.width <= field.x + field.width + 1 }).toBe(true)
     await input.press('0')
     await expect(cursor).toHaveText('l')
-    await input.fill('alpha bravo delta')
+    await input.press('i'); await input.fill('alpha bravo delta')
     await input.press('Escape'); await input.press('Enter')
     await expect(input).toHaveCount(0)
     let records = () => cli(kind === 'window' ? 'list-windows' : 'list-sessions', kind === 'window' ? { session: session.id } : {})
@@ -2158,8 +2205,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   let rename = chrome.getByRole('textbox', { name: 'Rename window', exact: true })
   await expect(rename).toHaveValue('temporary')
   await rename.fill('cancelled'); await rename.press('Escape')
-  await expect(rename).toHaveValue('cancelled'); await expect(rename).toBeFocused()
-  await chrome.getByRole('button', { name: 'Cancel rename', exact: true }).click()
+  await expect(rename).toHaveCount(0)
   expect((await cli('list-windows', { session: alpha.id }))[1].name).toBe('temporary')
   await shortcut(',')
   await rename.fill('research "notes"'); await rename.press('Enter')

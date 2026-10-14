@@ -193,6 +193,13 @@ within its session. From the shell, use `bmux movew -c CLIENT -t 2`.
 
 The single-letter Vim-style example above is optional, not enabled by default.
 
+In Vim-enabled URL, rename, bookmark search, and website editors, use `f` followed
+by a character to find it forward, or `F` to find it backward. `2f/` finds the
+second slash; `;` repeats the find and `,` reverses its direction. `t`/`T` stop
+one character before the match. These motions also extend Visual selections and
+work with operators such as `df/` or `cF/`. Escape cancels an unfinished find. In URL and rename fields, Escape in Normal
+mode closes the editor; from Insert or Visual mode, press Escape twice.
+
 With **Vim editing** enabled in General settings (`vimEditing: true`), focus a
 website text field and press **Ctrl+E** (the default `vim-editor` shortcut), or
 click its subtle **v** hint with the mouse or click mode. Change the shortcut
