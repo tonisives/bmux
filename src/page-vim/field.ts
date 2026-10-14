@@ -3,7 +3,11 @@ export type TextField = HTMLInputElement | HTMLTextAreaElement | HTMLElement
 export let textField = (element: Element | null): TextField | undefined => {
   if (!(element instanceof HTMLElement)) return
   if (element instanceof HTMLTextAreaElement) return !element.disabled && !element.readOnly ? element : undefined
-  if (element instanceof HTMLInputElement) return ['text', 'search', 'url', 'tel', 'email'].includes(element.type) && !element.disabled && !element.readOnly ? element : undefined
+  if (element instanceof HTMLInputElement) {
+    // Codes and short structured values need the page's native typing behavior.
+    if (element.maxLength >= 0 && element.maxLength <= 6 || element.autocomplete.split(/\s+/).includes('one-time-code') || ['numeric', 'decimal'].includes(element.inputMode)) return
+    return ['text', 'search', 'url', 'tel', 'email'].includes(element.type) && !element.disabled && !element.readOnly ? element : undefined
+  }
   if (!element.isContentEditable) return
   let field = element
   while (field.parentElement?.isContentEditable) field = field.parentElement

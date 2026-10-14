@@ -310,6 +310,43 @@ test('website Vim yanks share the system clipboard across editors and browser fi
   await ex(editor, 'q')
 })
 
+test('website Vim skips OTP and short fields while preserving native code entry', async () => {
+  await page.evaluate(() => {
+    let fixture = document.createElement('section'); fixture.id = 'otp-fixture'
+    fixture.innerHTML = `<div style="display:flex">${Array.from({ length: 6 }, (_, index) => `<input id="otp-${index}" maxlength="1" style="width:56px">`).join('')}</div><input id="short-code" maxlength="6"><input id="autofill-code" autocomplete="section-login one-time-code"><input id="numeric-code" inputmode="numeric"><input id="decimal-code" inputmode="decimal"><input id="long-text" maxlength="7">`
+    fixture.addEventListener('input', event => {
+      let field = event.target as HTMLInputElement
+      if (field.id.startsWith('otp-') && field.value) (field.nextElementSibling as HTMLInputElement | null)?.focus()
+    })
+    document.body.prepend(fixture)
+  })
+  try {
+    let hints = page.locator('[data-bmux-vim-hints]')
+    await expect(hints.locator('button[aria-controls="long-text"]')).toBeVisible()
+    for (let id of [...Array.from({ length: 6 }, (_, index) => `otp-${index}`), 'short-code', 'autofill-code', 'numeric-code', 'decimal-code']) {
+      await expect(hints.locator(`button[aria-controls="${id}"]`)).toHaveCount(0)
+      let field = page.locator(`#${id}`)
+      await field.click(); await field.press('Meta+e')
+      await expect(page.locator('[data-bmux-vim]')).toHaveCount(0)
+      await expect(field).toBeFocused()
+    }
+    await page.locator('#otp-0').click()
+    await page.keyboard.type('123456')
+    for (let index = 0; index < 6; index++) await expect(page.locator(`#otp-${index}`)).toHaveValue(String(index + 1))
+    let field = page.locator('#long-text'), hint = hints.locator('button[aria-controls="long-text"]')
+    await field.evaluate(element => element.setAttribute('maxlength', '1'))
+    await expect(hint).toHaveCount(0)
+    await field.evaluate(element => element.removeAttribute('maxlength'))
+    await expect(hint).toBeVisible()
+    for (let [attribute, value] of [['autocomplete', 'one-time-code'], ['inputmode', 'numeric']]) {
+      await field.evaluate((element, [attribute, value]) => element.setAttribute(attribute, value), [attribute, value])
+      await expect(hint).toHaveCount(0)
+      await field.evaluate((element, attribute) => element.removeAttribute(attribute), attribute)
+      await expect(hint).toBeVisible()
+    }
+  } finally { await page.locator('#otp-fixture').evaluate(element => element.remove()) }
+})
+
 test('website Vim editor discards drafts, writes controlled React inputs, and exits with Escape', async () => {
   let field = page.locator('#controlled'), { overlay, editor } = await open(field)
   await editor.pressSequentially('gg0cc'); await editor.pressSequentially('discarded'); await editor.press('Escape')

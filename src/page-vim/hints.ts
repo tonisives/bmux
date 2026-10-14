@@ -23,7 +23,7 @@ export let createFieldHints = (open: (field: TextField) => void) => {
       let roots: (Document | ShadowRoot)[] = [document], fields = new Set<TextField>()
       for (let index = 0; index < roots.length; index++) {
         let current = roots[index]
-        observer.observe(current, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'readonly', 'contenteditable', 'aria-disabled', 'aria-readonly', 'hidden', 'class', 'style', 'type'] })
+        observer.observe(current, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'readonly', 'contenteditable', 'aria-disabled', 'aria-readonly', 'hidden', 'class', 'style', 'type', 'maxlength', 'autocomplete', 'inputmode'] })
         for (let element of current.querySelectorAll('*')) {
           if (element.hasAttribute('data-bmux-vim') || element === host) continue
           if (element.shadowRoot) roots.push(element.shadowRoot)
