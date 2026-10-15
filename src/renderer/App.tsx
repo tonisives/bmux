@@ -282,10 +282,10 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
-  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}. Manual browsing is unaffected.`, actions }]
+  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, actions }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let siteHost = automationWebsiteHost(pane?.url)
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()}. Manual browsing is unaffected.`, actions: [
+  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()}.`, actions: [
     ...actions,
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
   ] }]
