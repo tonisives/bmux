@@ -479,3 +479,11 @@ now waits for DOMContentLoaded only when the root is absent. The regression
 asserts no page errors on initial navigation and three reloads, and opens the real
 inline editor after every reload. Website QA retains page errors with their stack
 and URL and attaches each listener once.
+
+The v0.1.10 release check also exposed a packaging fixture deadline: the detached
+installer polls once per second, but Vitest's default `expect.poll` budget is only
+one second. The worker had correctly preserved the running bundle and was still
+waiting to promote it when the assertion expired. The fixture now allows five
+seconds for process discovery, promotion, and staged cleanup, with a fifteen-second
+test deadline. Executable identity, original inode/content, post-exit contents,
+cleanup, and code-signature assertions remain required.

@@ -88,7 +88,7 @@ describe.runIf(process.platform === 'darwin')('packaged app output', () => {
         if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Fixture exited before installation: ${child.exitCode ?? child.signalCode}`)
         let { stdout } = await exec('/bin/ps', ['-p', String(child.pid), '-o', 'comm='])
         return stdout.trim()
-      }).toBe(executable)
+      }, { timeout: 5000 }).toBe(executable)
       let result = await install(root, output)
       expect(result.stdout).toContain('installation will finish after bmux exits')
       expect((await fs.stat(executable)).ino).toBe(original.ino)
@@ -96,11 +96,13 @@ describe.runIf(process.platform === 'darwin')('packaged app output', () => {
       await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', destination])
       child.kill()
       await exited
-      await expect.poll(() => fs.readFile(path.join(destination, 'Contents/Resources/version'), 'utf8')).toBe('new build')
-      await expect.poll(() => fs.readdir(output)).toEqual(['bmux.app'])
+      // The detached installer polls once per second, beyond Vitest's default
+      // one-second assertion budget. Allow its next check and staged cleanup.
+      await expect.poll(() => fs.readFile(path.join(destination, 'Contents/Resources/version'), 'utf8'), { timeout: 5000 }).toBe('new build')
+      await expect.poll(() => fs.readdir(output), { timeout: 5000 }).toEqual(['bmux.app'])
       await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', destination])
     } finally { if (child.exitCode === null && child.signalCode === null) { child.kill(); await exited } }
-  })
+  }, 15000)
 
   test('keeps the bundle when output is already the packaging folder', async () => {
     let { root, source } = await fixture()
