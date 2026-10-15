@@ -2213,7 +2213,7 @@ let ProfileSelectActions = () => {
   let [creating, setCreating] = useState(false), [managing, setManaging] = useState(false)
   let [name, setName] = useState(''), [busy, setBusy] = useState(false)
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
-  let add = () => { setCreating(true); setManaging(false) }
+  let add = () => setCreating(true)
   let cancel = () => { setCreating(false); setName('') }
   let manage = () => { setManaging(!managing); cancel() }
   let change = async (event: ChangeEvent<HTMLSelectElement>) => {
@@ -2231,9 +2231,10 @@ let ProfileSelectActions = () => {
     } finally { setBusy(false) }
   }
   return <>
-    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy}>+</button><button type="button" onClick={manage} aria-expanded={managing} disabled={busy}>Manage</button></div>
+    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><BookmarkSettingsIcon /></button></div>
+    {managing && <div role="group" aria-label="Manage profiles"><div className={css.profileManageHeading}><span>Profiles</span><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy || creating}>+</button></div>
     {creating && <form className={css.sessionCreate} onSubmit={create} aria-label="Create profile"><label>Profile name<input value={name} onChange={changeName} autoFocus disabled={busy} required /></label><div className={css.sessionCreateActions}><button type="submit" disabled={busy || !name.trim()}>Create profile</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form>}
-    {managing && <div role="group" aria-label="Manage profiles">{state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}
+    {state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}
   </>
 }
 
