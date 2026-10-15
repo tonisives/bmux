@@ -30,6 +30,15 @@ for its restarts. Automation guard coverage stays in the dedicated safety suite.
 The serial GUI step has a 30-minute overall budget and its job has 35 minutes;
 individual deadlines, one GUI worker, and zero retries are unchanged.
 
+Traced extension repetitions in Tart found a native macOS crash immediately
+after closing the item window. Electron 44.3.0's matching Breakpad symbols place
+it in `RenderWidgetHostViewBase::OnShowWithPageVisibility`, through
+`BrowserWindow::OnWindowShow` during native close. Playwright 1.63's `Page.close`
+closes the WebContents directly before the owning window finishes closing.
+The fixture now closes its BrowserWindow and waits for the page to close instead.
+Restored-window readiness has a bounded 15-second poll, separate from its
+two-minute test deadline. Crashes still fail through `closeTestApplication`.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:

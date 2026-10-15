@@ -63,10 +63,18 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
   let launch = async () => {
     let installed = process.env.BMUX_TEST_INSTALLED === '1'
     application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
-    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   }
   let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+  let closeWindow = async (page: Page) => {
+    // Page.close destroys WebContents first; macOS can still deliver native
+    // visibility callbacks while its BrowserWindow is closing. Close the owner.
+    let window = await application!.browserWindow(page)
+    await window.evaluate(window => window.close())
+    await expect.poll(() => page.isClosed()).toBe(true)
+    await window.dispose()
+  }
   let clientWindow = () => application!.evaluate(({ BaseWindow }) => {
     let window = BaseWindow.getAllWindows().find(candidate => candidate.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('/renderer/index.html')))
     return window ? { id: window.id, focused: window.isFocused() } : null
@@ -109,7 +117,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
     let toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
     await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
-    await toolbarPopup.close()
+    await closeWindow(toolbarPopup)
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
     let detailsButton = extensionPanel.getByRole('button', { name: 'Details for Fixture extension' })
     await detailsButton.focus()
@@ -126,7 +134,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
     toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
     await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
-    await toolbarPopup.close()
+    await closeWindow(toolbarPopup)
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect(page.frameLocator('iframe').locator('body')).toHaveAttribute('data-ack', 'received')
     expect(await page.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])
@@ -152,7 +160,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(async () => (await clientWindow())?.focused).toBe(true)
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect.poll(() => application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), editWindow.url())).toBe(true)
-    await editWindow.close()
+    await closeWindow(editWindow)
     let currentState = await rpc('state')
     let current = currentState.model.clients.find((client: { id: string }) => client.id === currentState.focusedClientId)
     let nextUrl = url.replace('/fixture', '/appstoreconnect.apple.com/login?targetUrl=%2Fapps')
