@@ -487,3 +487,14 @@ waiting to promote it when the assertion expired. The fixture now allows five
 seconds for process discovery, promotion, and staged cleanup, with a fifteen-second
 test deadline. Executable identity, original inode/content, post-exit contents,
 cleanup, and code-signature assertions remain required.
+
+## Apple ticket verification connection loss
+
+Both v0.1.9 and v0.1.10 hit a CloudKit `NSURLErrorDomain` connection loss
+(`-1005`) during `stapler validate`, after signing and notarization succeeded.
+Ticket validation now retries that specific exit-68/network-error combination at
+most twice, five seconds apart. Invalid tickets, other exit codes, and exhausted
+network attempts still fail; Developer ID, Gatekeeper, architecture, and update
+metadata checks remain required. Four subprocess tests exercise recovery, the
+retry limit, invalid tickets, and unrelated errors through the full DMG/ZIP
+verification script with disposable tool stubs.
