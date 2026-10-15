@@ -24,6 +24,7 @@ describe('address suggestions', () => {
     expect(addressDestination('github.com', [])?.url).toBe('https://github.com/')
     expect(addressDestination('new.example.org/docs', [])?.url).toBe('https://new.example.org/docs')
     expect(addressDestination('http://intranet/docs', [])?.url).toBe('http://intranet/docs')
+    expect(addressDestination('not-a-protocol://example', [])?.url).toBe('not-a-protocol://example')
     expect(addressDestination('localhost:8080/docs', [])?.url).toBe('http://localhost:8080/docs')
     expect(addressDestination('127.0.0.1:8080/docs', [])?.url).toBe('http://127.0.0.1:8080/docs')
     expect(addressUrlCompletion('github.co', urls)).toBeUndefined()

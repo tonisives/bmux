@@ -16,7 +16,7 @@ export let withAddressSearch = <T extends AddressSuggestion>(entries: T[], query
 
 export let addressDestination = (input: string, urls: string[]): InlineUrlCompletion | undefined => {
   if (!input || /\s/.test(input)) return
-  let explicit = /^(?:https?:\/\/|file:|about:blank$)/i.test(input)
+  let explicit = /^(?:[a-z][a-z\d+.-]*:\/\/|file:|about:blank$)/i.test(input)
   let local = /^(?:localhost|\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?(?:[/?#]|$)/i.test(input)
   let parsed: URL
   try { parsed = new URL(explicit ? input : `${local ? 'http' : 'https'}://${input}`) } catch { return }
