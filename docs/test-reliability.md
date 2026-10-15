@@ -43,6 +43,16 @@ two-minute test deadline. Crashes still fail through `closeTestApplication`.
 New-pane readiness uses Playwright's new-window event and that page's URL and
 heading, avoiding competing debugger clients during target initialization.
 
+The full main run on `b86e186` completed 301 cases with four skips and two
+remaining fixture failures. The first native picker navigation exceeded the
+fixture socket's five-second deadline; its retained page state already contained
+the upload input after timeout. Navigation now has a separate 20-second socket
+budget while other commands keep five seconds. The streaming recovery case
+counted a new HTTP request before the replacement document was parsed. It now
+counts only main-page requests and polls the existing RPC inspection assertion
+until the recovered content is usable. Native picker assertions, the recovery
+command, test deadlines, and zero retries remain unchanged.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:

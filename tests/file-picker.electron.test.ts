@@ -69,7 +69,8 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
   let rpc = (method: string, args: Record<string, unknown> = {}) => new Promise<any>((resolve, reject) => {
     commands.push(`start ${method} ${JSON.stringify(args)}`)
     let connection = net.createConnection(socket), response = ''
-    connection.setEncoding('utf8'); connection.setTimeout(5000)
+    // Navigation includes the first renderer load on a cold CI desktop.
+    connection.setEncoding('utf8'); connection.setTimeout(method === 'navigate' ? 20000 : 5000)
     connection.on('connect', () => connection.write(JSON.stringify({ method, args }) + '\n'))
     connection.on('data', chunk => { response += chunk })
     connection.on('timeout', () => connection.destroy(new Error(`Fixture browser did not respond to ${method}`)))

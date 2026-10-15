@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,7 +9,8 @@ import { stringify } from 'yaml'
 test('reload interrupts a restored streaming page and permits later inspection', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-navigation-recovery-'))
   let hang = false, requests = 0
-  let server = http.createServer((_request, response) => {
+  let server = http.createServer((request, response) => {
+    if (request.url !== '/page') { response.writeHead(204); response.end(); return }
     requests++
     response.writeHead(200, { 'Content-Type': 'text/html' })
     response.write('<!doctype html><title>Retained fixture</title><main>Usable evidence</main>')
@@ -29,7 +31,7 @@ test('reload interrupts a restored streaming page and permits later inspection',
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let pane = state.model.sessions[0].windows[0].panes[0]
     await chrome.evaluate(({ pane, url }) => (window as any).bmux.command({ method: 'navigate', args: { tab: pane, url } }), { pane: pane.id, url })
-    await application.close(); application = undefined
+    await closeTestApplication(application); application = undefined
     hang = true
     requests = 0
     application = await launch()
@@ -38,12 +40,11 @@ test('reload interrupts a restored streaming page and permits later inspection',
     hang = false
     await chrome.evaluate(pane => (window as any).bmux.command({ method: 'reload', args: { tab: pane } }), pane.id)
     await expect.poll(() => requests).toBeGreaterThan(1)
-    let value = await chrome.evaluate(pane => (window as any).bmux.command({ method: 'eval', args: { tab: pane, expression: 'document.querySelector("main")?.textContent' } }), pane.id)
-    expect(value).toBe('Usable evidence')
+    await expect.poll(() => chrome.evaluate(pane => (window as any).bmux.command({ method: 'eval', args: { tab: pane, expression: 'document.querySelector("main")?.textContent' } }), pane.id), { timeout: 10000 }).toBe('Usable evidence')
     let updated = await chrome.evaluate(() => (window as any).bmux.state())
     expect(updated.model.sessions[0].windows[0].panes[0].url).toBe(url)
   } finally {
-    await application?.close().catch(() => undefined)
+    await closeTestApplication(application)
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })
