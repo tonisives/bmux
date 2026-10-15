@@ -284,11 +284,12 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
   if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, actions }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
-  let siteHost = automationWebsiteHost(pane?.url)
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter: usage.retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [
+  let retryAfter = usage.retryAfter
+  let siteHosts = [...new Set((actors.length ? actors.map(actor => actor.pane) : panes.filter(item => item.profileId === usage.profileId && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))).map(item => automationWebsiteHost(item.url)).filter((host): host is string => !!host))]
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [
     ...actions,
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
-  ] }]
+  ] }))
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -352,14 +353,13 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
   return <div className={css.cooldownTimer} role="timer" aria-label={details} title={details} tabIndex={0}>
     <div className={css.cooldownDial}>
       <svg viewBox="0 0 36 36" aria-hidden="true"><circle className={css.cooldownTrack} cx="18" cy="18" r="16" /><circle cx="18" cy="18" r="16" pathLength="100" strokeDasharray={`${progress * 100} 100`} transform="rotate(-90 18 18)" /></svg>
-      <span>{countdown}</span>
     </div>
-    <time dateTime={retryAfter}>Reset {resetTime}</time>
+    <div className={css.cooldownText}><span>{countdown}</span><time dateTime={retryAfter}>Reset {resetTime}</time></div>
   </div>
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.cooldown && <CooldownTimer {...notice.cooldown} />}{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status"><span>{notice.text}</span>{notice.cooldown && <CooldownTimer {...notice.cooldown} />}{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
 let useWindowDrag = () => {

@@ -515,10 +515,11 @@
 .app[data-dialog-prompt] .floatingPreview { background: transparent; }
 .app[data-dialog-prompt] .floatingPreview img { visibility: hidden; }
 
-.cooldownTimer { display: grid; justify-items: center; gap: 3px; flex: none; font-size: 10px; font-variant-numeric: tabular-nums; }
-.cooldownDial { position: relative; display: grid; place-items: center; width: 44px; height: 44px; }
-.notification .cooldownDial svg { position: absolute; width: 44px; height: 44px; stroke-width: 2; }
+.cooldownTimer { display: flex; align-items: center; gap: 5px; flex: none; font-size: 10px; font-variant-numeric: tabular-nums; }
+.cooldownDial { position: relative; display: grid; place-items: center; width: 24px; height: 24px; }
+.notification .cooldownDial svg { position: absolute; width: 24px; height: 24px; stroke-width: 2; }
 .cooldownTrack { opacity: .2; }
-.notification .cooldownDial span { flex: none; font-size: 10px; }
+.cooldownText { display: grid; gap: 1px; line-height: 12px; }
+.notification .cooldownText span { flex: none; font-size: 11px; }
 .cooldownTimer time { white-space: nowrap; }
 .cooldownTimer:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; }
