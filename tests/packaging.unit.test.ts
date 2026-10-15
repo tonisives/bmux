@@ -13,7 +13,11 @@ let fixture = async () => {
   directories.push(root)
   let source = path.join(root, 'release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'bmux.app')
   await fs.mkdir(path.join(source, 'Contents/MacOS'), { recursive: true })
-  await fs.copyFile('/bin/sleep', path.join(source, 'Contents/MacOS/bmux'))
+  // Re-signing Apple's system sleep binary can crash on macOS CI runners.
+  // Build our own executable so the fixture has no platform signing metadata.
+  let program = path.join(root, 'fixture.c')
+  await fs.writeFile(program, '#include <unistd.h>\nint main(void) { for (;;) pause(); }\n')
+  await exec('/usr/bin/xcrun', ['clang', program, '-o', path.join(source, 'Contents/MacOS/bmux')])
   await fs.writeFile(path.join(source, 'Contents/Info.plist'), '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>bmux</string><key>CFBundleIdentifier</key><string>dev.bmux.install-fixture</string></dict></plist>')
   await fs.mkdir(path.join(source, 'Contents/Resources'), { recursive: true })
   await fs.writeFile(path.join(source, 'Contents/Resources/version'), 'new build')
@@ -75,7 +79,7 @@ describe.runIf(process.platform === 'darwin')('packaged app output', () => {
     await fs.writeFile(path.join(destination, 'Contents/Resources/version'), 'running build')
     await exec('/usr/bin/codesign', ['--force', '--sign', '-', destination])
     let executable = path.join(destination, 'Contents/MacOS/bmux'), original = await fs.stat(executable)
-    let child = spawn(executable, ['30'])
+    let child = spawn(executable)
     let exited = new Promise(resolve => child.once('exit', resolve))
     try {
       await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) })
