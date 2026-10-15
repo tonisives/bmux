@@ -35,7 +35,9 @@ after closing the item window. Electron 44.3.0's matching Breakpad symbols place
 it in `RenderWidgetHostViewBase::OnShowWithPageVisibility`, through
 `BrowserWindow::OnWindowShow` during native close. Playwright 1.63's `Page.close`
 closes the WebContents directly before the owning window finishes closing.
-The fixture now closes its BrowserWindow and waits for the page to close instead.
+The fixture now disposes its BrowserWindow and waits for the page to close,
+avoiding AppKit's nested `performClose` loop during fixture cleanup. Its separate
+Cmd+W assertion still exercises normal application closing.
 Restored-window readiness has a bounded 15-second poll, separate from its
 two-minute test deadline. Crashes still fail through `closeTestApplication`.
 New-pane readiness uses Playwright's new-window event and that page's URL and

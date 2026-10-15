@@ -68,10 +68,10 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
   }
   let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
   let closeWindow = async (page: Page) => {
-    // Page.close destroys WebContents first; macOS can still deliver native
-    // visibility callbacks while its BrowserWindow is closing. Close the owner.
+    // Dispose fixture windows through their owner, without AppKit's nested
+    // performClose loop. The separate Cmd+W check below covers normal closing.
     let window = await application!.browserWindow(page)
-    await window.evaluate(window => window.close())
+    await window.evaluate(window => window.destroy())
     await expect.poll(() => page.isClosed()).toBe(true)
     await window.dispose()
   }
