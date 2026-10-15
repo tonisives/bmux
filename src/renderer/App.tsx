@@ -1,3 +1,4 @@
+import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
@@ -2189,6 +2190,53 @@ let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
   return <svg className={css.profileTabIcon} data-profile-tab-icon={tab} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[tab]} /></svg>
 }
 
+let ProfileManagementRow = ({ profile }: { profile: Profile }) => {
+  let { state, run } = useUI()
+  let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
+  let reason = profileDeletionReason(state.model, profile.id)
+  let ask = () => setConfirming(true), cancel = () => setConfirming(false)
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault(); event.stopPropagation(); cancel()
+  }
+  let remove = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await run('profile.delete', { profile: profile.id, confirm: true }) } finally { setBusy(false) }
+  }
+  if (confirming && !reason) return <div className={css.profileManageRow} role="alertdialog" aria-label={`Delete profile ${profile.name}?`} onKeyDown={keys}><span>Delete “{profile.name}” and its browsing data?</span><button type="button" onClick={remove} disabled={busy}>Delete profile</button><button type="button" onClick={cancel} disabled={busy} autoFocus>Cancel</button></div>
+  return <div className={css.profileManageRow}><span>{profile.name}{reason && <small>{reason}</small>}</span><button type="button" onClick={ask} disabled={!!reason || busy} aria-label={`Delete profile ${profile.name}`}>Delete</button></div>
+}
+
+let ProfileSelectActions = () => {
+  let { state, run, onMessage } = useUI(), { session, profile } = selection(state)
+  let [creating, setCreating] = useState(false), [managing, setManaging] = useState(false)
+  let [name, setName] = useState(''), [busy, setBusy] = useState(false)
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let add = () => { setCreating(true); setManaging(false) }
+  let cancel = () => { setCreating(false); setName('') }
+  let manage = () => { setManaging(!managing); cancel() }
+  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
+    if (!session || busy) return
+    setBusy(true)
+    try { await run('session.profile.set', { session: session.id, profile: event.target.value }) } finally { setBusy(false) }
+  }
+  let create = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!session || busy || !name.trim()) return
+    onMessage(''); setBusy(true)
+    try {
+      let created = await run('profile.create', { name: name.trim() }) as Profile | undefined
+      if (created && await run('session.profile.set', { session: session.id, profile: created.id })) cancel()
+    } finally { setBusy(false) }
+  }
+  return <>
+    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy}>+</button><button type="button" onClick={manage} aria-expanded={managing} disabled={busy}>Manage</button></div>
+    {creating && <form className={css.sessionCreate} onSubmit={create} aria-label="Create profile"><label>Profile name<input value={name} onChange={changeName} autoFocus disabled={busy} required /></label><div className={css.sessionCreateActions}><button type="submit" disabled={busy || !name.trim()}>Create profile</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form>}
+    {managing && <div role="group" aria-label="Manage profiles">{state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}
+  </>
+}
+
 let ProfileInfo = () => {
   let { state, run } = useUI()
   let { session, pane, profile } = selection(state)
@@ -2196,7 +2244,6 @@ let ProfileInfo = () => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
     return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
   }, false)
-  let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
@@ -2204,14 +2251,8 @@ let ProfileInfo = () => {
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
   let currentProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   let canChangeProfile = !!session && !session.private
-  let changeProfile = async (event: ChangeEvent<HTMLSelectElement>) => {
-    if (!session || busy) return
-    setBusy(true)
-    await run('session.profile.set', { session: session.id, profile: event.target.value })
-    setBusy(false)
-  }
   let overview = () => setTab('overview'), paneTab = () => setTab('pane'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
-  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="New windows"><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></ProfileSection>}
+  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="New windows"><ProfileSelectActions /></ProfileSection>}
     <ProfileSection title="HTTP cache">
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
