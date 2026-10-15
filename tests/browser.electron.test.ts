@@ -3869,7 +3869,9 @@ test('idle unloading keeps protected panes and wakes safe panes on demand', asyn
   document.setIn(['memory', 'idleUnloadMinutes'], 1)
   await fs.writeFile(configFile, document.toString())
   await cli('settings.reload')
-  let session = (await cli('list-sessions'))[0]
+  // Earlier cases may have exhausted the shared profile's automation session.
+  let profile = await cli('profile.create', { name: 'Idle unload fixture' })
+  let session = await cli('new-session', { name: 'Idle unload fixture', profile: profile.id })
   let pane = session.windows[0].panes[0]
   let safeWindow = await cli('new-window', { session: session.id })
   let safe = safeWindow.panes[0]

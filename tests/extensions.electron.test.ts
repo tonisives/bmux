@@ -8,6 +8,7 @@ import http from 'node:http'
 
 test('loads an extension per profile, opens its sandboxed popup, restores and removes it', async ({}, testInfo) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-'))
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
   let extensionPath = path.join(directory, 'extension')
   await fs.mkdir(extensionPath)
   await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', description: 'A fixture for extension details.', version: '1.0', optional_permissions: ['bookmarks'], permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, options_ui: { page: 'options.html', open_in_tab: true }, sandbox: { pages: ['inline-list.html'] }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js', 'inline-list.html', 'inline-list.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
@@ -164,8 +165,8 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await focusClient()
     await expect.poll(async () => (await rpc('state')).focusedClientId).toBeTruthy()
     let activated = await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)
-    await rpc('new-window', { session: current.sessionId, profile, url, client: current.id })
-    await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
+    let added = await rpc('new-window', { session: current.sessionId, profile, url, client: current.id })
+    await rpc('wait', { pane: added.panes[0].id, selector: 'h1' })
     await rpc('extension.open', { profile, id: installed.id })
     await expect(popup.locator('#active-tab')).toHaveText(url)
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)).toBeGreaterThan(activated)
@@ -205,7 +206,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let manifest = JSON.parse(await fs.readFile(path.join(extensionPath, 'manifest.json'), 'utf8'))
     manifest.version = '1.1'
     await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify(manifest))
-    await application!.close()
+    await closeTestApplication(application)
     await launch()
     expect((await rpc('extension.list', { profile })).extensions[0]).toMatchObject({ id: installed.id, version: '1.1' })
     await rpc('extension.open', { profile, id: installed.id })
@@ -247,7 +248,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await sharingPanel.screenshot({ path: testInfo.outputPath('extensions-disabled.png') })
     await expect.poll(() => optionsPage.isClosed()).toBe(true)
     expect((await rpc('extension.list', { profile })).extensions[0].enabled).toBe(true)
-    await application!.close()
+    await closeTestApplication(application)
     await launch()
     expect((await rpc('extension.list', { profile: other.id })).extensions[0]).toMatchObject({ id: installed.id, enabled: false })
     await expect(rpc('extension.open', { profile: other.id, id: installed.id })).rejects.toThrow()

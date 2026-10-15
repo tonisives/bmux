@@ -19,6 +19,17 @@ The fixture now compiles its own waiting executable and polls its process path
 before installation. It still verifies the original inode and signed bundle
 while running, then checks installation and signature after process exit.
 
+The full release check on `b5fefa7` reached case 214 of 306 at its 20-minute
+workflow deadline on a slower runner. It also exposed two independent fixture
+assumptions: the final idle-unload case reused a profile whose ten-minute
+automation session had expired, and the extension case opened its popup before
+the newly selected page finished navigating. Idle unloading now owns a fresh
+profile and session. The extension case waits for that exact pane's fixture,
+disables unrelated filter downloads, and uses bounded test application shutdown
+for its restarts. Automation guard coverage stays in the dedicated safety suite.
+The serial GUI step has a 30-minute overall budget and its job has 35 minutes;
+individual deadlines, one GUI worker, and zero retries are unchanged.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:
