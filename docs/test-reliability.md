@@ -38,6 +38,8 @@ closes the WebContents directly before the owning window finishes closing.
 The fixture now closes its BrowserWindow and waits for the page to close instead.
 Restored-window readiness has a bounded 15-second poll, separate from its
 two-minute test deadline. Crashes still fail through `closeTestApplication`.
+New-pane readiness uses Playwright's new-window event and that page's URL and
+heading, avoiding competing debugger clients during target initialization.
 
 ## October 10 full-suite failures
 

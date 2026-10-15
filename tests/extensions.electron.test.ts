@@ -173,8 +173,11 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await focusClient()
     await expect.poll(async () => (await rpc('state')).focusedClientId).toBeTruthy()
     let activated = await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)
-    let added = await rpc('new-window', { session: current.sessionId, profile, url, client: current.id })
-    await rpc('wait', { pane: added.panes[0].id, selector: 'h1' })
+    let openedPage = application!.waitForEvent('window')
+    await rpc('new-window', { session: current.sessionId, profile, url, client: current.id })
+    let addedPage = await openedPage
+    await expect(addedPage).toHaveURL(url)
+    await expect(addedPage.locator('h1')).toHaveText('Local extension test')
     await rpc('extension.open', { profile, id: installed.id })
     await expect(popup.locator('#active-tab')).toHaveText(url)
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)).toBeGreaterThan(activated)
