@@ -8,6 +8,7 @@ import path from 'node:path'
 import { closeTestApplication } from './electron-fixture'
 
 let application: ElectronApplication, page: Page, directory: string, server: http.Server, config: string
+let pageErrors: string[] = []
 let fixture = `<!doctype html><title>Vim field fixture</title>
 <link rel="stylesheet" href="/fixture.css">
 <form><input id="text" value="alpha bravo"><textarea id="notes">alpha bravo\ncharlie delta</textarea><input id="password" type="password"><input id="readonly" readonly value="locked"><input id="number" type="number"></form>
@@ -58,7 +59,8 @@ test.beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/fields`
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '0' } })
-  application.context().on('page', fixturePage => fixturePage.on('pageerror', error => console.error('Vim fixture page error:', error.stack)))
+  pageErrors = []
+  application.context().on('page', fixturePage => fixturePage.on('pageerror', error => pageErrors.push(error.stack ?? error.message)))
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   expect(await chrome.evaluate(async () => (window as any).bmux.state().then((state: any) => state.configError))).toBeNull()
@@ -91,6 +93,19 @@ let ex = async (editor: Locator, command: string) => {
   let prompt = page.locator('[data-bmux-vim] .cm-vim-panel input')
   await expect(prompt).toBeFocused(); await prompt.press('Enter')
 }
+
+test('website Vim initializes without document-start errors after navigation and reload', async () => {
+  expect(pageErrors).toEqual([])
+  for (let reload = 0; reload < 3; reload++) {
+    await page.reload()
+    await expect(page.locator('#controlled')).toHaveValue('controlled')
+    await expect(page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')).toHaveCount(1)
+    let { editor, overlay } = await open(page.locator('#notes'))
+    await editor.press('Escape')
+    await expect(overlay).toHaveCount(0)
+    expect(pageErrors).toEqual([])
+  }
+})
 
 test('website Vim hints open by mouse and native click mode with the configured shortcut', async ({}, info) => {
   let hint = page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')

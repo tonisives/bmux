@@ -467,3 +467,15 @@ The fixture now awaits asynchronous CLI subprocesses with a 20-second process
 deadline, preserves valid JSON denial replies, and reports actual process errors.
 It also disables unrelated external filter updates. `AGENTS.md` records the
 asynchronous-fixture rule; the local affected-tests-only policy is unchanged.
+
+## Vim initialization at document start
+
+The release website checks reproduced page errors on cold feature-page navigation:
+CodeMirror reads `document.documentElement.style` when its bundle evaluates, but
+Chromium's new-document hook can run before the root element exists. Later page
+tools refreshes could recover the editor, masking the initial failure in functional
+checks. Keyboard focus observation still starts immediately; Vim initialization
+now waits for DOMContentLoaded only when the root is absent. The regression
+asserts no page errors on initial navigation and three reloads, and opens the real
+inline editor after every reload. Website QA retains page errors with their stack
+and URL and attaches each listener once.
