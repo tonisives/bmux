@@ -5,4 +5,5 @@
 .menu { position: fixed; z-index: 110; display: flex; flex-direction: column; min-width: 150px; padding: 4px; border: 1px solid #444b59; background: #191d23; box-shadow: 0 8px 22px #0008; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .menu button { padding: 6px 8px; border: 0; background: transparent; color: #d6dcd2; font: inherit; text-align: left; cursor: pointer; }
 .menu button:hover, .menu button:focus-visible { background: #303944; outline: none; }
+.menu p { max-width: min(300px, calc(100vw - 50px)); margin: 6px 8px; color: #d6dcd2; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .list { transition: none; } }
