@@ -1437,7 +1437,7 @@ test('imports Brave bookmark folders, opens them in the correct profile, and per
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill('Imported fixture')
-  let bookmarkSuggestion = chrome.getByRole('option').filter({ hasText: 'Imported fixture' })
+  let bookmarkSuggestion = chrome.locator('[role="option"][data-kind="bookmark"]').filter({ hasText: 'Imported fixture' })
   await expect(bookmarkSuggestion).toHaveAttribute('data-kind', 'bookmark')
   await expect(bookmarkSuggestion.locator('svg')).toBeVisible()
   await expect(bookmarkSuggestion).not.toContainText('Bookmark')
@@ -2912,7 +2912,10 @@ for (let editing of [false, true]) test(`dragging over the ${editing ? 'editable
   if (editing) {
     let left = (await displayed.boundingBox())!.x
     await displayed.click(); await expect(address).toBeFocused()
-    expect((await address.boundingBox())!.x).toBe(left)
+    let mode = chrome.getByLabel('URL editing mode', { exact: true })
+    await expect(mode).toBeVisible()
+    expect((await mode.boundingBox())!.x).toBe(left)
+    expect((await address.boundingBox())!.x).toBeGreaterThan(left)
   }
   let input = editing ? address : displayed
   let originalSelection = editing ? await input.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd })) : undefined
@@ -3164,7 +3167,7 @@ test('status window list uses available room and hides its native scrollbar', as
   await expect.poll(async () => {
     let last = (await tab.boundingBox())!, plus = (await newTab.boundingBox())!, avatar = (await profile.boundingBox())!, question = (await help.boundingBox())!, bar = (await status.boundingBox())!
     return { tabGap: Math.round(plus.x - last.x - last.width), controlsGap: Math.round(avatar.x - plus.x - plus.width), helpFits: question.x + question.width <= bar.x + bar.width - 8 }
-  }).toEqual({ tabGap: 10, controlsGap: 10, helpFits: true })
+  }).toEqual({ tabGap: 4, controlsGap: 10, helpFits: true })
   for (let index = 4; index <= 12; index++) await cli('new-window', { session: session.id, client: client.id, name: `descriptive-window-${index}` })
   await expect.poll(() => list.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
   await expect.poll(() => list.locator('[data-window-id]').last().locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)

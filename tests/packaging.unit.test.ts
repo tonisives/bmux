@@ -79,6 +79,12 @@ describe.runIf(process.platform === 'darwin')('packaged app output', () => {
     let exited = new Promise(resolve => child.once('exit', resolve))
     try {
       await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) })
+      // spawn does not establish that macOS has published the executable path.
+      await expect.poll(async () => {
+        if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Fixture exited before installation: ${child.exitCode ?? child.signalCode}`)
+        let { stdout } = await exec('/bin/ps', ['-p', String(child.pid), '-o', 'comm='])
+        return stdout.trim()
+      }).toBe(executable)
       let result = await install(root, output)
       expect(result.stdout).toContain('installation will finish after bmux exits')
       expect((await fs.stat(executable)).ino).toBe(original.ino)
