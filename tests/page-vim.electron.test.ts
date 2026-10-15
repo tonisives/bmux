@@ -12,17 +12,27 @@ let fixture = `<!doctype html><title>Vim field fixture</title>
 <link rel="stylesheet" href="/fixture.css">
 <form><input id="text" value="alpha bravo"><textarea id="notes">alpha bravo\ncharlie delta</textarea><input id="password" type="password"><input id="readonly" readonly value="locked"><input id="number" type="number"></form>
 <div id="rich" contenteditable="true"><p>alpha bravo</p><p>charlie delta</p></div>
-<output id="notes-count">25</output><output id="rich-count"></output><div id="react"></div><div id="shadow"></div><button id="outside">Outside</button>
+<output id="notes-count">25</output><output id="rich-count"></output><div id="react"></div><div id="draft"></div><form id="search-form"><input id="map-search" role="combobox" name="q"><output id="search-result"></output></form><div id="shadow"></div><button id="outside">Outside</button>
 <script nonce="bmux-fixture" src="/fixture.js"></script>`
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-page-vim-'))
   config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Ctrl+E: null\n    Cmd+E: vim-editor\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Ctrl+E: null\n    Cmd+E: vim-editor\n    h: { action: reload, when: pane-not-editing }\n    j: { action: scroll-down, when: pane-not-editing }\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
   let bundle = await build({ stdin: { contents: `
     import React, { useState } from 'react'; import { createRoot } from 'react-dom/client';
+    import { Editor, EditorState, ContentState } from 'draft-js';
     let Form = () => { let [value, setValue] = useState('controlled'); return React.createElement(React.Fragment, null, React.createElement('input', { id: 'controlled', value, onChange: e => setValue(e.target.value) }), React.createElement('output', { id: 'controlled-value' }, value)); };
     createRoot(document.querySelector('#react')).render(React.createElement(Form));
+    let Composer = () => {
+      let [state, setState] = useState(() => EditorState.createWithContent(ContentState.createFromText('draft seed\\nsecond line')));
+      let text = state.getCurrentContent().getPlainText();
+      return React.createElement(React.Fragment, null,
+        React.createElement(Editor, { editorState: state, onChange: setState, ariaLabel: 'Draft composer' }),
+        React.createElement('output', { id: 'draft-model' }, text),
+        React.createElement('output', { id: 'draft-count' }, String(text.length)));
+    };
+    createRoot(document.querySelector('#draft')).render(React.createElement(Composer));
     document.querySelector('#shadow').attachShadow({mode:'open'}).innerHTML = '<textarea id="shadow-text">shadow draft</textarea>';
     window.fixtureEvents = { input: 0, change: 0, submit: 0, keys: 0 };
     document.addEventListener('input', () => window.fixtureEvents.input++);
@@ -33,7 +43,14 @@ test.beforeAll(async () => {
     document.addEventListener('change', () => window.fixtureEvents.change++);
     document.addEventListener('keydown', () => window.fixtureEvents.keys++);
     document.querySelector('form').addEventListener('submit', e => { e.preventDefault(); window.fixtureEvents.submit++; });
-  `, resolveDir: process.cwd(), sourcefile: 'page-vim-fixture.js' }, bundle: true, write: false, platform: 'browser', format: 'iife' })
+    window.searchQuery = '';
+    document.querySelector('#map-search').addEventListener('input', e => {
+      window.searchQuery = e.target.value; document.querySelector('#outside').focus();
+      queueMicrotask(() => { let active = document.activeElement; while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement; active?.blur(); });
+      setTimeout(() => document.querySelector('[data-bmux-vim]')?.remove(), 0);
+    });
+    document.querySelector('#search-form').addEventListener('submit', e => { e.preventDefault(); document.querySelector('#search-result').textContent = window.searchQuery; });
+  `, resolveDir: process.cwd(), sourcefile: 'page-vim-fixture.js' }, bundle: true, write: false, platform: 'browser', format: 'iife', define: { 'process.env.NODE_ENV': '"development"', global: 'globalThis' } })
   server = http.createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': request.url === '/fixture.js' ? 'text/javascript' : request.url === '/fixture.css' ? 'text/css' : 'text/html', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'nonce-bmux-fixture'; frame-src 'self' http://localhost:*" })
     response.end(request.url === '/fixture.js' ? bundle.outputFiles[0].text : request.url === '/fixture.css' ? 'body { padding: 30px; font: 16px sans-serif; } textarea, input, [contenteditable] { display: block; width: 450px; margin: 10px; } [contenteditable] { min-height: 60px; border: 1px solid #888; }' : fixture)
@@ -41,6 +58,7 @@ test.beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/fields`
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '0' } })
+  application.context().on('page', fixturePage => fixturePage.on('pageerror', error => console.error('Vim fixture page error:', error.stack)))
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   expect(await chrome.evaluate(async () => (window as any).bmux.state().then((state: any) => state.configError))).toBeNull()
@@ -189,7 +207,7 @@ test('website Vim editor stays inline and restores the original field and layout
   await editor.pressSequentially('A draft'); await editor.press('Escape')
   // A framework redraw can detach injected siblings; preserve the draft inline.
   await overlay.evaluate(element => element.remove())
-  await expect(editor).toBeVisible(); await expect(editor).toContainText('draft')
+  await expect(editor).toBeVisible(); await expect(editor).toContainText('draft'); await expect(editor).toBeFocused()
   await editor.click(); await ex(editor, 'q')
   await expect(overlay).toHaveCount(0); await expect(field).toBeVisible(); await expect(field).toBeFocused()
   expect(await field.evaluate(element => ({
@@ -384,6 +402,70 @@ test('website Vim editor updates rich text and shadow fields through native even
   await ex(editor, 'wq')
   await expect(shadow).toHaveValue('edited draft'); await expect(shadow).toBeFocused()
   expect(await page.evaluate(() => (window as any).fixtureEvents.input)).toBeGreaterThan(0)
+})
+
+test('website Vim keeps Draft.js model, counter, native typing and Escape working', async ({}, info) => {
+  let field = page.getByRole('textbox', { name: 'Draft composer' }), { overlay, editor } = await open(field)
+  let model = page.locator('#draft-model'), count = page.locator('#draft-count')
+  await editor.pressSequentially('Awh')
+  await expect(editor).toContainText('second linewh')
+  await expect(model).toHaveText('draft seed\nsecond linewh')
+  await expect(count).toHaveText('24')
+  await expect(editor).toBeFocused()
+  await editor.press('Escape'); await editor.pressSequentially('ggVGc')
+  await editor.pressSequentially('first line'); await editor.press('Enter'); await editor.pressSequentially('second  line')
+  await expect(model).toHaveText('first line\nsecond  line')
+  await expect(count).toHaveText('23')
+  await expect(editor).toBeFocused()
+  await overlay.screenshot({ path: info.outputPath('vim-draft-counter.png') })
+  await editor.press('Escape'); await editor.press('Escape')
+  await expect(overlay).toHaveCount(0); await expect(field).toBeFocused()
+  await field.press('Meta+ArrowRight'); await field.pressSequentially(' native')
+  await expect(model).toHaveText('first line\nsecond  line native')
+  await expect(count).toHaveText('30')
+  await expect(field).toHaveText('first linesecond  line native')
+  ;({ overlay, editor } = await open(field))
+  await editor.pressSequentially('ggVGd')
+  await expect(model).toHaveText(''); await expect(count).toHaveText('0')
+  await editor.pressSequentially('irecovered'); await editor.press('Escape'); await ex(editor, 'wq')
+  await expect(overlay).toHaveCount(0); await expect(model).toHaveText('recovered')
+  await field.press('Meta+ArrowRight'); await field.pressSequentially('!'); await expect(model).toHaveText('recovered!')
+})
+
+test('website Vim keeps search input focus and submits the updated page query after Escape', async () => {
+  let field = page.locator('#map-search'), { overlay, editor } = await open(field)
+  await editor.pressSequentially('iwh')
+  await expect(editor).toBeFocused(); await expect(field).toHaveValue('wh')
+  await editor.pressSequentially('ere to eat in Bangkok')
+  await expect(editor).toBeFocused(); await expect(field).toHaveValue('where to eat in Bangkok')
+  await editor.press('Escape'); await editor.press('Escape')
+  await expect(overlay).toHaveCount(0); await expect(field).toBeFocused()
+  await field.press('Enter'); await expect(page.locator('#search-result')).toHaveText('where to eat in Bangkok')
+})
+
+test('website Vim suppresses pane shortcuts even if a composer blurs the editor', async () => {
+  let { overlay, editor } = await open(page.locator('#notes'))
+  await editor.pressSequentially('A')
+  let navigations = 0, navigated = () => { navigations++ }
+  page.on('framenavigated', navigated)
+  try {
+    await page.locator('#outside').focus()
+    await expect.poll(() => application.evaluate(async ({ webContents }, url) => {
+      let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url)!
+      let { frameTree } = await contents.debugger.sendCommand('Page.getFrameTree')
+      let { executionContextId } = await contents.debugger.sendCommand('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'bmux:keyboard-focus' })
+      let { result } = await contents.debugger.sendCommand('Runtime.evaluate', { contextId: executionContextId, expression: 'globalThis.bmuxVimEditing === true', returnByValue: true })
+      return result.value
+    }, page.url())).toBe(true)
+    await application.evaluate(({ webContents }) => {
+      let contents = webContents.getFocusedWebContents()!
+      contents.sendInputEvent({ type: 'keyDown', keyCode: 'h' }); contents.sendInputEvent({ type: 'keyUp', keyCode: 'h' })
+    })
+    await editor.focus(); await editor.pressSequentially('wh')
+    await expect(editor).toContainText('wh'); await expect(overlay).toBeVisible()
+    expect(navigations).toBe(0)
+    await editor.press('Escape'); await editor.press('Escape'); await expect(overlay).toHaveCount(0)
+  } finally { page.off('framenavigated', navigated) }
 })
 
 test('website Vim editor preserves conflicting drafts and handles removed, disabled, and password fields', async () => {
