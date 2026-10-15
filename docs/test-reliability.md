@@ -1,5 +1,24 @@
 # Focused test verification
 
+## October 15 full-suite failures
+
+The full Check on `d3d3d5a` retained assumptions from before search-first address
+suggestions, inline Vim controls, tighter tab spacing, and persistent window
+numbers. The bookmark import fixture now selects the bookmark option explicitly;
+the address-drag case checks the mode indicator at the original address origin;
+the status case expects the current four-pixel tab gap; and window movement uses
+persistent source numbers while keeping destination indices positional. Existing
+native focus, selection, layout overflow, cross-session movement, and page-state
+assertions remain in place. The file-picker fixture's navigation was separately
+updated on `c7a843c` to avoid inheriting Vim address editing state.
+
+The packaging test on `c7a843c` appeared to install over a running application.
+A diagnostic check established that its copied and re-signed Apple `sleep`
+executable actually exited with SIGSEGV before installation on the macOS runner.
+The fixture now compiles its own waiting executable and polls its process path
+before installation. It still verifies the original inode and signed bundle
+while running, then checks installation and signature after process exit.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:
