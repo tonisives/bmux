@@ -8,7 +8,7 @@ import http from 'node:http'
 
 test('loads an extension per profile, opens its sandboxed popup, restores and removes it', async ({}, testInfo) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let extensionPath = path.join(directory, 'extension')
   await fs.mkdir(extensionPath)
   await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', description: 'A fixture for extension details.', version: '1.0', optional_permissions: ['bookmarks'], permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, options_ui: { page: 'options.html', open_in_tab: true }, sandbox: { pages: ['inline-list.html'] }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js', 'inline-list.html', 'inline-list.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
@@ -65,15 +65,19 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    expect((await chrome.evaluate(() => (window as any).bmux.state())).configError).toBeNull()
   }
   let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
   let closeWindow = async (page: Page) => {
-    // Dispose fixture windows through their owner, without AppKit's nested
-    // performClose loop. The separate Cmd+W check below covers normal closing.
+    // Let the inspector call return before tearing down a native window. Wait
+    // for native disposal as well as Playwright's separate target-close event.
+    // The Cmd+W check below still covers normal application closing.
     let window = await application!.browserWindow(page)
-    await window.evaluate(window => window.destroy())
-    await expect.poll(() => page.isClosed()).toBe(true)
-    await window.dispose()
+    try {
+      await window.evaluate(window => { setImmediate(() => window.destroy()) })
+      await expect.poll(() => window.evaluate(window => window.isDestroyed())).toBe(true)
+      await expect.poll(() => page.isClosed()).toBe(true)
+    } finally { await window.dispose() }
   }
   let clientWindow = () => application!.evaluate(({ BaseWindow }) => {
     let window = BaseWindow.getAllWindows().find(candidate => candidate.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('/renderer/index.html')))

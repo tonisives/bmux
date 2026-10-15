@@ -69,6 +69,17 @@ or selecting another window. The fixture also uses a valid isolated keyboard
 configuration so unrelated filter downloads remain disabled. Verify the complete
 site-dialogs file and the existing floating Cmd+W case with repetitions.
 
+The release candidate's full Check passed all 305 Electron cases. Main's
+independent run on the same `98dfa80` source passed 304 but timed out waiting for
+Playwright's popup-close notification after native fixture disposal. Eight local
+repetitions did not reproduce that remaining CI failure. The test-only follow-up
+defers native destruction until its inspector call returns, checks native window
+destruction separately, then waits for the target-close notification with the
+same five-second deadline. Its isolated config now includes the required keyboard
+mapping and asserts that parsing succeeded, so filter downloads are disabled.
+Keep the ordinary Cmd+W closing assertion and verify repeated extension runs on
+GitHub's macOS desktop before merging.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:
