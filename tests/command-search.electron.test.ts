@@ -577,6 +577,45 @@ test('profile Pane settings keeps only the selected pane loaded and reflects sav
   }
 })
 
+test('profile settings create and manage profiles beside the selector', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
+  let pane = session.windows.flatMap((item: { panes: { id: string; profileId: string }[] }) => item.panes).find((item: { id: string }) => item.id === client.paneId)!
+  let profile = current.model.profiles.find((item: { id: string }) => item.id === pane.profileId)!
+  let panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
+  let select = panel.getByRole('combobox', { name: 'Default profile for new windows' })
+  await panel.getByRole('button', { name: 'New profile', exact: true }).click()
+  let form = panel.getByRole('form', { name: 'Create profile' })
+  await expect(form.getByRole('textbox')).toBeFocused()
+  await form.getByRole('textbox').fill('   ')
+  await expect(form.getByRole('button', { name: 'Create profile', exact: true })).toBeDisabled()
+  await form.getByRole('textbox').fill(profile.name)
+  await form.getByRole('button', { name: 'Create profile', exact: true }).click()
+  await expect(chrome.getByText('Profile name already exists', { exact: true })).toBeVisible()
+  await form.getByRole('textbox').fill('Settings-created profile')
+  await form.getByRole('button', { name: 'Create profile', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  let created = (await state()).model.profiles.find((item: { name: string }) => item.name === 'Settings-created profile')!
+  await expect(select).toHaveValue(created.id)
+  await panel.getByRole('button', { name: 'Manage', exact: true }).click()
+  let manager = panel.getByRole('group', { name: 'Manage profiles', exact: true })
+  await expect(manager.getByRole('button', { name: 'Delete profile default', exact: true })).toBeDisabled()
+  await expect(manager.getByRole('button', { name: `Delete profile ${profile.name}`, exact: true })).toBeDisabled()
+  await manager.getByRole('button', { name: 'Delete profile Settings-created profile', exact: true }).click()
+  let confirm = manager.getByRole('alertdialog', { name: 'Delete profile Settings-created profile?' })
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(select.getByRole('option', { name: 'Settings-created profile', exact: true })).toHaveCount(1)
+  await manager.getByRole('button', { name: 'Delete profile Settings-created profile', exact: true }).click()
+  await confirm.getByRole('button', { name: 'Delete profile', exact: true }).click()
+  await expect(select.getByRole('option', { name: 'Settings-created profile', exact: true })).toHaveCount(0)
+  await expect(select).toHaveValue('profile_default')
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles.some((item: { id: string }) => item.id === created.id)).toBe(false)
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-management.png') })
+  await select.selectOption(session.defaultProfileId)
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
 test('profile popup renames default and custom profiles without changing pane identity', async () => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!

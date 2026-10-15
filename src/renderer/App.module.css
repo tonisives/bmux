@@ -523,3 +523,10 @@
 .notification .cooldownText span { flex: none; font-size: 11px; }
 .cooldownTimer time { white-space: nowrap; }
 .cooldownTimer:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; }
+
+.profileSelectRow { display: flex; align-items: end; gap: 12px; }
+.profileSelectRow label { flex: 1; min-width: 0; }
+.profileSelectRow > button { height: 34px; padding: 0 10px; border: 1px solid #505a66; }
+.profileManageRow { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.profileManageRow > span { flex: 1; }
+.profileManageRow small { display: block; color: #8e98a4; }

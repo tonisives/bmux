@@ -1,3 +1,4 @@
+import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
 import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
 import { copyConnectionCookies } from './connection-cookies'
@@ -2310,6 +2311,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (model.profiles.some(profile => profile.name === name)) throw new Error('Profile name already exists')
       let profile = { id: id('profile'), name, background: args.background === true, ...(hostProxy ? { proxy: hostProxy } : {}) }
       model.profiles.push(profile); save(); return profile
+    }
+    if (method === 'profile.delete') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      if (args.confirm !== true) throw new Error('Confirm profile deletion')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      removeProfile(model, profile.id); save()
+      let connectionIds = new Set([profile.id, ...(profile.connections ?? []).map(connection => connection.id)])
+      await Promise.all([...connectionIds].map(async connectionId => {
+        let browser = electronSession.fromPartition(`persist:${connectionId}`)
+        await browser.clearStorageData(); await browser.clearCache()
+        proxyCredentials.set(connectionId)
+        delete profileProxyTests[connectionId]; delete profileProxyFailures[connectionId]
+      }))
+      return profile
     }
     if (method === 'profile.rename') {
       let profile = resolve(model.profiles, args.profile, 'Profile')
