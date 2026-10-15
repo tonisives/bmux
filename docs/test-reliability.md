@@ -53,6 +53,22 @@ counts only main-page requests and polls the existing RPC inspection assertion
 until the recovered content is usable. Native picker assertions, the recovery
 command, test deadlines, and zero retries remain unchanged.
 
+The full release-branch run on `4b68b70` completed 302 cases with four skips
+and two intermittent failures; main's independent run passed on the same source.
+Eight Tart repetitions reproduced a floating Cmd+W failure and three missing
+unload prompts. The float case now loads its own pages and waits for the intended
+native page to have focus before sending Cmd+W. It retains both floating-pane
+and window-close assertions.
+
+The unload prompt exposed a production ownership race: address suggestions park
+the native page behind a snapshot, so `confirmUnload` could find no visible native
+parent and silently cancel navigation. A regression keeping the address overlay
+open failed twice against the old source. Prompt ownership now falls back to the
+page's logical visible client, preferring the focused client, without activating
+or selecting another window. The fixture also uses a valid isolated keyboard
+configuration so unrelated filter downloads remain disabled. Verify the complete
+site-dialogs file and the existing floating Cmd+W case with repetitions.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:

@@ -1313,7 +1313,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let confirmUnload = (tabId: string) => {
     let live = tabs.get(tabId)
+    // Address suggestions can park the page before its navigation is blocked.
+    // Its logical viewer still owns the prompt while the native view is parked.
+    let viewers = [...clients].filter(([id, owner]) => owner.window.isVisible() && !owner.window.isMinimized() && model.clients.some(client => client.id === id && visiblePaneIds(client).includes(tabId)))
     let entry = [...clients].find(([, owner]) => owner.window === live?.parent && owner.window.isVisible())
+      ?? viewers.find(([id]) => id === focusedClientId) ?? viewers[0]
     if (!entry) return { result: Promise.resolve(false), cancel: () => undefined }
     let request = requestDialog(entry[0], { message: 'Leave this site?', detail: 'Changes you made may not be saved.', buttons: ['Stay', 'Leave'], defaultId: 1, cancelId: 0 })
     return { result: request.result.then(response => response === 1), cancel: request.cancel }
