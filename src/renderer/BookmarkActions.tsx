@@ -39,13 +39,16 @@ let Context = createContext<Actions | null>(null)
 let targetKey = ({ bookmark, profileId }: Target) => JSON.stringify([profileId, bookmark.id])
 let BookmarkMenu = ({ popup, close }: { popup: Menu; close: (restore?: boolean) => void }) => {
   let { run, rename, focusSearch } = useBookmarkActions()
+  let [confirming, setConfirming] = useState(false)
+  let title = popup.bookmark.title || popup.bookmark.url || 'Untitled folder'
+  let question = `Delete ${popup.bookmark.children ? 'folder' : 'bookmark'} "${title}"?`
   let ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     let menu = ref.current!
     menu.style.left = `${Math.max(8, Math.min(popup.x, innerWidth - menu.offsetWidth - 8))}px`
     menu.style.top = `${Math.max(8, Math.min(popup.y, innerHeight - menu.offsetHeight - 8))}px`
     menu.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
-  }, [popup])
+  }, [popup, confirming])
   useEffect(() => {
     let move = () => close()
     document.addEventListener('wheel', move, { passive: true })
@@ -57,20 +60,22 @@ let BookmarkMenu = ({ popup, close }: { popup: Menu; close: (restore?: boolean) 
     event.preventDefault(); event.stopPropagation(); close(true)
   }
   let edit = () => rename(popup)
+  let ask = () => setConfirming(true)
+  let cancel = () => close(true)
   let remove = async () => {
     close(); focusSearch()
     await run('bookmark.remove', { profile: popup.profileId, bookmark: popup.bookmark.id })
   }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     event.stopPropagation()
-    if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); close(true); return }
-    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+    if (event.key === 'Escape' || (!confirming && event.key === 'Tab')) { event.preventDefault(); close(true); return }
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End', ...(confirming ? ['Tab'] : [])].includes(event.key)) return
     event.preventDefault()
     let items = [...ref.current!.querySelectorAll<HTMLButtonElement>('button')], index = items.indexOf(document.activeElement as HTMLButtonElement)
-    let next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
+    let next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' || event.key === 'Tab' && event.shiftKey ? -1 : 1) + items.length) % items.length
     items[next]?.focus()
   }
-  return createPortal(<div className={css.backdrop} onClick={dismiss} onContextMenu={dismiss}><div ref={ref} className={css.menu} role="menu" aria-label={`Actions for ${popup.bookmark.title || popup.bookmark.url}`} onKeyDown={keys}><button type="button" role="menuitem" onClick={edit}>Rename</button><button type="button" role="menuitem" onClick={remove}>{popup.bookmark.children ? 'Delete folder and bookmarks' : 'Delete'}</button></div></div>, document.body)
+  return createPortal(<div className={css.backdrop} onClick={dismiss} onContextMenu={dismiss}><div ref={ref} className={css.menu} role={confirming ? 'alertdialog' : 'menu'} aria-modal={confirming || undefined} aria-label={confirming ? question : `Actions for ${title}`} onKeyDown={keys}>{confirming ? <><p>{question}{popup.bookmark.children && ' All bookmarks inside will also be deleted.'}</p><button type="button" onClick={cancel}>Cancel</button><button type="button" onClick={remove}>Delete</button></> : <><button type="button" role="menuitem" onClick={edit}>Rename</button><button type="button" role="menuitem" onClick={ask}>{popup.bookmark.children ? 'Delete folder and bookmarks' : 'Delete'}</button></>}</div></div>, document.body)
 }
 
 let BookmarkRename = ({ bookmark, profileId }: Target) => {
