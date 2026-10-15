@@ -61,8 +61,16 @@ guest browser open until you quit it inside the VM; it holds the test queue.
 
 `pnpm check` runs locally without GUI windows. `pnpm package` builds the host app at `build/bmux.app` without restarting it.
 Use `BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package` for the local tools folder.
+The installer signs and verifies a staged copy first. If that installed app is
+running, it queues the replacement until bmux and its helpers exit. Leave a
+moment between quitting and reopening for the queued installation to finish;
+packaging never restarts the browser. Replacing a running macOS bundle can break
+the file-picker service's code-signing checks even while pages keep working.
 `pnpm test:package`, or `BMUX_TEST_PACKAGED=1 pnpm test:electron`, packages and
 installs a separate copy inside the guest for testing.
+The packaged `input-update` picker case queues a replacement while its disposable
+browser is running, verifies the original executable stays in place, opens a
+native picker and uploads a fixture, then verifies installation after shutdown.
 
 ## Manage the VM
 
