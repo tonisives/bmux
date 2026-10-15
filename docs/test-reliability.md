@@ -1,5 +1,48 @@
 # Focused test verification
 
+## October 15 full-suite failures
+
+The full Check on `d3d3d5a` retained assumptions from before search-first address
+suggestions, inline Vim controls, tighter tab spacing, and persistent window
+numbers. The bookmark import fixture now selects the bookmark option explicitly;
+the address-drag case checks the mode indicator at the original address origin;
+the status case expects the current four-pixel tab gap; and window movement uses
+persistent source numbers while keeping destination indices positional. Existing
+native focus, selection, layout overflow, cross-session movement, and page-state
+assertions remain in place. The file-picker fixture's navigation was separately
+updated on `c7a843c` to avoid inheriting Vim address editing state.
+
+The packaging test on `c7a843c` appeared to install over a running application.
+A diagnostic check established that its copied and re-signed Apple `sleep`
+executable actually exited with SIGSEGV before installation on the macOS runner.
+The fixture now compiles its own waiting executable and polls its process path
+before installation. It still verifies the original inode and signed bundle
+while running, then checks installation and signature after process exit.
+
+The full release check on `b5fefa7` reached case 214 of 306 at its 20-minute
+workflow deadline on a slower runner. It also exposed two independent fixture
+assumptions: the final idle-unload case reused a profile whose ten-minute
+automation session had expired, and the extension case opened its popup before
+the newly selected page finished navigating. Idle unloading now owns a fresh
+profile and session. The extension case waits for that exact pane's fixture,
+disables unrelated filter downloads, and uses bounded test application shutdown
+for its restarts. Automation guard coverage stays in the dedicated safety suite.
+The serial GUI step has a 30-minute overall budget and its job has 35 minutes;
+individual deadlines, one GUI worker, and zero retries are unchanged.
+
+Traced extension repetitions in Tart found a native macOS crash immediately
+after closing the item window. Electron 44.3.0's matching Breakpad symbols place
+it in `RenderWidgetHostViewBase::OnShowWithPageVisibility`, through
+`BrowserWindow::OnWindowShow` during native close. Playwright 1.63's `Page.close`
+closes the WebContents directly before the owning window finishes closing.
+The fixture now disposes its BrowserWindow and waits for the page to close,
+avoiding AppKit's nested `performClose` loop during fixture cleanup. Its separate
+Cmd+W assertion still exercises normal application closing.
+Restored-window readiness has a bounded 15-second poll, separate from its
+two-minute test deadline. Crashes still fail through `closeTestApplication`.
+New-pane readiness uses Playwright's new-window event and that page's URL and
+heading, avoiding competing debugger clients during target initialization.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:
