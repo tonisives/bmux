@@ -2209,7 +2209,7 @@ let ProfileManagementRow = ({ profile }: { profile: Profile }) => {
 }
 
 let ProfileSelectActions = () => {
-  let { state, run } = useUI(), { session, profile } = selection(state)
+  let { state, run, onMessage } = useUI(), { session, profile } = selection(state)
   let [creating, setCreating] = useState(false), [managing, setManaging] = useState(false)
   let [name, setName] = useState(''), [busy, setBusy] = useState(false)
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
@@ -2224,7 +2224,7 @@ let ProfileSelectActions = () => {
   let create = async (event: FormEvent) => {
     event.preventDefault()
     if (!session || busy || !name.trim()) return
-    setBusy(true)
+    onMessage(''); setBusy(true)
     try {
       let created = await run('profile.create', { name: name.trim() }) as Profile | undefined
       if (created && await run('session.profile.set', { session: session.id, profile: created.id })) cancel()

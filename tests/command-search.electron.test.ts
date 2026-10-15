@@ -598,6 +598,7 @@ test('profile settings create and manage profiles beside the selector', async ()
   await form.getByRole('textbox').fill('Settings-created profile')
   await form.getByRole('button', { name: 'Create profile', exact: true }).click()
   await expect(form).toHaveCount(0)
+  await expect(chrome.getByText('Profile name already exists', { exact: true })).toHaveCount(0)
   let created = (await state()).model.profiles.find((item: { name: string }) => item.name === 'Settings-created profile')!
   await expect(select).toHaveValue(created.id)
   await panel.getByRole('button', { name: 'Manage', exact: true }).click()
