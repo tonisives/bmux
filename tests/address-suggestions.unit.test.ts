@@ -1,7 +1,35 @@
 import { describe, expect, test } from 'vitest'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../src/shared/address-suggestions'
+import { addressDestination, addressUrlCompletion, baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle, withAddressSearch } from '../src/shared/address-suggestions'
 
 describe('address suggestions', () => {
+  test('selects search before history and keeps search near the top for domains', () => {
+    let entries = Array.from({ length: 12 }, (_, index) => ({ kind: 'history', value: `https://github.com/${index}`, title: 'GitHub', detail: '' }))
+    let search = { kind: 'search', value: 'https://www.google.com/search?q=github%20issues', title: 'Search Google for github issues', detail: '' }
+    expect(withAddressSearch(entries, 'github issues', 'google', false)).toEqual([search, ...entries])
+    expect(withAddressSearch(entries, 'github.com', 'google', true)[3].kind).toBe('search')
+    expect(withAddressSearch(entries.slice(0, 1), 'github.com', 'bing', true)[1].value).toBe('https://www.bing.com/search?q=github.com')
+    expect(withAddressSearch([], 'a query', 'duckduckgo', false)[0].value).toBe('https://duckduckgo.com/?q=a%20query')
+    expect(withAddressSearch(entries, '', 'google', false)).toEqual(entries)
+  })
+
+  test('only promotes addresses and exact saved domain names over searches', () => {
+    let urls = ['https://github-mirror.com/issues', 'https://github.com/acme/bmux/issues', 'https://maps.google.com/', 'https://example.com/maps']
+    for (let query of ['git', 'g', 'google maps', 'github issues', 'issues', 'example search']) {
+      expect(addressDestination(query, urls)).toBeUndefined()
+      expect(addressUrlCompletion(query, urls)).toBeUndefined()
+    }
+    expect(addressDestination('github', urls)).toEqual({ value: 'github.com', url: 'https://github.com/' })
+    expect(addressUrlCompletion('github', urls)).toEqual({ value: 'github.com', url: 'https://github.com/' })
+    expect(addressDestination('maps', urls)?.url).toBe('https://maps.google.com/')
+    expect(addressDestination('github.com', [])?.url).toBe('https://github.com/')
+    expect(addressDestination('new.example.org/docs', [])?.url).toBe('https://new.example.org/docs')
+    expect(addressDestination('http://intranet/docs', [])?.url).toBe('http://intranet/docs')
+    expect(addressDestination('localhost:8080/docs', [])?.url).toBe('http://localhost:8080/docs')
+    expect(addressDestination('127.0.0.1:8080/docs', [])?.url).toBe('http://127.0.0.1:8080/docs')
+    expect(addressUrlCompletion('github.co', urls)).toBeUndefined()
+    expect(addressUrlCompletion('github.com/ac', urls)?.url).toBe('https://github.com/acme')
+  })
+
   test('uses the saved title for the same clean page without borrowing titles from deeper pages', () => {
     let entries = [
       { title: 'Issue details', url: 'https://github.com/acme/bmux/issues/1' },

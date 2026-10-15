@@ -1547,7 +1547,7 @@ test('URL search closes on X or page click and removes individual history result
 
   await openAddress()
   await address.fill('remove-history-test')
-  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('option', { name: new RegExp('remove-history-test') })).toBeVisible()
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' }).locator('[role="option"][data-kind="history"]')).toBeVisible()
   await chrome.locator('[data-browser-content]').click({ position: { x: 20, y: 400 } })
   await expect(address).toHaveCount(0)
 
@@ -1555,7 +1555,8 @@ test('URL search closes on X or page click and removes individual history result
   await address.fill('remove-history-test')
   await chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('button', { name: 'Remove Search fixture from history' }).click()
   await expect.poll(async () => (await state()).model.profiles[0].history.some((entry: { url: string }) => entry.url === visited)).toBe(false)
-  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
+  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('option')).toHaveCount(1)
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'search')
   await expect(address).toBeFocused()
 
   await rpc('navigate', { tab: original, url: visited })

@@ -928,7 +928,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('media-started-playing', () => { if (live.disposed || !audio[tabId]?.muted || !audibleMedia.has(tabId)) return; audio[tabId] = { playing: true, muted: true }; publish() })
     contents.on('media-paused', () => { if (live.disposed || !audio[tabId]?.muted) return; audio[tabId] = { playing: false, muted: true }; publish() })
-    let lastCountedUrl = initialUrl
+    let lastCountedUrl = initialUrl, requestedHistoryUrl: string | undefined
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
     let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
     contents.on('will-navigate', (event, url) => {
@@ -951,6 +951,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
       if (!mainFrame || inPlace) return
+      requestedHistoryUrl = url
       scriptTouchedTabs.delete(tabId)
       if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url)
       live.pendingUrl = url
@@ -1062,7 +1063,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (client.paneId !== pane.id) { client.paneId = pane.id; raisePane(paneById(model, pane.id).window, pane.id); save(); void scheduleVisuals() }
       }
     })
-    contents.on('did-navigate', () => { live.unloadGuard?.cancel(); live.pendingUrl = undefined; delete crashes[tabId]; update() })
+    contents.on('did-navigate', (_event, url) => {
+      if (!session.private && requestedHistoryUrl && requestedHistoryUrl !== url && /^https?:\/\//.test(requestedHistoryUrl)) {
+        let profile = model.profiles.find(profile => profile.id === pane.profileId)!
+        profile.history = recordHistory(profile.history ?? [], requestedHistoryUrl, requestedHistoryUrl, Date.now())
+      }
+      requestedHistoryUrl = undefined
+      live.unloadGuard?.cancel(); live.pendingUrl = undefined; delete crashes[tabId]; update()
+    })
     contents.on('did-navigate-in-page', () => update())
     contents.on('did-finish-load', () => {
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.

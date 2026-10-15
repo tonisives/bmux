@@ -29,7 +29,7 @@ import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, searchRecentWindows } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
+import { addressDestination, addressUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle, withAddressSearch } from '../shared/address-suggestions'
 import { deduplicateAddressEntries } from '../shared/address-result-deduplication'
 import { deleteWordBackward } from '../shared/text-edit'
 import { BookmarkPlugins } from './BookmarkPlugins'
@@ -762,7 +762,7 @@ let useOpenAddressBookmark = (finish: () => void) => {
 
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
-  let { client, pane, tab, profile } = selection(state)
+  let { client, pane, tab, profile, session } = selection(state)
   let [index, setIndex] = useState(-1), [preferRoot, setPreferRoot] = useState(true)
   let currentUrl = tab ? state.pendingUrls[tab.id] ?? tab.url : ''
   let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
@@ -778,22 +778,22 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
-  let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean) ?? searchUrlDestination(query, [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
-  let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : ''
-  let inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
+  let savedUrls = [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)]
+  let destination = addressDestination(query, savedUrls), baseUrl = addressUrlCompletion(query, savedUrls) ?? destination ?? searchUrlDestination(query, savedUrls)
+  let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : '', inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
   let inlineBookmark = inlineHistory && bookmarkMatches.slice(0, 8).some(bookmark => bookmark.url === inlineHistory.url)
   let preferredUrls = baseUrl ? [{ url: baseUrl.url, title: baseTitle }] : [], bookmarks = deduplicateAddressEntries(bookmarkMatches, preferredUrls).slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = deduplicateAddressEntries(prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url), [...preferredUrls, ...bookmarks])
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
-  let results = suggestionsHidden ? [] : [
+  let results = suggestionsHidden ? [] : withAddressSearch([
     ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url!, bookmarkId: bookmark.id })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
-  ]
-  let selectedIndex = index < 0 && preferRoot && baseUrl ? 0 : index, selectedResult = results[selectedIndex], selectedCompletion = index >= 0 && selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
-  let previewText = index >= 0 && selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || index >= 0 && !!selectedResult?.value
+  ], query, (state.searchApps ?? DEFAULT_SEARCH_APPS)[session?.private ? 'private' : 'normal'], !!destination)
+  let selectedIndex = index < 0 && preferRoot && query.trim() ? 0 : index, selectedResult = results[selectedIndex], selectedCompletion = index >= 0 && selectedResult?.kind !== 'search' && selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let previewText = index >= 0 && selectedResult?.kind === 'search' ? query : index >= 0 && selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || index >= 0 && selectedResult?.kind !== 'search' && !!selectedResult?.value
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
@@ -808,7 +808,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
     setSuggestionsHidden(deletion); if (deletion) vim.reset('INSERT')
-    let completion = deletion ? undefined : profileHistory.map(entry => baseUrlCompletion(value, entry.url) ?? inlineUrlCompletion(value, entry.url)).find(Boolean)
+    let completion = deletion ? undefined : addressUrlCompletion(value, [...searchBookmarkPages(profile?.bookmarks ?? [], value).map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
     setQuery(value); setIndex(-1); setPreferRoot(!deletion); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }

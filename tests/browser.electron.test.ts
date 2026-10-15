@@ -100,6 +100,8 @@ test.beforeAll(async () => {
     }
     if (request.url === '/pending-tab') { pendingPages.add(response); response.on('close', () => pendingPages.delete(response)); return }
     if (request.url === '/redirect-abort') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><script>location.replace("/slow-redirected")</script>'); return }
+    if (request.url === '/history-redirect') { response.writeHead(302, { Location: `http://localhost:${(server.address() as { port: number }).port}/history-redirect-step` }); response.end(); return }
+    if (request.url === '/history-redirect-step') { response.writeHead(302, { Location: '/history-redirect-final' }); response.end(); return }
     if (request.url === '/navigation-failure') { response.destroy(); return }
     if (request.url === '/tab-icon.svg') { response.writeHead(200, { 'Content-Type': 'image/svg+xml' }); response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#588e73"/></svg>'); return }
     if (request.url?.startsWith('/cached-favicon/')) { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(fixture.replace('</head>', '<link rel="icon" href="/tab-icon.svg" type="image/svg+xml"></head>')); return }
@@ -2521,6 +2523,25 @@ test('permission notice leaves the native page interactive and reopens for new r
   await cli('detach-client', { client: client.id })
 })
 
+test('redirect history keeps the original domain and final destination without intermediate hops or private visits', async () => {
+  let profile = await cli('profile.create', { name: 'redirect-history' })
+  let session = await cli('new-session', { name: 'Redirect history', profile: profile.id })
+  let pane = session.windows[0].panes[0]
+  let original = `${url}/history-redirect`, destination = url.replace('127.0.0.1', 'localhost') + '/history-redirect-final'
+  let history = async () => (await cli('state')).model.profiles.find((item: { id: string }) => item.id === profile.id).history ?? []
+  await cli('navigate', { tab: pane.id, url: original })
+  await cli('wait', { tab: pane.id, selector: '#text' })
+  await expect.poll(async () => (await history()).map((entry: { url: string }) => entry.url)).toEqual([destination, original])
+  await cli('navigate', { tab: pane.id, url: original })
+  await expect.poll(async () => (await history()).map((entry: { url: string }) => entry.url)).toEqual([destination, original])
+  await cli('history.remove', { profile: profile.id, url: original })
+  await cli('history.remove', { profile: profile.id, url: destination })
+  let privateSession = await cli('new-session', { name: 'Private redirect', private: true, profile: profile.id })
+  await cli('navigate', { tab: privateSession.windows[0].panes[0].id, url: original })
+  await cli('wait', { tab: privateSession.windows[0].panes[0].id, selector: '#text' })
+  expect(await history()).toEqual([])
+})
+
 test('address suggestions complete URLs and keep history scoped to the pane profile', async () => {
   let session = await cli('new-session', { name: 'History suggestions' })
   let pane = session.windows[0].panes[0]
@@ -2538,13 +2559,11 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await expect(address).toBeFocused()
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
   await address.fill('127')
-  await expect(address).toHaveValue(url.replace(/^http:\/\//, ''))
-  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}/`)
-  await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}/`)
-  await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(1)
-  await expect.poll(() => address.evaluate(input => ({ start: (input as HTMLInputElement).selectionStart, end: (input as HTMLInputElement).selectionEnd }))).toEqual({ start: 3, end: url.replace(/^http:\/\//, '').length })
-  await address.press('Backspace')
   await expect(address).toHaveValue('127')
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'search')
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+  await address.press('Backspace')
+  await expect(address).toHaveValue('12')
   await expect(address).toBeFocused()
   await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
@@ -2559,7 +2578,8 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   await address.fill('hstry sggstn')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toBeVisible()
   await address.fill('long-term care')
-  await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
+  await expect(chrome.getByRole('option')).toHaveCount(1)
+  await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'search')
   await cli('focus-page', { client: client.id })
   await application.evaluate(({ webContents }) => {
     let page = webContents.getFocusedWebContents()!
@@ -2639,7 +2659,7 @@ test('address suggestions prefer base URLs over saved paths and page state', asy
   await cli('detach-client', { client: client.id })
 })
 
-for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps' }, { query: 'github bmux', rootPath: '/github/acme/bmux' }, { query: 'long-term', rootPath: '/d/dashboard/long-term-metrics' }]) for (let source of ['history', 'bookmark']) test(`address suggestions select the clean root for ${query} from ${source}`, async () => {
+for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps' }, { query: 'github bmux', rootPath: '/github/acme/bmux' }, { query: 'long-term', rootPath: '/d/dashboard/long-term-metrics' }]) for (let source of ['history', 'bookmark']) test(`address suggestions offer search before the clean root for ${query} from ${source}`, async () => {
   let profile = await cli('profile.create', { name: `clean-${source}-${query.replaceAll(' ', '-')}` })
   let session = await cli('new-session', { name: `Clean ${source} ${query}`, profile: profile.id })
   let pane = session.windows[0].panes[0]
@@ -2663,14 +2683,16 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await expect(address).toBeFocused()
     await address.fill(query)
     await expect(address).toHaveValue(query)
-    await expect(chrome.getByRole('option').first()).toHaveAttribute('data-value', `${url}${rootPath}`)
-    await expect(chrome.getByRole('option').first().locator('span').last()).toHaveText(`${url}${rootPath}`)
+    await expect(chrome.getByRole('option').first()).toHaveAttribute('data-kind', 'search')
+    await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+    await expect(chrome.getByRole('option').nth(1)).toHaveAttribute('data-value', `${url}${rootPath}`)
+    await expect(chrome.getByRole('option').nth(1).locator('span').last()).toHaveText(`${url}${rootPath}`)
     await expect.poll(async () => {
-      let root = await chrome.getByRole('option').first().locator('span').last().boundingBox()
+      let root = await chrome.getByRole('option').nth(1).locator('span').last().boundingBox()
       let saved = await chrome.locator(`[role="option"][data-value="${savedUrl}"]`).locator('span').last().boundingBox()
       return root && saved ? Math.abs(root.x - saved.x) : undefined
     }).toBeLessThan(1)
-    await expect(chrome.getByRole('option').first().locator('strong')).toHaveText(query === 'long-term' ? source === 'bookmark' ? `Saved page - ${query}` : 'bmux fixture' : `${url.replace(/^http:\/\//, '')}${rootPath}`)
+    await expect(chrome.getByRole('option').nth(1).locator('strong')).toHaveText(query === 'long-term' ? source === 'bookmark' ? `Saved page - ${query}` : 'bmux fixture' : `${url.replace(/^http:\/\//, '')}${rootPath}`)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(address).toHaveAttribute('aria-activedescendant', 'address-suggestion-0')
     await address.press('Backspace')
@@ -2681,6 +2703,7 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await expect(address).toHaveValue(query)
     await expect(chrome.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
     await expect(chrome.locator(`[role="option"][data-value="${savedUrl}"]`)).toHaveAttribute('data-kind', source)
+    await address.press('ArrowDown')
     await address.press('Enter')
     await expect(website).toHaveURL(`${url}${rootPath}`)
     await expect(website.locator('header')).toHaveText('Fixture top')
@@ -2688,6 +2711,7 @@ for (let { query, rootPath } of [{ query: 'google maps', rootPath: '/google/maps
     await expect(address).toBeFocused()
     await address.fill(query)
     await address.press('ArrowDown')
+    if (query !== 'long-term' || source !== 'history') await address.press('ArrowDown')
     let retainedUrl = query === 'long-term' && source === 'history' ? `${url}${rootPath}` : savedUrl
     await expect(address).toHaveValue(retainedUrl)
     await address.press('Enter')
@@ -2730,8 +2754,9 @@ test('address suggestions deduplicate titled pages and tracking variants before 
     await expect(address).toBeFocused()
     await address.fill('duplicate-results')
     let options = chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('option')
-    await expect(options).toHaveCount(4)
-    await expect(options.first()).toHaveAttribute('data-value', `${url}/duplicate-results`)
+    await expect(options).toHaveCount(5)
+    await expect(options.first()).toHaveAttribute('data-kind', 'search')
+    await expect(options.nth(1)).toHaveAttribute('data-value', `${url}/duplicate-results`)
     await expect(options.filter({ hasText: 'Saved destination' })).toHaveCount(1)
     await expect(options.filter({ hasText: 'Old saved title' })).toHaveCount(0)
     await expect(options.filter({ hasText: 'City Resort' })).toHaveCount(1)
