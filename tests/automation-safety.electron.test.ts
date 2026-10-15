@@ -75,8 +75,9 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     expect(await cli(['rpc', 'automation.reset-session', JSON.stringify({ profile: 'profile_default' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
     if (action === 'alert') {
       let otherUrl = url.replace('127.0.0.1', 'localhost')
-      await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane: client.paneId, client: state.clientId, url: otherUrl })
+      let otherPane = await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane: client.paneId, client: state.clientId, url: otherUrl })
       await expect.poll(() => application!.context().pages().some(page => page.url() === otherUrl)).toBe(true)
+      expect((await cli(['dom', '-t', otherPane.id])).ok).toBe(false)
       await expect(alert).toHaveCount(2)
       let firstRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for 127.0.0.1', exact: true }) })
       let secondRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for localhost', exact: true }) })
