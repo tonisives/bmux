@@ -14,7 +14,7 @@ describe('address suggestions', () => {
 
   test('only promotes addresses and exact saved domain names over searches', () => {
     let urls = ['https://github-mirror.com/issues', 'https://github.com/acme/bmux/issues', 'https://maps.google.com/', 'https://example.com/maps']
-    for (let query of ['git', 'g', 'google maps', 'github issues', 'issues', 'example search']) {
+    for (let query of ['git', 'g', '127', '1234', 'google maps', 'github issues', 'issues', 'example search']) {
       expect(addressDestination(query, urls)).toBeUndefined()
       expect(addressUrlCompletion(query, urls)).toBeUndefined()
     }
@@ -27,6 +27,7 @@ describe('address suggestions', () => {
     expect(addressDestination('not-a-protocol://example', [])?.url).toBe('not-a-protocol://example')
     expect(addressDestination('localhost:8080/docs', [])?.url).toBe('http://localhost:8080/docs')
     expect(addressDestination('127.0.0.1:8080/docs', [])?.url).toBe('http://127.0.0.1:8080/docs')
+    expect(addressDestination('127', ['http://127.0.0.1:8080/docs'])).toBeUndefined()
     expect(addressUrlCompletion('github.co', urls)).toBeUndefined()
     expect(addressUrlCompletion('github.com/ac', urls)?.url).toBe('https://github.com/acme')
   })

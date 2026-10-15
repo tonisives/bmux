@@ -58,7 +58,7 @@ test('address search selects search for phrases and domains for exact known name
     await address.fill('maps')
     await expect(address).toHaveValue('maps.google.com')
     await expect(options.first()).toHaveAttribute('data-value', 'https://maps.google.com/')
-    await address.fill('maps.google.com')
+    await address.press('ArrowRight')
     await options.filter({ hasText: 'Search Google for maps.google.com' }).click()
     await expect.poll(() => application.context().pages().some(page => page.url() === 'https://www.google.com/search?q=maps.google.com')).toBe(true)
   } finally {

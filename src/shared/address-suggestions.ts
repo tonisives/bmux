@@ -20,8 +20,9 @@ export let addressDestination = (input: string, urls: string[]): InlineUrlComple
   let local = /^(?:localhost|\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?(?:[/?#]|$)/i.test(input)
   let parsed: URL
   try { parsed = new URL(explicit ? input : `${local ? 'http' : 'https'}://${input}`) } catch { return }
-  let domain = !parsed.username && !parsed.password && /^(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z\d-]{2,}\.?$/i.test(parsed.hostname)
+  let domain = !parsed.username && !parsed.password && /^(?:[a-z\d](?:[a-z\d-]*[a-z\d])?\.)+[a-z][a-z\d-]+\.?$/i.test(parsed.hostname)
   if (explicit || local || domain) return { value: input, url: parsed.href }
+  if (!/^[a-z\d-]+$/i.test(input) || /^\d+$/.test(input)) return
   // A short domain name must match a saved host, never a title or path.
   for (let url of urls) {
     try {
