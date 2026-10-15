@@ -267,7 +267,7 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   })
 }
 
-let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run'], settingsMemory: UIContext['settingsMemory']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
+let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run'], settingsMemory: UIContext['settingsMemory']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
