@@ -47,7 +47,7 @@ type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'se
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -285,7 +285,7 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, actions }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let siteHost = automationWebsiteHost(pane?.url)
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()}.`, actions: [
+  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter: usage.retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [
     ...actions,
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
   ] }]
@@ -338,8 +338,28 @@ let selection = (state: PublicState) => {
   return { client, session, window, pane, tab, profile }
 }
 
+let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: number }) => {
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    let timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  let remaining = Math.max(0, Math.ceil((Date.parse(retryAfter) - now) / 1000))
+  let progress = Math.min(1, remaining / (minutes * 60))
+  let countdown = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`
+  let resetTime = new Date(retryAfter).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  let details = `Automation resumes at ${new Date(retryAfter).toLocaleString()}. ${countdown} remaining in the ${minutes}-minute break.`
+  return <div className={css.cooldownTimer} role="timer" aria-label={details} title={details} tabIndex={0}>
+    <div className={css.cooldownDial}>
+      <svg viewBox="0 0 36 36" aria-hidden="true"><circle className={css.cooldownTrack} cx="18" cy="18" r="16" /><circle cx="18" cy="18" r="16" pathLength="100" strokeDasharray={`${progress * 100} 100`} transform="rotate(-90 18 18)" /></svg>
+      <span>{countdown}</span>
+    </div>
+    <time dateTime={retryAfter}>Reset {resetTime}</time>
+  </div>
+}
+
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.cooldown && <CooldownTimer {...notice.cooldown} />}{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
 </div>
 
 let useWindowDrag = () => {

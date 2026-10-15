@@ -514,3 +514,11 @@
 .app[data-dialog-prompt] .content[data-live-page] > .empty, .app[data-dialog-prompt] .content[data-live-page] > .preview, .app[data-dialog-prompt] .content[data-live-page] .deviceScreen > * { visibility: hidden; }
 .app[data-dialog-prompt] .floatingPreview { background: transparent; }
 .app[data-dialog-prompt] .floatingPreview img { visibility: hidden; }
+
+.cooldownTimer { display: grid; justify-items: center; gap: 3px; flex: none; font-size: 10px; font-variant-numeric: tabular-nums; }
+.cooldownDial { position: relative; display: grid; place-items: center; width: 44px; height: 44px; }
+.notification .cooldownDial svg { position: absolute; width: 44px; height: 44px; stroke-width: 2; }
+.cooldownTrack { opacity: .2; }
+.notification .cooldownDial span { flex: none; font-size: 10px; }
+.cooldownTimer time { white-space: nowrap; }
+.cooldownTimer:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; }
