@@ -260,7 +260,9 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let current = await command('status')
       expect(current.model.sessions.find((session: { ephemeral?: boolean }) => session.ephemeral)).toMatchObject({ name: 'remote', ephemeral: true })
       expect((await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(windows)
-      await attached.getByRole('button',{name:'Close',exact:true}).click()
+      // Close destroys this viewer; observe closure instead of waiting in its renderer.
+      await attached.getByRole('button',{name:'Close',exact:true}).click({noWaitAfter:true})
+      await expect.poll(() => attached.isClosed()).toBe(true)
       await expect.poll(async () => (await command('status')).model.sessions.some((session: { ephemeral?: boolean }) => session.ephemeral)).toBe(false)
       expect((await command('status')).model.clients.find((client: { id: string }) => client.id === attachedClient.id).sessionId).toBe(status.model.sessions[0].id)
     },{timeout:40000})
