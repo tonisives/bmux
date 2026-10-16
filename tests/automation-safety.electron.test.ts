@@ -303,6 +303,9 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     }
     await expect(excludedHost()).toBeVisible()
     await expect(antiBot.getByRole('combobox')).toHaveCount(0)
+    let limitsBounds = (await antiBot.getByRole('region', { name: 'Limits', exact: true }).boundingBox())!
+    expect(limitsBounds.width).toBeGreaterThan(560)
+    expect(await antiBot.getByRole('switch', { name: 'Enable Anti-bot for this profile', exact: true }).evaluate(element => element.closest('label')!.getBoundingClientRect().width)).toBeLessThanOrEqual(560)
     await expect(antiBot.getByRole('heading')).toHaveText(['Enable Anti-bot', 'Limits', 'Excluded websites'])
     await expect(antiBot).not.toContainText('Enter or leave')
     await expect(antiBot).not.toContainText('all profiles')

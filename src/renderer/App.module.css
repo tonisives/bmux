@@ -526,12 +526,19 @@
 
 .profileSelectRow { display: flex; align-items: end; gap: 12px; }
 .profileSelectRow label { flex: 1; min-width: 0; }
-.profileSelectRow > button { height: 34px; padding: 0 10px; border: 1px solid #505a66; }
+.profileSelectRow > button { height: 34px; padding: 0; border: 1px solid #505a66; }
 .profileManageRow { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
 .profileManageRow > span { flex: 1; }
 .profileManageRow small { display: block; color: #8e98a4; }
 
-.profileManageButton { display: grid; place-items: center; width: 34px; flex-shrink: 0; }
+.profileSelectRow > .profileManageButton { display: grid; place-items: center; width: 34px; min-width: 34px; flex-shrink: 0; }
 .profileManageButton svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .profileManageHeading { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .profileManageHeading button { width: 28px; height: 28px; border: 1px solid #505a66; }
+
+.profilePanel, .settingsPanel, .proxyPanel { --settings-field-width: 440px; --settings-row-width: 560px; }
+.profileSelectRow, .profileManager, .profileNameEditor, .profilePanel .sessionCreate, .savedProxy, .settingsContent .toolOptions, .settings > input { width: 100%; max-width: var(--settings-field-width); }
+.profileControl, .settingsRow, .siteExclusionAdd, .siteExclusion { max-width: var(--settings-row-width); }
+.profileSection > p, .settingsHint { max-width: 65ch; }
+.profilePanel select, .settingsPanel select, .proxyPanel select { appearance: none; padding-inline-end: 32px; background-image: linear-gradient(45deg, transparent 50%, #aab4bf 50%), linear-gradient(135deg, #aab4bf 50%, transparent 50%); background-position: right 16px center, right 12px center; background-size: 4px 4px; background-repeat: no-repeat; }
+@media (forced-colors: active) { .profilePanel select, .settingsPanel select, .proxyPanel select { appearance: auto; background-image: none; padding-inline-end: 12px; } }

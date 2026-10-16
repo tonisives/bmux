@@ -2195,6 +2195,8 @@ let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
   return <svg className={css.profileTabIcon} data-profile-tab-icon={tab} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[tab]} /></svg>
 }
 
+let SettingsIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.88 10.44 21.88 13.56 19.29 13.75 18.39 15.92 20.09 17.88 17.88 20.09 15.92 18.39 13.75 19.29 13.56 21.88 10.44 21.88 10.25 19.29 8.08 18.39 6.12 20.09 3.91 17.88 5.61 15.92 4.71 13.75 2.12 13.56 2.12 10.44 4.71 10.25 5.61 8.08 3.91 6.12 6.12 3.91 8.08 5.61 10.25 4.71 10.44 2.12 13.56 2.12 13.75 4.71 15.92 5.61 17.88 3.91 20.09 6.12 18.39 8.08 19.29 10.25Z" /><circle cx="12" cy="12" r="3.25" /></svg>
+
 let ProfileManagementRow = ({ profile }: { profile: Profile }) => {
   let { state, run } = useUI()
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
@@ -2236,8 +2238,8 @@ let ProfileSelectActions = () => {
     } finally { setBusy(false) }
   }
   return <>
-    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><BookmarkSettingsIcon /></button></div>
-    {managing && <div role="group" aria-label="Manage profiles"><div className={css.profileManageHeading}><span>Profiles</span><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy || creating}>+</button></div>
+    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><SettingsIcon /></button></div>
+    {managing && <div className={css.profileManager} role="group" aria-label="Manage profiles"><div className={css.profileManageHeading}><span>Profiles</span><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy || creating}>+</button></div>
     {creating && <form className={css.sessionCreate} onSubmit={create} aria-label="Create profile"><label>Profile name<input value={name} onChange={changeName} autoFocus disabled={busy} required /></label><div className={css.sessionCreateActions}><button type="submit" disabled={busy || !name.trim()}>Create profile</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form>}
     {state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}
   </>
