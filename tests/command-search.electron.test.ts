@@ -1093,6 +1093,10 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByLabel('Orientation', { exact: true }).selectOption('landscape')
   await expect(panel.getByRole('switch', { name: 'Mobile device', exact: true })).toBeChecked()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('iphone-15-pro')
+  // Preset and orientation autosave separately. Wait for the final save to
+  // finish recreating the native page before starting another navigation.
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.orientation).toBe('landscape')
+  await expect(panel.getByLabel('Orientation', { exact: true })).toBeEnabled()
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
   await rpc('navigate', { tab, url: `${url}/device-ios` })
   await expect.poll(() => identityRequests.get('/device-ios')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')

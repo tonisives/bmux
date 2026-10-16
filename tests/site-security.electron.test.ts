@@ -179,8 +179,16 @@ test('shows verified TLS details, rejects invalid certificates, and follows redi
   await floating.getByRole('button', { name: 'Site information: Connection is secure' }).click()
   await expect(panel).toContainText(urls.valid)
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  // Return native focus from the floating window before using main chrome.
+  let clientId = (await state()).clientId
+  await expect.poll(async () => {
+    await rpc('activate-client', { client: clientId })
+    return (await state()).focusedClientId
+  }).toBe(clientId)
+  await rpc('focus-ui', { client: clientId })
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
   let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+  await expect(command).toBeFocused()
   await command.fill('site-info'); await command.press('Enter')
   await expect(panel).toContainText(urls.valid)
 })
