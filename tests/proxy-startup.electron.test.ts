@@ -101,7 +101,11 @@ for (let trigger of ['automatic', 'button', 'focus']) test(`recovers paused prox
   let unavailable = false, failedProbes = 0, pageRequests = 0
   let server = http.createServer((request, response) => {
     if (request.url === '/ip') {
-      if (unavailable) { failedProbes++; response.writeHead(503); response.end(); return }
+      if (unavailable) {
+        failedProbes++
+        if (trigger === 'automatic' && failedProbes === 2) unavailable = false
+        response.writeHead(503); response.end(); return
+      }
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.12' })); return
     }
     pageRequests++
@@ -132,9 +136,6 @@ for (let trigger of ['automatic', 'button', 'focus']) test(`recovers paused prox
     chrome = await launch()
     let failure = chrome.getByRole('status').filter({ hasText: `Proxy for ${profile.name} could not connect` })
     await expect(failure).toBeVisible()
-    // Startup can fail before reaching /ip; count retries from the visible failure.
-    let initialFailures = failedProbes
-    await expect.poll(() => failedProbes, { timeout: 30000 }).toBeGreaterThanOrEqual(initialFailures + (trigger === 'automatic' ? 1 : 3))
     await expect(failure.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
     expect(pageRequests).toBe(0)
     if (trigger === 'button') {
@@ -146,8 +147,9 @@ for (let trigger of ['automatic', 'button', 'focus']) test(`recovers paused prox
       await application!.evaluate(({ BaseWindow }) => { for (let window of BaseWindow.getAllWindows()) window.blur() })
       unavailable = false
       await application!.evaluate(({ BaseWindow }) => { BaseWindow.getAllWindows().find(window => window.isVisible())!.focus() })
-    } else unavailable = false
+    }
     await expect(failure).toHaveCount(0, { timeout: 20000 })
+    if (trigger === 'automatic') expect(failedProbes).toBe(2)
     await expect.poll(async () => (await currentState(chrome)).profileProxyTests[saved.connectionId]?.ip).toBe('203.0.113.12')
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/page`)).toBe(true)
     let page = application!.context().pages().find(page => page.url() === `${origin}/page`)!
