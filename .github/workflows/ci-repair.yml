@@ -2,7 +2,7 @@ name: Repair CI failure
 
 on:
   workflow_run:
-    workflows: [Check, Portable hosts, Windows, Release]
+    workflows: [Check, Portable hosts, Windows, Release, CI repair hook test]
     types: [completed]
     branches: [main]
   workflow_dispatch:

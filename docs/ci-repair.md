@@ -5,6 +5,12 @@ Portable hosts, Windows, and Release. It calls the existing ClawTab trigger API
 to start Codex on the configured Mac. Forks, pull requests, manual test runs, and
 obsolete main commits cannot start a repair.
 
+`CI repair hook test` is also allowlisted for an end-to-end test. Its temporary
+`.github/workflows/ci-repair-hook-test.yml` fixture deliberately fails immediately;
+the user-authorized repair is to delete that file and push the deletion. This is
+the only exception to the agent's prohibition on removing tests to make CI pass.
+The subscription can remain after the fixture is removed for future hook tests.
+
 The local tmux shell job `bmux/ci-repair` runs `scripts/run-ci-repair.py` with
 `codex exec --approve-for-me`. Automatic approval review applies to this job;
 normal interactive sessions keep their existing settings. The wrapper collects

@@ -76,6 +76,14 @@ class RepairRequestTests(unittest.TestCase):
     def test_timeout_is_eligible(self):
         self.assertIsNotNone(self.payload(self.run | {"conclusion": "timed_out"})[0])
 
+    def test_live_hook_fixture_is_eligible_and_has_scoped_cleanup_permission(self):
+        payload, reason = self.payload(self.run | {"name": "CI repair hook test"})
+        self.assertIsNone(reason)
+        self.assertIsNotNone(payload)
+        prompt = repair.repair_prompt(self.run["head_sha"])
+        self.assertIn(".github/workflows/ci-repair-hook-test.yml", prompt)
+        self.assertIn("delete only that fixture workflow", prompt)
+
 
 class LocalRunnerTests(unittest.TestCase):
     def test_existing_lock_prevents_launch_and_is_preserved(self):
