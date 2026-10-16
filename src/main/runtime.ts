@@ -47,6 +47,7 @@ import type { SearchApp } from '../shared/search-app'
 import { normalizeUrl } from './url'
 import { createProfileProxyRelays, testProxyRelay, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
+import { createProxyRecovery } from './proxy-recovery'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
@@ -478,10 +479,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     delete profileProxyTests[profileId]
     profileProxyFailures = { ...profileProxyFailures, [profileId]: { error: errorText(error), failedAt: Date.now() } }
+    proxyRecovery.schedule(profileId)
     publish()
     return blocked.wait
   }
   let acceptProfileProxyTest = (profileId: string, result: Awaited<ReturnType<typeof testProfileProxy>>) => {
+    proxyRecovery.cancel(profileId)
     profileProxyTests = { ...profileProxyTests, [profileId]: result }
     if (profileProxyFailures[profileId]) { let next = { ...profileProxyFailures }; delete next[profileId]; profileProxyFailures = next }
     releaseProfileNetwork(profileId)
@@ -489,6 +492,24 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return result
   }
   let verifyProfileProxy = async (profileId: string) => acceptProfileProxyTest(profileId, await testProfileProxy(profileId))
+  let proxyRecovery = createProxyRecovery(async profileId => {
+    let failure = profileProxyFailures[profileId]
+    if (!failure || shuttingDown) return true
+    profileProxyFailures = { ...profileProxyFailures, [profileId]: { ...failure, retrying: true } }
+    publish()
+    try {
+      if (!appliedProfileProxies.has(profileId)) await applyProfileNetwork(profileId)
+      let result = await testProfileProxy(profileId)
+      if (!shuttingDown && profileProxyFailures[profileId]) acceptProfileProxyTest(profileId, result)
+      return true
+    } catch (error) {
+      if (profileProxyFailures[profileId]) {
+        profileProxyFailures = { ...profileProxyFailures, [profileId]: { error: errorText(error), failedAt: Date.now() } }
+        publish()
+      }
+      return false
+    }
+  })
   let browserSession = (profileId: string, privateSessionId?: string) => {
     let profile = connectionProfile(model, profileId)
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
@@ -1732,6 +1753,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     resizeChrome()
     window.on('resize', resizeChrome)
     window.on('focus', () => {
+      for (let profileId of Object.keys(profileProxyFailures)) void proxyRecovery.retry(profileId)
       focusedClientId = client.id
       lastFocusedClientId = client.id
       resizeChrome()
@@ -2326,6 +2348,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let browser = electronSession.fromPartition(`persist:${connectionId}`)
         await browser.clearStorageData(); await browser.clearCache()
         proxyCredentials.set(connectionId)
+        proxyRecovery.cancel(connectionId)
         delete profileProxyTests[connectionId]; delete profileProxyFailures[connectionId]
       }))
       return profile
@@ -2352,6 +2375,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       return saveDefaultConnection(resolve(model.profiles, args.profile, 'Profile'))
+    }
+    if (method === 'profile.proxy.retry') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = connectionProfile(model, required(args, 'profile'))
+      if (!profile.proxy || !profileProxyFailures[profile.id]) return
+      await proxyRecovery.retry(profile.id)
+      return { recovered: !profileProxyFailures[profile.id] }
     }
     if (method === 'profile.proxy.test') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -3216,6 +3246,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let shutdown = () => {
     if (shuttingDown) return
     shuttingDown = true
+    proxyRecovery.close()
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
     app.off('login', proxyLogin)
