@@ -86,7 +86,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       if (!value || current >= retryAt(profileId, value) || current - value.lastUsed >= automationProfileLimits(options.settings(), profileId).cooldownMinutes * 60_000) value = { startedAt: current, lastUsed: current }
       let delay = pace && usage[profileId] && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, value.lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
       if (delay) { await sleep(delay); page = await inspect(); if (!enabledForPage()) return; assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url) }
-      usage[profileId] = { ...value, lastUsed: now(), ...(actor ? { actors: [...(value.actors ?? []).filter(item => item.paneId !== actor.paneId), actor] } : {}), ...(page.warning && automationWarningEnabled(options.settings(), profileId, new URL(page.url).hostname, now(), actor?.paneId) ? { warning: page.warning, warningHost: new URL(page.url).hostname } : {}) }
+      usage[profileId] = { ...value, lastUsed: now(), ...(actor ? { actors: [...(value.actors ?? []).filter(item => item.paneId !== actor.paneId), actor] } : {}), ...(page.warning && automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId) && automationWarningEnabled(options.settings(), profileId, new URL(page.url).hostname, now(), actor?.paneId) ? { warning: page.warning, warningHost: new URL(page.url).hostname } : {}) }
       persist()
       assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
     })

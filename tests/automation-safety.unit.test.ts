@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { updateAutomationSafetyLimit, automationProfileLimits, automationSiteEnabled, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { updateAutomationSafetyLimit, automationWebsiteHost, automationProfileLimits, automationSiteEnabled, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -41,7 +41,7 @@ test('edited session, break, and pacing limits take effect in the running policy
   await policy.before('bot', instagram)
   expect(sleeps).toEqual([750])
   advance(9 * 60_000 - 750)
-  expect(() => policy.assertAvailable('bot')).toThrow('retry after 2026-10-01T00:25:00.000Z')
+  expect(() => policy.assertAvailable('bot', undefined, 'https://example.com/')).toThrow('retry after 2026-10-01T00:25:00.000Z')
   advance(5 * 60_000)
   await policy.before('bot', instagram)
   expect(policy.status().profiles[0].retryAfter).toBeNull()
@@ -102,7 +102,7 @@ test('pane toggles persist independently and bypass only the chosen pane', async
   let next = restart()
   await next.before('bot', async () => { throw new Error('Disabled pane must not inspect') }, undefined, true, { paneId: '%1' })
   await expect(next.before('bot', instagram, undefined, true, { paneId: '%2' })).rejects.toThrow('session limit')
-  expect(() => next.assertAvailable('bot', '%1')).not.toThrow()
+  expect(() => next.assertAvailable('bot', '%1', 'https://instagram.com/')).not.toThrow()
   settings.enabled = false
   expect(automationSafetyEnabled(settings, 'bot', '%1')).toBe(false)
   expect(automationSafetyEnabled(settings, 'bot', '%2')).toBe(true)
@@ -128,7 +128,7 @@ test('hitting the session limit publishes the cooldown without extending its dea
   await policy.before('bot', instagram)
   let previous = changes()
   advance(10 * 60_000)
-  expect(() => policy.assertAvailable('bot')).toThrow('Open the UI alert or Profile > Anti-bot')
+  expect(() => policy.assertAvailable('bot', undefined, 'https://example.com/')).toThrow('Open the UI alert or Profile > Anti-bot')
   expect(changes()).toBe(previous + 1)
   expect(policy.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
 })
@@ -179,9 +179,12 @@ test('blank panes and raw CDP navigation cannot avoid session accounting or soci
   expect(target).toBe('https://instagram.com/')
   await policy.before('bot', async () => ({ url: 'about:blank' }))
   await policy.before('bot', async () => ({ url: 'about:blank' }), target)
+  expect(sleeps).toEqual([])
+  await policy.before('bot', async () => ({ url: 'about:blank' }), target)
   expect(sleeps).toEqual([2000])
   advance(10 * 60_000)
-  await expect(policy.before('bot', async () => ({ url: 'about:blank' }))).rejects.toThrow('session limit')
+  await policy.before('bot', async () => ({ url: 'about:blank' }))
+  await expect(policy.before('bot', async () => ({ url: 'about:blank' }), target)).rejects.toThrow('session limit')
 })
 
 test('profile opt-outs skip the guard without changing other profiles or deleting paused usage', async () => {
@@ -238,7 +241,7 @@ test('site warning opt-outs release a latched pause without disabling profile li
   advance(10 * 60_000)
   await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
   settings.sites.bot['example.com'] = true
-  expect(() => next.assertAvailable('bot')).toThrow('on example.com')
+  expect(() => next.assertAvailable('bot', undefined, 'https://example.com/')).toThrow('on example.com')
   expect(parseAutomationSettings({ safety: { sites: settings.sites } }).safety.sites).toEqual(settings.sites)
   for (let sites of [{ bot: { 'example.com': 'false' } }, { bot: { 'https://example.com': false } }, { bot: [] }]) expect(() => parseAutomationSettings({ safety: { sites } })).toThrow()
 })
@@ -255,9 +258,9 @@ test.each([15, 60] as const)('timed exclusions expire after %i minutes across re
   expect(automationWarningEnabled(settings, 'bot', 'sub.example.com', start)).toBe(true)
   await restart().before('bot', warning)
   advance(duration * 60_000 - 1)
-  expect(() => restart().assertAvailable('bot')).not.toThrow('Automation paused')
+  expect(() => restart().assertAvailable('bot', undefined, 'https://example.com/')).not.toThrow('Automation paused')
   advance(1)
-  expect(() => restart().assertAvailable('bot')).toThrow('Automation paused')
+  expect(() => restart().assertAvailable('bot', undefined, 'https://example.com/')).toThrow('Automation paused')
 })
 
 test('turning exclusions on stays permanent, including previously timed and expired rules', () => {
@@ -300,7 +303,7 @@ test('profile limits validate, inherit old defaults, and isolate pacing and cool
   await next.before('other', instagram)
   expect(next.status().profiles.find(item => item.profileId === 'other')!.retryAfter).toBeNull()
   settings.profileLimits.bot.maxSessionMinutes = 4
-  expect(() => next.assertAvailable('bot')).not.toThrow()
+  expect(() => next.assertAvailable('bot', undefined, 'https://example.com/')).not.toThrow()
   settings.profileLimits.bot.maxSessionMinutes = 2
   advance(3 * 60_000)
   await next.before('bot', instagram)
@@ -327,4 +330,39 @@ test('excluded websites skip session limits, pacing, and warnings only in their 
   await expect(next.before('other', instagram)).rejects.toThrow('session limit')
   delete settings.sites.bot['www.instagram.com']
   await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
+})
+
+let localResources = [
+  'file:///Users/test/review/index.html', 'about:blank', 'data:text/html,hello', 'blob:https://example.com/id',
+  'chrome://settings/', 'devtools://devtools/', 'chrome-extension://extension/page.html', undefined, 'not a URL',
+  'http://localhost:3000/', 'http://app.localhost/', 'http://LOCALHOST./', 'http://127.0.0.1/', 'http://127.1/',
+  'http://2130706433/', 'http://0x7f000001/', 'http://0.0.0.0/', 'http://10.0.0.1/', 'http://172.16.0.1/',
+  'http://192.168.1.1/', 'http://169.254.169.254/', 'http://100.64.0.1/', 'http://[::1]/', 'http://[::ffff:127.0.0.1]/',
+  'http://[fd00::1]/', 'http://[fe80::1]/', 'http://router/', 'http://printer.local/', 'http://service.lan/',
+  'http://app.internal/', 'http://router.home.arpa/', 'http://fixture.test/',
+]
+test.each(localResources)('local and non-website resources bypass safety without recording usage: %s', async url => {
+  let { policy, file, settings, advance, sleeps, restart } = fixture()
+  settings.profiles = { bot: true }
+  expect(automationWebsiteHost(url)).toBeUndefined()
+  expect(automationSiteEnabled(settings, 'bot', url)).toBe(false)
+  await policy.before('local', async () => ({ url: url ?? '', warning: 'challenge' }), undefined, true, { paneId: '%local' })
+  expect(policy.status().profiles).toEqual([])
+  expect(fs.existsSync(file)).toBe(false)
+  await policy.before('bot', instagram)
+  advance(10 * 60_000)
+  let paused = policy.status()
+  await restart().before('bot', async () => ({ url: url ?? '', warning: 'challenge' }), undefined, true, { paneId: '%local' })
+  expect(() => policy.assertAvailable('bot', '%local', url)).not.toThrow()
+  expect(policy.status()).toEqual(paused)
+  await policy.before('bot', instagram, url ?? 'about:blank')
+  expect(sleeps).toEqual([])
+  await expect(policy.before('bot', async () => ({ url: url ?? '' }), 'https://example.com/')).rejects.toThrow('session limit')
+})
+test('public website exclusions still apply after hostname normalization', () => {
+  let { settings } = fixture()
+  settings.sites = { bot: { 'example.com': false } }
+  expect(automationWebsiteHost('https://EXAMPLE.COM.:8443/path')).toBe('example.com')
+  expect(automationSiteEnabled(settings, 'bot', 'https://EXAMPLE.COM.:8443/path')).toBe(false)
+  expect(automationSiteEnabled(settings, 'bot', 'https://sub.example.com/')).toBe(true)
 })

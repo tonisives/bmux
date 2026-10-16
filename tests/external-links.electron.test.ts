@@ -22,15 +22,15 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-    let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/external.mp4`
+    let url = `http://one.example.com:${(server.address() as { port: number }).port}/external.mp4`
     let file = path.join(directory, 'external file.html')
     await fs.writeFile(file, '<!doctype html><title>External file</title><main>External file</main>')
     let startedAt = Date.now() - 11 * 60_000
-    let ledger = protection === 'cooldown' || protection === 'warning' ? { profile_default: { startedAt, lastUsed: startedAt + 1000, ...(protection === 'warning' ? { warning: 'account-warning', warningHost: '127.0.0.1' } : {}) } } : {}
+    let ledger = protection === 'cooldown' || protection === 'warning' ? { profile_default: { startedAt, lastUsed: startedAt + 1000, ...(protection === 'warning' ? { warning: 'account-warning', warningHost: 'one.example.com' } : {}) } } : {}
     let ledgerFile = path.join(directory, 'automation-safety.json')
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
-    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { groups: protection === 'lease' ? { fixture: { profiles: ['profile_default'], hosts: ['127.0.0.1'], maxConcurrent: 1, hourly: { runs: 1 }, requiredPlugins: { '127.0.0.1': 'test' } } } : {} } }))
-    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { groups: protection === 'lease' ? { fixture: { profiles: ['profile_default'], hosts: ['one.example.com'], maxConcurrent: 1, hourly: { runs: 1 }, requiredPlugins: { 'one.example.com': 'test' } } } : {} } }))
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })

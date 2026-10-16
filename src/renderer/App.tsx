@@ -9,7 +9,7 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
-import { automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import { automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
@@ -246,10 +246,6 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
   return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
 
-let automationWebsiteHost = (url?: string) => {
-  try { let parsed = new URL(url ?? ''); return /^https?:$/.test(parsed.protocol) && /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(parsed.hostname) ? parsed.hostname : undefined } catch { return undefined }
-}
-
 let permissionNotices = (state: PublicState, run: UIContext['run']): Notification[] => state.permissions.filter(request => !state.dismissedPermissions?.includes(request.id)).map(request => {
   let label = permissionPaneLabel(state.model, request.paneId) ?? request.paneId
   let selected = selection(state).pane?.id === request.paneId
@@ -272,10 +268,11 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
-  if (!actors.length && (usage.actors?.length || !automationSafetyEnabled(limits, usage.profileId))) return []
+  let eligiblePanes = actors.length ? actors.map(actor => actor.pane) : usage.actors?.length ? [] : panes.filter(item => item.profileId === usage.profileId && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))
+  if (!eligiblePanes.length) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
-  let pane = actors.find(actor => actor.paneId === selectedPane?.id)?.pane ?? actors[0]?.pane ?? panes.find(pane => pane.profileId === usage.profileId)
+  let pane = eligiblePanes.find(pane => pane.id === selectedPane?.id) ?? eligiblePanes[0]
   let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, { initial: undefined, value: 'anti-bot' }); void show('profiles', pane.id) } : undefined
   let actions = actors.filter(actor => actor.paneId !== selectedPane?.id).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
@@ -286,8 +283,8 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, actions }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
-  let siteHosts = [...new Set((actors.length ? actors.map(actor => actor.pane) : panes.filter(item => item.profileId === usage.profileId && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))).map(item => automationWebsiteHost(item.url)).filter((host): host is string => !!host))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [
+  let siteHosts = [...new Set(eligiblePanes.map(item => automationWebsiteHost(item.url)).filter((host): host is string => !!host))]
+  return siteHosts.map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [
     ...actions,
     { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
   ] }))
@@ -2124,7 +2121,7 @@ let ProfileAntiBotSettings = () => {
       {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
     </ProfileSection>}
     <ProfileSection title="Enable Anti-bot">
-      <p>Applies to automation. Manual browsing is unaffected.</p>
+      <p>Applies to automation on public websites. Files and local addresses are excluded.</p>
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
     </ProfileSection>
@@ -2250,7 +2247,7 @@ let ProfileInfo = () => {
   let { session, pane, profile } = selection(state)
   let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
-    return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
+    return profile && automationSiteEnabled(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id, pane?.url, Date.now(), pane?.id) && (usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()) ? 'anti-bot' : 'overview'
   }, false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
