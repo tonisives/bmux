@@ -132,7 +132,9 @@ for (let trigger of ['automatic', 'button', 'focus']) test(`recovers paused prox
     chrome = await launch()
     let failure = chrome.getByRole('status').filter({ hasText: `Proxy for ${profile.name} could not connect` })
     await expect(failure).toBeVisible()
-    await expect.poll(() => failedProbes, { timeout: 30000 }).toBeGreaterThanOrEqual(trigger === 'automatic' ? 2 : 4)
+    // Startup can fail before reaching /ip; count retries from the visible failure.
+    let initialFailures = failedProbes
+    await expect.poll(() => failedProbes, { timeout: 30000 }).toBeGreaterThanOrEqual(initialFailures + (trigger === 'automatic' ? 1 : 3))
     await expect(failure.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
     expect(pageRequests).toBe(0)
     if (trigger === 'button') {
