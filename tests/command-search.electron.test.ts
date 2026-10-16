@@ -643,8 +643,8 @@ test('profile settings create and manage profiles beside the selector', async ()
   await select.selectOption(session.defaultProfileId)
   let originalBounds = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.getBounds())
   try {
-    await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setBounds({ ...bounds, width: 520, height: 800 }), originalBounds)
-    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(520)
+    await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setBounds({ ...bounds, width: 640, height: 800 }), originalBounds)
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(640)
     await expect(manage).toBeVisible()
     let narrowPanel = (await panel.boundingBox())!, narrowButton = (await manage.boundingBox())!, narrowSelect = (await select.boundingBox())!
     expect(narrowSelect.x).toBeGreaterThan(narrowPanel.x)
