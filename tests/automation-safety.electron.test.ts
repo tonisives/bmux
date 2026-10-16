@@ -261,6 +261,9 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
       await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
     }
     expect((await cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1","returnByValue":true}'])).ok).toBe(true)
+    expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
+    await navigate(`${base}/safe`)
+    expect((await cli(['cdp', '-t', pane.id, 'Runtime.evaluate', '{"expression":"1","returnByValue":true}'])).ok).toBe(true)
     expect((await cli(['automation', 'safety'])).result.profiles[0].profileId).toBe(pane.profileId)
     // Navigation returns before load completes; the next input must inspect the
     // loaded document and catch its warning before dispatching the click.
