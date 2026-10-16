@@ -48,7 +48,7 @@ type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'se
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; resetSession?: { title: string; run: () => void }; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -274,20 +274,18 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let selectedPane = selection(state).pane
   let pane = eligiblePanes.find(pane => pane.id === selectedPane?.id) ?? eligiblePanes[0]
   let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, { initial: undefined, value: 'anti-bot' }); void show('profiles', pane.id) } : undefined
-  let actions = actors.filter(actor => actor.paneId !== selectedPane?.id).map(actor => {
+  let paneLinks = (host: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && automationWebsiteHost(actor.pane.url) === host).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
-    return { label: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, title: actor.pane.title, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
+    let session = state.model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
+    return { session: session?.name ?? actor.paneId, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
-  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, actions }]
+  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
   let siteHosts = [...new Set(eligiblePanes.map(item => automationWebsiteHost(item.url)).filter((host): host is string => !!host))]
-  return siteHosts.map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [
-    ...actions,
-    { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
-  ] }))
+  return siteHosts.map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, siteExclusion: { profileId: usage.profileId, host: siteHost }, text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost), resetSession: { title: `Reset the automation timer and cooldown for profile ${name} across all its panes. This does not reset a tmux session.`, run: () => { void run('automation.reset-session', { profile: usage.profileId }) } } }))
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -356,8 +354,19 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
   </div>
 }
 
+let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <div className={css.notificationPaneLink}><span>{session}</span><button type="button" title={title} aria-label={title} onClick={run}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button></div>
+
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status"><span>{notice.text}</span>{notice.cooldown && <CooldownTimer {...notice.cooldown} />}{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
+    {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
+    {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+    <span className={css.notificationText}>{notice.text}</span>
+    {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
+    {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
+    {notice.resetSession && <div className={css.notificationReset} role="group" aria-label="Automation session"><button type="button" className={css.notificationAction} title={notice.resetSession.title} onClick={notice.resetSession.run}>Reset session</button></div>}
+    {notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}
+    {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+  </div>)}
 </div>
 
 let useWindowDrag = () => {

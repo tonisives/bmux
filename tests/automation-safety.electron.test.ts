@@ -59,6 +59,14 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     await expect(alert).not.toContainText('Manual browsing is unaffected')
     await expect(alert.getByRole('button', { name: 'Anti-bot settings' }).locator('svg')).toBeVisible()
     await expect(alert.getByRole('combobox')).toHaveCount(1)
+    let site = alert.locator('label'), message = alert.getByText('Automation session limit reached for default.', { exact: true })
+    let reset = alert.getByRole('group', { name: 'Automation session', exact: true })
+    await expect(reset.getByRole('button', { name: 'Reset session', exact: true })).toHaveAttribute('title', /profile default across all its panes/)
+    let orderedControls = [timer, site, message, reset, alert.getByRole('button', { name: 'Anti-bot settings' }), alert.getByRole('button', { name: 'Dismiss notification' })]
+    let controlBounds = await Promise.all(orderedControls.map(control => control.boundingBox()))
+    for (let index = 1; index < controlBounds.length; index++) expect(controlBounds[index]!.x).toBeGreaterThanOrEqual(controlBounds[index - 1]!.x + controlBounds[index - 1]!.width)
+    let siteStyle = await site.evaluate(element => getComputedStyle(element).borderTopWidth)
+    expect(siteStyle).toBe('1px')
     if (action === 'expiry') {
       await alert.getByRole('button', { name: 'Anti-bot settings' }).click()
       let antiBot = chrome.getByRole('tabpanel', { name: 'Anti-bot settings' })
@@ -85,6 +93,8 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       let secondRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true }) })
       await expect(firstRow).toBeVisible()
       await expect(secondRow).toBeVisible()
+      await expect(firstRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(1)
+      await expect(secondRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(0)
       let firstBounds = await firstRow.boundingBox(), secondBounds = await secondRow.boundingBox()
       expect(Math.abs(firstBounds!.x - secondBounds!.x)).toBeLessThanOrEqual(1)
       expect(secondBounds!.y).toBeGreaterThanOrEqual(firstBounds!.y + firstBounds!.height)
@@ -174,6 +184,16 @@ test('automation and permission notices identify agent panes while personal brow
     await expect(alert.getByRole('combobox')).toHaveCount(1)
     await expect(alert.getByRole('button', { name: `Go to pane agents:2 · ${first.id} (%45)`, exact: true })).toBeVisible()
     await expect(alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true })).toBeVisible()
+    for (let [pane, window, agentId] of [[first, 2, '%45'], [second, 3, '%46']] as const) {
+      let open = alert.getByRole('button', { name: `Go to pane agents:${window} · ${pane.id} (${agentId})`, exact: true })
+      await expect(open).toHaveText('')
+      await expect(open).toHaveAttribute('title', `Go to pane agents:${window} · ${pane.id} (${agentId})`)
+      await expect(open.locator('..').locator('span')).toHaveText('agents')
+    }
+    await expect(alert).not.toContainText(first.id)
+    await expect(alert).not.toContainText(second.id)
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice-compact.png') })
     await expect(alert).not.toContainText(personal.paneId)
     let usage = (await cli(['automation', 'safety'])).result.profiles[0]
     expect(usage).toMatchObject({ startedAt, lastUsed: startedAt + 1000 })
