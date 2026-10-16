@@ -93,6 +93,8 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       let secondRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true }) })
       await expect(firstRow).toBeVisible()
       await expect(secondRow).toBeVisible()
+      await expect(firstRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(1)
+      await expect(secondRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(0)
       let firstBounds = await firstRow.boundingBox(), secondBounds = await secondRow.boundingBox()
       expect(Math.abs(firstBounds!.x - secondBounds!.x)).toBeLessThanOrEqual(1)
       expect(secondBounds!.y).toBeGreaterThanOrEqual(firstBounds!.y + firstBounds!.height)
