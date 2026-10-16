@@ -126,7 +126,19 @@ test.afterAll(async () => { await closeTestApplication(application); await proxy
 
 test('command finder accepts fuzzy selection and restores the native page', async () => {
   await expect.poll(nativeVisible).toBe(true)
+  let assertCommandOverlay = async () => {
+    let finder = chrome.getByRole('region', { name: 'Command finder', exact: true })
+    let status = chrome.getByRole('contentinfo', { name: 'Browser status' })
+    await expect(status.getByRole('button', { name: 'Command prompt', exact: true })).toBeVisible()
+    await expect(status.locator('[data-window-id]')).not.toHaveCount(0)
+    await expect.poll(async () => {
+      let address = (await chrome.locator('[data-focused-pane="true"]').getByRole('group', { name: 'Pane address', exact: true }).boundingBox())!
+      let bounds = (await finder.boundingBox())!, input = (await prompt().boundingBox())!, bar = (await status.boundingBox())!
+      return bounds.y >= address.y + address.height && input.y >= bounds.y && input.y + input.height <= bounds.y + bounds.height && (bounds.y >= bar.y + bar.height || bounds.y + bounds.height <= bar.y)
+    }).toBe(true)
+  }
   await open()
+  await assertCommandOverlay()
   await expect(chrome.getByRole('listbox', { name: 'Commands', exact: true })).toBeVisible()
   await prompt().fill('brtls')
   let selected = chrome.getByRole('option', { selected: true })
@@ -141,8 +153,7 @@ test('command finder accepts fuzzy selection and restores the native page', asyn
   await fs.writeFile(config, 'statusBar: bottom\n' + await fs.readFile(config, 'utf8'))
   await expect.poll(async () => (await state()).statusBar).toBe('bottom')
   await open(); await prompt().fill('brtls')
-  let finder = chrome.getByRole('region', { name: 'Command finder', exact: true }), status = chrome.getByRole('contentinfo', { name: 'Browser status' })
-  await expect.poll(async () => { let bounds = (await finder.boundingBox())!; return bounds.y + bounds.height - (await status.boundingBox())!.y }).toBeLessThanOrEqual(1)
+  await assertCommandOverlay()
   await chrome.screenshot({ path: path.resolve('artifacts/command-finder-bottom.png') })
   await prompt().press('Escape'); await expect.poll(nativeVisible).toBe(true)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
