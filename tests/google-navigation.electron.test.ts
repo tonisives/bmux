@@ -108,7 +108,7 @@ test('Google navigation automatic hooks can be enabled in Settings and select re
   await settings.getByRole('tab', { name: 'Plugins', exact: true }).click()
   let hooks = settings.getByRole('checkbox', { name: 'Automatic hooks for Google result navigation', exact: true })
   await expect(hooks).not.toBeChecked()
-  await hooks.check()
+  await hooks.click()
   await expect(hooks).toBeChecked()
   await expect.poll(async () => {
     let config = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
@@ -122,7 +122,7 @@ test('Google navigation automatic hooks can be enabled in Settings and select re
   await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
   page = application.context().pages().find(page => page.url() === url)!
   await expect(page.locator('#result-0')).toBeVisible()
-  await expect.poll(() => chrome.evaluate(() => (window as any).bmux.state().pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.status === 'completed'))).toBe(true)
+  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.status === 'completed'))).toBe(true)
   await keys('Down')
   await expect(page.locator('#result-0')).toBeFocused()
   await keys('Down')
