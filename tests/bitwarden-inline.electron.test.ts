@@ -32,6 +32,7 @@ test('Bitwarden inline menu coexists with Vim hints without interference warning
         return result
       }
       await init.collectAutofillContentService.getPageDetails()
+      document.querySelector('#username').addEventListener('input', () => { void init.collectAutofillContentService.getPageDetails() })
       document.querySelector('#username').addEventListener('focus', async () => {
         await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
         document.documentElement.dataset.inlineFixture = 'open'
@@ -67,6 +68,7 @@ test('Bitwarden inline menu coexists with Vim hints without interference warning
     for (let change = 0; change < 8; change++) {
       let collections = Number(await page.locator('html').getAttribute('data-inline-collections'))
       await page.locator('#layout-state').evaluate((output, change) => { output.textContent = String(change) }, change)
+      await page.locator('#username').pressSequentially(String(change))
       await expect.poll(async () => Number(await page.locator('html').getAttribute('data-inline-collections'))).toBeGreaterThan(collections)
     }
     await page.locator('#username').pressSequentially('fixture-user')
