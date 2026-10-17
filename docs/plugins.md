@@ -295,8 +295,9 @@ parameters and keyed by profile and bookmark ID.
 
 ## Google result navigation
 
-Enable the bundled Google result navigation plugin in Settings > Plugins with
-hooks enabled, or merge this into your config:
+In Settings > Plugins, enable Google result navigation and its **Automatic hooks**
+checkbox. Enabling the plugin alone does not install the keyboard handler.
+Alternatively, merge this into your config:
 
 ```yaml
 plugins:

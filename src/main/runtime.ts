@@ -2052,10 +2052,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (context.paneId && tabById(model, context.paneId).session.private) throw new Error('Saved forms are unavailable in private sessions')
       return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
     }
-    if (method === 'plugin.enable') {
+    if (method === 'plugin.enable' || method === 'plugin.hooks') {
       let id = required(args, 'id')
       if (!configuration || !plugins?.list().some(plugin => plugin.id === id) || typeof args.enabled !== 'boolean') throw new Error('Plugin and enabled flag required')
-      configuration.update(['plugins', id, 'enabled'], args.enabled); return plugins.list()
+      configuration.update(['plugins', id, method === 'plugin.hooks' ? 'hooks' : 'enabled'], args.enabled); return plugins.list()
     }
     if (method === 'browser.status') return toolsState()
     if (method === 'bookmark.open') {

@@ -19,7 +19,7 @@ ${Array.from({ length: 5 }, (_, i) => `<article><a id="result-${i}" href="#opene
 
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-google-navigation-'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  adblock: false\n  autoUpdateFilters: false\nkeyboard: {}\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  adblock: false\n  autoUpdateFilters: false\nkeyboard: {}\nplugins:\n  bmux.google-search: { enabled: true, hooks: false }\n')
   server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(fixture) })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/search`
@@ -97,4 +97,35 @@ test('Google navigation plugin selects and scrolls results with native arrow key
   await activate(); await keys('Down')
   await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
   await keys('Escape')
+})
+
+test('Google navigation automatic hooks can be enabled in Settings and select results after loading a search', async () => {
+  await application.context().route('https://www.google.com/search**', route => route.fulfill({ contentType: 'text/html', body: fixture }))
+  await chrome.getByRole('button', { name: 'Command prompt' }).click()
+  let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+  await command.fill('settings'); await command.press('Enter')
+  let settings = chrome.getByRole('dialog', { name: 'Settings', exact: true })
+  await settings.getByRole('tab', { name: 'Plugins', exact: true }).click()
+  let hooks = settings.getByRole('checkbox', { name: 'Automatic hooks for Google result navigation', exact: true })
+  await expect(hooks).not.toBeChecked()
+  await hooks.check()
+  await expect(hooks).toBeChecked()
+  await expect.poll(async () => {
+    let config = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
+    return (await import('yaml')).parse(config).plugins['bmux.google-search']
+  }).toEqual({ enabled: true, hooks: true })
+  await settings.getByRole('button', { name: 'Close', exact: true }).click()
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  let url = 'https://www.google.com/search?q=fixture'
+  await address.fill(url); await address.press('Enter')
+  await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
+  page = application.context().pages().find(page => page.url() === url)!
+  await expect(page.locator('#result-0')).toBeVisible()
+  await expect.poll(() => chrome.evaluate(() => (window as any).bmux.state().pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.status === 'completed'))).toBe(true)
+  await keys('Down')
+  await expect(page.locator('#result-0')).toBeFocused()
+  await keys('Down')
+  await expect(page.locator('#result-1')).toBeFocused()
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0)
 })

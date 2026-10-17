@@ -1354,6 +1354,7 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   let [query, setQuery] = useState('')
   let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
+  let toggleHooks = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.hooks', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let show = (target: string) => !matches || matches.has(target)
@@ -1361,6 +1362,7 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     {!matches && !state.plugins?.length && <p>{compact ? 'No plugins installed.' : 'No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
     {state.plugins?.filter(plugin => show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) || plugin.actions.some(action => show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))).map(plugin => <div key={plugin.id}>
       {show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} data-setting-plugin={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>}
+      {plugin.hasHooks && show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} checked={plugin.hooks} disabled={!plugin.enabled} onChange={toggleHooks} aria-label={`Automatic hooks for ${plugin.name}`} />Automatic hooks · {plugin.hooks ? 'on' : 'off'} (reload open pages after changing)</label>}
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`)).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
     {!compact && <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
 }
