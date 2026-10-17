@@ -25,6 +25,12 @@ test('Bitwarden inline menu coexists with Vim hints without interference warning
   await fs.writeFile(path.join(extension, 'inline-fixture.js'), `
     ;(async () => {
       let init = window.bitwardenAutofillInit
+      let collect = init.collectAutofillContentService.getPageDetails.bind(init.collectAutofillContentService), collections = 0
+      init.collectAutofillContentService.getPageDetails = async (...args) => {
+        let result = await collect(...args)
+        document.documentElement.dataset.inlineCollections = String(++collections)
+        return result
+      }
       await init.collectAutofillContentService.getPageDetails()
       document.querySelector('#username').addEventListener('focus', async () => {
         await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
@@ -35,7 +41,7 @@ test('Bitwarden inline menu coexists with Vim hints without interference warning
   `)
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end('<!doctype html><title>Local login</title><style>body{padding:80px;font:16px sans-serif}input{display:block;width:400px;height:40px;margin:20px}</style><label>Username<input id="username" autocomplete="username"></label><label>Password<input id="password" type="password" autocomplete="current-password"></label>')
+    response.end('<!doctype html><title>Local login</title><style>body{padding:80px;font:16px sans-serif}input{display:block;width:400px;height:40px;margin:20px}</style><label>Username<input id="username" autocomplete="username"></label><label>Password<input id="password" type="password" autocomplete="current-password"></label><output id="layout-state"></output>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/login`
@@ -56,13 +62,12 @@ test('Bitwarden inline menu coexists with Vim hints without interference warning
     await expect(page.locator('[data-bmux-vim-hints] button')).toHaveCount(1)
     await page.locator('#username').click()
     await expect(page.locator('html')).toHaveAttribute('data-inline-fixture', 'open')
-    // Reflowing or temporarily disabling a form can hide and restore its hints.
-    // Those hints must not repeatedly claim the browser's security-sensitive layer.
+    // Each page update causes Bitwarden to collect the fields again. A passive
+    // hint must not make those collections exhaust its top-layer safety limit.
     for (let change = 0; change < 8; change++) {
-      await page.locator('#username').evaluate((field: HTMLInputElement) => { field.disabled = true })
-      await expect(page.locator('[data-bmux-vim-hints]')).toHaveCount(0)
-      await page.locator('#username').evaluate((field: HTMLInputElement) => { field.disabled = false })
-      await expect(page.locator('[data-bmux-vim-hints] button')).toBeVisible()
+      let collections = Number(await page.locator('html').getAttribute('data-inline-collections'))
+      await page.locator('#layout-state').evaluate((output, change) => { output.textContent = String(change) }, change)
+      await expect.poll(async () => Number(await page.locator('html').getAttribute('data-inline-collections'))).toBeGreaterThan(collections)
     }
     await page.locator('#username').pressSequentially('fixture-user')
     await expect(page.locator('[data-bmux-vim-hints] button')).toBeVisible()
