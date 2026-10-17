@@ -147,6 +147,31 @@ test('website Vim hints open by mouse and native click mode with the configured 
   await expect(editor).toBeFocused(); await editor.press('Escape')
 })
 
+test('website Vim hints stay clickable inside page dialogs and popovers without owning the top layer', async () => {
+  for (let tag of ['dialog', 'div']) {
+    await page.evaluate(tag => {
+      let container = document.createElement(tag)
+      container.id = 'top-layer-fixture'
+      if (tag === 'div') container.popover = 'manual'
+      container.innerHTML = '<textarea id="modal-notes">modal draft</textarea>'
+      document.body.append(container)
+      if (container instanceof HTMLDialogElement) container.showModal()
+      else container.showPopover()
+    }, tag)
+    let hint = page.locator('[data-bmux-vim-hints] button[aria-controls="modal-notes"]')
+    await expect(hint).toBeVisible()
+    expect(await hint.evaluate(element => element.getRootNode() instanceof ShadowRoot && (element.getRootNode() as ShadowRoot).host.parentElement?.id)).toBe('top-layer-fixture')
+    await expect(page.locator('[data-bmux-vim-hints]')).not.toHaveAttribute('popover')
+    await hint.click()
+    let editor = page.locator('[data-bmux-vim] .cm-content')
+    await expect(editor).toBeFocused()
+    await editor.press('Escape')
+    await expect(hint).toBeVisible()
+    await page.locator('#top-layer-fixture').evaluate(element => element.remove())
+  }
+  await expect(page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')).toBeVisible()
+})
+
 test('website Vim hints keep readable contrast with Dark Reader and after navigation', async ({}, info) => {
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let hint = page.locator('[data-bmux-vim-hints] button[aria-controls="notes"]')
