@@ -122,7 +122,7 @@ test('built-in plugin details configure blocking and profile dark mode in the sa
     await expect.poll(async () => (await state()).browserTools.tabs[tabId].darkMode).toBe('dark')
   } finally {
     await rpc('browser.set', { tab: tabId, setting: 'darkMode', value: 'off', scope: 'profile' })
-    await rpc('close-window', { window: window.id, confirm: true })
+    await rpc('kill-window', { window: window.id, confirm: true })
     await rpc('select-window', { client: client.id, window: client.windowId })
     await activate()
   }
@@ -242,7 +242,10 @@ test('settings tabs change preferences without editing YAML', async () => {
   await expect(panel.getByRole('combobox', { name: 'Website dark mode' })).toBeVisible()
   await panel.getByRole('tab', { name: 'Plugins' }).click()
   await expectStableBounds()
-  await expect(panel.getByRole('checkbox').first()).toBeVisible()
+  await expect(panel.getByRole('heading', { name: 'Built-in', exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: /^Dark mode Recolor/ }).click()
+  await expect(panel.getByRole('combobox', { name: 'Website dark mode' })).toBeVisible()
+  await panel.getByRole('button', { name: 'Back to plugins' }).press('Escape')
   await panel.getByRole('tab', { name: 'General' }).click()
   await accessibility.click()
   await expect.poll(async () => (await state()).accessibility).toBe(false)
