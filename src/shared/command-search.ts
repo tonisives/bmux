@@ -3,15 +3,14 @@ import { COMMAND_ALIASES } from './command-line'
 import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
-export let PANEL_COMMANDS = ['site-info', 'browser-tools', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles'] as const
+export let PANEL_COMMANDS = ['site-info', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles'] as const
 export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
   { command: 'site-info', description: 'Connection security and certificate details for this page', action: 'site-info' },
-  { command: 'browser-tools', description: 'Status and configuration for ad blocking, Dark Reader, and userscripts', action: 'browser-tools' },
   { command: 'help', description: 'Search commands and current keyboard shortcuts', action: 'help' },
   { command: 'settings', description: 'Browser settings and keyboard configuration', action: 'settings' },
-  { command: 'plugins', description: 'Tool status, plugin configuration, and plugin actions', action: 'plugins' },
+  { command: 'plugins', description: 'Built-in and custom plugins: ad blocking, Dark Reader, userscripts, and actions', action: 'plugins' },
   { command: 'sessions', description: 'Choose a persistent browser session', action: 'sessions' },
   { command: 'downloads', description: 'Manage downloads in this profile', action: 'downloads' },
   { command: 'bookmark', description: 'Save this page to a bookmark folder', action: 'bookmark' },
