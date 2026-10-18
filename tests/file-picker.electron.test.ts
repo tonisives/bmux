@@ -138,11 +138,10 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
       if ((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim() === 'true') {
         await apple(`tell application "System Events"
           tell first application process whose unix id is ${child.pid}
-            set panel to sheet 1 of window 1
-            if exists button "Cancel" of panel then
-              click button "Cancel" of panel
+            if exists button "Cancel" of sheet 1 of window 1 then
+              click button "Cancel" of sheet 1 of window 1
             else
-              click button "Cancel" of splitter group 1 of panel
+              click button "Cancel" of splitter group 1 of sheet 1 of window 1
             end if
           end tell
         end tell`)
@@ -178,15 +177,15 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
     await fs.writeFile(info.outputPath('file-picker-diagnostics.json'), JSON.stringify(pickerTrace, null, 2))
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker.png')])
     await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\nend tell`)
+    // Keep positional references: resolving a sheet into an AppleScript variable
+    // rewrites its parent as window "bmux", which System Events cannot look up.
     let openButton = (action: 'enabled' | 'click') => apple(`tell application "System Events"
       tell first application process whose unix id is ${child.pid}
-        set panel to sheet 1 of window 1
-        if exists button "Open" of panel then
-          set openControl to button "Open" of panel
+        if exists button "Open" of sheet 1 of window 1 then
+          ${action === 'enabled' ? 'get enabled of' : 'click'} button "Open" of sheet 1 of window 1
         else
-          set openControl to button "Open" of splitter group 1 of panel
+          ${action === 'enabled' ? 'get enabled of' : 'click'} button "Open" of splitter group 1 of sheet 1 of window 1
         end if
-        ${action === 'enabled' ? 'get enabled of openControl' : 'click openControl'}
       end tell
     end tell`)
     await expect.poll(() => openButton('enabled').then(result => result.stdout.trim()).catch(error => { pickerLookupError = String(error); return 'false' })).toBe('true')

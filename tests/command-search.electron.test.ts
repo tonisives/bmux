@@ -991,6 +991,7 @@ test('profile device identity is applied before requests and cache status is pub
   await mobile.check()
   await expect(mobile).toBeChecked()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('pixel-8')
+  await expect(mobile).toBeEnabled()
   expect(await rpc('eval', { tab: otherTab, expression: 'window.deviceReloadMarker' })).toBe(true)
   expect((await state()).model.sessions[0].device).toBeUndefined()
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toHaveCount(0)
@@ -1093,7 +1094,10 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByLabel('Orientation', { exact: true }).selectOption('landscape')
   await expect(panel.getByRole('switch', { name: 'Mobile device', exact: true })).toBeChecked()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('iphone-15-pro')
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.orientation).toBe('landscape')
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
+  // The request arrives before the device save finishes reloading this pane.
+  await expect(panel.getByRole('switch', { name: 'Mobile device', exact: true })).toBeEnabled()
   await rpc('navigate', { tab, url: `${url}/device-ios` })
   await expect.poll(() => identityRequests.get('/device-ios')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
   expect(identityRequests.get('/device-ios')?.['user-agent']).toContain('Version/27.0')
