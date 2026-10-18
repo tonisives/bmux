@@ -83,10 +83,22 @@ export let patchBitwardenInlineNewItem = (source: string, release = version) => 
   return source.replace(target.inline, replacement)
 }
 
+// Feature-flag resolution can wait for encrypted account state while locked.
+// Return the normal heuristic path before consulting that state so the field
+// icon can open the unlock window after a browser restart.
+export let patchBitwardenLockedInline = (source: string, release = version) => {
+  let target = targets(release)
+  let marker = 'bmux-locked-inline-targeting-rules'
+  if (source.includes(marker)) return source
+  let needle = 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl('
+  if (!source.includes(needle)) throw new Error('Bitwarden locked inline compatibility target was not found')
+  return source.replace(needle, `case"getUrlAutofillTargetingRules":if((yield this.authService.getAuthStatus())!==${target.unlocked})return null;/* ${marker} */return yield this.main.domainSettingsService.getTargetingRulesForUrl(`)
+}
+
 export let patchBitwardenPackage = async (directory: string, release = version) => {
   let background = path.join(directory, 'background.js')
   let source = await fs.readFile(background, 'utf8')
-  let patched = patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release)
+  let patched = patchBitwardenLockedInline(patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release), release)
   if (patched !== source) await fs.writeFile(background, patched)
   if (release === '2026.10.0') {
     // The intro guard runs before the login route. Dismiss it through the

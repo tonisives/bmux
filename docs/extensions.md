@@ -143,3 +143,8 @@ in `LICENSE-MIT`.
 References: [Electron extension support](https://www.electronjs.org/docs/latest/api/extensions),
 [compatibility library](https://github.com/samuelmaddock/electron-browser-shell/tree/master/packages/electron-chrome-extensions),
 [Bitwarden release](https://github.com/bitwarden/clients/releases/tag/browser-v2026.6.1).
+
+The managed Bitwarden patches also return heuristic autofill rules immediately
+while the vault is locked or signed out. Resolving optional account feature flags
+first can stall page collection after a browser restart and hide the field icon
+needed to open the unlock window. Unlocked vaults retain their normal site rules.

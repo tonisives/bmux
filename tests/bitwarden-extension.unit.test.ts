@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { bitwardenPasskeyPreflight, installBitwardenExtension, patchBitwardenInlineNewItem, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
+import { bitwardenPasskeyPreflight, installBitwardenExtension, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
 
 let source = 'before;const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})};after'
 
@@ -82,14 +82,14 @@ describe('Bitwarden passkey startup', () => {
       for (let location of [managed, unpacked]) {
         await fs.mkdir(location, { recursive: true })
         await fs.writeFile(path.join(location, 'manifest.json'), JSON.stringify({ name: '__MSG_extName__', version: '2026.6.1' }))
-        await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource}`)
+        await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)`)
         await prepareBitwardenPackage(directory, location)
       }
       let upgraded = await fs.readFile(path.join(managed, 'background.js'), 'utf8')
       expect(upgraded).toContain('bmux-passkey-unlock-preflight')
       await prepareBitwardenPackage(directory, managed)
       expect(await fs.readFile(path.join(managed, 'background.js'), 'utf8')).toBe(upgraded)
-      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`${source};${passkeySource}`)
+      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)`)
     } finally { await fs.rm(directory, { recursive: true, force: true }) }
   })
 
@@ -198,4 +198,27 @@ it('executes the preview passkey preflight with the preview worker symbols', asy
   await expect(run()).rejects.toMatchObject({ name: 'NotAllowedError' })
   expect(sign).not.toHaveBeenCalled()
   expect(fixture.openUnlock).toHaveBeenCalledWith('popup/index.html#/login', { singleActionKey: 'auth_unlockExtension', senderWindowId: 4 })
+})
+
+for (let release of ['2026.6.1', '2026.10.0']) describe(`Bitwarden ${release} locked inline targeting`, () => {
+  let original = 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)'
+  let patched = patchBitwardenLockedInline(original, release)
+  it.each([0, 1, 2])('handles auth status %s without waiting for locked feature flags', async status => {
+    let lookup = vi.fn(async () => [{ selector: '#username' }])
+    let handle = vm.runInNewContext(`(function* (command,t) { switch(command) { ${patched} } })`, { ad: { Unlocked: 2 }, Hu: { Unlocked: 2 } })
+    let iterator = handle.call({ authService: { getAuthStatus: async () => status }, main: { domainSettingsService: { getTargetingRulesForUrl: lookup } } }, 'getUrlAutofillTargetingRules', { url: 'https://example.test/login' })
+    let step = iterator.next()
+    while (!step.done) step = iterator.next(await step.value)
+    if (status === 2) {
+      expect(step.value).toEqual([{ selector: '#username' }])
+      expect(lookup).toHaveBeenCalledWith('https://example.test/login')
+    } else {
+      expect(step.value).toBeNull()
+      expect(lookup).not.toHaveBeenCalled()
+    }
+  })
+  it('is idempotent and rejects changed upstream code', () => {
+    expect(patchBitwardenLockedInline(patched, release)).toBe(patched)
+    expect(() => patchBitwardenLockedInline('changed bundle', release)).toThrow('locked inline compatibility target was not found')
+  })
 })

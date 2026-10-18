@@ -22,6 +22,7 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
     expect(installed.version).toBe(release)
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-passkey-unlock-preflight')
+    expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-locked-inline-targeting-rules')
     let other = await rpc('profile.create', { name: 'bot (Brave)' })
     for (let profile of ['profile_default', 'profile_bot', other.id]) {
       await test.step(`Verify login and ports in ${profile}`, async () => {
@@ -31,6 +32,15 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
         let popup = application.context().pages().find(page => page.url().startsWith('chrome-extension://'))!
         await expect(popup.getByRole('textbox', { name: /email/i })).toBeVisible({ timeout: 20000 })
         await expect(popup.getByText('An error has occurred', { exact: true })).toHaveCount(0)
+        // Resolving optional feature flags must not hold field collection until
+        // an account is unlocked. Exercise the real worker and message bridge.
+        expect(await popup.evaluate(async () => {
+          let view = window as any
+          return Promise.race([
+            view.chrome.runtime.sendMessage({ command: 'getUrlAutofillTargetingRules' }).then((response: any) => response),
+            new Promise(resolve => setTimeout(() => resolve({ error: 'targeting rules stalled' }), 3000)),
+          ])
+        })).toEqual({ result: null })
         await popup.screenshot({ path: test.info().outputPath(`bitwarden-${profile}-login.png`) })
         if (profile === other.id) {
           await popup.evaluate(() => {
