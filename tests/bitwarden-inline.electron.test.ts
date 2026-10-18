@@ -6,11 +6,15 @@ import http from 'node:http'
 import { installBitwardenExtension } from '../src/main/bitwarden-extension'
 import { closeTestApplication } from './electron-fixture'
 
-test('Bitwarden inline menu coexists with Vim hints without interference warnings', async ({}, info) => {
+for (let release of ['2026.6.1', '2026.10.0']) test(`Bitwarden ${release} inline menu coexists with Vim hints without interference warnings`, async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-bitwarden-inline-'))
   // Exercise the pinned, unmodified content script without an account or vault.
   // Only the background responses and the request to display the menu are fixtures.
-  let extension = await installBitwardenExtension(directory)
+  let installed = await installBitwardenExtension(directory, undefined, release)
+  // This fixture replaces the worker, so it is an unpacked test extension rather
+  // than a managed official package eligible for background compatibility patches.
+  let extension = path.join(directory, 'fixture-extension')
+  await fs.rename(installed, extension)
   let manifest = JSON.parse(await fs.readFile(path.join(extension, 'manifest.json'), 'utf8'))
   manifest.content_scripts = [{ matches: ['http://127.0.0.1/*'], js: ['content/bootstrap-autofill-overlay.js', 'inline-fixture.js'], run_at: 'document_idle' }]
   await fs.writeFile(path.join(extension, 'manifest.json'), JSON.stringify(manifest))

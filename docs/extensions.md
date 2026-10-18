@@ -45,6 +45,31 @@ last known-good release before a Bitwarden 2026.7–2026.8 WASM decryption
 regression that can leave a successfully synced vault empty. Sign in using
 Bitwarden's own popup. The extension manages its own vault session. Extension updates are manual in this prototype.
 
+A 2026.10.0 preview is available separately from the stable installer. Prepare
+its checksum-verified official package with bmux's inline editor and passkey
+compatibility patches and a direct login popup route:
+
+```sh
+pnpm exec tsx scripts/prepare-bitwarden-preview.ts
+bmux profile create bitwarden-preview
+bmux extension load /absolute/path/printed/by/the/script --profile PROFILE_ID
+bmux extension open Bitwarden --profile PROFILE_ID
+```
+
+Use the new profile ID returned by `profile create`. The preview keeps its own
+package, extension ID, storage, and sign-in; it does not change an existing
+profile or replace the stable package. Sign in manually and verify vault loading,
+unlock, inline autofill (including embedded login forms), New item, and passkeys
+before switching a working profile. The smoke test verifies login and worker ports
+for both releases, but cannot establish that a real account's vault decrypts.
+
+The compatibility changes are maintained as a small downstream patch set in
+`src/main/bitwarden-extension.ts`. A full Bitwarden source fork is unnecessary
+for these changes. Each supported bundle is pinned by version and checksum;
+patching fails if its expected code changes. Keep 2026.6.1 as the default until
+manual vault verification succeeds. Hammerspoon automatic unlock also needs the
+preview's separate extension ID to be explicitly trusted before it can fill it.
+
 After installation, reload existing login pages so the extension can inject its
 content scripts. Bitwarden provides the passkey UI; this does not add Chrome's
 phone QR chooser to Electron. Vault authentication and passkey signing require
