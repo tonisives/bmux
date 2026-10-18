@@ -306,6 +306,8 @@ plugins:
 
 Reload an open Google search after enabling it. Up/Down selects the previous or
 next result and scrolls its headline into view; Enter opens the selected link.
+Navigation is also installed after Google changes the search URL without a full
+page load, including URL updates that interrupt the initial installation.
 Escape clears the selection. Search fields, editing, modified keys, and click
 mode retain their normal behavior. The plugin runs in an isolated page world
 without page access to browser or Node APIs. Disabling prevents installation on

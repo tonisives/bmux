@@ -9,3 +9,9 @@ hooks:
     matches: ['https://www.google.com/search*', 'https://google.com/search*', 'https://www.google.*/search*']
     command: [node, ./run.mjs]
     capabilities: [browser.cdp]
+  - id: navigation-change
+    title: Restore Google result navigation after URL changes
+    event: url-change
+    matches: ['https://www.google.com/search*', 'https://google.com/search*', 'https://www.google.*/search*']
+    command: [node, ./run.mjs]
+    capabilities: [browser.cdp]
