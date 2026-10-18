@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent, WheelEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent, PointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createViewer } from '../../remote/web/client'
 import type { Host, State } from '../../remote/web/client'
@@ -61,7 +61,7 @@ let App = () => {
   let changeText = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let sendText = (event: FormEvent) => { event.preventDefault(); if (controlling && text) { viewer?.send({ type: 'text', generation: lease?.generation, text }); setText('') } }
   let choosePane = (event: ChangeEvent<HTMLSelectElement>) => viewer?.send({ type: 'switch', pane: event.target.value })
-  let pointer = (event: PointerEvent<HTMLVideoElement> | WheelEvent<HTMLVideoElement>, type: string) => {
+  let pointer = useCallback((event: PointerEvent<HTMLVideoElement> | WheelEvent, type: string) => {
     if (!controlling || !video.current || !viewport || !video.current.videoWidth || !video.current.videoHeight) return
     event.preventDefault()
     let target = video.current, rect = target.getBoundingClientRect(), scale = Math.min(rect.width / target.videoWidth, rect.height / target.videoHeight)
@@ -69,11 +69,17 @@ let App = () => {
     let y = (event.clientY - rect.top - (rect.height - target.videoHeight * scale) / 2) / scale
     if (x < 0 || y < 0 || x > target.videoWidth || y > target.videoHeight) return
     viewer?.send({ type: 'input', generation: lease?.generation, viewportGeneration: viewport.generation, event: { type, x: Math.round(x * viewport.width / target.videoWidth), y: Math.round(y * viewport.height / target.videoHeight), button: event.button === 2 ? 'right' : 'left', clickCount: 1, ...(type === 'mouseWheel' ? { deltaX: (event as WheelEvent).deltaX, deltaY: (event as WheelEvent).deltaY } : {}) } })
-  }
+  }, [controlling, viewer, viewport, lease?.generation])
+  useEffect(() => {
+    let target = video.current
+    if (!target) return
+    let scroll = (event: WheelEvent) => pointer(event, 'mouseWheel')
+    target.addEventListener('wheel', scroll, { passive: false })
+    return () => target.removeEventListener('wheel', scroll)
+  }, [pointer])
   let down = (event: PointerEvent<HTMLVideoElement>) => { event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); pointer(event, 'mouseDown') }
   let up = (event: PointerEvent<HTMLVideoElement>) => pointer(event, 'mouseUp')
   let move = (event: PointerEvent<HTMLVideoElement>) => pointer(event, 'mouseMove')
-  let scroll = (event: WheelEvent<HTMLVideoElement>) => pointer(event, 'mouseWheel')
   let keyboard = (event: KeyboardEvent<HTMLVideoElement>) => {
     if (!controlling || !viewport || event.nativeEvent.isComposing) return
     event.preventDefault()
@@ -92,7 +98,7 @@ let App = () => {
     </div>}
     {controlling && <form className={css.bar} onSubmit={navigate}><button type="button" onClick={back}>Back</button><button type="button" onClick={forward}>Forward</button><button type="button" onClick={reload}>Reload</button><input aria-label="Address" value={address} onChange={changeAddress} /><button>Go</button></form>}
     <div className={css.viewport} role="region" aria-label="Remote viewport">
-      <video ref={video} className={css.video} width={viewport?.width} height={viewport?.height} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
+      <video ref={video} className={css.video} width={viewport?.width} height={viewport?.height} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
     </div>
     {controlling && <form className={css.bar} onSubmit={sendText}><input aria-label="Type into page" value={text} onChange={changeText} /><button>Type</button></form>}
   </main>

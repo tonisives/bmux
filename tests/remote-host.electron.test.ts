@@ -17,7 +17,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2, connectionTimeoutMillis: 5000, query_timeout: 5000 })
   let origin = 'http://127.0.0.1:18889', owner = randomBytes(12).toString('hex'), service = `test-${owner}`, token = randomBytes(32).toString('hex'), cookie = randomBytes(32).toString('hex')
   let digest = (value: string) => createHash('sha256').update(value).digest('hex')
-  let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><a href="?linked=1" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Open link</a><input autofocus aria-label="Fixture input" style="position:absolute;top:120px"><div id="tick"></div><script>window.memory="retained";document.addEventListener("keydown",event=>document.body.dataset.key=event.key);document.addEventListener("pointerdown",event=>document.body.dataset.pointer=event.clientX+","+event.clientY);setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
+  let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><a href="?linked=1" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Open link</a><input autofocus aria-label="Fixture input" style="position:absolute;top:120px"><div id="tick"></div><script>window.memory="retained";document.addEventListener("keydown",event=>document.body.dataset.key=event.key);document.addEventListener("pointerdown",event=>document.body.dataset.pointer=event.clientX+","+event.clientY);document.addEventListener("wheel",event=>document.body.dataset.wheel=String(event.deltaY));setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
   await new Promise<void>(resolve => fixture.listen(0, '127.0.0.1', resolve))
   let fixtureUrl = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`
   await pool.query(await fs.readFile('remote/schema.sql', 'utf8'))
@@ -260,6 +260,28 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let current = await command('status')
       expect(current.model.sessions.find((session: { ephemeral?: boolean }) => session.ephemeral)).toMatchObject({ name: 'remote', ephemeral: true })
       expect((await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(windows)
+      let nativeId = (await command('rpc','diagnostics','{}')).windows.find((window: { id: string }) => window.id === attachedClient.id).nativeId
+      let originalSize = await application!.evaluate(({ BaseWindow }, id) => {
+        let window = BaseWindow.fromId(id)!, bounds = window.getContentBounds()
+        setImmediate(() => window.setContentSize(640, 400))
+        return bounds
+      }, nativeId)
+      let viewport = attached.getByRole('region', { name: 'Remote viewport' })
+      await expect.poll(() => viewport.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
+      await attached.getByRole('button', { name: 'Take control', exact: true }).click()
+      await expect(attached.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await viewport.evaluate(element => { element.scrollLeft = 64; element.scrollTop = 64 })
+      await expect.poll(() => viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 64, y: 64 })
+      let frame = (await viewport.boundingBox())!
+      await attached.mouse.move(frame.x + 80, frame.y + 80)
+      await attached.mouse.wheel(0, 120)
+      await expect.poll(() => page.evaluate(() => document.body.dataset.wheel)).toBe('120')
+      expect(await viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 64, y: 64 })
+      await attached.getByRole('button', { name: 'Release control', exact: true }).click()
+      await expect(attached.getByRole('button', { name: 'Take control', exact: true })).toBeVisible()
+      await application!.evaluate(({ BaseWindow }, { id, size }) => {
+        setImmediate(() => BaseWindow.fromId(id)?.setContentSize(size.width, size.height))
+      }, { id: nativeId, size: originalSize })
       // Close destroys this viewer; observe closure instead of waiting in its renderer.
       await attached.getByRole('button',{name:'Close',exact:true}).click({noWaitAfter:true})
       await expect.poll(() => attached.isClosed()).toBe(true)
