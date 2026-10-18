@@ -297,7 +297,8 @@ test('remote sessions open from the sessions popup title bar', async () => {
   }
   await expect(rpc('navigate', { tab: viewerPane, url: `${url}/docs` })).rejects.toThrow('Use the remote viewer address')
   await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
-  await viewer.getByRole('button', { name: 'Close', exact: true }).click()
+  await viewer.getByRole('button', { name: 'Close', exact: true }).click({ noWaitAfter: true })
+  await expect.poll(() => viewer.isClosed()).toBe(true)
   await expect.poll(async () => (await state()).model.sessions.find((item: { ephemeral?: boolean }) => item.ephemeral)?.windows.length).toBe(1)
   await rpc('switch-client', { client: current.clientId, session: previousSession })
   await expect.poll(async () => (await state()).model.sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
