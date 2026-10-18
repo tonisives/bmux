@@ -45,7 +45,7 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'remote-sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
@@ -119,7 +119,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousDialogPrompt.current = !!state.dialogPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
@@ -1190,16 +1190,19 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
 }
 
 let Panel = ({ type }: { type: Control }) => {
-  let { state, show, dismiss } = useUI()
+  let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (!['help', 'sessions', 'remote-sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
-  let sessionPicker = type === 'sessions' || type === 'remote-sessions'
+  let [sessionTab, setSessionTab] = useState(() => localStorage.getItem('session-picker-tab') === 'remote' ? 'remote' : 'local')
+  let chooseLocalSessions = () => { setSessionTab('local'); localStorage.setItem('session-picker-tab', 'local') }
+  let chooseRemoteSessions = () => { setSessionTab('remote'); localStorage.setItem('session-picker-tab', 'remote') }
+  useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
+  let sessionPicker = type === 'sessions'
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
-      <button type="button" role="tab" aria-selected={type === 'sessions'} onClick={() => show('sessions')}>Sessions</button>
-      <button type="button" role="tab" aria-selected={type === 'remote-sessions'} onClick={() => show('remote-sessions')}>Remote sessions</button>
+      <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Sessions</button>
+      <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote sessions</button>
     </div> : <strong>{title}</strong>}<CloseButton label="Close" onClick={dismiss} /></header>
     <div className={css.panelBody}>
       {type === 'help' && <HelpContent />}
@@ -1208,8 +1211,7 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'browser-tools' && <BrowserTools />}
       {type === 'site-info' && <SiteInformation />}
       {type === 'settings' && <SettingsContent />}
-      {type === 'sessions' && <SessionPicker />}
-      {type === 'remote-sessions' && <RemoteSessionPicker />}
+      {sessionPicker && (sessionTab === 'remote' ? <RemoteSessionPicker /> : <SessionPicker />)}
       {type === 'profiles' && <ProfileInfo />}
       {type === 'proxy' && <ProxyInfo />}
       {type === 'bookmark' && <BookmarkEditor />}

@@ -91,7 +91,9 @@ let App = () => {
       <span>{controlling ? 'You control this session' : 'Watching'}</span>
     </div>}
     {controlling && <form className={css.bar} onSubmit={navigate}><button type="button" onClick={back}>Back</button><button type="button" onClick={forward}>Forward</button><button type="button" onClick={reload}>Reload</button><input aria-label="Address" value={address} onChange={changeAddress} /><button>Go</button></form>}
-    <video ref={video} className={css.video} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
+    <div className={css.viewport} role="region" aria-label="Remote viewport">
+      <video ref={video} className={css.video} width={viewport?.width} height={viewport?.height} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
+    </div>
     {controlling && <form className={css.bar} onSubmit={sendText}><input aria-label="Type into page" value={text} onChange={changeText} /><button>Type</button></form>}
   </main>
 }

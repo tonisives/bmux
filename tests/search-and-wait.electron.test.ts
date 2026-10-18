@@ -219,6 +219,11 @@ test('remote sessions open from the sessions popup title bar', async () => {
   await expect(picker.getByRole('textbox', { name: 'Search remote sessions' })).toBeFocused()
   await expect(picker.getByRole('button', { name: 'new session', exact: true })).toHaveCount(0)
   await expect(chrome.getByRole('group', { name: 'Choose session', exact: true })).toHaveCount(0)
+  await chrome.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
+  await expect(dialog.getByRole('tab', { name: 'Remote sessions' })).toHaveAttribute('aria-selected', 'true')
+  await expect(picker.getByRole('textbox', { name: 'Search remote sessions' })).toBeFocused()
   await dialog.getByRole('tab', { name: 'Sessions', exact: true }).click()
   await expect(chrome.getByRole('group', { name: 'Choose session', exact: true })).toBeVisible()
   await dialog.getByRole('tab', { name: 'Remote sessions' }).click()
@@ -249,6 +254,47 @@ test('remote sessions open from the sessions popup title bar', async () => {
   expect(current.model.clients).toHaveLength(clients)
   expect((await rpc('diagnostics')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(nativeWindows.windows.map((window: { nativeId: number }) => window.nativeId))
   let viewerPane = current.model.clients.find((item: { id: string }) => item.id === current.clientId).paneId
+  let content = chrome.locator(`[data-content-pane-id="${viewerPane}"]`)
+  await expect.poll(async () => {
+    let rect = (await content.boundingBox())!
+    let bounds = await application.evaluate(({ BaseWindow }) => {
+      for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) {
+        if ('webContents' in view && (view.webContents as any).getURL().endsWith('/remote-client.html')) return view.getBounds()
+      }
+    })
+    return bounds && (['x', 'y', 'width', 'height'] as const).every(key => Math.abs(bounds[key] - rect[key]) <= 1)
+  }).toBe(true)
+  let video = viewer.getByLabel('Remote browser'), viewport = viewer.getByRole('region', { name: 'Remote viewport' })
+  for (let size of [{ width: 320, height: 200 }, { width: 1920, height: 1080 }]) {
+    // Supply decoded frames without an external host or signaling service.
+    await video.evaluate(async (element, size) => {
+      let video = element as HTMLVideoElement, canvas = document.createElement('canvas')
+      if (video.srcObject) for (let track of (video.srcObject as MediaStream).getTracks()) track.stop()
+      canvas.width = size.width; canvas.height = size.height
+      canvas.getContext('2d')!.fillRect(0, 0, canvas.width, canvas.height)
+      video.srcObject = canvas.captureStream()
+      await video.play()
+    }, size)
+    await expect.poll(() => video.evaluate(element => ({ width: (element as HTMLVideoElement).videoWidth, height: (element as HTMLVideoElement).videoHeight }))).toEqual(size)
+    await expect.poll(() => video.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))).toEqual(size)
+    if (size.width === 320) {
+      let frame = (await viewport.boundingBox())!, image = (await video.boundingBox())!
+      expect(Math.abs(image.x + image.width / 2 - frame.x - frame.width / 2)).toBeLessThanOrEqual(1)
+      expect(Math.abs(image.y + image.height / 2 - frame.y - frame.height / 2)).toBeLessThanOrEqual(1)
+    } else {
+      await expect.poll(() => viewport.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
+      await viewport.evaluate(element => { element.scrollLeft = element.scrollWidth; element.scrollTop = element.scrollHeight })
+      await expect.poll(() => viewport.evaluate(element => element.scrollLeft > 0 && element.scrollTop > 0)).toBe(true)
+      let frame = (await viewport.boundingBox())!, header = (await viewer.locator('header').boundingBox())!
+      expect(frame.y).toBeGreaterThanOrEqual(header.y + header.height)
+      expect(await viewer.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true)
+      let status = (await chrome.getByRole('contentinfo', { name: 'Browser status' }).boundingBox())!
+      let address = (await chrome.locator(`[data-pane-id="${viewerPane}"]`).getByRole('button', { name: 'Address', exact: true }).boundingBox())!
+      let region = (await content.boundingBox())!
+      expect(region.y).toBeGreaterThanOrEqual(status.y + status.height)
+      expect(region.y).toBeGreaterThanOrEqual(address.y + address.height)
+    }
+  }
   await expect(rpc('navigate', { tab: viewerPane, url: `${url}/docs` })).rejects.toThrow('Use the remote viewer address')
   await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
   await viewer.getByRole('button', { name: 'Close', exact: true }).click()
@@ -256,6 +302,13 @@ test('remote sessions open from the sessions popup title bar', async () => {
   await rpc('switch-client', { client: current.clientId, session: previousSession })
   await expect.poll(async () => (await state()).model.sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
   await application.evaluate(({ session }, value) => session.fromPartition('persist:profile_default').cookies.remove(value, 'bmux_session'), url)
+  await chrome.reload()
+  await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
+  await expect(dialog.getByRole('tab', { name: 'Remote sessions' })).toHaveAttribute('aria-selected', 'true')
+  await dialog.getByRole('tab', { name: 'Sessions', exact: true }).click()
+  await chrome.keyboard.press('Escape')
+  await open('sessions')
+  await expect(dialog.getByRole('tab', { name: 'Sessions', exact: true })).toHaveAttribute('aria-selected', 'true')
 })
 
 test('session picker goes back to the previously selected session', async () => {
