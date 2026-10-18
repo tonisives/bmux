@@ -781,7 +781,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let selectionFocus = useAddressSelectionFocus()
   let selectAddress = useAddressSelection()
   let deleting = useRef(false)
-  let [suggestionsHidden, setSuggestionsHidden] = useState(false), mounted = useRef(true)
+  let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
@@ -793,7 +793,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = deduplicateAddressEntries(prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url), [...preferredUrls, ...bookmarks])
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
-  let results = suggestionsHidden ? [] : withAddressSearch([
+  let results = withAddressSearch([
     ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url!, bookmarkId: bookmark.id })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
@@ -814,7 +814,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let value = event.target.value
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
-    setSuggestionsHidden(deletion); if (deletion) vim.reset('INSERT')
+    if (deletion) vim.reset('INSERT')
     let completion = deletion ? undefined : addressUrlCompletion(value, [...searchBookmarkPages(profile?.bookmarks ?? [], value).map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
     setQuery(value); setIndex(-1); setPreferRoot(!deletion); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
