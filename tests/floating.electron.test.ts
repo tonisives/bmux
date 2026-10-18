@@ -543,13 +543,15 @@ test('reopens a closed float at its remembered position and adapts after window 
   await rpc('select-window', { client: client.id, window: memoryWindow.id })
   let tiled = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === memoryWindow.id).panes[0]
   let first = await rpc('new-pane', { pane: tiled.id, client: client.id })
+  await frame(first.id)
   let before = (await state()).model.clients.find((item: any) => item.id === client.id)
   let remembered = { x: 500, y: 260, width: 420, height: 310 }
   await rpc('float.bounds', { client: client.id, pane: first.id, ...remembered, commit: true })
-  await rpc('kill-pane', { pane: first.id, confirm: true })
+  expect(await rpc('kill-pane', { pane: first.id, confirm: true })).toEqual({ closed: first.id })
   let reopened = await rpc('new-pane', { pane: tiled.id, client: client.id })
+  await frame(reopened.id)
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === memoryWindow.id).floating.find((item: any) => item.paneId === reopened.id)).toMatchObject(remembered)
-  await rpc('kill-pane', { pane: reopened.id, confirm: true })
+  expect(await rpc('kill-pane', { pane: reopened.id, confirm: true })).toEqual({ closed: reopened.id })
 
   let systemWindow = await application.evaluate(({ BaseWindow }) => {
     let window = BaseWindow.getAllWindows().find(window => window.isVisible())!

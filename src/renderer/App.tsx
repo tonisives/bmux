@@ -45,7 +45,7 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'browser-tools' | 'site-info'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
@@ -1197,7 +1197,7 @@ let Panel = ({ type }: { type: Control }) => {
   let chooseRemoteSessions = () => { setSessionTab('remote'); localStorage.setItem('session-picker-tab', 'remote') }
   useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
   let sessionPicker = type === 'sessions'
-  let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'browser-tools' ? 'Browser tools' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
@@ -1208,7 +1208,6 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
       {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
-      {type === 'browser-tools' && <BrowserTools />}
       {type === 'site-info' && <SiteInformation />}
       {type === 'settings' && <SettingsContent />}
       {sessionPicker && (sessionTab === 'remote' ? <RemoteSessionPicker /> : <SessionPicker />)}
@@ -1353,11 +1352,14 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   let reload = () => { void run('plugin.reload') }
   let builtin = BUILTIN_TOOLS.find(tool => `builtin:${tool.id}` === stack.selected)
   let plugin = state.plugins?.find(plugin => `plugin:${plugin.id}` === stack.selected)
-  if (matches) return <PluginConfiguration compact={compact} matches={matches} />
+  if (matches) return <>
+    {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
+    <PluginConfiguration compact={compact} matches={matches} />
+  </>
   if (builtin || plugin) return <section aria-label="Plugin details" onKeyDown={stack.keys}>
     <button ref={stack.backButton} onClick={stack.back}>Back to plugins</button>
     <h2>{builtin?.name ?? plugin?.name}</h2>
-    {builtin ? <><p>{builtin.description}</p><BrowserTools key={builtin.id} compact feature={builtin.id} /></> : <><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /></>}
+    {builtin ? <><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /></>}
   </section>
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
@@ -2842,75 +2844,55 @@ let HelpContent = () => {
   </div>
 }
 
-let ToolStatus = () => {
-  let { state, show, run, control } = useUI()
-  let { tab, profile } = selection(state)
-  let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
-  let configure = () => show('browser-tools')
-  let plugins = () => show('plugins')
-  let edit = () => { void run('settings.open') }
-  let blocking = !current?.origin ? 'No website selected' : current.adblock ? 'On' : 'Off'
-  let filters = tools?.filters
-  return <section className={css.toolStatus} aria-label="Tools status">
-    <h2>Tools status</h2>
-    <p>{profile?.name ?? 'No profile'} · {current?.origin || 'No website selected'}</p>
-    <dl>
-      <div><dt>Ad blocking</dt><dd>{blocking}{current?.origin && ` · ${current.blocked} requests blocked since navigation`}</dd></div>
-      <div><dt>Filter lists</dt><dd>{!filters ? 'Loading' : filters.error ? 'Needs attention' : filters.updating ? 'Updating' : filters.network ? 'Ready' : 'Unavailable'}</dd></div>
-      <div><dt>Website dark mode</dt><dd>{current?.origin ? current.darkMode === 'dark' ? 'On' : current.darkMode === 'system' ? 'Follow system' : 'Off' : 'No website selected'}</dd></div>
-      <div><dt>Userscripts</dt><dd>{tools ? `${tools.scripts.filter(script => script.enabled).length} enabled · ${tools.scripts.filter(script => script.error).length} errors` : 'Loading'}</dd></div>
-      <div><dt>Plugins</dt><dd>{state.plugins?.filter(plugin => plugin.enabled).length ?? 0} enabled · {state.plugins?.filter(plugin => plugin.error).length ?? 0} errors</dd></div>
-    </dl>
-    {current?.error && <p className={css.error}>{current.error}</p>}
-    {filters?.error && <p className={css.error}>{filters.error}</p>}
-    <div className={css.toolActions}>{control !== 'browser-tools' && <button onClick={configure}>Configure browser tools</button>}{control !== 'plugins' && <button onClick={plugins}>Manage plugins</button>}{control === 'plugins' && <button onClick={edit}>Edit config</button>}</div>
-  </section>
-}
-
-let BrowserTools = ({ compact = false, matches, feature }: { compact?: boolean; matches?: Set<string>; feature?: BuiltinTool }) => {
-  let { state, run, show } = useUI()
+let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; matches?: Set<string> }) => {
+  let { state, run } = useUI()
   let { tab, profile } = selection(state)
   let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
   let [scope, setScope] = useState(feature === 'dark-mode' ? 'profile' : 'site')
   let settings = scope === 'global' ? tools?.defaults : scope === 'profile' ? current?.profileDefaults : current
   let included = (target: string) => {
     if (matches && !matches.has(target)) return false
-    if (!feature) return true
     if (feature === 'userscripts') return target.startsWith('[data-setting-script=') || target === '[data-setting-id="reload-scripts"]'
     return ['[data-setting-id="tool-scope"]', '[data-setting-id="reset-tools"]', `[data-setting-id="${feature}"]`, ...(feature === 'adblock' ? ['[data-setting-id="update-filters"]'] : [])].includes(target)
   }
   let changeScope = (event: ChangeEvent<HTMLSelectElement>) => setScope(event.target.value)
   let adblock = () => { void run('browser.set', { tab: tab?.id, setting: 'adblock', value: !settings?.adblock, scope }) }
   let dark = (event: ChangeEvent<HTMLSelectElement>) => { void run('browser.set', { tab: tab?.id, setting: 'darkMode', value: event.target.value, scope }) }
-  let inherit = async () => { if (!feature || feature === 'adblock') await run('browser.set', { tab: tab?.id, setting: 'adblock', value: 'inherit', scope }); if (!feature || feature === 'dark-mode') await run('browser.set', { tab: tab?.id, setting: 'darkMode', value: 'inherit', scope }) }
+  let inherit = () => { void run('browser.set', { tab: tab?.id, setting: feature === 'adblock' ? 'adblock' : 'darkMode', value: 'inherit', scope }) }
   let update = () => { void run('browser.update-filters') }
   let reload = () => { void run('browser.reload-scripts') }
   let edit = () => { void run('settings.open') }
-  let plugins = () => show('plugins')
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
-  return <>{!compact && <ToolStatus />}{!compact && <h2>Browser tool settings</h2>}{!matches && <p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>}
+  let filters = tools?.filters
+  if (matches && !Array.from(matches).some(included)) return null
+  return <>
+    {matches && <h4>{BUILTIN_TOOLS.find(tool => tool.id === feature)?.name}</h4>}
+    {!matches && <p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>}
     {(included('[data-setting-id="tool-scope"]') || included('[data-setting-id="adblock"]') || included('[data-setting-id="dark-mode"]') || included('[data-setting-id="reset-tools"]')) && <div className={css.toolOptions}>
       {included('[data-setting-id="tool-scope"]') && <label>Apply changes to<select data-setting-id="tool-scope" value={scope} onChange={changeScope}><option value="site">This site in this profile</option><option value="profile">This profile</option><option value="global">All profiles</option></select></label>}
       {included('[data-setting-id="adblock"]') && <button data-setting-id="adblock" onClick={adblock} disabled={!tab || (scope === 'site' && !current?.origin)} aria-pressed={settings?.adblock}>Ad and tracker blocking: {settings?.adblock ? 'on' : 'off'}</button>}
       {included('[data-setting-id="dark-mode"]') && <label>Website dark mode<select data-setting-id="dark-mode" value={settings?.darkMode ?? 'off'} onChange={dark} disabled={!tab || (scope === 'site' && !current?.origin)}><option value="off">Off</option><option value="dark">Dark Reader</option><option value="system">Follow system</option></select></label>}
       {included('[data-setting-id="reset-tools"]') && <button data-setting-id="reset-tools" onClick={inherit} disabled={!tab || (scope === 'site' && !current?.origin)}>Reset to inherited settings</button>}
     </div>}
-    {!matches && !compact && scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
     {!matches && current?.error && <p className={css.error}>{current.error}</p>}
-    {!matches && (!feature || feature === 'adblock') && <p>{compact ? `Blocked requests: ${current?.blocked ?? 0}` : `${current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.`}</p>}
-    {!matches && (!feature || feature === 'adblock') && !!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
-    {!matches && !compact && <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>}
-    {!matches && (!feature || feature === 'adblock') && tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
-    {included('[data-setting-id="update-filters"]') && <button data-setting-id="update-filters" onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>}
-    {((!matches && (!feature || feature === 'userscripts')) || tools?.scripts.some(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`))) && <p>Userscripts and styles</p>}
-    {tools?.scripts.length ? tools.scripts.filter(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`)).map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} data-setting-script={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : !matches && (!feature || feature === 'userscripts') && <p>{compact ? 'No userscripts' : 'Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.'}</p>}
-    {included('[data-setting-id="reload-scripts"]') && <button data-setting-id="reload-scripts" onClick={reload}>Reload scripts</button>}{!compact && <><button onClick={edit}>Edit config</button><p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button></>}
+    {!matches && feature === 'dark-mode' && scope !== 'site' && current?.origin && current.darkMode !== settings?.darkMode && <p>This site overrides the default: dark mode {current.darkMode}.</p>}
+    {!matches && feature === 'adblock' && <>
+      <p>Blocking {current?.adblock ? 'on' : 'off'} · {current?.blocked ?? 0} requests blocked since navigation. Reload to retry blocked resources.</p>
+      <p>Filter lists: {!filters ? 'Loading' : filters.error ? 'Needs attention' : filters.updating ? 'Updating' : filters.network ? 'Ready' : 'Unavailable'} · {filters?.network ?? 0} network rules · {filters?.cosmetic ?? 0} cosmetic rules. Updated {filters?.updatedAt ? new Date(filters.updatedAt).toLocaleDateString() : 'never'}.</p>
+      {!!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
+      {filters?.error && <p className={css.error}>{filters.error}</p>}
+    </>}
+    {included('[data-setting-id="update-filters"]') && <button data-setting-id="update-filters" onClick={update} disabled={filters?.updating}>{filters?.updating ? 'Updating filters…' : 'Update filters'}</button>}
+    {tools?.scripts.filter(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`)).map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} data-setting-script={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>)}
+    {!matches && feature === 'userscripts' && !tools?.scripts.length && <p>No userscripts. Add local .js or .css files under browser.userscripts in the config.</p>}
+    {included('[data-setting-id="reload-scripts"]') && <button data-setting-id="reload-scripts" onClick={reload}>Reload scripts</button>}
+    {!matches && feature === 'userscripts' && <button onClick={edit}>Edit config</button>}
   </>
 }
 
-type SettingsTab = 'general' | 'appearance' | 'memory' | 'browser-tools' | 'keyboard' | 'plugins'
+type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard' | 'plugins'
 type SettingsSearchItem = { tab: SettingsTab; label: string; section?: string; keywords?: string; target: string }
-let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'browser-tools', label: 'Browser tools' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
+let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
@@ -2923,12 +2905,12 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'appearance', label: 'Double tap to activate', section: 'Click mode', keywords: 'modifier', target: '[name="clickMode.doubleTapModifier"]' },
   { tab: 'memory', label: 'Load inactive sessions on demand', keywords: 'lazy restore', target: '[name="memory.lazyRestore"]' },
   { tab: 'memory', label: 'Unload idle pages', keywords: 'minutes', target: '[name="memory.idleUnloadMinutes"]' },
-  { tab: 'browser-tools', label: 'Apply changes to', keywords: 'site profile global', target: '[data-setting-id="tool-scope"]' },
-  { tab: 'browser-tools', label: 'Ad and tracker blocking', target: '[data-setting-id="adblock"]' },
-  { tab: 'browser-tools', label: 'Website dark mode', target: '[data-setting-id="dark-mode"]' },
-  { tab: 'browser-tools', label: 'Reset to inherited settings', target: '[data-setting-id="reset-tools"]' },
-  { tab: 'browser-tools', label: 'Update filters', target: '[data-setting-id="update-filters"]' },
-  { tab: 'browser-tools', label: 'Reload scripts', keywords: 'userscripts styles', target: '[data-setting-id="reload-scripts"]' },
+  { tab: 'plugins', label: 'Apply changes to', keywords: 'site profile global', target: '[data-setting-id="tool-scope"]' },
+  { tab: 'plugins', label: 'Ad and tracker blocking', target: '[data-setting-id="adblock"]' },
+  { tab: 'plugins', label: 'Website dark mode', target: '[data-setting-id="dark-mode"]' },
+  { tab: 'plugins', label: 'Reset to inherited settings', target: '[data-setting-id="reset-tools"]' },
+  { tab: 'plugins', label: 'Update filters', target: '[data-setting-id="update-filters"]' },
+  { tab: 'plugins', label: 'Reload scripts', keywords: 'userscripts styles', target: '[data-setting-id="reload-scripts"]' },
   { tab: 'keyboard', label: 'Keyboard prefix', target: '[aria-label="Keyboard prefix"]' },
   { tab: 'keyboard', label: 'Save prefix', target: '[data-setting-id="save-prefix"]' },
   { tab: 'keyboard', label: 'Edit shortcuts in config', target: '[data-setting-id="edit-shortcuts"]' },
@@ -2995,14 +2977,14 @@ let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, curr
     {tab.id === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} matches={matches} />}
     {tab.id === 'appearance' && <AppearanceSettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'memory' && <MemorySettings changeSetting={changeSetting} matches={matches} />}
-    {tab.id === 'browser-tools' && <BrowserTools compact matches={matches} />}
     {tab.id === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={currentPrefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} matches={matches} />}
     {tab.id === 'plugins' && <PluginList compact matches={matches} />}
   </section>)}{!results.length && <p role="status">No matching settings.</p>}</div>
 }
 let SettingsContent = () => {
   let { state, run, onMessage } = useUI()
-  let [tab, setTab] = useSettingsState<SettingsTab>('settings:tab', 'general')
+  let [savedTab, setTab] = useSettingsState<SettingsTab>('settings:tab', 'general')
+  let tab = SETTINGS_TABS.some(tab => tab.id === savedTab) ? savedTab : 'plugins'
   let [query, setQuery] = useSettingsState('settings:query', '')
   let [prefix, setPrefix] = useSettingsState('settings:prefix', state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
   let root = useRef<HTMLDivElement>(null)
@@ -3031,7 +3013,7 @@ let SettingsContent = () => {
     { tab: 'plugins', label: plugin.name, keywords: 'enable disable plugin', target: `[data-setting-plugin="${CSS.escape(plugin.id)}"]` },
     ...plugin.actions.map(action => ({ tab: 'plugins' as const, label: action.title, keywords: `${plugin.name} ${action.description ?? ''}`, target: `[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]` })),
   ]) ?? []
-  let scriptItems: SettingsSearchItem[] = state.browserTools?.scripts.map(script => ({ tab: 'browser-tools', label: script.name, keywords: 'userscript style enabled', target: `[data-setting-script="${CSS.escape(script.id)}"]` })) ?? []
+  let scriptItems: SettingsSearchItem[] = state.browserTools?.scripts.map(script => ({ tab: 'plugins', label: script.name, keywords: 'userscript style enabled', target: `[data-setting-script="${CSS.escape(script.id)}"]` })) ?? []
   let results = query.trim() ? [...SETTINGS_SEARCH_ITEMS, ...pluginItems, ...scriptItems].map(item => ({ item, match: fuzzyMatch(query, `${item.label} ${item.section ?? ''} ${SETTINGS_TABS.find(tab => tab.id === item.tab)?.label} ${item.keywords ?? ''}`) })).filter(result => result.match).sort((a, b) => b.match!.score - a.match!.score).map(result => result.item) : []
   let focusResult = () => root.current?.querySelector<HTMLElement>(`.${css.settingsResults} input:not(:disabled), .${css.settingsResults} select:not(:disabled), .${css.settingsResults} button:not(:disabled)`)?.focus()
   let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -3052,7 +3034,6 @@ let SettingsContent = () => {
       {tab === 'general' && <GeneralSettings changeSetting={changeSetting} makeDefault={makeDefault} />}
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
       {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}
-      {tab === 'browser-tools' && <BrowserTools compact />}
       {tab === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} />}
       {tab === 'plugins' && <PluginList compact />}
       </>}
