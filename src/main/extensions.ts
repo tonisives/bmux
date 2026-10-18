@@ -253,8 +253,8 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     let origin = `chrome-extension://${extension.id}`
     let url = new URL(popupPath, `${origin}/`)
     if (url.protocol !== 'chrome-extension:' || url.hostname !== extension.id) throw new Error('Invalid extension page URL')
-    let skipBitwardenIntro = page === 'popup' && extension.name === 'Bitwarden Password Manager' && ['2026.6.1', '2026.10.0'].includes(extension.version)
-    // Bitwarden's introductory carousel waits forever when Electron
+    let skipBitwardenIntro = page === 'popup' && extension.name === 'Bitwarden Password Manager' && extension.version === '2026.6.1'
+    // Bitwarden 2026.6.1's introductory carousel waits forever when Electron
     // closes its background state-write message port. The login route works,
     // then its auth guard preserves the requested current-tab destination.
     if (skipBitwardenIntro) url.hash = '/login'

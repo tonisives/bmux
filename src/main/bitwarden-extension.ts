@@ -89,12 +89,14 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   let patched = patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release)
   if (patched !== source) await fs.writeFile(background, patched)
   if (release === '2026.10.0') {
-    // Existing bmux builds can open the isolated preview without rebuilding the
-    // browser. Bypass the introductory route that stalls on Electron's worker.
+    // The intro guard runs before the login route. Dismiss it through the
+    // extension's own storage API before loading the real popup, on old bmux too.
     let file = path.join(directory, 'manifest.json')
     let manifest = JSON.parse(await fs.readFile(file, 'utf8'))
-    if (manifest.action?.default_popup === 'popup/index.html') {
-      manifest.action.default_popup = 'popup/index.html#/login'
+    if (['popup/index.html', 'popup/index.html#/login', 'bmux-preview-login.html'].includes(manifest.action?.default_popup)) {
+      await fs.writeFile(path.join(directory, 'bmux-preview-login.html'), '<!doctype html><title>Bitwarden preview</title><p>Opening Bitwarden</p><script src="bmux-preview-login.js"></script>')
+      await fs.writeFile(path.join(directory, 'bmux-preview-login.js'), 'chrome.storage.local.set({global_vaultBrowserIntroCarousel_introCarouselDismissed:true},()=>{if(chrome.runtime.lastError){document.body.textContent="Could not initialize Bitwarden preview";return}location.replace(chrome.runtime.getURL("popup/index.html#/login"))})')
+      manifest.action.default_popup = 'bmux-preview-login.html'
       await fs.writeFile(file, JSON.stringify(manifest, null, 2))
     }
   }
