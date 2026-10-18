@@ -129,3 +129,41 @@ test('Google navigation automatic hooks can be enabled in Settings and select re
   await expect(page.locator('#result-1')).toBeFocused()
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0)
 })
+
+test('Google navigation recovers when an in-page URL change cancels installation', async () => {
+  let url = 'https://www.google.com/search?q=lifecycle'
+  await application.context().route('https://www.google.com/search**', route => route.fulfill({ contentType: 'text/html', body: fixture }))
+  await chrome.evaluate(() => (window as any).bmux.command({ method: 'plugin.hooks', args: { id: 'bmux.google-search', enabled: true } }))
+  await application.evaluate(({ webContents }, { current, url }) => {
+    let contents = webContents.getAllWebContents().find(contents => contents.getURL() === current)!
+    let send = contents.debugger.sendCommand.bind(contents.debugger)
+    let gate = { blocked: false, release: () => {} }
+    let ready = new Promise<void>(resolve => { gate.release = resolve })
+    ;(globalThis as any).googleHookGate = gate
+    contents.debugger.sendCommand = async (method, ...args) => {
+      if (method === 'Page.getFrameTree' && contents.getURL() === url) {
+        contents.debugger.sendCommand = send
+        gate.blocked = true
+        await ready
+      }
+      return send(method, ...args)
+    }
+  }, { current: page.url(), url })
+  await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await address.fill(url); await address.press('Enter')
+  await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
+  page = application.context().pages().find(page => page.url() === url)!
+  try {
+    await expect.poll(() => application.evaluate(() => (globalThis as any).googleHookGate.blocked)).toBe(true)
+    await page.evaluate(() => history.replaceState(null, '', '?q=lifecycle&updated=1'))
+  } finally {
+    await application.evaluate(() => (globalThis as any).googleHookGate.release())
+  }
+  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.actionId === 'navigation' && run.status === 'cancelled'))).toBe(true)
+  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.actionId === 'navigation-change' && run.status === 'completed'))).toBe(true)
+  await keys('Down')
+  await expect(page.locator('#result-0')).toBeFocused()
+  await keys('Down')
+  await expect(page.locator('#result-1')).toBeFocused()
+})
