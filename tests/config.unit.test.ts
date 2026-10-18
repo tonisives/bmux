@@ -219,3 +219,9 @@ it('parses page scrolling actions and two letter sequences', () => {
   expect(() => parseConfig('keyboard:\n  sequences:\n    ggg: scroll-top\n')).toThrow('Invalid key sequence')
   expect(() => parseConfig('keyboard:\n  sequences:\n    gg: typo\n')).toThrow('Unknown keyboard action')
 })
+
+it('redirects saved Browser tools shortcuts to Plugins without rewriting the config', () => {
+  let config = parseConfig('keyboard:\n  shortcuts:\n    Cmd+Alt+D: browser-tools\n  prefixBindings:\n    t: browser-tools\n')
+  expect(config.keyboard.shortcuts['Cmd+Alt+D']).toBe('plugins')
+  expect(config.keyboard.prefixBindings.t).toBe('plugins')
+})

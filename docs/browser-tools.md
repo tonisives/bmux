@@ -1,9 +1,6 @@
-# Browser tools
+# Built-in plugins
 
-Enter `browser-tools` in the command prompt (status bar `:`, or prefix then `:`).
-The panel is also available from Settings. It contains ad blocking, website dark
-mode, filter updates, and userscripts. Controls show settings for the selected
-scope; site overrides still take precedence over profile and global defaults.
+Enter `plugins` in the command prompt (status bar `:`, or prefix then `:`), or open Settings → Plugins. Built-in plugins contain ad blocking, website dark mode, and userscripts. Select a plugin to configure it, then use Back or Escape to return to the list. Dark mode defaults to the profile; site overrides take precedence over profile and global defaults.
 
 ## Connection security
 
@@ -209,4 +206,4 @@ Local plugins cannot shadow bundled IDs. Neither system loads Chrome Web Store
 extensions. The separate [experimental browser extension host](extensions.md)
 can install the official Bitwarden browser extension.
 
-Open `browser-tools` from the command prompt to see Tools status for the selected page: effective blocking, requests blocked since navigation, filter readiness, dark mode, and enabled script/plugin counts and errors. Choose Configure browser tools for site/profile/global controls and timestamped blocked-request history, or Manage plugins for plugin toggles and actions. Disabling blocking allows new requests; reload to retry resources already blocked.
+Open Plugins → Built-in → Ad and tracker blocking for effective blocking status, requests blocked since navigation, filter readiness, rule counts, filter errors, and timestamped blocked-request history. Use its scope selector for site/profile/global defaults. Dark mode and userscripts have separate plugin configuration screens. Disabling blocking allows new requests; reload to retry resources already blocked.

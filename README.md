@@ -48,11 +48,11 @@ Give each worker its own background profile, HTTP/HTTPS or SOCKS5 proxy, and opt
 
 [Watch the walkthrough](https://bmux.cc/features/automated-scraping/) · [Configure a proxy](docs/profiles.md#configure-a-proxy) · [Remote hosting](docs/remote-host.md)
 
-### Browser tools
+### Built-in plugins
 
 - **Find pages again** — Search profile-scoped history, save bookmark folders in YAML, or import profiles and bookmarks from a Chromium browser. See [Bookmarks](docs/bookmarks.md) and [Import from Chrome](docs/chrome.md).
 - **Live configuration** — Customize keyboard bindings in YAML without restarting the app. See [Keyboard](docs/keyboard.md).
-- **Page tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden browser extension, and local userscripts. See [Browser tools](docs/browser-tools.md).
+- **Page tools** — Ad/tracker blocking, Dark Reader, encrypted saved forms, Bitwarden browser extension, and local userscripts. See [Built-in plugins](docs/browser-tools.md).
 - **Script plugins** — Add local actions and page hooks in any language, with DOM access and native prompts. See [Plugin authoring](docs/plugins.md).
 
 ## Get started
@@ -175,7 +175,7 @@ for sampling, units, and shared-process accounting.
 - [Bookmarks and YAML storage](docs/bookmarks.md)
 - [Import profiles and bookmarks from Chrome](docs/chrome.md)
 - [Downloads](docs/downloads.md)
-- [Browser tools](docs/browser-tools.md)
+- [Built-in plugins](docs/browser-tools.md)
 - [Plugin authoring](docs/plugins.md)
 - [Browser automation](docs/agent.md)
 - [Remote hosting and access](docs/remote-host.md)
@@ -198,7 +198,7 @@ The control socket is accessible only to the current OS user. No network debugge
 
 Local script plugins are available through the `plugins` command and `bmux plugin` CLI. They are explicitly enabled in YAML and run with your OS privileges.
 
-Experimental Chrome extension support, including Bitwarden installation, is described in [Browser extensions](docs/extensions.md). External Chrome/Brave embedding and cloud synchronization are not supported. Website recoloring, ad blocking, and stored fills are described in [Browser tools](docs/browser-tools.md). Website JavaScript alert, confirm, and prompt use native dialogs with protection against repeated dialogs; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
+Experimental Chrome extension support, including Bitwarden installation, is described in [Browser extensions](docs/extensions.md). External Chrome/Brave embedding and cloud synchronization are not supported. Website recoloring, ad blocking, and stored fills are described in [Built-in plugins](docs/browser-tools.md). Website JavaScript alert, confirm, and prompt use native dialogs with protection against repeated dialogs; permission requests use bmux's Activity flow. Full-page screenshots capture the currently rendered document; lazy content may require scrolling first. Pages exceeding 80 megapixels require a viewport capture or an explicit CDP clip.
 
 Do not expect Electron to provide every Chrome feature: DRM media, platform authentication integrations, and sites that reject embedded browsers may require additional work.
 
