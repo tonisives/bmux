@@ -15,6 +15,7 @@ let historyIdentity = (url: string): string | undefined => {
     return `${parsed.protocol}//${host}/search?${search}`
   }
   if (!/^\/maps(?:\/|$)/.test(parsed.pathname)) return url
+  if (/^\/maps\/?$/.test(parsed.pathname)) return `${parsed.protocol}//${host}/maps`
 
   let place = /^\/maps\/place\/([^/]+)/.exec(parsed.pathname)?.[1]
   if (place) return `${parsed.protocol}//${host}/maps/place/${place}`

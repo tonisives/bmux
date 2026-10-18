@@ -1,3 +1,4 @@
+import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
 import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
 import { copyConnectionCookies } from './connection-cookies'
@@ -46,6 +47,7 @@ import type { SearchApp } from '../shared/search-app'
 import { normalizeUrl } from './url'
 import { createProfileProxyRelays, testProxyRelay, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
+import { createProxyRecovery } from './proxy-recovery'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
@@ -477,10 +479,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     delete profileProxyTests[profileId]
     profileProxyFailures = { ...profileProxyFailures, [profileId]: { error: errorText(error), failedAt: Date.now() } }
+    proxyRecovery.schedule(profileId)
     publish()
     return blocked.wait
   }
   let acceptProfileProxyTest = (profileId: string, result: Awaited<ReturnType<typeof testProfileProxy>>) => {
+    proxyRecovery.cancel(profileId)
     profileProxyTests = { ...profileProxyTests, [profileId]: result }
     if (profileProxyFailures[profileId]) { let next = { ...profileProxyFailures }; delete next[profileId]; profileProxyFailures = next }
     releaseProfileNetwork(profileId)
@@ -488,6 +492,24 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return result
   }
   let verifyProfileProxy = async (profileId: string) => acceptProfileProxyTest(profileId, await testProfileProxy(profileId))
+  let proxyRecovery = createProxyRecovery(async profileId => {
+    let failure = profileProxyFailures[profileId]
+    if (!failure || shuttingDown) return true
+    profileProxyFailures = { ...profileProxyFailures, [profileId]: { ...failure, retrying: true } }
+    publish()
+    try {
+      if (!appliedProfileProxies.has(profileId)) await applyProfileNetwork(profileId)
+      let result = await testProfileProxy(profileId)
+      if (!shuttingDown && profileProxyFailures[profileId]) acceptProfileProxyTest(profileId, result)
+      return true
+    } catch (error) {
+      if (profileProxyFailures[profileId]) {
+        profileProxyFailures = { ...profileProxyFailures, [profileId]: { error: errorText(error), failedAt: Date.now() } }
+        publish()
+      }
+      return false
+    }
+  })
   let browserSession = (profileId: string, privateSessionId?: string) => {
     let profile = connectionProfile(model, profileId)
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
@@ -928,7 +950,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('media-started-playing', () => { if (live.disposed || !audio[tabId]?.muted || !audibleMedia.has(tabId)) return; audio[tabId] = { playing: true, muted: true }; publish() })
     contents.on('media-paused', () => { if (live.disposed || !audio[tabId]?.muted) return; audio[tabId] = { playing: false, muted: true }; publish() })
-    let lastCountedUrl = initialUrl
+    let lastCountedUrl = initialUrl, requestedHistoryUrl: string | undefined
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
     let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
     contents.on('will-navigate', (event, url) => {
@@ -951,6 +973,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
       if (!mainFrame || inPlace) return
+      requestedHistoryUrl = url
       scriptTouchedTabs.delete(tabId)
       if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url)
       live.pendingUrl = url
@@ -1062,7 +1085,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (client.paneId !== pane.id) { client.paneId = pane.id; raisePane(paneById(model, pane.id).window, pane.id); save(); void scheduleVisuals() }
       }
     })
-    contents.on('did-navigate', () => { live.unloadGuard?.cancel(); live.pendingUrl = undefined; delete crashes[tabId]; update() })
+    contents.on('did-navigate', (_event, url) => {
+      if (!session.private && requestedHistoryUrl && requestedHistoryUrl !== url && /^https?:\/\//.test(requestedHistoryUrl)) {
+        let profile = model.profiles.find(profile => profile.id === pane.profileId)!
+        profile.history = recordHistory(profile.history ?? [], requestedHistoryUrl, requestedHistoryUrl, Date.now())
+      }
+      requestedHistoryUrl = undefined
+      live.unloadGuard?.cancel(); live.pendingUrl = undefined; delete crashes[tabId]; update()
+    })
     contents.on('did-navigate-in-page', () => update())
     contents.on('did-finish-load', () => {
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.
@@ -1304,7 +1334,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let confirmUnload = (tabId: string) => {
     let live = tabs.get(tabId)
+    // Address suggestions can park the page before its navigation is blocked.
+    // Its logical viewer still owns the prompt while the native view is parked.
+    let viewers = [...clients].filter(([id, owner]) => owner.window.isVisible() && !owner.window.isMinimized() && model.clients.some(client => client.id === id && visiblePaneIds(client).includes(tabId)))
     let entry = [...clients].find(([, owner]) => owner.window === live?.parent && owner.window.isVisible())
+      ?? viewers.find(([id]) => id === focusedClientId) ?? viewers[0]
     if (!entry) return { result: Promise.resolve(false), cancel: () => undefined }
     let request = requestDialog(entry[0], { message: 'Leave this site?', detail: 'Changes you made may not be saved.', buttons: ['Stay', 'Leave'], defaultId: 1, cancelId: 0 })
     return { result: request.result.then(response => response === 1), cancel: request.cancel }
@@ -1719,6 +1753,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     resizeChrome()
     window.on('resize', resizeChrome)
     window.on('focus', () => {
+      for (let profileId of Object.keys(profileProxyFailures)) void proxyRecovery.retry(profileId)
       focusedClientId = client.id
       lastFocusedClientId = client.id
       resizeChrome()
@@ -2017,10 +2052,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (context.paneId && tabById(model, context.paneId).session.private) throw new Error('Saved forms are unavailable in private sessions')
       return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
     }
-    if (method === 'plugin.enable') {
+    if (method === 'plugin.enable' || method === 'plugin.hooks') {
       let id = required(args, 'id')
       if (!configuration || !plugins?.list().some(plugin => plugin.id === id) || typeof args.enabled !== 'boolean') throw new Error('Plugin and enabled flag required')
-      configuration.update(['plugins', id, 'enabled'], args.enabled); return plugins.list()
+      configuration.update(['plugins', id, method === 'plugin.hooks' ? 'hooks' : 'enabled'], args.enabled); return plugins.list()
     }
     if (method === 'browser.status') return toolsState()
     if (method === 'bookmark.open') {
@@ -2303,6 +2338,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let profile = { id: id('profile'), name, background: args.background === true, ...(hostProxy ? { proxy: hostProxy } : {}) }
       model.profiles.push(profile); save(); return profile
     }
+    if (method === 'profile.delete') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      if (args.confirm !== true) throw new Error('Confirm profile deletion')
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      removeProfile(model, profile.id); save()
+      let connectionIds = new Set([profile.id, ...(profile.connections ?? []).map(connection => connection.id)])
+      await Promise.all([...connectionIds].map(async connectionId => {
+        let browser = electronSession.fromPartition(`persist:${connectionId}`)
+        await browser.clearStorageData(); await browser.clearCache()
+        proxyCredentials.set(connectionId)
+        proxyRecovery.cancel(connectionId)
+        delete profileProxyTests[connectionId]; delete profileProxyFailures[connectionId]
+      }))
+      return profile
+    }
     if (method === 'profile.rename') {
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let name = required(args, 'name')
@@ -2325,6 +2375,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (hostProxy) throw new Error('Host proxy is required')
       if (!sourceClientId) throw new Error('Trusted UI required')
       return saveDefaultConnection(resolve(model.profiles, args.profile, 'Profile'))
+    }
+    if (method === 'profile.proxy.retry') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let profile = connectionProfile(model, required(args, 'profile'))
+      if (!profile.proxy || !profileProxyFailures[profile.id]) return
+      await proxyRecovery.retry(profile.id)
+      return { recovered: !profileProxyFailures[profile.id] }
     }
     if (method === 'profile.proxy.test') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -3189,6 +3246,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let shutdown = () => {
     if (shuttingDown) return
     shuttingDown = true
+    proxyRecovery.close()
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
     app.off('login', proxyLogin)

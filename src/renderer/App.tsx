@@ -1,3 +1,4 @@
+import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
@@ -8,7 +9,7 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
-import { automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import { automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
@@ -29,7 +30,7 @@ import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, searchRecentWindows } from '../shared/picker-search'
 import { windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
-import { baseUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle } from '../shared/address-suggestions'
+import { addressDestination, addressUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle, withAddressSearch } from '../shared/address-suggestions'
 import { deduplicateAddressEntries } from '../shared/address-result-deduplication'
 import { deleteWordBackward } from '../shared/text-edit'
 import { BookmarkPlugins } from './BookmarkPlugins'
@@ -47,7 +48,7 @@ type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'se
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; resetSession?: { title: string; run: () => void }; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -139,14 +140,14 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
+    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
   let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <section className={css.pane}><PaneAddress /><EmptyPane /></section>}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}</main>
+    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'command' ? <CommandPrompt key={`${client.windowId}:${client.paneId}`} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
@@ -238,16 +239,12 @@ let useSettingsState = <T,>(key: string, initial: T | (() => T), resetWhenSavedC
   return [value, update] as const
 }
 
-let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIContext['show']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
+let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIContext['show'], run: UIContext['run']): Notification[] => Object.entries(state.profileProxyFailures).flatMap(([profileId, failure]) => {
   let pane = window.panes.find(item => paneConnectionId(item) === profileId)
   if (!pane) return []
   let name = state.model.profiles.find(item => item.id === pane.profileId)?.name ?? profileId
-  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
+  return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: failure.retrying ? 'Retrying…' : 'Retry', disabled: failure.retrying, run: () => { void run('profile.proxy.retry', { profile: profileId }) } }, { label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
-
-let automationWebsiteHost = (url?: string) => {
-  try { let parsed = new URL(url ?? ''); return /^https?:$/.test(parsed.protocol) && /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(parsed.hostname) ? parsed.hostname : undefined } catch { return undefined }
-}
 
 let permissionNotices = (state: PublicState, run: UIContext['run']): Notification[] => state.permissions.filter(request => !state.dismissedPermissions?.includes(request.id)).map(request => {
   let label = permissionPaneLabel(state.model, request.paneId) ?? request.paneId
@@ -267,28 +264,28 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   })
 }
 
-let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run'], settingsMemory: UIContext['settingsMemory']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap(usage => {
+let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run'], settingsMemory: UIContext['settingsMemory']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
-  if (!actors.length && (usage.actors?.length || !automationSafetyEnabled(limits, usage.profileId))) return []
+  let eligiblePanes = actors.length ? actors.map(actor => actor.pane) : usage.actors?.length ? [] : panes.filter(item => item.profileId === usage.profileId && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))
+  if (!eligiblePanes.length) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
-  let pane = actors.find(actor => actor.paneId === selectedPane?.id)?.pane ?? actors[0]?.pane ?? panes.find(pane => pane.profileId === usage.profileId)
+  let pane = eligiblePanes.find(pane => pane.id === selectedPane?.id) ?? eligiblePanes[0]
   let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, { initial: undefined, value: 'anti-bot' }); void show('profiles', pane.id) } : undefined
-  let actions = actors.filter(actor => actor.paneId !== selectedPane?.id).map(actor => {
+  let paneLinks = (host: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && automationWebsiteHost(actor.pane.url) === host).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
-    return { label: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, title: actor.pane.title, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
+    let session = state.model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
+    return { session: session?.name ?? actor.paneId, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
-  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}. Manual browsing is unaffected.`, actions }]
+  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
-  let siteHost = automationWebsiteHost(pane?.url)
-  return [{ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}. Retry at ${new Date(usage.retryAfter).toLocaleTimeString()}. Manual browsing is unaffected.`, actions: [
-    ...actions,
-    { label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId }) } },
-  ] }]
+  let retryAfter = usage.retryAfter
+  let siteHosts = [...new Set(eligiblePanes.map(item => automationWebsiteHost(item.url)).filter((host): host is string => !!host))]
+  return siteHosts.map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, siteExclusion: { profileId: usage.profileId, host: siteHost }, text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost), resetSession: { title: `Reset the automation timer and cooldown for profile ${name} across all its panes. This does not reset a tmux session.`, run: () => { void run('automation.reset-session', { profile: usage.profileId }) } } }))
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -338,8 +335,38 @@ let selection = (state: PublicState) => {
   return { client, session, window, pane, tab, profile }
 }
 
+let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: number }) => {
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    let timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  let remaining = Math.max(0, Math.ceil((Date.parse(retryAfter) - now) / 1000))
+  let progress = Math.min(1, remaining / (minutes * 60))
+  let countdown = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`
+  let resetTime = new Date(retryAfter).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  let details = `Automation resumes at ${new Date(retryAfter).toLocaleString()}. ${countdown} remaining in the ${minutes}-minute break.`
+  return <div className={css.cooldownTimer} role="timer" aria-label={details} title={details} tabIndex={0}>
+    <div className={css.cooldownDial}>
+      <svg viewBox="0 0 36 36" aria-hidden="true"><circle className={css.cooldownTrack} cx="18" cy="18" r="16" /><circle cx="18" cy="18" r="16" pathLength="100" strokeDasharray={`${progress * 100} 100`} transform="rotate(-90 18 18)" /></svg>
+    </div>
+    <div className={css.cooldownText}><span>{countdown}</span><time dateTime={retryAfter}>Reset {resetTime}</time></div>
+  </div>
+}
+
+let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <div className={css.notificationPaneLink}><span>{session}</span><button type="button" title={title} aria-label={title} onClick={run}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button></div>
+
 let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={notice.id} className={css.notification} role="status"><span>{notice.text}</span>{notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} onClick={action.run}>{action.label}</button>)}{notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}{notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}{notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}</div>)}
+  {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
+    {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
+    {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+    <span className={css.notificationText}>{notice.text}</span>
+    {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
+    {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
+    {notice.resetSession && <div className={css.notificationReset} role="group" aria-label="Automation session"><button type="button" className={css.notificationAction} title={notice.resetSession.title} onClick={notice.resetSession.run}>Reset session</button></div>}
+    {notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}
+    {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+  </div>)}
 </div>
 
 let useWindowDrag = () => {
@@ -640,11 +667,11 @@ let CommandPrompt = () => {
       if (results.length) setIndex((index + direction + results.length) % results.length)
     }
   }
-  return <><form className={css.prompt} onSubmit={submit}><label htmlFor="command">:</label><input id="command" ref={input} aria-label="Command" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={active ? `command-result-${results.indexOf(active)}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'running…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    <section className={css.commandFinder} aria-label="Command finder"><div className={css.finderHint}>Type to find · ↑/↓ or Ctrl+P/N select · Tab complete · Enter {argumentsStarted && !selected ? 'run typed command' : 'open / run'} · Ctrl+R history</div>
+  return <section className={css.commandFinder} aria-label="Command finder"><form className={css.prompt} onSubmit={submit}><label htmlFor="command">:</label><input id="command" ref={input} aria-label="Command" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={active ? `command-result-${results.indexOf(active)}` : undefined} value={text} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} readOnly={busy} /><span className={message ? css.error : undefined} role="status">{message || (busy ? 'running…' : 'esc')}</span><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+    <div className={css.finderHint}>Type to find · ↑/↓ or Ctrl+P/N select · Tab complete · Enter {argumentsStarted && !selected ? 'run typed command' : 'open / run'} · Ctrl+R history</div>
       <div ref={list} id="command-results" role="listbox" aria-label={targets ? 'Targets' : 'Commands'} className={css.commandResults}>{results.map((entry, position) => <CommandOption key={entry.command} entry={entry} position={position} active={entry === active} query={query} busy={busy} choose={choose} />)}</div>
       {!results.length && <p className={css.finderHint}>No matching {targets ? 'targets' : 'commands'}. Enter runs the text you typed.</p>}
-    </section></>
+    </section>
 }
 
 let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, visible: boolean, statusBar?: string) => {
@@ -742,7 +769,7 @@ let useOpenAddressBookmark = (finish: () => void) => {
 
 let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection | undefined }) => {
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
-  let { client, pane, tab, profile } = selection(state)
+  let { client, pane, tab, profile, session } = selection(state)
   let [index, setIndex] = useState(-1), [preferRoot, setPreferRoot] = useState(true)
   let currentUrl = tab ? state.pendingUrls[tab.id] ?? tab.url : ''
   let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
@@ -758,22 +785,22 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
   let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
-  let baseUrl = profileHistory.map(entry => baseUrlCompletion(query, entry.url)).find(Boolean) ?? searchUrlDestination(query, [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
-  let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : ''
-  let inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
+  let savedUrls = [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)]
+  let destination = addressDestination(query, savedUrls), baseUrl = addressUrlCompletion(query, savedUrls) ?? destination ?? searchUrlDestination(query, savedUrls)
+  let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : '', inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
   let inlineBookmark = inlineHistory && bookmarkMatches.slice(0, 8).some(bookmark => bookmark.url === inlineHistory.url)
   let preferredUrls = baseUrl ? [{ url: baseUrl.url, title: baseTitle }] : [], bookmarks = deduplicateAddressEntries(bookmarkMatches, preferredUrls).slice(0, inlineHistory && !inlineBookmark ? 7 : 8)
   let historyMatches = query.trim() ? searchHistory(profileHistory, query) : []
   let availableHistory = deduplicateAddressEntries(prioritizeInlineHistory(historyMatches, profileHistory, inlineUrl?.url), [...preferredUrls, ...bookmarks])
   let history = availableHistory.slice(0, expandedHistory ? undefined : 10 - bookmarks.length - (baseUrl ? 1 : 0))
-  let results = suggestionsHidden ? [] : [
+  let results = suggestionsHidden ? [] : withAddressSearch([
     ...(baseUrl ? [{ kind: profileHistory.some(entry => entry.url === baseUrl.url) ? 'history' : 'url', value: baseUrl.url, title: baseTitle, detail: baseUrl.url }] : []),
     ...bookmarks.map(bookmark => ({ kind: 'bookmark', value: parameterizedBookmarkUrl(bookmark.url!, state.bookmarkParameters?.[profile!.id]?.[bookmark.id]), title: bookmark.title, detail: bookmark.url!, bookmarkId: bookmark.id })),
     ...history.map(entry => ({ kind: 'history', value: entry.url, title: entry.title, detail: entry.url })),
     ...(availableHistory.length > history.length ? [{ kind: 'more', value: '', title: `Show ${availableHistory.length - history.length} more history matches`, detail: '' }] : []),
-  ]
-  let selectedIndex = index < 0 && preferRoot && baseUrl ? 0 : index, selectedResult = results[selectedIndex], selectedCompletion = index >= 0 && selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
-  let previewText = index >= 0 && selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || index >= 0 && !!selectedResult?.value
+  ], query, (state.searchApps ?? DEFAULT_SEARCH_APPS)[session?.private ? 'private' : 'normal'], !!destination)
+  let selectedIndex = index < 0 && preferRoot && query.trim() ? 0 : index, selectedResult = results[selectedIndex], selectedCompletion = index >= 0 && selectedResult?.kind !== 'search' && selectedResult?.value ? inlineUrlCompletion(query, selectedResult.value) : undefined
+  let previewText = index >= 0 && selectedResult?.kind === 'search' ? query : index >= 0 && selectedResult?.value ? selectedCompletion?.value ?? selectedResult.value : text, completing = !!inlineUrl || index >= 0 && selectedResult?.kind !== 'search' && !!selectedResult?.value
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
@@ -788,7 +815,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     let deletion = deleting.current || ((event.nativeEvent as InputEvent).inputType?.startsWith('delete') ?? false)
     deleting.current = false
     setSuggestionsHidden(deletion); if (deletion) vim.reset('INSERT')
-    let completion = deletion ? undefined : profileHistory.map(entry => baseUrlCompletion(value, entry.url) ?? inlineUrlCompletion(value, entry.url)).find(Boolean)
+    let completion = deletion ? undefined : addressUrlCompletion(value, [...searchBookmarkPages(profile?.bookmarks ?? [], value).map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)])
     setQuery(value); setIndex(-1); setPreferRoot(!deletion); setInlineUrl(completion); setExpandedHistory(false); setText(completion?.value ?? value)
   }
   let finish = () => { dismiss(); void run('client.overlay', { client: client!.id, visible: false }).then(() => run('focus-page', { client: client!.id })) }
@@ -916,6 +943,10 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label>{renaming && vim.enabled && <VimMode mode={vim.mode} label="Name editing mode" />}<div className={css.addressInput}><input id="manage" ref={ref} data-vim-mode={renaming ? vim.mode : undefined} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} onMouseUp={selectName} autoComplete="off" spellCheck={false} readOnly={busy} />{renaming && <VimCursor input={ref} mode={vim.mode} value={text} />}</div><span className={message ? css.error : undefined} role="status">{message || (renaming ? '' : 'esc')}</span>{renaming && <CloseButton label="Cancel rename" onClick={finish} />}<button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
+let EmptyWorkspace = () => {
+  let { control } = useUI()
+  return <section className={css.pane}><PaneAddress /><div className={css.content}><EmptyPane />{control === 'command' && <CommandPrompt />}</div></section>
+}
 let EmptyPane = ({ paneId }: { paneId?: string }) => {
   let { show } = useUI()
   let open = () => show('address', paneId)
@@ -1115,7 +1146,7 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
   return <div ref={ref} className={css.floatingPreview} aria-hidden="true"><div>{tab?.url}</div>{tab && state.snapshots[tab.id] && <img src={state.snapshots[tab.id].image} alt="" />}</div>
 }
 let BrowserPane = ({ paneId }: { paneId: string }) => {
-  let { state, run } = useUI()
+  let { state, run, control } = useUI()
   let { client } = selection(state)
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
   let tab = pane
@@ -1152,6 +1183,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
   return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+    {control === 'command' && client!.paneId === pane.id && <CommandPrompt key={`${client!.windowId}:${pane.id}`} />}
     {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>
 }
@@ -1322,6 +1354,7 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   let [query, setQuery] = useState('')
   let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
+  let toggleHooks = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.hooks', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let show = (target: string) => !matches || matches.has(target)
@@ -1329,6 +1362,7 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     {!matches && !state.plugins?.length && <p>{compact ? 'No plugins installed.' : 'No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
     {state.plugins?.filter(plugin => show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) || plugin.actions.some(action => show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))).map(plugin => <div key={plugin.id}>
       {show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} data-setting-plugin={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>}
+      {plugin.hasHooks && show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} checked={plugin.hooks} disabled={!plugin.enabled} onChange={toggleHooks} aria-label={`Automatic hooks for ${plugin.name}`} />Automatic hooks · {plugin.hooks ? 'on' : 'off'} (reload open pages after changing)</label>}
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`)).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
     {!compact && <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
 }
@@ -2098,7 +2132,7 @@ let ProfileAntiBotSettings = () => {
       {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
     </ProfileSection>}
     <ProfileSection title="Enable Anti-bot">
-      <p>Applies to automation. Manual browsing is unaffected.</p>
+      <p>Applies to automation on public websites. Files and local addresses are excluded.</p>
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
     </ProfileSection>
@@ -2169,14 +2203,63 @@ let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
   return <svg className={css.profileTabIcon} data-profile-tab-icon={tab} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[tab]} /></svg>
 }
 
+let SettingsIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.88 10.44 21.88 13.56 19.29 13.75 18.39 15.92 20.09 17.88 17.88 20.09 15.92 18.39 13.75 19.29 13.56 21.88 10.44 21.88 10.25 19.29 8.08 18.39 6.12 20.09 3.91 17.88 5.61 15.92 4.71 13.75 2.12 13.56 2.12 10.44 4.71 10.25 5.61 8.08 3.91 6.12 6.12 3.91 8.08 5.61 10.25 4.71 10.44 2.12 13.56 2.12 13.75 4.71 15.92 5.61 17.88 3.91 20.09 6.12 18.39 8.08 19.29 10.25Z" /><circle cx="12" cy="12" r="3.25" /></svg>
+
+let ProfileManagementRow = ({ profile }: { profile: Profile }) => {
+  let { state, run } = useUI()
+  let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
+  let reason = profileDeletionReason(state.model, profile.id)
+  let ask = () => setConfirming(true), cancel = () => setConfirming(false)
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault(); event.stopPropagation(); cancel()
+  }
+  let remove = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await run('profile.delete', { profile: profile.id, confirm: true }) } finally { setBusy(false) }
+  }
+  if (confirming && !reason) return <div className={css.profileManageRow} role="alertdialog" aria-label={`Delete profile ${profile.name}?`} onKeyDown={keys}><span>Delete “{profile.name}” and its browsing data?</span><button type="button" onClick={remove} disabled={busy}>Delete profile</button><button type="button" onClick={cancel} disabled={busy} autoFocus>Cancel</button></div>
+  return <div className={css.profileManageRow}><span>{profile.name}{reason && <small>{reason}</small>}</span><button type="button" onClick={ask} disabled={!!reason || busy} aria-label={`Delete profile ${profile.name}`}>Delete</button></div>
+}
+
+let ProfileSelectActions = () => {
+  let { state, run, onMessage } = useUI(), { session, profile } = selection(state)
+  let [creating, setCreating] = useState(false), [managing, setManaging] = useState(false)
+  let [name, setName] = useState(''), [busy, setBusy] = useState(false)
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let add = () => setCreating(true)
+  let cancel = () => { setCreating(false); setName('') }
+  let manage = () => { setManaging(!managing); cancel() }
+  let change = async (event: ChangeEvent<HTMLSelectElement>) => {
+    if (!session || busy) return
+    setBusy(true)
+    try { await run('session.profile.set', { session: session.id, profile: event.target.value }) } finally { setBusy(false) }
+  }
+  let create = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!session || busy || !name.trim()) return
+    onMessage(''); setBusy(true)
+    try {
+      let created = await run('profile.create', { name: name.trim() }) as Profile | undefined
+      if (created && await run('session.profile.set', { session: session.id, profile: created.id })) cancel()
+    } finally { setBusy(false) }
+  }
+  return <>
+    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><SettingsIcon /></button></div>
+    {managing && <div className={css.profileManager} role="group" aria-label="Manage profiles"><div className={css.profileManageHeading}><span>Profiles</span><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy || creating}>+</button></div>
+    {creating && <form className={css.sessionCreate} onSubmit={create} aria-label="Create profile"><label>Profile name<input value={name} onChange={changeName} autoFocus disabled={busy} required /></label><div className={css.sessionCreateActions}><button type="submit" disabled={busy || !name.trim()}>Create profile</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form>}
+    {state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}
+  </>
+}
+
 let ProfileInfo = () => {
   let { state, run } = useUI()
   let { session, pane, profile } = selection(state)
   let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => {
     let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
-    return usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now() ? 'anti-bot' : 'overview'
+    return profile && automationSiteEnabled(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id, pane?.url, Date.now(), pane?.id) && (usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()) ? 'anti-bot' : 'overview'
   }, false)
-  let [busy, setBusy] = useState(false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
@@ -2184,14 +2267,8 @@ let ProfileInfo = () => {
   let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
   let currentProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   let canChangeProfile = !!session && !session.private
-  let changeProfile = async (event: ChangeEvent<HTMLSelectElement>) => {
-    if (!session || busy) return
-    setBusy(true)
-    await run('session.profile.set', { session: session.id, profile: event.target.value })
-    setBusy(false)
-  }
   let overview = () => setTab('overview'), paneTab = () => setTab('pane'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
-  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="New windows"><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile.id} onChange={changeProfile} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></ProfileSection>}
+  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="New windows"><ProfileSelectActions /></ProfileSection>}
     <ProfileSection title="HTTP cache">
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>

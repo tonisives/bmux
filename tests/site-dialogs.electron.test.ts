@@ -16,10 +16,11 @@ let fixture = async () => {
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  expect((await chrome.evaluate(() => (window as any).bmux.state())).configError).toBeNull()
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await address.fill(url); await address.press('Enter')
@@ -71,6 +72,9 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
       let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
       await expect(address).toBeFocused()
       await address.fill(destination)
+      // Address suggestions park the native page behind its snapshot. Exercise
+      // navigation after that transition instead of racing view reattachment.
+      await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url)), url)).toBe(false)
       await address.press('Enter')
       let prompt = chrome.getByRole('alertdialog', { name: 'Leave this site?' })
       await expect(prompt).toBeVisible()
@@ -97,6 +101,30 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
         await expect(page.locator('output')).toHaveText('Unchanged')
       }
     }
+  } finally { await close() }
+})
+
+test('navigation prompts for unsaved changes while address suggestions park the page', async () => {
+  let { application, chrome, page, url, close } = await fixture()
+  try {
+    page.on('dialog', () => undefined)
+    await page.getByRole('button', { name: 'Edit' }).click()
+    await expect(page.locator('output')).toHaveText('Unsaved')
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await chrome.getByRole('textbox', { name: 'URL or search', exact: true }).fill(`${url}?parked`)
+    await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url)), url)).toBe(false)
+    // Keep the address overlay open while the same navigation command runs.
+    // This covers the ordering in which beforeunload precedes overlay dismissal.
+    await chrome.evaluate(async url => {
+      let state = await (window as any).bmux.state()
+      await (window as any).bmux.command({ method: 'navigate', args: { tab: state.model.clients[0].paneId, url, waitUntil: 'none' } })
+    }, `${url}?parked`)
+    let prompt = chrome.getByRole('alertdialog', { name: 'Leave this site?' })
+    await expect(prompt).toBeVisible()
+    await prompt.getByRole('button', { name: 'Stay (esc)', exact: true }).click()
+    await expect(prompt).toHaveCount(0)
+    await expect(page).toHaveURL(url)
+    await expect(page.locator('output')).toHaveText('Unsaved')
   } finally { await close() }
 })
 

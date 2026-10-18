@@ -1,0 +1,11 @@
+schema_version: 1
+id: bmux.google-search
+name: Google result navigation
+version: 1.0.0
+hooks:
+  - id: navigation
+    title: Navigate Google results with arrow keys
+    event: page-ready
+    matches: ['https://www.google.com/search*', 'https://google.com/search*', 'https://www.google.*/search*']
+    command: [node, ./run.mjs]
+    capabilities: [browser.cdp]

@@ -1,5 +1,85 @@
 # Focused test verification
 
+## October 15 full-suite failures
+
+The full Check on `d3d3d5a` retained assumptions from before search-first address
+suggestions, inline Vim controls, tighter tab spacing, and persistent window
+numbers. The bookmark import fixture now selects the bookmark option explicitly;
+the address-drag case checks the mode indicator at the original address origin;
+the status case expects the current four-pixel tab gap; and window movement uses
+persistent source numbers while keeping destination indices positional. Existing
+native focus, selection, layout overflow, cross-session movement, and page-state
+assertions remain in place. The file-picker fixture's navigation was separately
+updated on `c7a843c` to avoid inheriting Vim address editing state.
+
+The packaging test on `c7a843c` appeared to install over a running application.
+A diagnostic check established that its copied and re-signed Apple `sleep`
+executable actually exited with SIGSEGV before installation on the macOS runner.
+The fixture now compiles its own waiting executable and polls its process path
+before installation. It still verifies the original inode and signed bundle
+while running, then checks installation and signature after process exit.
+
+The full release check on `b5fefa7` reached case 214 of 306 at its 20-minute
+workflow deadline on a slower runner. It also exposed two independent fixture
+assumptions: the final idle-unload case reused a profile whose ten-minute
+automation session had expired, and the extension case opened its popup before
+the newly selected page finished navigating. Idle unloading now owns a fresh
+profile and session. The extension case waits for that exact pane's fixture,
+disables unrelated filter downloads, and uses bounded test application shutdown
+for its restarts. Automation guard coverage stays in the dedicated safety suite.
+The serial GUI step has a 30-minute overall budget and its job has 35 minutes;
+individual deadlines, one GUI worker, and zero retries are unchanged.
+
+Traced extension repetitions in Tart found a native macOS crash immediately
+after closing the item window. Electron 44.3.0's matching Breakpad symbols place
+it in `RenderWidgetHostViewBase::OnShowWithPageVisibility`, through
+`BrowserWindow::OnWindowShow` during native close. Playwright 1.63's `Page.close`
+closes the WebContents directly before the owning window finishes closing.
+The fixture now disposes its BrowserWindow and waits for the page to close,
+avoiding AppKit's nested `performClose` loop during fixture cleanup. Its separate
+Cmd+W assertion still exercises normal application closing.
+Restored-window readiness has a bounded 15-second poll, separate from its
+two-minute test deadline. Crashes still fail through `closeTestApplication`.
+New-pane readiness uses Playwright's new-window event and that page's URL and
+heading, avoiding competing debugger clients during target initialization.
+
+The full main run on `b86e186` completed 301 cases with four skips and two
+remaining fixture failures. The first native picker navigation exceeded the
+fixture socket's five-second deadline; its retained page state already contained
+the upload input after timeout. Navigation now has a separate 20-second socket
+budget while other commands keep five seconds. The streaming recovery case
+counted a new HTTP request before the replacement document was parsed. It now
+counts only main-page requests and polls the existing RPC inspection assertion
+until the recovered content is usable. Native picker assertions, the recovery
+command, test deadlines, and zero retries remain unchanged.
+
+The full release-branch run on `4b68b70` completed 302 cases with four skips
+and two intermittent failures; main's independent run passed on the same source.
+Eight Tart repetitions reproduced a floating Cmd+W failure and three missing
+unload prompts. The float case now loads its own pages and waits for the intended
+native page to have focus before sending Cmd+W. It retains both floating-pane
+and window-close assertions.
+
+The unload prompt exposed a production ownership race: address suggestions park
+the native page behind a snapshot, so `confirmUnload` could find no visible native
+parent and silently cancel navigation. A regression keeping the address overlay
+open failed twice against the old source. Prompt ownership now falls back to the
+page's logical visible client, preferring the focused client, without activating
+or selecting another window. The fixture also uses a valid isolated keyboard
+configuration so unrelated filter downloads remain disabled. Verify the complete
+site-dialogs file and the existing floating Cmd+W case with repetitions.
+
+The release candidate's full Check passed all 305 Electron cases. Main's
+independent run on the same `98dfa80` source passed 304 but timed out waiting for
+Playwright's popup-close notification after native fixture disposal. Eight local
+repetitions did not reproduce that remaining CI failure. The test-only follow-up
+defers native destruction until its inspector call returns, checks native window
+destruction separately, then waits for the target-close notification with the
+same five-second deadline. Its isolated config now includes the required keyboard
+mapping and asserts that parsing succeeded, so filter downloads are disabled.
+Keep the ordinary Cmd+W closing assertion and verify repeated extension runs on
+GitHub's macOS desktop before merging.
+
 ## October 10 full-suite failures
 
 The full Check on `edc450b` found five outdated or shared-state GUI assumptions:
@@ -387,3 +467,34 @@ The fixture now awaits asynchronous CLI subprocesses with a 20-second process
 deadline, preserves valid JSON denial replies, and reports actual process errors.
 It also disables unrelated external filter updates. `AGENTS.md` records the
 asynchronous-fixture rule; the local affected-tests-only policy is unchanged.
+
+## Vim initialization at document start
+
+The release website checks reproduced page errors on cold feature-page navigation:
+CodeMirror reads `document.documentElement.style` when its bundle evaluates, but
+Chromium's new-document hook can run before the root element exists. Later page
+tools refreshes could recover the editor, masking the initial failure in functional
+checks. Keyboard focus observation still starts immediately; Vim initialization
+now waits for DOMContentLoaded only when the root is absent. The regression
+asserts no page errors on initial navigation and three reloads, and opens the real
+inline editor after every reload. Website QA retains page errors with their stack
+and URL and attaches each listener once.
+
+The v0.1.10 release check also exposed a packaging fixture deadline: the detached
+installer polls once per second, but Vitest's default `expect.poll` budget is only
+one second. The worker had correctly preserved the running bundle and was still
+waiting to promote it when the assertion expired. The fixture now allows five
+seconds for process discovery, promotion, and staged cleanup, with a fifteen-second
+test deadline. Executable identity, original inode/content, post-exit contents,
+cleanup, and code-signature assertions remain required.
+
+## Apple ticket verification connection loss
+
+Both v0.1.9 and v0.1.10 hit a CloudKit `NSURLErrorDomain` connection loss
+(`-1005`) during `stapler validate`, after signing and notarization succeeded.
+Ticket validation now retries that specific exit-68/network-error combination at
+most twice, five seconds apart. Invalid tickets, other exit codes, and exhausted
+network attempts still fail; Developer ID, Gatekeeper, architecture, and update
+metadata checks remain required. Four subprocess tests exercise recovery, the
+retry limit, invalid tickets, and unrelated errors through the full DMG/ZIP
+verification script with disposable tool stubs.

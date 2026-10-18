@@ -39,7 +39,7 @@ jobs:
 
   check:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -53,8 +53,9 @@ jobs:
         run: defaults write com.apple.CrashReporter DialogType none
       - name: Electron tests
         # Keep a bounded suite budget separate from individual test deadlines.
-        # The full suite includes real idle-unload waits and runs serially.
-        timeout-minutes: 20
+        # The 306-case suite reached case 214 at 20 minutes on a slower runner.
+        # Keep individual deadlines, one GUI worker, and zero retries unchanged.
+        timeout-minutes: 30
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}

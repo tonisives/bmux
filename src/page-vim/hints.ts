@@ -4,14 +4,15 @@ import type { TextField } from './field'
 export let createFieldHints = (open: (field: TextField) => void) => {
   let enabled = false, shortcut = '', pending = false
   let host = document.createElement('div')
-  host.dataset.bmuxVimHints = 'true'; host.popover = 'manual'
-  host.style.cssText = 'all:initial;position:fixed;inset:0;margin:0;border:0;padding:0;width:100%;height:100%;background:transparent;pointer-events:none;overflow:visible;'
+  host.dataset.bmuxVimHints = 'true'
+  // Passive field controls must not compete with password managers for the top layer.
+  host.style.cssText = 'all:initial;position:fixed;inset:0;margin:0;border:0;padding:0;width:100%;height:100%;background:transparent;pointer-events:none;overflow:visible;z-index:2147483646;'
   let root = host.attachShadow({ mode: 'open' }), sheet = new CSSStyleSheet()
   // Shadow DOM isolates page styles; a broad reset confuses Dark Reader's color conversion.
   sheet.replaceSync(':host{color-scheme:dark}button{appearance:none;position:fixed;box-sizing:border-box;margin:0;font:11px/18px ui-monospace,monospace;color:#25313b;background:transparent;border:0;padding:0 4px;cursor:pointer;pointer-events:auto;opacity:.8}button:hover{opacity:1}button:focus-visible{outline:2px solid #aaa;opacity:1}')
   root.adoptedStyleSheets = [sheet]
   let buttons = new Map<TextField, HTMLButtonElement>()
-  let hide = () => { if (host.isConnected) host.hidePopover(); host.remove() }
+  let hide = () => host.remove()
   let observer = new MutationObserver(() => refresh())
   let refresh = () => {
     if (pending || !enabled) return
@@ -20,7 +21,7 @@ export let createFieldHints = (open: (field: TextField) => void) => {
       pending = false
       if (!enabled) return
       observer.disconnect()
-      let roots: (Document | ShadowRoot)[] = [document], fields = new Set<TextField>()
+      let roots: (Document | ShadowRoot)[] = [document], fields = new Set<TextField>(), container = document.documentElement
       for (let index = 0; index < roots.length; index++) {
         let current = roots[index]
         observer.observe(current, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'readonly', 'contenteditable', 'aria-disabled', 'aria-readonly', 'hidden', 'class', 'style', 'type', 'maxlength', 'autocomplete', 'inputmode'] })
@@ -37,6 +38,9 @@ export let createFieldHints = (open: (field: TextField) => void) => {
           let hit = current.elementFromPoint(centerX, centerY)
           if (hit && !field.contains(hit) && hit !== host) continue
           fields.add(field)
+          // A modal's ordinary descendants remain interactive inside its top layer.
+          let topLayer = field.closest<HTMLElement>(':modal, :popover-open')
+          if (topLayer) container = topLayer
           let button = buttons.get(field)
           if (!button) {
             button = document.createElement('button'); button.type = 'button'; button.textContent = 'v'
@@ -52,7 +56,7 @@ export let createFieldHints = (open: (field: TextField) => void) => {
         }
       }
       for (let [field, button] of buttons) if (!fields.has(field)) { button.remove(); buttons.delete(field) }
-      if (fields.size && !host.isConnected) { document.documentElement.append(host); host.showPopover() }
+      if (fields.size && host.parentElement !== container) container.append(host)
       if (!fields.size) hide()
     })
   }

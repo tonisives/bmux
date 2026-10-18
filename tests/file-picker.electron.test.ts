@@ -12,7 +12,8 @@ import { promisify } from 'node:util'
 
 let exec = promisify(execFile)
 
-for (let picker of ['input', 'input-interception', 'input-background', 'input-switch-race', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
+for (let picker of ['input', 'input-update', 'input-interception', 'input-background', 'input-switch-race', 'input-frame', 'input-frame-media', 'input-frame-popup', 'showOpenFilePicker']) test(`native image upload via ${picker} opens a picker and receives the chosen file`, async ({}, info) => {
+  test.skip(picker === 'input-update' && process.env.BMUX_TEST_PACKAGED !== '1', 'Requires a packaged macOS application')
   test.setTimeout(60_000)
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-native-file-picker-'))
   let uploads = await fs.mkdtemp(path.join(os.homedir(), 'Downloads', 'bmux-upload-fixture-'))
@@ -68,7 +69,8 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
   let rpc = (method: string, args: Record<string, unknown> = {}) => new Promise<any>((resolve, reject) => {
     commands.push(`start ${method} ${JSON.stringify(args)}`)
     let connection = net.createConnection(socket), response = ''
-    connection.setEncoding('utf8'); connection.setTimeout(5000)
+    // Navigation includes the first renderer load on a cold CI desktop.
+    connection.setEncoding('utf8'); connection.setTimeout(method === 'navigate' ? 20000 : 5000)
     connection.on('connect', () => connection.write(JSON.stringify({ method, args }) + '\n'))
     connection.on('data', chunk => { response += chunk })
     connection.on('timeout', () => connection.destroy(new Error(`Fixture browser did not respond to ${method}`)))
@@ -80,7 +82,11 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
   })
   // Launch normally: ElectronApplication would attach a second debugger to every page.
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
-  let executable = packaged ? path.join(process.cwd(), 'build/bmux.app/Contents/MacOS/bmux') : createRequire(import.meta.url)('electron')
+  let installedApp = path.join(directory, 'bmux.app')
+  if (picker === 'input-update') await exec('/usr/bin/ditto', [path.resolve('build/bmux.app'), installedApp])
+  let executable = picker === 'input-update' ? path.join(installedApp, 'Contents/MacOS/bmux') : packaged ? path.join(process.cwd(), 'build/bmux.app/Contents/MacOS/bmux') : createRequire(import.meta.url)('electron')
+  let originalInode = picker === 'input-update' ? (await fs.stat(executable)).ino : undefined
+  let updateQueued = false
   let child = spawn(executable, packaged ? [] : [process.cwd()], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' }, stdio: ['ignore', 'pipe', 'pipe'] })
   let errors = ''
   let pickerLookupError = ''
@@ -90,18 +96,21 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await expect.poll(() => rpc('diagnostics').then(state => state.pid).catch(() => null), { timeout: 20_000 }).toBe(child.pid)
     let state = await rpc('state')
     await rpc('activate-client', { client: state.model.clients[0].id })
-    await apple('tell application "System Events" to keystroke "l" using command down')
-    let addressAttribute = (name: 'role' | 'value') => apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get ${name} of (value of attribute "AXFocusedUIElement")`)
-    await expect.poll(() => addressAttribute('role').then(result => result.stdout.trim()).catch(() => '')).toBe('AXTextField')
-    // Paste atomically so macOS cannot drop leading characters immediately after
-    // the Command shortcut. This is the disposable test desktop's clipboard.
-    await apple(`set the clipboard to "${url}"\ntell application "System Events"\nkeystroke "a" using command down\nkeystroke "v" using command down\nend tell`)
-    await expect.poll(() => addressAttribute('value').then(result => result.stdout.trim()).catch(() => '')).toBe(url)
-    await apple('tell application "System Events" to key code 36')
+    // Navigate without a second debugger or clipboard/address editing; the upload
+    // click and file selection below still use the disposable desktop's native UI.
+    await rpc('navigate', { tab: state.model.clients[0].paneId, url })
     await expect.poll(() => rpc('state').then(state => state.model.sessions[0].windows[0].panes[0].url)).toBe(url)
     let paneId = state.model.sessions[0].windows[0].panes[0].id
     let frameReady = 'typeof document.querySelector("iframe")?.contentDocument?.querySelector("#image")?.onclick === "function"'
     await rpc('wait', { tab: paneId, expression: picker.startsWith('input-frame') && picker !== 'input-frame-popup' ? frameReady : 'typeof document.querySelector("#image")?.onclick === "function"' })
+    if (picker === 'input-update') {
+      let result = await exec(process.execPath, ['scripts/install-app.mjs', '--source', path.resolve('build/bmux.app')], { env: { ...process.env, BMUX_OUTPUT_DIR: directory, BMUX_SIGNING_IDENTITY: '', BMUX_DEFAULT_SIGNING_IDENTITY: '' } })
+      updateQueued = true
+      await fs.writeFile(info.outputPath('installer-output.txt'), result.stdout + result.stderr)
+      expect(result.stdout).toContain('installation will finish after bmux exits')
+      expect((await fs.stat(executable)).ino).toBe(originalInode)
+      await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', installedApp])
+    }
     if (picker === 'input-interception') {
       await rpc('cdp', { tab: paneId, method: 'Page.setInterceptFileChooserDialog', params: { enabled: true } })
       await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("#image").click()', userGesture: true } })
@@ -129,11 +138,10 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
       if ((await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim() === 'true') {
         await apple(`tell application "System Events"
           tell first application process whose unix id is ${child.pid}
-            set panel to sheet 1 of window 1
-            if exists button "Cancel" of panel then
-              click button "Cancel" of panel
+            if exists button "Cancel" of sheet 1 of window 1 then
+              click button "Cancel" of sheet 1 of window 1
             else
-              click button "Cancel" of splitter group 1 of panel
+              click button "Cancel" of splitter group 1 of sheet 1 of window 1
             end if
           end tell
         end tell`)
@@ -169,15 +177,15 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await fs.writeFile(info.outputPath('file-picker-diagnostics.json'), JSON.stringify(pickerTrace, null, 2))
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('native-file-picker.png')])
     await apple(`tell application "System Events"\nkeystroke "g" using {command down, shift down}\ndelay 0.3\nkeystroke "${file}"\nkey code 36\nend tell`)
+    // Keep positional references: resolving a sheet into an AppleScript variable
+    // rewrites its parent as window "bmux", which System Events cannot look up.
     let openButton = (action: 'enabled' | 'click') => apple(`tell application "System Events"
       tell first application process whose unix id is ${child.pid}
-        set panel to sheet 1 of window 1
-        if exists button "Open" of panel then
-          set openControl to button "Open" of panel
+        if exists button "Open" of sheet 1 of window 1 then
+          ${action === 'enabled' ? 'get enabled of' : 'click'} button "Open" of sheet 1 of window 1
         else
-          set openControl to button "Open" of splitter group 1 of panel
+          ${action === 'enabled' ? 'get enabled of' : 'click'} button "Open" of splitter group 1 of sheet 1 of window 1
         end if
-        ${action === 'enabled' ? 'get enabled of openControl' : 'click openControl'}
       end tell
     end tell`)
     await expect.poll(() => openButton('enabled').then(result => result.stdout.trim()).catch(error => { pickerLookupError = String(error); return 'false' })).toBe('true')
@@ -201,6 +209,11 @@ for (let picker of ['input', 'input-interception', 'input-background', 'input-sw
     await fs.writeFile(info.outputPath('commands.json'), JSON.stringify(commands, null, 2))
     // Normal launch still uses the shared bounded process shutdown.
     await closeTestApplication({ process: () => child, close: async () => { child.kill('SIGTERM') } } as ElectronApplication)
+    if (updateQueued) {
+      await expect.poll(() => fs.stat(executable).then(stat => stat.ino).catch(() => originalInode)).not.toBe(originalInode)
+      await expect.poll(() => fs.access(path.join(directory, '.bmux-pending.json')).then(() => true, () => false)).toBe(false)
+      await exec('/usr/bin/codesign', ['--verify', '--deep', '--strict', installedApp])
+    }
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })

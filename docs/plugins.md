@@ -292,3 +292,21 @@ that pane's page instead, requiring the bookmark and pane to share a profile. `b
 accepts `profile`, `bookmark`, `id`, `enabled`, and `values`; use `remove: true`
 with the IDs to remove an attachment. Saved settings are separate from URL
 parameters and keyed by profile and bookmark ID.
+
+## Google result navigation
+
+In Settings > Plugins, enable Google result navigation and its **Automatic hooks**
+checkbox. Enabling the plugin alone does not install the keyboard handler.
+Alternatively, merge this into your config:
+
+```yaml
+plugins:
+  bmux.google-search: { enabled: true, hooks: true }
+```
+
+Reload an open Google search after enabling it. Up/Down selects the previous or
+next result and scrolls its headline into view; Enter opens the selected link.
+Escape clears the selection. Search fields, editing, modified keys, and click
+mode retain their normal behavior. The plugin runs in an isolated page world
+without page access to browser or Node APIs. Disabling prevents installation on
+subsequent pages; reload an existing page to remove its installed handler.

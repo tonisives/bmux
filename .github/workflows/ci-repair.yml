@@ -1,0 +1,53 @@
+name: Repair CI failure
+
+on:
+  workflow_run:
+    workflows: [Check, Portable hosts, Windows, Release, CI repair hook test]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      failed_run_id:
+        description: Failed main-branch push run to inspect
+        required: true
+        type: string
+      dry_run:
+        description: Validate eligibility without launching an agent
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: bmux-ci-repair-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'tonisives/bmux' &&
+      (github.event_name == 'workflow_dispatch' ||
+       ((github.event.workflow_run.conclusion == 'failure' ||
+         github.event.workflow_run.conclusion == 'timed_out') &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # Run the trusted workflow revision, never code from a failing artifact.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check dispatch guards
+        run: python3 scripts/test-trigger-ci-repair.py
+      - name: Trigger repair on local Mac
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLAWTAB_CI_REPAIR_TOKEN: ${{ secrets.CLAWTAB_CI_REPAIR_TOKEN }}
+          CLAWTAB_DEVICE_ID: ${{ vars.CLAWTAB_CI_REPAIR_DEVICE_ID }}
+          FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: python3 scripts/trigger-ci-repair.py

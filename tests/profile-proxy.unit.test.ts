@@ -103,3 +103,20 @@ it.each([[597, 'authentication failed'], [593, 'host could not be found'], [594,
   let port = await listen(proxy); close.push(() => stop(proxy))
   await expect(testProxyRelay({ host: '127.0.0.1', port, username: 'fixture-user', password: 'fixture-secret' }, 'https://example.invalid/ip')).rejects.toThrow(String(message))
 })
+
+it('reuses a relay after repeated failed health checks', async () => {
+  let unavailable = true
+  let destination = http.createServer((_request, response) => {
+    if (unavailable) { response.writeHead(503); response.end(); return }
+    response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.8' }))
+  })
+  let port = await listen(destination); close.push(() => stop(destination))
+  let upstream = new (await import('proxy-chain')).Server({ host: '127.0.0.1', port: 0 })
+  await upstream.listen(); close.push(() => upstream.close(true))
+  let store = createProxyCredentialStore({ directory: '', available: () => false, encrypt: () => Buffer.alloc(0), decrypt: () => '' })
+  let relays = createProfileProxyRelays(store); close.push(() => relays.closeAll())
+  let relay = await relays.create('profile_fixture', { protocol: 'http', host: '127.0.0.1', port: upstream.port, authenticated: false })
+  for (let index = 0; index < 5; index++) await expect(testProxyRelay(relay, `http://127.0.0.1:${port}/ip`)).rejects.toThrow('HTTP 503')
+  unavailable = false
+  expect(await testProxyRelay(relay, `http://127.0.0.1:${port}/ip`)).toMatchObject({ ip: '203.0.113.8' })
+})

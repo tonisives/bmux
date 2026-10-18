@@ -75,8 +75,8 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect(address).not.toHaveValue(url)
     await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
     await expect(address).toHaveValue(url)
-    let prefix = url.slice(0, 12)
-    let completion = new URL(url).origin
+    let prefix = `${new URL(url).origin}/ug`
+    let completion = url
     await address.press('i'); await address.press('Meta+A')
     await address.pressSequentially(prefix)
     await expect(address).toHaveValue(completion)

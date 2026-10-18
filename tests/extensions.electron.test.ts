@@ -8,6 +8,7 @@ import http from 'node:http'
 
 test('loads an extension per profile, opens its sandboxed popup, restores and removes it', async ({}, testInfo) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-'))
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let extensionPath = path.join(directory, 'extension')
   await fs.mkdir(extensionPath)
   await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture extension', description: 'A fixture for extension details.', version: '1.0', optional_permissions: ['bookmarks'], permissions: ['storage', 'tabs'], background: { service_worker: 'background.js' }, action: { default_popup: 'popup.html' }, options_ui: { page: 'options.html', open_in_tab: true }, sandbox: { pages: ['inline-list.html'] }, web_accessible_resources: [{ resources: ['inline.html', 'inline.js', 'inline-list.html', 'inline-list.js'], matches: ['http://127.0.0.1/*'], use_dynamic_url: true }], content_scripts: [{ matches: ['http://127.0.0.1/*'], js: ['content.js'], run_at: 'document_start' }] }))
@@ -62,10 +63,22 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
   let launch = async () => {
     let installed = process.env.BMUX_TEST_INSTALLED === '1'
     application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
-    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    expect((await chrome.evaluate(() => (window as any).bmux.state())).configError).toBeNull()
   }
   let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+  let closeWindow = async (page: Page) => {
+    // Let the inspector call return before tearing down a native window. Wait
+    // for native disposal as well as Playwright's separate target-close event.
+    // The Cmd+W check below still covers normal application closing.
+    let window = await application!.browserWindow(page)
+    try {
+      await window.evaluate(window => { setImmediate(() => window.destroy()) })
+      await expect.poll(() => window.evaluate(window => window.isDestroyed())).toBe(true)
+      await expect.poll(() => page.isClosed()).toBe(true)
+    } finally { await window.dispose() }
+  }
   let clientWindow = () => application!.evaluate(({ BaseWindow }) => {
     let window = BaseWindow.getAllWindows().find(candidate => candidate.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('/renderer/index.html')))
     return window ? { id: window.id, focused: window.isFocused() } : null
@@ -108,7 +121,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
     let toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
     await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
-    await toolbarPopup.close()
+    await closeWindow(toolbarPopup)
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
     let detailsButton = extensionPanel.getByRole('button', { name: 'Details for Fixture extension' })
     await detailsButton.focus()
@@ -125,7 +138,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/popup.html'))).toBe(true)
     toolbarPopup = application!.context().pages().find(page => page.url().endsWith('/popup.html'))!
     await expect(toolbarPopup.getByRole('heading', { name: 'Extension fixture' })).toBeVisible()
-    await toolbarPopup.close()
+    await closeWindow(toolbarPopup)
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect(page.frameLocator('iframe').locator('body')).toHaveAttribute('data-ack', 'received')
     expect(await page.evaluate(() => ['require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined'])
@@ -151,7 +164,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await expect.poll(async () => (await clientWindow())?.focused).toBe(true)
     await page.frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'New item' }).click()
     await expect.poll(() => application!.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === url)?.isFocused(), editWindow.url())).toBe(true)
-    await editWindow.close()
+    await closeWindow(editWindow)
     let currentState = await rpc('state')
     let current = currentState.model.clients.find((client: { id: string }) => client.id === currentState.focusedClientId)
     let nextUrl = url.replace('/fixture', '/appstoreconnect.apple.com/login?targetUrl=%2Fapps')
@@ -164,8 +177,11 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await focusClient()
     await expect.poll(async () => (await rpc('state')).focusedClientId).toBeTruthy()
     let activated = await popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)
+    let openedPage = application!.waitForEvent('window')
     await rpc('new-window', { session: current.sessionId, profile, url, client: current.id })
-    await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
+    let addedPage = await openedPage
+    await expect(addedPage).toHaveURL(url)
+    await expect(addedPage.locator('h1')).toHaveText('Local extension test')
     await rpc('extension.open', { profile, id: installed.id })
     await expect(popup.locator('#active-tab')).toHaveText(url)
     await expect.poll(() => popup.evaluate(async () => (await (window as any).chrome.storage.local.get('activated')).activated || 0)).toBeGreaterThan(activated)
@@ -205,7 +221,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let manifest = JSON.parse(await fs.readFile(path.join(extensionPath, 'manifest.json'), 'utf8'))
     manifest.version = '1.1'
     await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify(manifest))
-    await application!.close()
+    await closeTestApplication(application)
     await launch()
     expect((await rpc('extension.list', { profile })).extensions[0]).toMatchObject({ id: installed.id, version: '1.1' })
     await rpc('extension.open', { profile, id: installed.id })
@@ -247,7 +263,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     await sharingPanel.screenshot({ path: testInfo.outputPath('extensions-disabled.png') })
     await expect.poll(() => optionsPage.isClosed()).toBe(true)
     expect((await rpc('extension.list', { profile })).extensions[0].enabled).toBe(true)
-    await application!.close()
+    await closeTestApplication(application)
     await launch()
     expect((await rpc('extension.list', { profile: other.id })).extensions[0]).toMatchObject({ id: installed.id, enabled: false })
     await expect(rpc('extension.open', { profile: other.id, id: installed.id })).rejects.toThrow()

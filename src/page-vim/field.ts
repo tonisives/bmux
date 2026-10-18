@@ -39,12 +39,47 @@ export let readField = (field: TextField) => field instanceof HTMLInputElement |
 
 export type FieldSelection = { anchor: number; head: number }
 
-let selectField = (field: TextField, selection: FieldSelection) => {
+export let selectField = (field: TextField, selection: FieldSelection) => {
   if (field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel'].includes(field.type)) {
     let anchor = Math.min(field.value.length, selection.anchor), head = Math.min(field.value.length, selection.head)
     field.setSelectionRange(Math.min(anchor, head), Math.max(anchor, head), anchor > head ? 'backward' : 'forward')
+  } else if (field.classList.contains('public-DraftEditor-content') && document.activeElement === field) {
+    let blocks = [...field.querySelectorAll<HTMLElement>('[data-block="true"]')]
+    let point = (offset: number) => {
+      for (let block of blocks) {
+        let length = editableText(block).length
+        if (offset > length && block !== blocks.at(-1)) { offset -= length + 1; continue }
+        let walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT), last: Node | undefined
+        while (walker.nextNode()) {
+          let node = walker.currentNode, length = node.nodeValue!.length
+          if (offset <= length) return { node, offset }
+          offset -= length; last = node
+        }
+        return last ? { node: last, offset: last.nodeValue!.length } : { node: block, offset: 0 }
+      }
+    }
+    let anchor = point(selection.anchor), head = point(selection.head)
+    if (anchor && head) {
+      window.getSelection()?.setBaseAndExtent(anchor.node, anchor.offset, head.node, head.offset)
+      document.dispatchEvent(new Event('selectionchange'))
+    }
   }
 }
+
+let selectRichContents = (field: HTMLElement) => {
+  let selection = window.getSelection(), range = document.createRange()
+  // Select within text blocks so replacement does not insert before them.
+  let start: Node = field, end: Node = field
+  while (start.firstChild) start = start.firstChild
+  while (end.lastChild) end = end.lastChild
+  if (start instanceof HTMLBRElement) range.setStartBefore(start)
+  else range.setStart(start, 0)
+  if (end instanceof HTMLBRElement) range.setEndAfter(end)
+  else range.setEnd(end, end.nodeType === Node.TEXT_NODE ? end.nodeValue!.length : end.childNodes.length)
+  selection?.removeAllRanges(); selection?.addRange(range)
+}
+
+let renderField = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 
 export let writeField = (field: TextField, value: string, selection: FieldSelection) => {
   if (!field.isConnected || textField(field) !== field) return false
@@ -64,17 +99,30 @@ export let writeField = (field: TextField, value: string, selection: FieldSelect
       // Native editing preserves the rich editor's model, input events, and undo.
       // Never replace its HTML: Draft.js/Lexical and other composers own that DOM.
       field.focus({ preventScroll: true })
-      let selection = window.getSelection(), range = document.createRange()
-      // Selecting the host's child boundaries inserts before an empty paragraph.
-      // Select within its text blocks so native replacement keeps one logical line.
-      let start: Node = field, end: Node = field
-      while (start.firstChild) start = start.firstChild
-      while (end.lastChild) end = end.lastChild
-      if (start instanceof HTMLBRElement) range.setStartBefore(start)
-      else range.setStart(start, 0)
-      if (end instanceof HTMLBRElement) range.setEndAfter(end)
-      else range.setEnd(end, end.nodeType === Node.TEXT_NODE ? end.nodeValue!.length : end.childNodes.length)
-      selection?.removeAllRanges(); selection?.addRange(range)
+      if (field.classList.contains('public-DraftEditor-content')) {
+        // Draft owns its text spans and model. Native replacement destroys those
+        // spans; paste lets Draft replace the selected text in its own model.
+        return (async () => {
+          // Focus, selection, and paste each update Draft's controlled state.
+          // Let each render finish before issuing the next event or blurring.
+          await renderField()
+          if (!field.isConnected) return false
+          selectRichContents(field)
+          document.dispatchEvent(new Event('selectionchange'))
+          await renderField()
+          let handled: boolean
+          if (value) {
+            let data = new DataTransfer()
+            data.setData('text/plain', value)
+            handled = !field.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, composed: true, cancelable: true, clipboardData: data }))
+          } else {
+            handled = !field.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, composed: true, cancelable: true, key: 'Backspace', code: 'Backspace', keyCode: 8, which: 8 }))
+          }
+          await renderField()
+          return handled && field.isConnected && readField(field) === value
+        })()
+      }
+      selectRichContents(field)
       // insertText with embedded newlines can create paragraphs whose innerText
       // gains extra blank lines. Explicit line breaks preserve the plain draft.
       let lines = value.split('\n')

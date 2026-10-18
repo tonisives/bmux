@@ -22,13 +22,24 @@ export let DEFAULT_AUTOMATION: AutomationSettings = { safety: { enabled: true, m
 export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string, paneId?: string) => (paneId ? settings.panes?.[paneId] : undefined) ?? settings.profiles[profileId] ?? settings.enabled
 export let automationSiteExclusion = (rule: AutomationSiteRule | undefined): AutomationSiteExclusion | undefined => typeof rule === 'boolean' ? { enabled: !rule, durationMinutes: null, expiresAt: null } : rule
 export let automationExclusionActive = (rule: AutomationSiteExclusion, now = Date.now()) => rule.enabled && (rule.expiresAt === null || rule.expiresAt > now)
+// Only public website hostnames participate; files, IP literals and local names do not.
+export let automationWebsiteHost = (value?: string): string | undefined => {
+  try {
+    let url = new URL(value ?? ''), host = url.hostname.toLowerCase().replace(/\.$/, '')
+    if (!/^https?:$/.test(url.protocol) || !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*$/.test(host)) return
+    if (/(^|\.)(localhost|local|lan|internal|intranet|home|test|invalid|example)$/.test(host) || host.endsWith('.home.arpa')) return
+    return host
+  } catch { return undefined }
+}
 export let automationWarningEnabled = (settings: AutomationSafety, profileId: string, host: string, now = Date.now(), paneId?: string) => {
-  let exclusion = automationSiteExclusion(settings.sites?.[profileId]?.[host.toLowerCase()])
+  let website = automationWebsiteHost(`https://${host}`)
+  if (!website) return false
+  let exclusion = automationSiteExclusion(settings.sites?.[profileId]?.[website])
   return automationSafetyEnabled(settings, profileId, paneId) && (!exclusion || !automationExclusionActive(exclusion, now))
 }
 export let automationSiteEnabled = (settings: AutomationSafety, profileId: string, url?: string, now = Date.now(), paneId?: string) => {
-  if (!automationSafetyEnabled(settings, profileId, paneId)) return false
-  try { return automationWarningEnabled(settings, profileId, new URL(url!).hostname, now, paneId) } catch { return true }
+  let host = automationWebsiteHost(url)
+  return !!host && automationWarningEnabled(settings, profileId, host, now, paneId)
 }
 export let updateAutomationSiteExclusion = (previous: AutomationSiteRule | undefined, enabled: unknown, durationMinutes: unknown, now = Date.now()): AutomationSiteExclusion => {
   if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')

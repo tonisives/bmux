@@ -50,6 +50,17 @@ test('Google Maps keeps one reopenable entry per place and ignores map movement'
   expect(searchHistory(history, 'maps city')).toEqual(history)
 })
 
+test('Google Maps keeps both its original domain and its clean landing page', () => {
+  let original = 'https://maps.google.com/'
+  let destination = 'https://www.google.com/maps?entry=ttu'
+  let history = recordHistory([], original, original, 1)
+  history = recordHistory(history, destination, 'Google Maps', 2)
+  history = recordHistory(history, 'https://www.google.com/maps/@40,-73,15z', 'Google Maps', 3)
+  expect(history.map(entry => entry.url)).toEqual([destination, original])
+  expect(compactHistory(history)).toEqual(history)
+  expect(searchHistory(history, 'maps.google')).toEqual([history[1]])
+})
+
 test('Google Maps place IDs survive query URL changes; differently titled searches stay distinct', () => {
   let one = 'https://www.google.com/maps/search/?api=1&query=park&query_place_id=abc'
   let two = 'https://maps.google.com/maps/search/?query_place_id=abc&api=1&query=park'

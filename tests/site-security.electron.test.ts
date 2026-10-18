@@ -179,8 +179,13 @@ test('shows verified TLS details, rejects invalid certificates, and follows redi
   await floating.getByRole('button', { name: 'Site information: Connection is secure' }).click()
   await expect(panel).toContainText(urls.valid)
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
-  await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
-  let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
-  await command.fill('site-info'); await command.press('Enter')
-  await expect(panel).toContainText(urls.valid)
+  for (let zoomed of [false, true]) {
+    if (zoomed) await rpc('toggle-pane-zoom', { client: (await state()).clientId })
+    await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
+    let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
+    await expect(command).toHaveCount(1)
+    await command.fill('site-info'); await command.press('Enter')
+    await expect(panel).toContainText(urls.valid)
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  }
 })

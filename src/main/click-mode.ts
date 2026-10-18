@@ -31,7 +31,13 @@ let installClickMode = (token: string) => {
     if (!(element instanceof HTMLElement || element instanceof SVGElement) || (element instanceof HTMLButtonElement || element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement) && element.disabled || element.getAttribute('aria-disabled') === 'true' || element.hasAttribute('hidden')) continue
     let style = getComputedStyle(element)
     if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 || style.pointerEvents === 'none') continue
-    let bounds = element.getBoundingClientRect()
+    // Inline links can span disjoint boxes (Google puts the site icon above the
+    // headline). Never aim a click at the empty space in their bounding union.
+    let heading = element.matches('a[href],[role="link"]') ? element.querySelector('h1,h2,h3,h4,h5,h6,[role="heading"]') : null
+    let boxes = [...(heading?.getClientRects() ?? []), ...element.getClientRects()]
+    if (style.display === 'contents') for (let child of element.querySelectorAll('*')) boxes.push(...child.getClientRects())
+    let bounds = boxes.find(box => box.right > Math.max(0, box.left) && box.bottom > Math.max(0, box.top) && box.left < innerWidth && box.top < innerHeight)
+    if (!bounds) continue
     let left = Math.max(0, bounds.left), top = Math.max(0, bounds.top), right = Math.min(innerWidth, bounds.right), bottom = Math.min(innerHeight, bounds.bottom)
     if (right <= left || bottom <= top) continue
     let position = `${Math.round(left)},${Math.round(top)}`

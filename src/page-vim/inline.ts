@@ -22,18 +22,36 @@ export let mountInlineEditor = (field: TextField, host: HTMLElement) => {
   let hideField = () => field.style.setProperty('display', 'none', 'important')
   field.after(host); hideField()
   return {
-    write: (save: () => boolean) => {
+    write: (save: () => boolean | Promise<boolean>) => {
       // Native rich-text editing needs the original field to be rendered/focused.
-      // Swap synchronously so :w can update its framework model and stay inline.
-      host.style.display = 'none'; showField()
-      try { return save() }
-      finally { hideField(); host.style.display = 'block' }
+      // Keep it out of layout while the visible editor retains incoming keys.
+      let inert = host.inert
+      host.inert = true
+      let properties = ['position', 'opacity', 'pointer-events'].map(property => ({ property, value: field.style.getPropertyValue(property), priority: field.style.getPropertyPriority(property) }))
+      showField()
+      field.style.setProperty('position', 'absolute', 'important')
+      field.style.setProperty('opacity', '0', 'important')
+      field.style.setProperty('pointer-events', 'none', 'important')
+      let restore = () => {
+        hideField()
+        host.inert = inert
+        for (let { property, value, priority } of properties) {
+          if (value) field.style.setProperty(property, value, priority)
+          else field.style.removeProperty(property)
+        }
+      }
+      try {
+        let result = save()
+        if (result instanceof Promise) return result.finally(restore)
+        restore(); return result
+      } catch (error) { restore(); throw error }
     },
     restore: () => { showField(); host.remove() },
     retain: () => {
-      if (host.isConnected) return
+      if (host.isConnected) return false
       if (field.isConnected) field.after(host)
       else (document.body ?? document.documentElement).append(host)
+      return true
     },
   }
 }

@@ -126,7 +126,19 @@ test.afterAll(async () => { await closeTestApplication(application); await proxy
 
 test('command finder accepts fuzzy selection and restores the native page', async () => {
   await expect.poll(nativeVisible).toBe(true)
+  let assertCommandOverlay = async () => {
+    let finder = chrome.getByRole('region', { name: 'Command finder', exact: true })
+    let status = chrome.getByRole('contentinfo', { name: 'Browser status' })
+    await expect(status.getByRole('button', { name: 'Command prompt', exact: true })).toBeVisible()
+    await expect(status.locator('[data-window-id]')).not.toHaveCount(0)
+    await expect.poll(async () => {
+      let address = (await chrome.locator('[data-focused-pane="true"]').getByRole('group', { name: 'Pane address', exact: true }).boundingBox())!
+      let bounds = (await finder.boundingBox())!, input = (await prompt().boundingBox())!, bar = (await status.boundingBox())!
+      return bounds.y >= address.y + address.height && input.y >= bounds.y && input.y + input.height <= bounds.y + bounds.height && (bounds.y >= bar.y + bar.height || bounds.y + bounds.height <= bar.y)
+    }).toBe(true)
+  }
   await open()
+  await assertCommandOverlay()
   await expect(chrome.getByRole('listbox', { name: 'Commands', exact: true })).toBeVisible()
   await prompt().fill('brtls')
   let selected = chrome.getByRole('option', { selected: true })
@@ -141,8 +153,7 @@ test('command finder accepts fuzzy selection and restores the native page', asyn
   await fs.writeFile(config, 'statusBar: bottom\n' + await fs.readFile(config, 'utf8'))
   await expect.poll(async () => (await state()).statusBar).toBe('bottom')
   await open(); await prompt().fill('brtls')
-  let finder = chrome.getByRole('region', { name: 'Command finder', exact: true }), status = chrome.getByRole('contentinfo', { name: 'Browser status' })
-  await expect.poll(async () => { let bounds = (await finder.boundingBox())!; return bounds.y + bounds.height - (await status.boundingBox())!.y }).toBeLessThanOrEqual(1)
+  await assertCommandOverlay()
   await chrome.screenshot({ path: path.resolve('artifacts/command-finder-bottom.png') })
   await prompt().press('Escape'); await expect.poll(nativeVisible).toBe(true)
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
@@ -404,7 +415,9 @@ test('window movement commands transfer and exchange explicit windows across ses
     await cli('movew', '-s', ':3', '-t', ':1')
     expect(await windows(local.id)).toEqual([c.id, a.id, b.id])
     expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ windowId: c.id, zoomedPaneId: c.panes[0].id })
-    await cli('movew', '-s', ':1', '-t', ':3')
+    // Source selectors retain their numbers when their visual positions change.
+    await cli('movew', '-s', ':3', '-t', ':3')
+    expect(await windows(local.id)).toEqual([a.id, b.id, c.id])
     await rpc('select-window', { client: client.id, window: a.id })
     await cli('swapw', '-s', ':1', '-t', ':3', '-d')
     expect(await windows(local.id)).toEqual([c.id, b.id, a.id])
@@ -413,7 +426,7 @@ test('window movement commands transfer and exchange explicit windows across ses
     expect(await windows(local.id)).toEqual([c.id, a.id])
     expect(await windows(other.id)).toEqual([other.windows[0].id, b.id])
     expect((await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(c.id)
-    await cli('swapw', '-s', ':2', '-t', 'windows-other:2', '-d')
+    await cli('swapw', '-s', ':1', '-t', 'windows-other:2', '-d')
     expect(await windows(local.id)).toEqual([c.id, b.id])
     expect(await windows(other.id)).toEqual([other.windows[0].id, a.id])
     await cli('movew', '-s', 'windows-other:2', '-t', ':2', '-b')
@@ -575,6 +588,73 @@ test('profile Pane settings keeps only the selected pane loaded and reflects sav
     await rpc('pane.keep-alive', { pane: pane.id, enabled: false })
     await rpc('kill-pane', { pane: sibling.id, confirm: true })
   }
+})
+
+test('profile settings create and manage profiles beside the selector', async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let session = current.model.sessions.find((item: { id: string }) => item.id === client.sessionId)!
+  let pane = session.windows.flatMap((item: { panes: { id: string; profileId: string }[] }) => item.panes).find((item: { id: string }) => item.id === client.paneId)!
+  let profile = current.model.profiles.find((item: { id: string }) => item.id === pane.profileId)!
+  let panel = await openProfilePanel(profile.name)
+  await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
+  let select = panel.getByRole('combobox', { name: 'Default profile for new windows' })
+  await expect(panel.getByRole('button', { name: 'New profile', exact: true })).toHaveCount(0)
+  let manage = panel.getByRole('button', { name: 'Manage profiles', exact: true })
+  await expect(manage.locator('svg')).toHaveAttribute('viewBox', '0 0 24 24')
+  await expect(manage.locator('circle')).toHaveCount(1)
+  let selectBounds = (await select.boundingBox())!, buttonBounds = (await manage.boundingBox())!, iconBounds = (await manage.locator('svg').boundingBox())!
+  expect(buttonBounds.x + buttonBounds.width - selectBounds.x).toBeLessThanOrEqual(440)
+  expect(Math.abs(iconBounds.x + iconBounds.width / 2 - buttonBounds.x - buttonBounds.width / 2)).toBeLessThan(0.5)
+  expect(Math.abs(iconBounds.y + iconBounds.height / 2 - buttonBounds.y - buttonBounds.height / 2)).toBeLessThan(0.5)
+  expect(await select.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight))).toBeGreaterThanOrEqual(32)
+  await manage.click()
+  let manager = panel.getByRole('group', { name: 'Manage profiles', exact: true })
+  await manager.getByRole('button', { name: 'New profile', exact: true }).click()
+  let form = panel.getByRole('form', { name: 'Create profile' })
+  await expect(form.getByRole('textbox')).toBeFocused()
+  expect((await form.getByRole('textbox').boundingBox())!.width).toBeLessThanOrEqual(440)
+  await form.getByRole('textbox').fill('   ')
+  await expect(form.getByRole('button', { name: 'Create profile', exact: true })).toBeDisabled()
+  await form.getByRole('textbox').fill(profile.name)
+  await form.getByRole('button', { name: 'Create profile', exact: true }).click()
+  await expect(chrome.getByText('Profile name already exists', { exact: true })).toBeVisible()
+  await form.getByRole('textbox').fill('Settings-created profile')
+  await form.getByRole('button', { name: 'Create profile', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await expect(chrome.getByText('Profile name already exists', { exact: true })).toHaveCount(0)
+  let created = (await state()).model.profiles.find((item: { name: string }) => item.name === 'Settings-created profile')!
+  await expect(select).toHaveValue(created.id)
+  await expect(manage).toHaveAttribute('aria-expanded', 'true')
+  await expect(manager.getByRole('button', { name: 'Delete profile default', exact: true })).toBeDisabled()
+  await expect(manager.getByRole('button', { name: `Delete profile ${profile.name}`, exact: true })).toBeDisabled()
+  await manager.getByRole('button', { name: 'Delete profile Settings-created profile', exact: true }).click()
+  let confirm = manager.getByRole('alertdialog', { name: 'Delete profile Settings-created profile?' })
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(select.getByRole('option', { name: 'Settings-created profile', exact: true })).toHaveCount(1)
+  await manager.getByRole('button', { name: 'Delete profile Settings-created profile', exact: true }).click()
+  await confirm.getByRole('button', { name: 'Delete profile', exact: true }).click()
+  await expect(select.getByRole('option', { name: 'Settings-created profile', exact: true })).toHaveCount(0)
+  await expect(select).toHaveValue('profile_default')
+  await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles.some((item: { id: string }) => item.id === created.id)).toBe(false)
+  await chrome.screenshot({ path: path.resolve('artifacts/profile-management.png') })
+  await manage.click()
+  await expect(manager).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'New profile', exact: true })).toHaveCount(0)
+  await select.selectOption(session.defaultProfileId)
+  let originalBounds = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.getBounds())
+  try {
+    await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setBounds({ ...bounds, width: 640, height: 800 }), originalBounds)
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(640)
+    await expect(manage).toBeVisible()
+    let narrowPanel = (await panel.boundingBox())!, narrowButton = (await manage.boundingBox())!, narrowSelect = (await select.boundingBox())!
+    expect(narrowSelect.x).toBeGreaterThan(narrowPanel.x)
+    expect(narrowButton.x + narrowButton.width).toBeLessThan(narrowPanel.x + narrowPanel.width)
+    await chrome.screenshot({ path: path.resolve('artifacts/profile-overview-narrow.png') })
+  } finally {
+    await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setBounds(bounds), originalBounds)
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(originalBounds.width)
+  }
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
 })
 
 test('profile popup renames default and custom profiles without changing pane identity', async () => {
@@ -911,6 +991,7 @@ test('profile device identity is applied before requests and cache status is pub
   await mobile.check()
   await expect(mobile).toBeChecked()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('pixel-8')
+  await expect(mobile).toBeEnabled()
   expect(await rpc('eval', { tab: otherTab, expression: 'window.deviceReloadMarker' })).toBe(true)
   expect((await state()).model.sessions[0].device).toBeUndefined()
   await expect(chrome.getByRole('button', { name: `Profile ${profile.name}, Pixel 8, system connection`, exact: true })).toHaveCount(0)
@@ -1013,7 +1094,10 @@ test('profile device identity is applied before requests and cache status is pub
   await panel.getByLabel('Orientation', { exact: true }).selectOption('landscape')
   await expect(panel.getByRole('switch', { name: 'Mobile device', exact: true })).toBeChecked()
   await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.preset).toBe('iphone-15-pro')
+  await expect.poll(async () => (await state()).model.sessions[0].windows[0].panes[0].device?.orientation).toBe('landscape')
   await expect.poll(() => identityRequests.get('/device-android')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
+  // The request arrives before the device save finishes reloading this pane.
+  await expect(panel.getByRole('switch', { name: 'Mobile device', exact: true })).toBeEnabled()
   await rpc('navigate', { tab, url: `${url}/device-ios` })
   await expect.poll(() => identityRequests.get('/device-ios')?.['user-agent']).toContain('CPU iPhone OS 18_6_2')
   expect(identityRequests.get('/device-ios')?.['user-agent']).toContain('Version/27.0')
