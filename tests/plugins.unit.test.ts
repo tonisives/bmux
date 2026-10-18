@@ -19,7 +19,7 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}) => {
   fs.writeFileSync(path.join(folder, 'plugin.yaml'), stringify(manifest))
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
-  let plugins = createPlugins({ directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
+  let plugins = createPlugins({ bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
   cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
   return { directory, plugins, browser, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
@@ -51,6 +51,20 @@ describe('plugin definitions', () => {
     expect(matchesPluginUrl('https://example.test/*', 'https://example.test/path')).toBe(true)
     expect(matchesPluginUrl('https://example.test/*', 'https://example.test.evil/path')).toBe(false)
     expect(matchesPluginUrl('http://127.0.0.1:*/plugin-fixture*', 'http://127.0.0.1:8123/plugin-fixture')).toBe(true)
+  })
+  test('publishes plugin origin for built-in and custom groups, including invalid manifests', () => {
+    let { directory, manifest, plugins } = fixture('')
+    let bundled = path.join(directory, 'bundled', 'builtin')
+    fs.mkdirSync(bundled, { recursive: true })
+    fs.writeFileSync(path.join(bundled, 'plugin.yaml'), stringify({ ...manifest, id: 'builtin' }))
+    plugins.reload()
+    expect(plugins.list().find(plugin => plugin.id === 'builtin')).toMatchObject({ bundled: true })
+    expect(plugins.list().find(plugin => plugin.id === 'test')).toMatchObject({ bundled: false })
+    let invalid = path.join(directory, 'bundled', 'invalid')
+    fs.mkdirSync(invalid)
+    fs.writeFileSync(path.join(invalid, 'plugin.yaml'), 'invalid: [')
+    plugins.reload()
+    expect(plugins.list().find(plugin => plugin.id === 'invalid')).toMatchObject({ bundled: true, error: 'Invalid or duplicate plugin manifest' })
   })
   test('validates and publishes declarative proxy providers', () => {
     let { manifest, plugins, writeManifest } = fixture('')

@@ -88,19 +88,44 @@ test('blocks requests before they reach the server and runs scripts before page 
   expect(await page.evaluate(() => ['process', 'require', 'bmux'].map(key => typeof (window as any)[key]))).toEqual(['undefined', 'undefined', 'undefined'])
 })
 
-test('plugin screen shows live tool status and opens blocking configuration', async () => {
+test('built-in plugin details configure blocking and profile dark mode in the same panel', async () => {
   await command('plugins')
   let panel = chrome.getByRole('dialog', { name: 'Plugins', exact: true })
-  let status = panel.getByRole('region', { name: 'Tools status' })
-  await expect(status).toContainText('requests blocked since navigation')
-  await expect(status).toContainText('Ready')
-  await status.getByRole('button', { name: 'Configure browser tools' }).click()
-  let tools = chrome.getByRole('dialog', { name: 'Browser tools', exact: true })
-  await tools.getByRole('button', { name: 'Ad and tracker blocking: on', exact: true }).click()
-  await expect(tools.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true })).toBeVisible()
-  await expect(tools.getByRole('region', { name: 'Tools status' })).toContainText('Off')
-  await tools.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true }).click()
-  await tools.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(panel.getByRole('heading', { name: 'Built-in', exact: true })).toBeVisible()
+  await expect(panel.getByRole('heading', { name: 'Custom', exact: true })).toBeVisible()
+  let blocking = panel.getByRole('button', { name: 'Ad and tracker blocking Block ads and trackers and update filter lists.', exact: true })
+  await blocking.click()
+  let details = panel.getByRole('region', { name: 'Plugin details' })
+  await expect(details.getByRole('button', { name: 'Back to plugins' })).toBeFocused()
+  await details.getByRole('button', { name: 'Ad and tracker blocking: on', exact: true }).click()
+  await expect(details.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true })).toBeVisible()
+  await details.getByRole('button', { name: 'Ad and tracker blocking: off', exact: true }).click()
+  await details.getByRole('button', { name: 'Back to plugins' }).press('Escape')
+  await expect(blocking).toBeFocused()
+  let dark = panel.getByRole('button', { name: /^Dark mode Recolor/ })
+  await dark.focus(); await dark.press('i')
+  await expect(details.getByLabel('Apply changes to')).toHaveValue('profile')
+  await expect(details.getByRole('button', { name: /Ad and tracker blocking:/ })).toHaveCount(0)
+  await details.getByLabel('Website dark mode').selectOption('dark')
+  await expect.poll(() => page.evaluate(() => document.querySelectorAll('style.darkreader').length)).toBeGreaterThan(0)
+  await panel.screenshot({ path: 'artifacts/plugin-dark-mode.png' })
+  await details.getByRole('button', { name: 'Back to plugins' }).click()
+  await expect(dark).toBeFocused()
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let window = await rpc('new-window', { session: client.sessionId, client: client.id, profile: 'profile_default', url: `${url}/new-dark-window` }) as { id: string }
+  try {
+    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/new-dark-window`)).toBe(true)
+    let newPage = application.context().pages().find(page => page.url() === `${url}/new-dark-window`)!
+    await expect(newPage.getByRole('heading', { name: 'Browser tools fixture' })).toBeVisible()
+    await expect.poll(() => newPage.locator('body').evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe('rgb(255, 255, 255)')
+    await expect.poll(async () => (await state()).browserTools.tabs[tabId].darkMode).toBe('dark')
+  } finally {
+    await rpc('browser.set', { tab: tabId, setting: 'darkMode', value: 'off', scope: 'profile' })
+    await rpc('close-window', { window: window.id, confirm: true })
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    await activate()
+  }
 })
 
 test('address bar toggles blocking independently for panes sharing a profile and site', async () => {

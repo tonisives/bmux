@@ -2,6 +2,7 @@ import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
+import { usePanelStack } from './usePanelStack'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, windowVisitTime } from '../shared/pane-activity'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
@@ -1254,21 +1255,9 @@ let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()
   let { profile, session } = selection(state)
   let [listing, setListing] = useState<ExtensionList | null>(null)
-  let [selectedPath, setSelectedPath] = useState<string | null>(null)
+  let { selected: selectedPath, setSelected: setSelectedPath, list: listRef, backButton: detailsBack, open: showDetails, back, keys } = usePanelStack()
   let [busy, setBusy] = useState(false)
   let [notice, setNotice] = useState('')
-  let detailsBack = useRef<HTMLButtonElement>(null)
-  let listRef = useRef<HTMLElement>(null)
-  let lastSelected = useRef<string | null>(null)
-  useEffect(() => {
-    if (selectedPath) detailsBack.current?.focus()
-    else if (lastSelected.current) {
-      let button = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('[data-details]') ?? []).find(button => button.dataset.details === lastSelected.current)
-      if (button) button.focus()
-      else listRef.current?.focus()
-    }
-    lastSelected.current = selectedPath
-  }, [selectedPath])
   let extensionKey = session?.private ? session.id : profile?.id
   let currentProfile = useRef(extensionKey)
   currentProfile.current = extensionKey
@@ -1300,10 +1289,8 @@ let ExtensionManager = () => {
       }
     } finally { setBusy(false) }
   }
-  let showDetails = (event: MouseEvent<HTMLButtonElement>) => setSelectedPath(event.currentTarget.dataset.details ?? null)
-  let back = () => setSelectedPath(null)
   let selected = listing?.extensions.find(extension => extension.path === selectedPath)
-  if (selected) return <section aria-label="Extension details" className={css.extensionDetails}>
+  if (selected) return <section aria-label="Extension details" className={css.extensionDetails} onKeyDown={keys}>
     <button ref={detailsBack} onClick={back}>Back to extensions</button>
     <h2>{selected.name}</h2>
     {selected.description && <p>{selected.description}</p>}
@@ -1334,10 +1321,10 @@ let ExtensionManager = () => {
     </section>
     {notice && <p role="status">{notice}</p>}
   </section>
-  return <section aria-label="Profile extensions" ref={listRef} tabIndex={-1}><p>{session?.private ? `Private session: ${session.name}. Extension choices and data last only for this session.` : `Profile: ${profile?.name ?? 'No selected pane'}. Changes apply only to this profile.`}</p>
+  return <section aria-label="Profile extensions" onKeyDown={keys} ref={listRef} tabIndex={-1}><p>{session?.private ? `Private session: ${session.name}. Extension choices and data last only for this session.` : `Profile: ${profile?.name ?? 'No selected pane'}. Changes apply only to this profile.`}</p>
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>{session?.private ? 'No extensions enabled in this private session.' : 'No extensions in this profile.'}</p>}
-    {listing?.extensions.map(extension => <div key={extension.path} className={css.extensionRow}>
+    {listing?.extensions.map(extension => <div key={extension.path} data-panel-row className={css.extensionRow}>
       <button className={css.extensionName} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong>{extension.error && <span className={css.error}>Failed to load</span>}</button>
       <button className={css.extensionInfo} data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`} title="Extension details"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg></button>
       <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
@@ -1349,7 +1336,46 @@ let ExtensionManager = () => {
   </section>
 }
 
+let BUILTIN_TOOLS = [
+  { id: 'dark-mode', name: 'Dark mode', description: 'Recolor websites with Dark Reader or follow the system.' },
+  { id: 'adblock', name: 'Ad and tracker blocking', description: 'Block ads and trackers and update filter lists.' },
+  { id: 'userscripts', name: 'Userscripts and styles', description: 'Configure local JavaScript and CSS for websites.' },
+] as const
+
+type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
 let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
+  let { state, run } = useUI()
+  let stack = usePanelStack()
+  let [query, setQuery] = useState('')
+  let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let reload = () => { void run('plugin.reload') }
+  let builtin = BUILTIN_TOOLS.find(tool => `builtin:${tool.id}` === stack.selected)
+  let plugin = state.plugins?.find(plugin => `plugin:${plugin.id}` === stack.selected)
+  if (matches) return <PluginConfiguration compact={compact} matches={matches} />
+  if (builtin || plugin) return <section aria-label="Plugin details" onKeyDown={stack.keys}>
+    <button ref={stack.backButton} onClick={stack.back}>Back to plugins</button>
+    <h2>{builtin?.name ?? plugin?.name}</h2>
+    {builtin ? <><p>{builtin.description}</p><BrowserTools key={builtin.id} compact feature={builtin.id} /></> : <><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /></>}
+  </section>
+  let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
+  let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
+  let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.name} ${plugin.actions.map(action => `${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
+  let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row>
+    <button className={css.listRow} data-details={`plugin:${plugin.id}`} onClick={stack.open}><strong>{plugin.name}</strong><span className={css.pluginDescription}>{plugin.error || (plugin.enabled ? 'Enabled' : 'Disabled')}</span></button>
+  </div>
+  return <section aria-label="Plugin list" ref={stack.list} tabIndex={-1} onKeyDown={stack.keys}>
+    <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
+    <h2>Built-in</h2>
+    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} onClick={stack.open}><strong>{tool.name}</strong><span className={css.pluginDescription}>{tool.description}</span></button></div>)}
+    {plugins.filter(plugin => plugin.bundled).map(row)}
+    <h2>Custom</h2>
+    {plugins.filter(plugin => !plugin.bundled).map(row)}
+    {!plugins.some(plugin => !plugin.bundled) && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
+    <button onClick={reload}>Reload plugins</button>
+  </section>
+}
+
+let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: boolean; matches?: Set<string>; pluginId?: string }) => {
   let { state, run, dismiss } = useUI()
   let [query, setQuery] = useState('')
   let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
@@ -1358,13 +1384,13 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   let reload = () => { void run('plugin.reload') }
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let show = (target: string) => !matches || matches.has(target)
-  return <>{!compact && <ToolStatus />}{!compact && <h2>Installed plugins</h2>}{!matches && <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />}
+  return <>{!pluginId && !compact && <h2>Installed plugins</h2>}{!pluginId && !matches && <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />}
     {!matches && !state.plugins?.length && <p>{compact ? 'No plugins installed.' : 'No plugins found. Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
-    {state.plugins?.filter(plugin => show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) || plugin.actions.some(action => show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))).map(plugin => <div key={plugin.id}>
+    {state.plugins?.filter(plugin => (!pluginId || plugin.id === pluginId)).filter(plugin => show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) || plugin.actions.some(action => show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))).map(plugin => <div key={plugin.id}>
       {show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} data-setting-plugin={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>}
       {plugin.hasHooks && show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} checked={plugin.hooks} disabled={!plugin.enabled} onChange={toggleHooks} aria-label={`Automatic hooks for ${plugin.name}`} />Automatic hooks · {plugin.hooks ? 'on' : 'off'} (reload open pages after changing)</label>}
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`)).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
-    {!compact && <p>Enable plugins in config.yaml. Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
+    {!compact && <p>Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
 }
 let PluginActivity = () => {
   let { state, run } = useUI()
@@ -2839,17 +2865,22 @@ let ToolStatus = () => {
   </section>
 }
 
-let BrowserTools = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
+let BrowserTools = ({ compact = false, matches, feature }: { compact?: boolean; matches?: Set<string>; feature?: BuiltinTool }) => {
   let { state, run, show } = useUI()
   let { tab, profile } = selection(state)
   let tools = state.browserTools, current = tab && tools?.tabs[tab.id]
-  let [scope, setScope] = useState('site')
+  let [scope, setScope] = useState(feature === 'dark-mode' ? 'profile' : 'site')
   let settings = scope === 'global' ? tools?.defaults : scope === 'profile' ? current?.profileDefaults : current
-  let included = (target: string) => !matches || matches.has(target)
+  let included = (target: string) => {
+    if (matches && !matches.has(target)) return false
+    if (!feature) return true
+    if (feature === 'userscripts') return target.startsWith('[data-setting-script=') || target === '[data-setting-id="reload-scripts"]'
+    return ['[data-setting-id="tool-scope"]', '[data-setting-id="reset-tools"]', `[data-setting-id="${feature}"]`, ...(feature === 'adblock' ? ['[data-setting-id="update-filters"]'] : [])].includes(target)
+  }
   let changeScope = (event: ChangeEvent<HTMLSelectElement>) => setScope(event.target.value)
   let adblock = () => { void run('browser.set', { tab: tab?.id, setting: 'adblock', value: !settings?.adblock, scope }) }
   let dark = (event: ChangeEvent<HTMLSelectElement>) => { void run('browser.set', { tab: tab?.id, setting: 'darkMode', value: event.target.value, scope }) }
-  let inherit = async () => { await run('browser.set', { tab: tab?.id, setting: 'adblock', value: 'inherit', scope }); await run('browser.set', { tab: tab?.id, setting: 'darkMode', value: 'inherit', scope }) }
+  let inherit = async () => { if (!feature || feature === 'adblock') await run('browser.set', { tab: tab?.id, setting: 'adblock', value: 'inherit', scope }); if (!feature || feature === 'dark-mode') await run('browser.set', { tab: tab?.id, setting: 'darkMode', value: 'inherit', scope }) }
   let update = () => { void run('browser.update-filters') }
   let reload = () => { void run('browser.reload-scripts') }
   let edit = () => { void run('settings.open') }
@@ -2864,13 +2895,13 @@ let BrowserTools = ({ compact = false, matches }: { compact?: boolean; matches?:
     </div>}
     {!matches && !compact && scope !== 'site' && <p>Existing site overrides still apply. This page: blocking {current?.adblock ? 'on' : 'off'}, dark mode {current?.darkMode ?? 'off'}.</p>}
     {!matches && current?.error && <p className={css.error}>{current.error}</p>}
-    {!matches && <p>{compact ? `Blocked requests: ${current?.blocked ?? 0}` : `${current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.`}</p>}
-    {!matches && !!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
+    {!matches && (!feature || feature === 'adblock') && <p>{compact ? `Blocked requests: ${current?.blocked ?? 0}` : `${current?.blocked ?? 0} requests blocked since navigation. Turning blocking off allows new requests; reload to retry resources already blocked.`}</p>}
+    {!matches && (!feature || feature === 'adblock') && !!current?.recent.length && <details><summary>Blocked requests</summary>{current.recent.map((request, index) => <div className={css.row} key={`${request.time}:${index}`}>{request.host} · {request.type} · {new Date(request.time).toLocaleTimeString()}</div>)}</details>}
     {!matches && !compact && <p>{tools?.filters.network ?? 0} network rules · {tools?.filters.cosmetic ?? 0} cosmetic rules. Filters updated {tools?.filters.updatedAt ? new Date(tools.filters.updatedAt).toLocaleDateString() : 'never'}.</p>}
-    {!matches && tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
+    {!matches && (!feature || feature === 'adblock') && tools?.filters.error && <p className={css.error}>{tools.filters.error}</p>}
     {included('[data-setting-id="update-filters"]') && <button data-setting-id="update-filters" onClick={update} disabled={tools?.filters.updating}>{tools?.filters.updating ? 'Updating filters…' : 'Update filters'}</button>}
-    {(!matches || tools?.scripts.some(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`))) && <p>Userscripts and styles</p>}
-    {tools?.scripts.length ? tools.scripts.filter(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`)).map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} data-setting-script={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : !matches && <p>{compact ? 'No userscripts' : 'Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.'}</p>}
+    {((!matches && (!feature || feature === 'userscripts')) || tools?.scripts.some(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`))) && <p>Userscripts and styles</p>}
+    {tools?.scripts.length ? tools.scripts.filter(script => included(`[data-setting-script="${CSS.escape(script.id)}"]`)).map(script => <label className={css.row} key={script.id}><input type="checkbox" data-id={script.id} data-setting-script={script.id} checked={script.enabled} onChange={toggleScript} />{script.name}{script.error && <span className={css.error}>{script.error}</span>}</label>) : !matches && (!feature || feature === 'userscripts') && <p>{compact ? 'No userscripts' : 'Add local .js or .css files under browser.userscripts in the config. JavaScript changes apply on the next navigation.'}</p>}
     {included('[data-setting-id="reload-scripts"]') && <button data-setting-id="reload-scripts" onClick={reload}>Reload scripts</button>}{!compact && <><button onClick={edit}>Edit config</button><p>Use <code>save-fill</code> to save a form, <code>fill</code> to restore it.</p><button onClick={plugins}>Form fills and plugins</button></>}
   </>
 }

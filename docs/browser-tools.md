@@ -60,7 +60,9 @@ Reload to retry resources that were already blocked.
 ## Website dark mode
 
 Dark Reader runs in a separate page execution world without a privileged preload.
-`Cmd+Shift+D` toggles recoloring for the current site in the current profile.
+`Cmd+Shift+D` and `dark` commands toggle recoloring for the current profile. New windows and panes using that profile inherit it. Use `--scope site` for a site exception.
+
+Open Plugins → Built-in → Dark mode to configure it. Blocking and userscripts also have built-in plugin detail screens. Plugins are grouped into Built-in and Custom; select an entry to configure it, then use Back or Escape to return to the list. Extension information uses the same navigation. Press `i` on a focused list row to open its details.
 
 ```text
 dark on
@@ -207,4 +209,4 @@ Local plugins cannot shadow bundled IDs. Neither system loads Chrome Web Store
 extensions. The separate [experimental browser extension host](extensions.md)
 can install the official Bitwarden browser extension.
 
-Open `plugins`, `settings`, or `browser-tools` from the command prompt to see Tools status for the selected page: effective blocking, requests blocked since navigation, filter readiness, dark mode, and enabled script/plugin counts and errors. Choose Configure browser tools for site/profile/global controls and timestamped blocked-request history, or Manage plugins for plugin toggles and actions. Disabling blocking allows new requests; reload to retry resources already blocked.
+Open `browser-tools` from the command prompt to see Tools status for the selected page: effective blocking, requests blocked since navigation, filter readiness, dark mode, and enabled script/plugin counts and errors. Choose Configure browser tools for site/profile/global controls and timestamped blocked-request history, or Manage plugins for plugin toggles and actions. Disabling blocking allows new requests; reload to retry resources already blocked.

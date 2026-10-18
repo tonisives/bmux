@@ -126,7 +126,7 @@ let parseCommand = () => {
     let value = positional[0] ?? 'toggle'
     if (command === 'dark' && value === 'on') value = 'dark'
     if (command === 'adblock' && ['on', 'off'].includes(value)) value = value === 'on'
-    return { method: 'browser.set', args: { pane: args.target ?? args.pane, setting: command === 'dark' ? 'darkMode' : 'adblock', value, scope: args.scope ?? 'site' } }
+    return { method: 'browser.set', args: { pane: args.target ?? args.pane, setting: command === 'dark' ? 'darkMode' : 'adblock', value, scope: args.scope ?? (command === 'dark' ? 'profile' : 'site') } }
   }
   if (command === 'update-filters') return { method: 'browser.update-filters' }
   if (command === 'reload-scripts') return { method: 'browser.reload-scripts' }

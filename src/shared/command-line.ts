@@ -121,7 +121,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
     let value: unknown = positional[0] ?? 'toggle'
     if (name === 'adblock' && ['on', 'off'].includes(String(value))) value = value === 'on'
     if (name === 'dark' && value === 'on') value = 'dark'
-    return { method: 'browser.set', args: { pane: paneTarget, setting: name === 'dark' ? 'darkMode' : 'adblock', value, scope: options.scope ?? 'site' } }
+    return { method: 'browser.set', args: { pane: paneTarget, setting: name === 'dark' ? 'darkMode' : 'adblock', value, scope: options.scope ?? (name === 'dark' ? 'profile' : 'site') } }
   }
   if (name === 'update-filters') return { method: 'browser.update-filters' }
   if (name === 'reload-scripts') return { method: 'browser.reload-scripts' }

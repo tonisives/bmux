@@ -712,7 +712,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
     if (action === 'vim-editor') { if (tab && !overlays.has(client.id)) void pageTools?.frameContexts(tab, `window.dispatchEvent(new Event('bmux:vim-editor'))`).catch(reportError); return }
     if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
-    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { invoke({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle' } }); return }
+    if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { invoke({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle', ...(action === 'toggle-dark' ? { scope: 'profile' } : {}) } }); return }
     if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
     let session = model.sessions.find(session => session.id === client.sessionId)!
     let window = session.windows.find(window => window.id === client.windowId)!

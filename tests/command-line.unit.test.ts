@@ -208,3 +208,10 @@ it('gives numeric window indices priority over numeric names and selects a sessi
   expect(parseCommandLine('selectw -t :', current).args).toMatchObject({ window: second.id })
   expect(() => parseCommandLine('selectw -t :missing', current)).toThrow("Window 'missing' not found")
 })
+
+it('defaults dark mode to the profile while retaining explicit site overrides', () => {
+  let current = state()
+  expect(parseCommandLine('dark on', current)).toMatchObject({ method: 'browser.set', args: { setting: 'darkMode', value: 'dark', scope: 'profile' } })
+  expect(parseCommandLine('dark off --scope site', current)).toMatchObject({ args: { setting: 'darkMode', value: 'off', scope: 'site' } })
+  expect(parseCommandLine('adblock off', current)).toMatchObject({ args: { setting: 'adblock', value: false, scope: 'site' } })
+})
