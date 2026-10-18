@@ -106,6 +106,7 @@ test('Google navigation automatic hooks can be enabled in Settings and select re
   await command.fill('settings'); await command.press('Enter')
   let settings = chrome.getByRole('dialog', { name: 'Settings', exact: true })
   await settings.getByRole('tab', { name: 'Plugins', exact: true }).click()
+  await settings.getByRole('button', { name: 'Google result navigation Enabled', exact: true }).click()
   let hooks = settings.getByRole('checkbox', { name: 'Automatic hooks for Google result navigation', exact: true })
   await expect(hooks).not.toBeChecked()
   await hooks.click()
