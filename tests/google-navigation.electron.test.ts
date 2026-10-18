@@ -141,7 +141,8 @@ test('Google navigation recovers when an in-page URL change cancels installation
     let ready = new Promise<void>(resolve => { gate.release = resolve })
     ;(globalThis as any).googleHookGate = gate
     contents.debugger.sendCommand = async (method, ...args) => {
-      if (method === 'Page.getFrameTree' && contents.getURL() === url) {
+      // Other page tools also request the frame tree; hold this hook's world.
+      if (method === 'Page.createIsolatedWorld' && args[0]?.worldName === 'bmux:google-search' && contents.getURL() === url) {
         contents.debugger.sendCommand = send
         gate.blocked = true
         await ready
