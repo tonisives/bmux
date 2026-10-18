@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { bitwardenPasskeyPreflight, patchBitwardenInlineNewItem, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
+import { bitwardenPasskeyPreflight, installBitwardenExtension, patchBitwardenInlineNewItem, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
 
 let source = 'before;const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})};after'
 
@@ -130,4 +130,72 @@ describe('Bitwarden passkey startup', () => {
   it('rejects an unknown pinned bundle instead of silently missing the patch', () => {
     expect(() => patchBitwardenPasskeys('changed bundle')).toThrow('passkey compatibility target was not found')
   })
+})
+
+
+describe('Bitwarden 2026.10.0 preview compatibility', () => {
+  let release = '2026.10.0'
+  let inline = source.replaceAll('YO.', 'PU.').replaceAll('aN.', '$U.').replace('const d=', 'const u=').replace('${d}', '${u}')
+  let passkey = passkeySource.replaceAll('YO.', 'PU.')
+
+  it('patches the official preview symbols and keeps both operations idempotent', () => {
+    let patched = patchBitwardenInlineNewItem(inline, release)
+    expect(patched).toContain('if(!h){yield $U.openPopout')
+    expect(patchBitwardenInlineNewItem(patched, release)).toBe(patched)
+    let startup = patchBitwardenPasskeys(passkey, release)
+    expect(startup).toContain('unlockedStatus:Hu.Unlocked')
+    expect(startup).toContain('yield PU.focusTab')
+    expect(startup).toContain('singleActionKey:KU')
+    expect(startup).toContain('$U.openPopout')
+    expect(patchBitwardenPasskeys(startup, release)).toBe(startup)
+  })
+
+  it('rejects unrecognised versions and mismatched preview bundles', () => {
+    expect(() => patchBitwardenPasskeys(passkey, 'unknown')).toThrow('Unsupported Bitwarden release')
+    expect(() => patchBitwardenInlineNewItem(source, release)).toThrow('compatibility target was not found')
+  })
+})
+
+
+it('leaves the existing package intact when a preview download has the wrong checksum', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-bitwarden-preview-'))
+  let target = path.join(directory, 'extension-packages', 'bitwarden-preview')
+  let fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('invalid archive'))
+  try {
+    await fs.mkdir(target, { recursive: true })
+    await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ version: '2026.6.1' }))
+    await fs.writeFile(path.join(target, 'background.js'), 'existing package')
+    await expect(installBitwardenExtension(directory, target, '2026.10.0')).rejects.toThrow('checksum did not match')
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('browser-v2026.10.0/dist-chrome-2026.10.0.zip'), expect.anything())
+    expect(await fs.readFile(path.join(target, 'background.js'), 'utf8')).toBe('existing package')
+    expect(await fs.readdir(path.dirname(target))).toEqual(['bitwarden-preview'])
+    await expect(installBitwardenExtension(directory, target, 'toString')).rejects.toThrow('Unsupported Bitwarden release')
+    expect(fetch).toHaveBeenCalledOnce()
+  } finally {
+    fetch.mockRestore()
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('executes the preview passkey preflight with the preview worker symbols', async () => {
+  let fixture = passkeyFixture()
+  let patched = patchBitwardenPasskeys(passkeySource.replaceAll('YO.', 'PU.'), '2026.10.0')
+  let sign = vi.fn()
+  let worker = vm.runInNewContext(`(function* (n,t,e,i) { ${patched} })`, {
+    setTimeout, clearTimeout, Hu: { Unlocked: 2 },
+    chrome: { tabs: { get: fixture.resolveTab } },
+    $U: { openPopout: fixture.openUnlock }, KU: 'auth_unlockExtension', PU: {},
+  })
+  let iterate = worker.call({ authService: { getAuthStatus: fixture.authStatus } }, {}, fixture.tab, {}, sign)
+  let run = async () => {
+    let step = iterate.next()
+    while (!step.done) {
+      try { step = iterate.next(await step.value) }
+      catch (error) { step = iterate.throw(error) }
+    }
+    return step.value
+  }
+  await expect(run()).rejects.toMatchObject({ name: 'NotAllowedError' })
+  expect(sign).not.toHaveBeenCalled()
+  expect(fixture.openUnlock).toHaveBeenCalledWith('popup/index.html#/login', { singleActionKey: 'auth_unlockExtension', senderWindowId: 4 })
 })

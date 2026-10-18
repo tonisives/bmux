@@ -3,8 +3,9 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { closeTestApplication } from './electron-fixture'
+import { installBitwardenExtension } from '../src/main/bitwarden-extension'
 
-test('official Bitwarden keeps login ports working across profiles and idle time', async () => {
+for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${release} keeps login ports working across profiles and idle time`, async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extension-probe-'))
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
   let application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
@@ -12,8 +13,13 @@ test('official Bitwarden keeps login ports working across profiles and idle time
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown>) => test.step(`${method} ${args.profile ?? ''}`, () => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args }), { timeout: method === 'extension.install-bitwarden' ? 60000 : 20000 })
-    let installed = await test.step('Install the pinned official extension', () => rpc('extension.install-bitwarden', { profile: 'profile_default' })) as { name: string; path: string }
+    let installed = await test.step('Install the pinned official extension', async () => {
+      if (release === '2026.6.1') return rpc('extension.install-bitwarden', { profile: 'profile_default' })
+      let location = await installBitwardenExtension(directory, path.join(directory, 'extension-packages', `bitwarden-${release}`), release)
+      return rpc('extension.load', { profile: 'profile_default', path: location })
+    }) as { name: string; path: string; version: string }
     expect(installed.name).toBe('Bitwarden Password Manager')
+    expect(installed.version).toBe(release)
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-passkey-unlock-preflight')
     let other = await rpc('profile.create', { name: 'bot (Brave)' })
