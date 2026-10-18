@@ -201,12 +201,12 @@ it('executes the preview passkey preflight with the preview worker symbols', asy
 })
 
 for (let release of ['2026.6.1', '2026.10.0']) describe(`Bitwarden ${release} locked inline targeting`, () => {
-  let original = 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)'
+  let original = release === '2026.10.0' ? 'case"getUrlAutofillTargetingRules":{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}' : 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)'
   let patched = patchBitwardenLockedInline(original, release)
   it.each([0, 1, 2])('handles auth status %s without waiting for locked feature flags', async status => {
     let lookup = vi.fn(async () => [{ selector: '#username' }])
     let handle = vm.runInNewContext(`(function* (command,t) { switch(command) { ${patched} } })`, { ad: { Unlocked: 2 }, Hu: { Unlocked: 2 } })
-    let iterator = handle.call({ authService: { getAuthStatus: async () => status }, main: { domainSettingsService: { getTargetingRulesForUrl: lookup } } }, 'getUrlAutofillTargetingRules', { url: 'https://example.test/login' })
+    let iterator = handle.call({ resolveSenderFrameUrl: async (sender: { url: string }) => sender.url, main: { authService: { getAuthStatus: async () => status }, domainSettingsService: { getTargetingRulesForUrl: lookup } } }, 'getUrlAutofillTargetingRules', { url: 'https://example.test/login' })
     let step = iterator.next()
     while (!step.done) step = iterator.next(await step.value)
     if (status === 2) {

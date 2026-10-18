@@ -90,9 +90,10 @@ export let patchBitwardenLockedInline = (source: string, release = version) => {
   let target = targets(release)
   let marker = 'bmux-locked-inline-targeting-rules'
   if (source.includes(marker)) return source
-  let needle = 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl('
+  let prefix = 'case"getUrlAutofillTargetingRules":'
+  let needle = prefix + (release === '2026.10.0' ? '{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}' : 'return yield this.main.domainSettingsService.getTargetingRulesForUrl(')
   if (!source.includes(needle)) throw new Error('Bitwarden locked inline compatibility target was not found')
-  return source.replace(needle, `case"getUrlAutofillTargetingRules":if((yield this.authService.getAuthStatus())!==${target.unlocked})return null;/* ${marker} */return yield this.main.domainSettingsService.getTargetingRulesForUrl(`)
+  return source.replace(needle, `${prefix}if((yield this.main.authService.getAuthStatus())!==${target.unlocked})return null;/* ${marker} */${needle.slice(prefix.length)}`)
 }
 
 export let patchBitwardenPackage = async (directory: string, release = version) => {
