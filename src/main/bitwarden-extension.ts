@@ -88,6 +88,16 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   let source = await fs.readFile(background, 'utf8')
   let patched = patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release)
   if (patched !== source) await fs.writeFile(background, patched)
+  if (release === '2026.10.0') {
+    // Existing bmux builds can open the isolated preview without rebuilding the
+    // browser. Bypass the introductory route that stalls on Electron's worker.
+    let file = path.join(directory, 'manifest.json')
+    let manifest = JSON.parse(await fs.readFile(file, 'utf8'))
+    if (manifest.action?.default_popup === 'popup/index.html') {
+      manifest.action.default_popup = 'popup/index.html#/login'
+      await fs.writeFile(file, JSON.stringify(manifest, null, 2))
+    }
+  }
 }
 
 export let prepareBitwardenPackage = async (directory: string, location: string) => {

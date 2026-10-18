@@ -47,7 +47,7 @@ Bitwarden's own popup. The extension manages its own vault session. Extension up
 
 A 2026.10.0 preview is available separately from the stable installer. Prepare
 its checksum-verified official package with bmux's inline editor and passkey
-compatibility patches:
+compatibility patches and a direct login popup route:
 
 ```sh
 pnpm exec tsx scripts/prepare-bitwarden-preview.ts
