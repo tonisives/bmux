@@ -26,7 +26,7 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
         return true
       }
       if (message.command === 'fixtureAppendInline') {
-        chrome.tabs.sendMessage(_sender.tab.id, { command: 'appendAutofillInlineMenuToDom', overlayElement: 'button' }, { frameId: 0 }).then(() => respond(true))
+        chrome.tabs.sendMessage(_sender.tab.id, { command: 'appendAutofillInlineMenuToDom', overlayElement: 'button' }).then(() => respond({ ok: true })).catch(error => respond({ error: String(error) }))
         return true
       }
       if (message.command === 'updateAutofillInlineMenuElementIsVisibleStatus') visible = message.isVisible
@@ -47,9 +47,15 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
       await init.collectAutofillContentService.getPageDetails()
       document.querySelector('#username').addEventListener('input', () => { void init.collectAutofillContentService.getPageDetails() })
       document.querySelector('#username').addEventListener('focus', async () => {
-        if (init.autofillInlineMenuContentService) await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
-        else await chrome.runtime.sendMessage({ command: 'fixtureAppendInline' })
-        document.documentElement.dataset.inlineFixture = 'open'
+        document.documentElement.dataset.inlineFocus = 'true'
+        try {
+          if (init.autofillInlineMenuContentService) await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
+          else {
+            let reply = await chrome.runtime.sendMessage({ command: 'fixtureAppendInline' })
+            if (reply?.error) throw new Error(reply.error)
+          }
+          document.documentElement.dataset.inlineFixture = 'open'
+        } catch (error) { document.documentElement.dataset.inlineError = String(error) }
       })
       document.documentElement.dataset.inlineFixture = 'ready'
     })()
@@ -82,7 +88,7 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
     await expect(fields.locator('html')).toHaveAttribute('data-inline-fixture', 'ready')
     await expect(fields.locator('[data-bmux-vim-hints] button')).toHaveCount(1)
     await fields.locator('#username').click()
-    await expect(fields.locator('html')).toHaveAttribute('data-inline-fixture', 'open')
+    await expect.poll(() => fields.locator('html').evaluate(html => ({ state: html.dataset.inlineFixture, error: html.dataset.inlineError || null, focused: html.dataset.inlineFocus || null }))).toEqual({ state: 'open', error: null, focused: 'true' })
     // Each page update causes Bitwarden to collect the fields again. A passive
     // hint must not make those collections exhaust its top-layer safety limit.
     for (let change = 0; change < 8; change++) {
