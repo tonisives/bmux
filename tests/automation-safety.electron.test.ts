@@ -46,6 +46,7 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     // Legacy usage has no site attribution; human navigation must not invent it.
     await expect(alert.getByRole('combobox')).toHaveCount(0)
     expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
+    await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for one.example.com', exact: true })).toBeVisible()
     let timer = alert.getByRole('timer')
     await expect(timer).toBeVisible()
     await expect(timer).toContainText('Reset ')
