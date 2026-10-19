@@ -14,7 +14,7 @@ static napi_value hit(napi_env env, napi_callback_info info) {
   napi_get_value_double(env, args[1], &x); napi_get_value_double(env, args[2], &y);
   NSPoint point = NSMakePoint(x, root.isFlipped ? y : root.bounds.size.height - y);
   NSView *view = [root hitTest:[root convertPoint:point toView:root.superview]];
-  while (view && ![NSStringFromClass(view.class) isEqualToString:@"WebContentsViewCocoa"]) view = view.superview;
+  while (view && ![view isKindOfClass:NSClassFromString(@"WebContentsViewCocoa")]) view = view.superview;
   NSString *target = view ? NSStringFromSize(view.bounds.size) : @"none";
   napi_create_string_utf8(env, target.UTF8String, NAPI_AUTO_LENGTH, &result);
   return result;

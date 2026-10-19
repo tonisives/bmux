@@ -72,6 +72,7 @@ import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
+import { clipViewportInput, clearViewportInput } from './viewport-input'
 
 type LiveTab = { view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -82,6 +83,7 @@ let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.
 let pageRoot = (live: LiveTab) => live.remoteFrame ?? live.view
 let removeRemoteFrame = (live: LiveTab) => {
   if (!live.remoteFrame) return
+  clearViewportInput(live.contents)
   live.remoteFrame.removeChildView(live.view)
   if (!live.parent.isDestroyed()) {
     live.parent.contentView.removeChildView(live.remoteFrame)
@@ -1407,6 +1409,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       live.unloadGuard?.cancel()
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
+      clearViewportInput(live.contents)
       if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(pageRoot(live))
       live.remoteFrame?.removeChildView(live.view)
       if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
@@ -1501,6 +1504,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     // Keep the native client's first responder valid when parking its focused page.
     // Reparenting a focused view directly into a hidden host can resign the client.
     keepClientFocus(live)
+    clearViewportInput(live.contents)
     if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(pageRoot(live))
     if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
     parent.contentView.addChildView(pageRoot(live))
@@ -1710,6 +1714,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (page?.parent === owner.window) { pageFocusTarget = undefined; page.contents.focus() }
       }
     }
+    for (let live of tabs.values()) if (live.remoteFrame && !live.disposed && !live.contents.isDestroyed()) clipViewportInput(live.contents, live.parent, live.remoteFrame.getBounds(), live.view.getBounds())
     publish()
   }
   let scheduleVisuals = () => {
