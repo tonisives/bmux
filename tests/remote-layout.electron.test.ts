@@ -85,7 +85,11 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
         let rect = (await content.boundingBox())!
         let points = [status, address, rect].map(rect => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }))
         let target = await chrome.evaluate(() => `{${innerWidth}, ${innerHeight}}`)
-        await expect.poll(() => application.evaluate((_electron, points) => points.slice(0, 2).map(point => (globalThis as any).remoteLayoutHit(point.x, point.y)), points)).toEqual([target, target])
+        let sessions = (await chrome.getByRole('button', { name: 'Sessions', exact: true }).boundingBox())!
+        let controls = [sessions, address].map(rect => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }))
+        await test.step('Native URL and Sessions controls receive mouse input', async () => {
+          await expect.poll(() => application.evaluate((_electron, points) => (globalThis as any).remoteLayoutHits(points), controls)).toEqual([target, target])
+        }, { timeout: 10000 })
         points.push({ x: rect.x + 8, y: rect.y + 8 })
         let screenshot = info.outputPath(`remote-${position}-${size.width}.png`)
         await expect(async () => {

@@ -7,7 +7,10 @@ app.setPath('userData', process.env.BMUX_DATA_DIR!)
 void app.whenReady().then(async () => {
   let runtime = createRuntime(process.env.BMUX_DATA_DIR!)
   ;(globalThis as any).remoteLayoutRuntime = runtime
-  ;(globalThis as any).remoteLayoutHit = (x: number, y: number) => createRequire(import.meta.url)('../native-hit-test.node').hit(BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle(), x, y)
+  ;(globalThis as any).remoteLayoutHits = (points: { x: number; y: number }[]) => new Promise(resolve => setImmediate(() => {
+    let native = createRequire(import.meta.url)('../native-hit-test.node'), handle = BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle()
+    resolve(points.map(point => native.hit(handle, point.x, point.y)))
+  }))
   ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
   ipcMain.handle('command', (event, command) => runtime.execute(command, runtime.sourceClient(event.sender.id)))
   ipcMain.on('bounds', (event, bounds) => runtime.setBounds(event.sender.id, bounds))
