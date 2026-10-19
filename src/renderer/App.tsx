@@ -1157,16 +1157,24 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let tab = pane
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
+  let remoteSize = state.remoteSizes?.[paneId]
+  useLayoutEffect(() => {
+    if (!ref.current || !remoteSize) return
+    ref.current.style.setProperty('--remote-width', `${remoteSize.width}px`)
+    ref.current.style.setProperty('--remote-height', `${remoteSize.height}px`)
+  }, [remoteSize?.width, remoteSize?.height])
   let frame = pane.device ? frameGeometry(pane.device, deviceSize) : null
   useLayoutEffect(() => {
-    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(), pane = element.closest('[data-pane-content]')!.getBoundingClientRect(); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: rect.width, height: rect.height, paneBounds: { x: pane.x, y: pane.y, width: pane.width, height: pane.height } } }))
+    let publish = () => bridge.bounds([...document.querySelectorAll<HTMLElement>('[data-browser-content]')].map(element => { let rect = element.getBoundingClientRect(), pane = element.closest('[data-pane-content]')!.getBoundingClientRect(), remote = element.hasAttribute('data-remote-viewport'); return { paneId: element.dataset.contentPaneId!, x: rect.x, y: rect.y, width: remote ? element.clientWidth : rect.width, height: remote ? element.clientHeight : rect.height, scrollX: remote ? element.scrollLeft : 0, scrollY: remote ? element.scrollTop : 0, paneBounds: { x: pane.x, y: pane.y, width: pane.width, height: pane.height } } }))
     let observer = new ResizeObserver(publish)
     if (ref.current) observer.observe(ref.current)
     let screen = ref.current?.querySelector<HTMLElement>('[data-browser-content]')
     if (screen && screen !== ref.current) observer.observe(screen)
+    if (ref.current) ref.current.addEventListener('scroll', publish)
+    let element = ref.current
     publish()
-    return () => observer.disconnect()
-  }, [tab.id, client!.windowId, state.statusBar, pane.device])
+    return () => { observer.disconnect(); element?.removeEventListener('scroll', publish) }
+  }, [tab.id, client!.windowId, state.statusBar, pane.device, remoteSize?.width, remoteSize?.height])
   useLayoutEffect(() => {
     if (!pane.device || !ref.current) return
     let element = ref.current
@@ -1187,9 +1195,9 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
   let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
-  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={css.content} ref={ref} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={pane.device ? undefined : true} data-content-pane-id={pane.device ? undefined : pane.id} onMouseDown={focus}>
+  return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={`${css.content} ${remoteSize ? css.remoteViewport : ''}`} ref={ref} data-remote-viewport={remoteSize ? true : undefined} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={!remoteSize && pane.device ? undefined : true} data-content-pane-id={!remoteSize && pane.device ? undefined : pane.id} onMouseDown={focus}>
     {control === 'command' && client!.paneId === pane.id && <CommandPrompt key={`${client!.windowId}:${pane.id}`} />}
-    {pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
+    {remoteSize ? <div className={css.remoteCanvas}>{fallback}</div> : pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
   </div></section>
 }
 

@@ -5,8 +5,8 @@ import { copyConnectionCookies } from './connection-cookies'
 import { createFilePickers } from './file-pickers'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
-import { app, BaseWindow, BrowserWindow, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
-import type { DownloadItem, View, WebContents } from 'electron'
+import { app, BaseWindow, BrowserWindow, View, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
+import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
@@ -73,12 +73,22 @@ import { createFaviconCache } from './favicon-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 
-type LiveTab = { view: WebContentsView; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; attach?: (contents: WebContents, close: () => Promise<unknown>) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
 let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
+let pageRoot = (live: LiveTab) => live.remoteFrame ?? live.view
+let removeRemoteFrame = (live: LiveTab) => {
+  if (!live.remoteFrame) return
+  live.remoteFrame.removeChildView(live.view)
+  if (!live.parent.isDestroyed()) {
+    live.parent.contentView.removeChildView(live.remoteFrame)
+    live.parent.contentView.addChildView(live.view)
+  }
+  live.remoteFrame = undefined
+}
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
@@ -115,13 +125,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return current
   }
   let clearRemoteSizes = () => {
+    let changed = false
     for (let [pane, size] of remoteSizes) {
       let session = walkPanes(model).find(item => item.pane.id === pane)?.session
       if (session && controls.get(session.id)?.generation === size.lease) continue
       let live = tabs.get(pane)
-      if (live && !live.disposed) live.view.setBounds(size.previous)
+      if (live && !live.disposed) { removeRemoteFrame(live); live.view.setBounds(size.previous) }
       remoteSizes.delete(pane)
+      changed = true
     }
+    if (changed) void scheduleVisuals()
   }
   let reclaimDesktopControl = (sessionId: string) => {
     controls.release(sessionId)
@@ -346,7 +359,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -899,7 +912,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
     filePickers.watchPage(tabId, contents, () => !isLiveTabOpen(live) || live.parent.isDestroyed() ? { visible: false } : { windowId: live.parent.id, visible: live.parent.isVisible() && !live.parent.isMinimized() && view.getVisible() })
-    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) }), {
+    let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !live.remoteFrame && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) }), {
       available: () => !!backOpener(model, pane),
       navigate: () => { void execute({ method: 'back', args: { tab: tabId } }).catch(reportError).finally(() => installSwipe?.cancel()) },
       snapshot: (width, height) => { let opener = backOpener(model, pane); return opener ? tabs.get(opener.pane.id)?.refreshSwipe?.snapshot(width, height) : undefined },
@@ -1394,7 +1407,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       live.unloadGuard?.cancel()
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
-      if (!live.parent.isDestroyed() && live.parent.contentView.children.includes(live.view)) live.parent.contentView.removeChildView(live.view)
+      if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(pageRoot(live))
+      live.remoteFrame?.removeChildView(live.view)
       if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
       live.camera?.webContents.close()
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
@@ -1487,9 +1501,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     // Keep the native client's first responder valid when parking its focused page.
     // Reparenting a focused view directly into a hidden host can resign the client.
     keepClientFocus(live)
-    if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.view)
+    if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(pageRoot(live))
     if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
-    parent.contentView.addChildView(live.view)
+    parent.contentView.addChildView(pageRoot(live))
     if (live.camera) parent.contentView.addChildView(live.camera)
     live.parent = parent
   }
@@ -1549,8 +1563,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       for (let paneId of paneIds) {
         let tabId = paneById(model, paneId).pane.id
         let floatingBounds = floatBounds(candidate, paneId)
-        let bounds = floatingBounds ?? live.bounds.find(bounds => bounds.paneId === tabId)
-        if (!floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
+        let reported = live.bounds.find(bounds => bounds.paneId === tabId)
+        let bounds = remoteSizes.has(tabId) ? reported ?? floatingBounds : floatingBounds ?? reported
+        if (!remoteSizes.has(tabId) && !floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
         // A remounted device frame has no screen size until its layout effect runs.
         if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue
         let entries = viewers.get(tabId) ?? []
@@ -1579,9 +1594,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let { session, pane } = tabById(model, tabId)
       extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
-        let persona = tabById(model, tabId).pane.device
+        let persona = remoteSizes.has(tabId) ? undefined : tabById(model, tabId).pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
-        live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
+        if (!remoteSizes.has(tabId)) live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
         let shape = persona ? deviceScreenShape(persona, fitted) : undefined
         live.view.setBorderRadius(shape ? Math.round(shape.radius) : 0)
         if (shape) {
@@ -1612,7 +1627,23 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         }
       }
       let remoteSize = remoteSizes.get(tabId)
-      if (remoteSize && controls.get(tabById(model, tabId).session.id)?.generation === remoteSize.lease) live.view.setBounds({ ...live.view.getBounds(), width: remoteSize.width, height: remoteSize.height })
+      if (remoteSize && controls.get(tabById(model, tabId).session.id)?.generation === remoteSize.lease) {
+        if (!live.remoteFrame) {
+          live.remoteFrame = new View()
+          // A backing layer is required for Electron to mask native child layers.
+          live.remoteFrame.setBackgroundBlur(0)
+          live.remoteFrame.setBorderRadius(1)
+          live.parent.contentView.removeChildView(live.view)
+          live.remoteFrame.addChildView(live.view)
+          live.parent.contentView.addChildView(live.remoteFrame)
+        }
+        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, width: remoteSize.width, height: remoteSize.height }
+        let width = Math.max(1, Math.round(area.width)), height = Math.max(1, Math.round(area.height))
+        let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, remoteSize.width - width))
+        let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, remoteSize.height - height))
+        live.remoteFrame.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
+        live.view.setBounds({ x: Math.max(0, Math.round((width - remoteSize.width) / 2)) - Math.round(scrollX), y: Math.max(0, Math.round((height - remoteSize.height) / 2)) - Math.round(scrollY), width: remoteSize.width, height: remoteSize.height })
+      }
     }
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
@@ -1626,14 +1657,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
-        if (page?.parent === live.window) { ordered.push(page.view); if (page.camera) ordered.push(page.camera) }
+        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.camera) ordered.push(page.camera) }
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
         if (frame) ordered.push(frame)
         let page = tabs.get(paneById(model, placement.paneId).pane.id)
         if (page?.parent === live.window) {
-          ordered.push(page.view)
+          ordered.push(pageRoot(page))
           if (page.camera) ordered.push(page.camera)
         }
       }
@@ -1833,7 +1864,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
     if (!clientId || !Array.isArray(bounds)) return
-    let valid = bounds.filter(bound => ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bound[key as keyof Bounds])))
+    let valid = bounds.filter(bound => ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bound[key as keyof Bounds]))).map(bound => ({ ...bound, scrollX: Number.isFinite(bound.scrollX) ? Math.max(0, bound.scrollX!) : 0, scrollY: Number.isFinite(bound.scrollY) ? Math.max(0, bound.scrollY!) : 0 }))
     clients.get(clientId)!.bounds = valid
     void scheduleVisuals()
   }
@@ -3312,7 +3343,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1920 || height < 200 || height > 1080) throw new Error('Invalid viewport')
       let previous = remoteSizes.get(pane)?.previous ?? live.view.getBounds()
       remoteSizes.set(pane, { width, height, previous, lease: generation })
-      live.view.setBounds({ ...live.view.getBounds(), width, height })
+      await scheduleVisuals()
       return remoteViewport(pane)
     },
   }

@@ -32,7 +32,7 @@ docker run --name "$browser" --network "container:${database}" --shm-size=1g \
   --security-opt seccomp=containers/chromium-seccomp.json \
   -e BMUX_NATIVE_CRASH_DIAGNOSTICS="${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
-  "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/host-proxy.electron.test.ts --output=/tmp/results "$@"
+  "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/remote-layout.electron.test.ts tests/host-proxy.electron.test.ts --output=/tmp/results "$@"
 docker run --rm --network "container:${database}" --entrypoint node \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   "$image" tests/remote-service.integration.mjs
