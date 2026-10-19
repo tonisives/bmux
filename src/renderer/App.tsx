@@ -45,7 +45,7 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
@@ -53,12 +53,12 @@ type Notification = { id: string; text: string; cooldown?: { retryAfter: string;
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
   let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
-  let [control, setControl] = useState<Control | null>(null)
+  let [control, setControl] = useState<Control | null>(null), [initialPlugin, setInitialPlugin] = useState<BuiltinTool | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState('')
@@ -87,8 +87,8 @@ export let App = () => {
     try { return await bridge.command({ method, args }) }
     catch (error) { setMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); return undefined }
   }, [])
-  let show = useCallback(async (control: Control, paneId?: string, destination?: BookmarkDestination) => {
-    setHistoryPopup(null)
+  let show = useCallback(async (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => {
+    setInitialPlugin(plugin ?? null); setHistoryPopup(null)
     if (paneId) {
       let current = await bridge.state()
       if (selection(current).pane?.id !== paneId) {
@@ -119,7 +119,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousDialogPrompt.current = !!state.dialogPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
@@ -144,7 +144,7 @@ export let App = () => {
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
-  let context = { settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
+  let context = { initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -1064,7 +1064,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let selectHistory = (index: number) => { if (!tab) return; setHistoryPopup(null); void run('history.go-to', { tab: tab.id, index }) }
   let refresh = () => { if (tab) void run('reload', { tab: tab.id }) }
   let blocking = tab ? state.browserTools?.tabs[tab.id] : undefined
-  let toggleAdblock = () => { if (tab) void run('browser.set', { tab: tab.id, setting: 'adblock', value: 'toggle', scope: 'pane' }) }
+  let openAdblock = () => show('adblock-popup', paneId)
+  let openDarkMode = () => show('dark-mode-popup', paneId)
   let openSiteInfo = () => show('site-info', paneId)
   let openProfile = () => show('profiles', paneId)
   let openProxy = () => show('proxy', paneId)
@@ -1108,7 +1109,8 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
       {paneId && <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>}
     </div>
     {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && pane?.device && <ProfileDeviceIcon />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
-    {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} aria-label="Ad blocking" aria-pressed={blocking?.adblock ?? false} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'} for this pane`} disabled={!blocking} onClick={toggleAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
+    {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} data-plugin-pane={tab.id} data-plugin-button="adblock" data-enabled={blocking?.adblock ?? false} aria-label="Ad blocking" aria-haspopup="dialog" aria-expanded={control === 'adblock-popup' && client?.paneId === tab.id} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'}`} disabled={!blocking} onClick={openAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
+    {tab && state.showDarkModeButton && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} data-plugin-pane={tab.id} data-plugin-button="dark-mode" data-enabled={!!blocking && blocking.darkMode !== 'off'} aria-label="Dark mode" aria-haspopup="dialog" aria-expanded={control === 'dark-mode-popup' && client?.paneId === tab.id} title={`Dark mode ${blocking?.darkMode ?? 'off'}`} disabled={!blocking} onClick={openDarkMode}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2a5.8 5.8 0 1 0 7 7.5Z" /></svg></button>}
   </div>
 }
 let Branch = ({ node }: { node: Layout }) => {
@@ -1189,6 +1191,46 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   </div></section>
 }
 
+let PluginQuickSettings = ({ feature }: { feature: 'adblock' | 'dark-mode' }) => {
+  let { state, run, show, dismiss } = useUI()
+  let { tab, pane } = selection(state)
+  let current = tab && state.browserTools?.tabs[tab.id]
+  let [scope, setScope] = useState(feature === 'adblock' ? 'pane' : 'profile')
+  let popup = useRef<HTMLDivElement>(null)
+  let setting: 'adblock' | 'darkMode' = feature === 'adblock' ? 'adblock' : 'darkMode'
+  let value = scope === 'profile' ? current?.profileDefaults[setting] : scope === 'site' ? current?.siteDefaults?.[setting] ?? current?.[setting] : current?.[setting]
+  let enabled = feature === 'adblock' ? value === true : !!value && value !== 'off'
+  let unavailable = !tab || !current || (scope === 'site' && !current.origin)
+  let changeScope = (event: ChangeEvent<HTMLSelectElement>) => setScope(event.target.value)
+  let toggle = () => { if (tab) void run('browser.set', { tab: tab.id, setting, scope, value: feature === 'adblock' ? !enabled : enabled ? 'off' : 'dark' }) }
+  let reset = () => { if (tab) void run('browser.set', { tab: tab.id, setting, scope, value: 'inherit' }) }
+  let settings = () => show('plugins', undefined, undefined, feature)
+  let outside = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
+  useLayoutEffect(() => {
+    let position = () => {
+      if (!tab || !popup.current) return
+      let anchor = document.querySelector<HTMLElement>(`[data-plugin-pane="${CSS.escape(tab.id)}"][data-plugin-button="${feature}"]`)
+      if (!anchor) return
+      let bounds = anchor.getBoundingClientRect(), box = popup.current.getBoundingClientRect()
+      let left = Math.max(8, Math.min(bounds.right - box.width, innerWidth - box.width - 8))
+      let top = bounds.bottom + 6 + box.height <= innerHeight - 8 ? bounds.bottom + 6 : Math.max(8, bounds.top - box.height - 6)
+      popup.current.style.setProperty('--popup-left', `${left}px`)
+      popup.current.style.setProperty('--popup-top', `${top}px`)
+    }
+    position()
+    window.addEventListener('resize', position)
+    return () => window.removeEventListener('resize', position)
+  }, [tab?.id, feature])
+  return <div className={css.overlay} onClick={outside}><div ref={popup} className={css.pluginPopup} role="dialog" aria-modal="true" aria-label={feature === 'adblock' ? 'Ad blocking' : 'Dark mode'}>
+    <header><strong>{feature === 'adblock' ? 'Ad blocking' : 'Dark mode'}</strong><CloseButton label="Close" onClick={dismiss} /></header>
+    <label>Apply to<select aria-label="Apply to" value={scope} onChange={changeScope}>{feature === 'adblock' && <option value="pane">This pane</option>}<option value="site">This site</option><option value="profile">This profile</option></select></label>
+    <button type="button" role="switch" aria-label="Enabled" aria-checked={enabled} onClick={toggle} disabled={unavailable} autoFocus>Enabled: {enabled ? 'on' : 'off'}</button>
+    <button type="button" onClick={reset} disabled={unavailable}>Use inherited setting</button>
+    {feature === 'adblock' && scope !== 'pane' && pane?.adblock !== undefined && <p>This pane has a separate blocking override.</p>}
+    <button type="button" onClick={settings}>Plugin settings</button>
+  </div></div>
+}
+
 let Panel = ({ type }: { type: Control }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
@@ -1196,6 +1238,7 @@ let Panel = ({ type }: { type: Control }) => {
   let chooseLocalSessions = () => { setSessionTab('local'); localStorage.setItem('session-picker-tab', 'local') }
   let chooseRemoteSessions = () => { setSessionTab('remote'); localStorage.setItem('session-picker-tab', 'remote') }
   useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
+  if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
   let sessionPicker = type === 'sessions'
   let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
@@ -1345,8 +1388,8 @@ let BUILTIN_TOOLS = [
 
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
 let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
-  let { state, run } = useUI()
-  let stack = usePanelStack()
+  let { state, run, initialPlugin } = useUI()
+  let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null)
   let [query, setQuery] = useState('')
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let reload = () => { void run('plugin.reload') }
@@ -2852,6 +2895,7 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   let settings = scope === 'global' ? tools?.defaults : scope === 'profile' ? current?.profileDefaults : current
   let included = (target: string) => {
     if (matches && !matches.has(target)) return false
+    if (feature === 'dark-mode' && target === '[name="showDarkModeButton"]') return true
     if (feature === 'userscripts') return target.startsWith('[data-setting-script=') || target === '[data-setting-id="reload-scripts"]'
     return ['[data-setting-id="tool-scope"]', '[data-setting-id="reset-tools"]', `[data-setting-id="${feature}"]`, ...(feature === 'adblock' ? ['[data-setting-id="update-filters"]'] : [])].includes(target)
   }
@@ -2863,9 +2907,11 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   let reload = () => { void run('browser.reload-scripts') }
   let edit = () => { void run('settings.open') }
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
+  let showInAddressBar = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: 'showDarkModeButton', value: event.target.checked }) }
   let filters = tools?.filters
   if (matches && !Array.from(matches).some(included)) return null
   return <>
+    {included('[name="showDarkModeButton"]') && <label className={css.settingsRow}><span>Show next to URL bar</span><input type="checkbox" name="showDarkModeButton" checked={state.showDarkModeButton === true} onChange={showInAddressBar} /></label>}
     {matches && <h4>{BUILTIN_TOOLS.find(tool => tool.id === feature)?.name}</h4>}
     {!matches && <p>{profile?.name} · {current?.origin || 'Open a website to change its settings'}</p>}
     {(included('[data-setting-id="tool-scope"]') || included('[data-setting-id="adblock"]') || included('[data-setting-id="dark-mode"]') || included('[data-setting-id="reset-tools"]')) && <div className={css.toolOptions}>
@@ -2907,6 +2953,7 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'memory', label: 'Unload idle pages', keywords: 'minutes', target: '[name="memory.idleUnloadMinutes"]' },
   { tab: 'plugins', label: 'Apply changes to', keywords: 'site profile global', target: '[data-setting-id="tool-scope"]' },
   { tab: 'plugins', label: 'Ad and tracker blocking', target: '[data-setting-id="adblock"]' },
+  { tab: 'plugins', label: 'Show dark mode next to URL bar', keywords: 'button address toolbar', target: '[name="showDarkModeButton"]' },
   { tab: 'plugins', label: 'Website dark mode', target: '[data-setting-id="dark-mode"]' },
   { tab: 'plugins', label: 'Reset to inherited settings', target: '[data-setting-id="reset-tools"]' },
   { tab: 'plugins', label: 'Update filters', target: '[data-setting-id="update-filters"]' },

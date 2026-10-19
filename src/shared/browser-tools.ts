@@ -14,7 +14,7 @@ export type BlockedRequest = { host: string; type: string; time: number }
 export type BrowserToolsState = {
   defaults: Required<SiteSettings>
   filters: { updatedAt: number; updating: boolean; error?: string; network: number; cosmetic: number }
-  tabs: Record<string, { origin: string; adblock: boolean; darkMode: DarkMode; profileDefaults: Required<SiteSettings>; error?: string; blocked: number; recent: BlockedRequest[] }>
+  tabs: Record<string, { origin: string; adblock: boolean; darkMode: DarkMode; profileDefaults: Required<SiteSettings>; siteDefaults?: Required<SiteSettings>; error?: string; blocked: number; recent: BlockedRequest[] }>
   scripts: { id: string; name: string; enabled: boolean; error?: string }[]
 }
 export let DEFAULT_BROWSER: BrowserSettings = { adblock: true, darkMode: 'off', autoUpdateFilters: true, rules: [], profiles: {}, userscripts: [] }

@@ -54,6 +54,10 @@ update-filters
 Disabling blocking changes subsequent requests and removes cosmetic hiding.
 Reload to retry resources that were already blocked.
 
+## URL-bar controls
+
+The ad-blocking button opens a popup with an enabled switch, a scope selector (this pane, this site, or this profile), and a direct link to its plugin settings. Enable **Show next to URL bar** in Plugins → Built-in → Dark mode to place a dark-mode button beside it. Its popup supports this-site and this-profile settings; dark mode defaults to the profile. Both popups can reset their selected scope to the inherited setting.
+
 ## Website dark mode
 
 Dark Reader runs in a separate page execution world without a privileged preload.

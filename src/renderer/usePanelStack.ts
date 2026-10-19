@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 
-export let usePanelStack = () => {
-  let [selected, setSelected] = useState<string | null>(null)
+export let usePanelStack = (initial: string | null = null) => {
+  let [selected, setSelected] = useState<string | null>(initial)
   let list = useRef<HTMLElement>(null), backButton = useRef<HTMLButtonElement>(null)
   let previous = useRef<string | null>(null)
   useEffect(() => {

@@ -225,3 +225,9 @@ it('redirects saved Browser tools shortcuts to Plugins without rewriting the con
   expect(config.keyboard.shortcuts['Cmd+Alt+D']).toBe('plugins')
   expect(config.keyboard.prefixBindings.t).toBe('plugins')
 })
+
+it('keeps the optional dark mode address button disabled by default and validates saved choices', () => {
+  expect(parseConfig('keyboard: {}').showDarkModeButton).toBe(false)
+  expect(parseConfig('keyboard: {}\nshowDarkModeButton: true').showDarkModeButton).toBe(true)
+  expect(() => parseConfig('keyboard: {}\nshowDarkModeButton: yes')).toThrow('showDarkModeButton must be true or false')
+})
