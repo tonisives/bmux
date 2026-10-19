@@ -23,7 +23,7 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-passkey-unlock-preflight')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-bounded-inline-targeting-rules')
-    expect(await fs.readFile(path.join(installed.path, 'popup', 'main.js'), 'utf8')).toContain('bmux-reconnecting-memory-port')
+    expect(await fs.readFile(path.join(installed.path, 'popup', 'main.js'), 'utf8')).toContain('bmux-reconnecting-memory-port-v2')
     let other = await rpc('profile.create', { name: 'bot (Brave)' })
     for (let profile of ['profile_default', 'profile_bot', other.id]) {
       await test.step(`Verify login and ports in ${profile}`, async () => {
