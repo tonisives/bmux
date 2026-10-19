@@ -83,6 +83,8 @@ describe('Bitwarden passkey startup', () => {
         await fs.mkdir(location, { recursive: true })
         await fs.writeFile(path.join(location, 'manifest.json'), JSON.stringify({ name: '__MSG_extName__', version: '2026.6.1' }))
         await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
+        await fs.mkdir(path.join(location, 'popup'))
+        await fs.writeFile(path.join(location, 'popup', 'main.js'), '/* bmux-reconnecting-memory-port */')
         await prepareBitwardenPackage(directory, location)
       }
       let upgraded = await fs.readFile(path.join(managed, 'background.js'), 'utf8')

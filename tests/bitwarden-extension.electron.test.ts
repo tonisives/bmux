@@ -23,6 +23,7 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-passkey-unlock-preflight')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-bounded-inline-targeting-rules')
+    expect(await fs.readFile(path.join(installed.path, 'popup', 'main.js'), 'utf8')).toContain('bmux-reconnecting-memory-port')
     let other = await rpc('profile.create', { name: 'bot (Brave)' })
     for (let profile of ['profile_default', 'profile_bot', other.id]) {
       await test.step(`Verify login and ports in ${profile}`, async () => {
@@ -32,6 +33,24 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
         let popup = application.context().pages().find(page => page.url().startsWith('chrome-extension://'))!
         await expect(popup.getByRole('textbox', { name: /email/i })).toBeVisible({ timeout: 20000 })
         await expect(popup.getByText('An error has occurred', { exact: true })).toHaveCount(0)
+        await test.step('Recover actual Bitwarden memory reads after its port closes', async () => {
+          expect(await popup.evaluate(async () => {
+            let view = window as any
+            let provider = view.bitwardenContainerService.keyService.stateProvider.globalStateProvider.storageServiceProvider
+            let storage = provider.largeObjectMemoryStorageService
+            let key = 'bmux_fixture_vault_count'
+            await storage.save(key, { count: 3 })
+            let before = await storage.get(key)
+            // Native disconnect does not notify the disconnecting endpoint.
+            // Its next read throws the same error as the reported empty vault.
+            storage._port.disconnect()
+            let recovered = await Promise.all([storage.get(key), storage.has(key)])
+            await storage.save(key, { count: 4 })
+            let after = await storage.get(key)
+            await storage.remove(key)
+            return { before, recovered, after, removed: await storage.has(key) }
+          })).toEqual({ before: { count: 3 }, recovered: [{ count: 3 }, true], after: { count: 4 }, removed: false })
+        })
         // Resolving optional feature flags must not hold field collection until
         // an account is unlocked. Exercise the real worker and message bridge.
         expect(await popup.evaluate(async () => {
