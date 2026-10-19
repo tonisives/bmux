@@ -1390,9 +1390,16 @@ type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
 let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
   let { state, run, initialPlugin } = useUI()
   let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null)
-  let [query, setQuery] = useState('')
+  let [query, setQuery] = useState(''), [changing, setChanging] = useState<string[]>([])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let reload = () => { void run('plugin.reload') }
+  let toggle = async (event: MouseEvent<HTMLButtonElement>) => {
+    let plugin = state.plugins?.find(plugin => plugin.id === event.currentTarget.dataset.id)
+    if (!plugin || changing.includes(plugin.id)) return
+    setChanging(current => [...current, plugin.id])
+    try { await run('plugin.enable', { id: plugin.id, enabled: !plugin.enabled }) }
+    finally { setChanging(current => current.filter(id => id !== plugin.id)) }
+  }
   let builtin = BUILTIN_TOOLS.find(tool => `builtin:${tool.id}` === stack.selected)
   let plugin = state.plugins?.find(plugin => `plugin:${plugin.id}` === stack.selected)
   if (matches) return <>
@@ -1407,8 +1414,9 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.name} ${plugin.actions.map(action => `${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
-  let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row>
-    <button className={css.listRow} data-details={`plugin:${plugin.id}`} onClick={stack.open}><strong>{plugin.name}</strong><span className={css.pluginDescription}>{plugin.error || (plugin.enabled ? 'Enabled' : 'Disabled')}</span></button>
+  let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
+    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} onClick={stack.open}><strong>{plugin.name}</strong><span className={css.pluginDescription}>{plugin.error || (plugin.enabled ? 'Enabled' : 'Disabled')}</span></button>
+    <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
   return <section aria-label="Plugin list" ref={stack.list} tabIndex={-1} onKeyDown={stack.keys}>
     <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />

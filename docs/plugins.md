@@ -312,3 +312,5 @@ Escape clears the selection. Search fields, editing, modified keys, and click
 mode retain their normal behavior. The plugin runs in an isolated page world
 without page access to browser or Node APIs. Disabling prevents installation on
 subsequent pages; reload an existing page to remove its installed handler.
+
+The Plugins list has an enabled/disabled toggle beside each installed plugin. Toggle it directly from the list, or select the plugin name to open its settings.
