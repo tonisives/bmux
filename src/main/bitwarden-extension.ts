@@ -109,9 +109,9 @@ export let patchBitwardenLockedInline = (source: string, release = version) => {
   let earlier = `${prefix}if((yield this.main.authService.getAuthStatus())!==${target.unlocked})return null;/* bmux-locked-inline-targeting-rules */`
   source = source.replace(earlier, prefix)
   let current = release === '2026.10.0'
-  let needle = prefix + (current ? '{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}' : 'return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)')
+  let needle = prefix + (current ? '{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}' : 'return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)')
   if (!source.includes(needle)) throw new Error('Bitwarden locked inline compatibility target was not found')
-  let lookup = current ? 'async()=>this.main.domainSettingsService.getTargetingRulesForUrl(await this.resolveSenderFrameUrl(t))' : '()=>this.main.domainSettingsService.getTargetingRulesForUrl(t.url)'
+  let lookup = current ? 'async()=>this.main.domainSettingsService.getTargetingRulesForUrl(await this.resolveSenderFrameUrl(t))' : '()=>this.main.domainSettingsService.getTargetingRulesForUrl(t.url??t.tab?.url)'
   return source.replace(needle, `${prefix}return yield (${bitwardenTargetingRules.toString()})({authStatus:()=>this.main.authService.getAuthStatus(),unlockedStatus:${target.unlocked},lookup:${lookup}});/* ${marker} */`)
 }
 

@@ -82,14 +82,14 @@ describe('Bitwarden passkey startup', () => {
       for (let location of [managed, unpacked]) {
         await fs.mkdir(location, { recursive: true })
         await fs.writeFile(path.join(location, 'manifest.json'), JSON.stringify({ name: '__MSG_extName__', version: '2026.6.1' }))
-        await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)`)
+        await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
         await prepareBitwardenPackage(directory, location)
       }
       let upgraded = await fs.readFile(path.join(managed, 'background.js'), 'utf8')
       expect(upgraded).toContain('bmux-passkey-unlock-preflight')
       await prepareBitwardenPackage(directory, managed)
       expect(await fs.readFile(path.join(managed, 'background.js'), 'utf8')).toBe(upgraded)
-      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)`)
+      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
     } finally { await fs.rm(directory, { recursive: true, force: true }) }
   })
 
@@ -201,7 +201,7 @@ it('executes the preview passkey preflight with the preview worker symbols', asy
 })
 
 for (let release of ['2026.6.1', '2026.10.0']) describe(`Bitwarden ${release} locked inline targeting`, () => {
-  let original = release === '2026.10.0' ? 'case"getUrlAutofillTargetingRules":{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}' : 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)'
+  let original = release === '2026.10.0' ? 'case"getUrlAutofillTargetingRules":{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}' : 'case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)'
   let patched = patchBitwardenLockedInline(original, release)
   it.each([0, 1, 2])('handles auth status %s without waiting for locked feature flags', async status => {
     let lookup = vi.fn(async () => [{ selector: '#username' }])
@@ -246,7 +246,7 @@ describe('bounded Bitwarden field targeting', () => {
 
   it.each(['2026.6.1', '2026.10.0'])('upgrades the earlier locked-only patch for %s', release => {
     let unlocked = release === '2026.6.1' ? 'ad.Unlocked' : 'Hu.Unlocked'
-    let branch = release === '2026.6.1' ? 'return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)' : '{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}'
+    let branch = release === '2026.6.1' ? 'return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)' : '{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}'
     let earlier = `case"getUrlAutofillTargetingRules":if((yield this.main.authService.getAuthStatus())!==${unlocked})return null;/* bmux-locked-inline-targeting-rules */${branch}`
     let patched = patchBitwardenLockedInline(earlier, release)
     expect(patched).toContain('bmux-bounded-inline-targeting-rules')
