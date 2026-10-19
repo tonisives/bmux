@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import vm from 'node:vm'
-import { bitwardenMemoryPort, patchBitwardenMemoryPort } from '../src/main/bitwarden-memory-port'
+import { transformSync } from 'esbuild'
+import { bitwardenMemoryPort, patchBitwardenMemoryPort, serializeBitwardenMemoryPort } from '../src/main/bitwarden-memory-port'
 
 let event = <T,>() => {
   let listeners = new Set<(value: T) => void>()
@@ -110,6 +111,27 @@ describe('Bitwarden memory connection recovery', () => {
 
   it('fails closed if an official popup changes and leaves patched packages alone', () => {
     expect(() => patchBitwardenMemoryPort('changed upstream bundle', '2026.6.1')).toThrow('compatibility target was not found')
-    expect(patchBitwardenMemoryPort('/* bmux-reconnecting-memory-port */', '2026.6.1')).toBe('/* bmux-reconnecting-memory-port */')
+    expect(patchBitwardenMemoryPort('/* bmux-reconnecting-memory-port-v2 */', '2026.6.1')).toBe('/* bmux-reconnecting-memory-port-v2 */')
+  })
+
+  it('runs script-generated functions without esbuild naming globals in the extension', async () => {
+    let script = transformSync(`globalThis.factory = ${bitwardenMemoryPort.toString()}`, { keepNames: true, minify: false }).code
+    let context = vm.createContext({ setTimeout, clearTimeout })
+    vm.runInContext(script, context)
+    let source = (context as any).factory.toString()
+    expect(source).toContain('__name(')
+    let factory = vm.runInNewContext(serializeBitwardenMemoryPort(source), { setTimeout, clearTimeout })
+    let f = fixture(factory)
+    let read = f.storage.request('get', 'fixture')
+    f.reply(f.ports[0], 7)
+    await expect(read).resolves.toBe(7)
+  })
+
+  it.each(['2026.6.1', '2026.10.0'])('upgrades an earlier managed %s popup in place', release => {
+    let old = 'before;this.bmuxMemoryPort=oldFactory()/* bmux-reconnecting-memory-port */;delegateToBackground(e,t,i){return this.bmuxMemoryPort.request(e,t,i)};after'
+    let upgraded = patchBitwardenMemoryPort(old, release)
+    expect(upgraded).toContain('bmux-reconnecting-memory-port-v2')
+    expect(upgraded).not.toContain('oldFactory')
+    expect(patchBitwardenMemoryPort(upgraded, release)).toBe(upgraded)
   })
 })
