@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { patchBitwardenMemoryPort } from './bitwarden-memory-port'
 
 // 2026.7.0 and 2026.8.0 can sync encrypted ciphers but leave the decrypted
 // vault empty for affected accounts. Keep the last known-good browser build
@@ -120,6 +121,10 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   let source = await fs.readFile(background, 'utf8')
   let patched = patchBitwardenLockedInline(patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release), release)
   if (patched !== source) await fs.writeFile(background, patched)
+  let popup = path.join(directory, 'popup', 'main.js')
+  let popupSource = await fs.readFile(popup, 'utf8')
+  let popupPatched = patchBitwardenMemoryPort(popupSource, release)
+  if (popupPatched !== popupSource) await fs.writeFile(popup, popupPatched)
   if (release === '2026.10.0') {
     // The intro guard runs before the login route. Dismiss it through the
     // extension's own storage API before loading the real popup, on old bmux too.

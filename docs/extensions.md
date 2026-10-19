@@ -87,10 +87,18 @@ not open a window. Startup checks and opening the unlock window each have a
 five-second bound and return an actionable error if the extension does not respond.
 Existing bmux-managed 2026.6.1 packages receive this compatibility patch when loaded.
 
-If Bitwarden reports "Attempting to use a disconnected port object", disable
-and re-enable it in the affected pane's profile, then reopen its popup. This
-reloads the extension's background process and retains its saved browser storage.
-Sign in or unlock that profile's vault and reload the login page afterward.
+Bitwarden's popup reconnects its memory-storage ports after a disconnect and
+retries interrupted reads once. This prevents a stale connection from leaving
+the vault stuck on Loading even though its items synced and decrypted. Reconnection
+also invalidates cached keys removed while disconnected, including on lock or logout.
+Writes are never replayed: an interrupted write reports an error so it can be retried
+explicitly. Requests time out rather than waiting indefinitely. These changes keep
+Bitwarden's original per-profile memory storage; they do not persist vault keys.
+Existing managed packages receive the patch when loaded by an updated bmux.
+
+If the background process remains unavailable, disable and re-enable Bitwarden
+in the affected pane's profile, then reopen its popup. This retains its saved
+browser storage. Sign in or unlock that profile's vault and reload the login page.
 
 For other unpacked extensions, use `extension load /absolute/path`. The directory
 must contain `manifest.json` and remain at that path between launches. Packaged
