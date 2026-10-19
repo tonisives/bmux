@@ -104,6 +104,7 @@ test('records command destinations across navigation and clears sites for a new 
   let next = restart()
   expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['example.com', 'x.com'] }])
   next.resetSession('bot')
+  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: [] }])
   await next.before('bot', instagram, undefined, true, actor)
   expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['www.instagram.com'] }])
   advance(30 * 60_000)

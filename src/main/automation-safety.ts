@@ -111,7 +111,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   let resetSession = (profileId: string) => {
     ensureLedger()
     let value = usage[profileId]
-    if (value) { value.startedAt = now(); value.lastUsed = value.startedAt; delete value.actors; persist() }
+    if (value) { value.startedAt = now(); value.lastUsed = value.startedAt; value.actors = value.actors?.map(actor => ({ ...actor, hosts: [] })); persist() }
     return { reset: true }
   }
   return { before, assertAvailable, resume, resetSession, status, track }
