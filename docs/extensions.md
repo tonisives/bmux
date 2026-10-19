@@ -147,4 +147,6 @@ References: [Electron extension support](https://www.electronjs.org/docs/latest/
 The managed Bitwarden patches also return heuristic autofill rules immediately
 while the vault is locked or signed out. Resolving optional account feature flags
 first can stall page collection after a browser restart and hide the field icon
-needed to open the unlock window. Unlocked vaults retain their normal site rules.
+needed to open the unlock window. Unlocked vaults retain their normal site rules when available. If the optional
+rule lookup stalls for 1.5 seconds or fails, field collection falls back to
+Bitwarden’s usual heuristics, including inside cross-origin login frames.

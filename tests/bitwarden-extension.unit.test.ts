@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { bitwardenPasskeyPreflight, installBitwardenExtension, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
+import { bitwardenPasskeyPreflight, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
 
 let source = 'before;const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})};after'
 
@@ -205,7 +205,7 @@ for (let release of ['2026.6.1', '2026.10.0']) describe(`Bitwarden ${release} lo
   let patched = patchBitwardenLockedInline(original, release)
   it.each([0, 1, 2])('handles auth status %s without waiting for locked feature flags', async status => {
     let lookup = vi.fn(async () => [{ selector: '#username' }])
-    let handle = vm.runInNewContext(`(function* (command,t) { switch(command) { ${patched} } })`, { ad: { Unlocked: 2 }, Hu: { Unlocked: 2 } })
+    let handle = vm.runInNewContext(`(function* (command,t) { switch(command) { ${patched} } })`, { ad: { Unlocked: 2 }, Hu: { Unlocked: 2 }, setTimeout, clearTimeout })
     let iterator = handle.call({ resolveSenderFrameUrl: async (sender: { url: string }) => sender.url, main: { authService: { getAuthStatus: async () => status }, domainSettingsService: { getTargetingRulesForUrl: lookup } } }, 'getUrlAutofillTargetingRules', { url: 'https://example.test/login' })
     let step = iterator.next()
     while (!step.done) step = iterator.next(await step.value)
@@ -220,5 +220,37 @@ for (let release of ['2026.6.1', '2026.10.0']) describe(`Bitwarden ${release} lo
   it('is idempotent and rejects changed upstream code', () => {
     expect(patchBitwardenLockedInline(patched, release)).toBe(patched)
     expect(() => patchBitwardenLockedInline('changed bundle', release)).toThrow('locked inline compatibility target was not found')
+  })
+})
+
+describe('bounded Bitwarden field targeting', () => {
+  it.each(['authStatus', 'lookup'] as const)('falls back to field heuristics when %s stalls while unlocked', async operation => {
+    vi.useFakeTimers()
+    try {
+      let fixture = { authStatus: vi.fn(async () => 2), unlockedStatus: 2, lookup: vi.fn(async (): Promise<unknown> => []) }
+      fixture[operation].mockImplementation(() => new Promise<never>(() => undefined))
+      let pending = bitwardenTargetingRules(fixture)
+      await vi.advanceTimersByTimeAsync(1500)
+      await expect(pending).resolves.toBeNull()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each([{ rules: [] }, { rules: [{ selector: '#account' }] }])('preserves an immediate rule response: %j', async ({ rules }) => {
+    await expect(bitwardenTargetingRules({ authStatus: async () => 2, unlockedStatus: 2, lookup: async () => rules })).resolves.toEqual(rules)
+  })
+
+  it('falls back after a rule lookup error', async () => {
+    await expect(bitwardenTargetingRules({ authStatus: async () => 2, unlockedStatus: 2, lookup: async () => { throw new Error('feature flags unavailable') } })).resolves.toBeNull()
+  })
+
+  it.each(['2026.6.1', '2026.10.0'])('upgrades the earlier locked-only patch for %s', release => {
+    let unlocked = release === '2026.6.1' ? 'ad.Unlocked' : 'Hu.Unlocked'
+    let branch = release === '2026.6.1' ? 'return yield this.main.domainSettingsService.getTargetingRulesForUrl(t.url)' : '{const e=yield this.resolveSenderFrameUrl(t);return yield this.main.domainSettingsService.getTargetingRulesForUrl(e)}'
+    let earlier = `case"getUrlAutofillTargetingRules":if((yield this.main.authService.getAuthStatus())!==${unlocked})return null;/* bmux-locked-inline-targeting-rules */${branch}`
+    let patched = patchBitwardenLockedInline(earlier, release)
+    expect(patched).toContain('bmux-bounded-inline-targeting-rules')
+    expect(patched).not.toContain('bmux-locked-inline-targeting-rules')
+    expect(patchBitwardenLockedInline(patched, release)).toBe(patched)
   })
 })
