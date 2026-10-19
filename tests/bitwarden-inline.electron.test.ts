@@ -25,6 +25,10 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
         (${bitwardenTargetingRules.toString()})({ authStatus: async () => 2, unlockedStatus: 2, lookup: () => ${stalledFrame ? 'new Promise(() => undefined)' : 'Promise.resolve(null)'} }).then(result => respond({ result }))
         return true
       }
+      if (message.command === 'fixtureAppendInline') {
+        chrome.tabs.sendMessage(_sender.tab.id, { command: 'appendAutofillInlineMenuToDom', overlayElement: 'button' }, { frameId: 0 }).then(() => respond(true))
+        return true
+      }
       if (message.command === 'updateAutofillInlineMenuElementIsVisibleStatus') visible = message.isVisible
       if (message.command === 'autofillOverlayElementClosed') visible = false
       respond(message.command === 'checkIsAutofillInlineMenuButtonVisible' ? visible : false)
@@ -43,7 +47,8 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
       await init.collectAutofillContentService.getPageDetails()
       document.querySelector('#username').addEventListener('input', () => { void init.collectAutofillContentService.getPageDetails() })
       document.querySelector('#username').addEventListener('focus', async () => {
-        await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
+        if (init.autofillInlineMenuContentService) await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
+        else await chrome.runtime.sendMessage({ command: 'fixtureAppendInline' })
         document.documentElement.dataset.inlineFixture = 'open'
       })
       document.documentElement.dataset.inlineFixture = 'ready'
@@ -89,7 +94,7 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
     await fields.locator('#username').pressSequentially('fixture-user')
     await expect(fields.locator('[data-bmux-vim-hints] button')).toBeVisible()
     expect(warnings).toEqual([])
-    await expect(fields.locator(':popover-open')).toHaveCount(1)
+    await expect(page.locator(':popover-open')).toHaveCount(1)
     await page.screenshot({ path: info.outputPath('bitwarden-inline-hints.png') })
   } finally {
     await closeTestApplication(application)
