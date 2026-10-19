@@ -25,10 +25,6 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
         (${bitwardenTargetingRules.toString()})({ authStatus: async () => 2, unlockedStatus: 2, lookup: () => ${stalledFrame ? 'new Promise(() => undefined)' : 'Promise.resolve(null)'} }).then(result => respond({ result }))
         return true
       }
-      if (message.command === 'fixtureAppendInline') {
-        chrome.tabs.sendMessage(_sender.tab.id, { command: 'appendAutofillInlineMenuToDom', overlayElement: 'button' }).then(() => respond({ ok: true })).catch(error => respond({ error: String(error) }))
-        return true
-      }
       if (message.command === 'updateAutofillInlineMenuElementIsVisibleStatus') visible = message.isVisible
       if (message.command === 'autofillOverlayElementClosed') visible = false
       respond(message.command === 'checkIsAutofillInlineMenuButtonVisible' ? visible : false)
@@ -36,8 +32,19 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
   `)
   await fs.writeFile(path.join(extension, 'inline-fixture.js'), `
     ;(async () => {
-      if (!document.querySelector('#username')) return
       let init = window.bitwardenAutofillInit
+      if (!document.querySelector('#username')) {
+        // The real menu lives in the top document; the fixture requests it
+        // through window messages after focusing a field in the child frame.
+        window.addEventListener('message', async event => {
+          if (event.data !== 'bmux-fixture-inline-open') return
+          try {
+            await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
+            event.source.postMessage({ fixtureInlineOpened: true }, '*')
+          } catch (error) { event.source.postMessage({ fixtureInlineError: String(error) }, '*') }
+        })
+        return
+      }
       let collect = init.collectAutofillContentService.getPageDetails.bind(init.collectAutofillContentService), collections = 0
       init.collectAutofillContentService.getPageDetails = async (...args) => {
         let result = await collect(...args)
@@ -51,8 +58,16 @@ for (let release of ['2026.6.1', '2026.10.0']) for (let stalledFrame of [false, 
         try {
           if (init.autofillInlineMenuContentService) await init.autofillInlineMenuContentService.messageHandlers.appendAutofillInlineMenuToDom({ message: { overlayElement: 'button' } })
           else {
-            let reply = await chrome.runtime.sendMessage({ command: 'fixtureAppendInline' })
-            if (reply?.error) throw new Error(reply.error)
+            await new Promise((resolve, reject) => {
+              let acknowledge = event => {
+                if (!event.data?.fixtureInlineOpened && !event.data?.fixtureInlineError) return
+                window.removeEventListener('message', acknowledge)
+                if (event.data.fixtureInlineError) reject(new Error(event.data.fixtureInlineError))
+                else resolve()
+              }
+              window.addEventListener('message', acknowledge)
+              window.top.postMessage('bmux-fixture-inline-open', '*')
+            })
           }
           document.documentElement.dataset.inlineFixture = 'open'
         } catch (error) { document.documentElement.dataset.inlineError = String(error) }
