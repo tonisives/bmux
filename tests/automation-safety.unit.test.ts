@@ -90,7 +90,35 @@ test('records affected automation panes and agent IDs, including denied commands
   expect(next.status().profiles[0]).toMatchObject({ actors: [{ paneId: '%1', agentId: '%42' }, { paneId: '%2', agentId: 'research' }], retryAfter: '2026-10-01T00:30:00.000Z' })
   advance(20 * 60_000)
   await next.before('bot', instagram, undefined, true, { paneId: '%3' })
-  expect(next.status().profiles[0].actors).toEqual([{ paneId: '%3' }])
+  expect(next.status().profiles[0].actors).toEqual([{ paneId: '%3', hosts: ['www.instagram.com'] }])
+})
+
+test('records command destinations across navigation and clears sites for a new session', async () => {
+  let { policy, advance, restart } = fixture()
+  let actor = { paneId: '%1', agentId: 'research' }
+  await policy.before('bot', instagram, 'https://example.com/path', true, actor)
+  await policy.before('bot', instagram, 'https://example.com/other', true, actor)
+  expect(policy.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['example.com'] }])
+  advance(10 * 60_000)
+  await expect(policy.before('bot', instagram, 'https://x.com/', true, actor)).rejects.toThrow('session limit')
+  let next = restart()
+  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['example.com', 'x.com'] }])
+  next.resetSession('bot')
+  await next.before('bot', instagram, undefined, true, actor)
+  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['www.instagram.com'] }])
+  advance(30 * 60_000)
+  await next.before('bot', instagram, 'https://youtube.com/', true, actor)
+  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['youtube.com'] }])
+})
+
+test('new-pane tracking skips local and excluded sites', async () => {
+  let { policy, settings } = fixture()
+  await policy.before('bot', instagram)
+  settings.sites = { bot: { 'x.com': false } }
+  policy.track('bot', { paneId: '%1' }, 'http://localhost/')
+  policy.track('bot', { paneId: '%2' }, 'https://x.com/')
+  policy.track('bot', { paneId: '%3' }, 'https://example.com/')
+  expect(policy.status().profiles[0].actors).toEqual([{ paneId: '%3', hosts: ['example.com'] }])
 })
 
 test('pane toggles persist independently and bypass only the chosen pane', async () => {

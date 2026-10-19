@@ -43,6 +43,9 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached for default' })
     await expect(alert).toBeVisible()
+    // Legacy usage has no site attribution; human navigation must not invent it.
+    await expect(alert.getByRole('combobox')).toHaveCount(0)
+    expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
     let timer = alert.getByRole('timer')
     await expect(timer).toBeVisible()
     await expect(timer).toContainText('Reset ')
@@ -87,6 +90,8 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       let otherUrl = url.replace('one.example.com', 'two.example.com')
       let otherPane = await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane: client.paneId, client: state.clientId, url: otherUrl })
       await expect.poll(() => application!.context().pages().some(page => page.url() === otherUrl)).toBe(true)
+      await expect(alert).toHaveCount(1)
+      await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true })).toHaveCount(0)
       expect((await cli(['dom', '-t', otherPane.id])).ok).toBe(false)
       await expect(alert).toHaveCount(2)
       let firstRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for one.example.com', exact: true }) })
@@ -100,6 +105,14 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       expect(secondBounds!.y).toBeGreaterThanOrEqual(firstBounds!.y + firstBounds!.height)
       await fs.mkdir(path.resolve('artifacts'), { recursive: true })
       await chrome.screenshot({ path: path.resolve('artifacts/session-limit-stack.png') })
+      // A later manual navigation in an actor pane must not relabel its history.
+      let manualUrl = url.replace('one.example.com', 'three.example.com')
+      await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: manualUrl })
+      await expect.poll(() => application!.context().pages().some(page => page.url() === manualUrl)).toBe(true)
+      await expect(application.context().pages().find(page => page.url() === manualUrl)!.getByRole('main')).toHaveText('Visible session limit fixture')
+      await expect(firstRow).toBeVisible()
+      await expect(alert).toHaveCount(2)
+      await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for three.example.com', exact: true })).toHaveCount(0)
       await firstRow.getByRole('button', { name: 'Reset session' }).click()
     }
     else {

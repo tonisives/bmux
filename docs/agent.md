@@ -109,7 +109,10 @@ automation time or waits for a cooldown, including in the same profile.
 Permission requests use the same notice bar with the requesting pane and
 **Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
 leaves it pending; dismissed requests remain available in **Activity**.
-The alert's **Disable anti-bot** dropdown shows the website hostname and offers
+Session alerts name only websites accessed or attempted by automation in that
+session, even if a pane later navigates elsewhere manually. Older usage without
+recorded websites shows one profile alert without a website dropdown.
+The alert's **Disable anti-bot** dropdown shows the recorded website hostname and offers
 **For 15 minutes**, **For 1 hour**, and **Until removed**. Its exclusion appears
 in this profile's **Excluded websites** list. Add a hostname or URL there to turn off
 anti-bot for that exact hostname: session limits, social-site pacing, and warning

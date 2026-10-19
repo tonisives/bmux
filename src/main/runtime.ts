@@ -2578,7 +2578,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
       if (args._bookmarkSource) window.panes[0].bookmarkSource = args._bookmarkSource as { profileId: string; bookmarkId: string }
       if (typeof args.agentId === 'string') window.panes[0].agentId = args.agentId
-      if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, agentId: window.panes[0].agentId })
+      if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, agentId: window.panes[0].agentId }, normalizeUrl(String(args.url), searchAppForSession(session)))
       if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
@@ -2735,7 +2735,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
       let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       if (method === 'new-pane' && typeof args.agentId === 'string') pane.agentId = args.agentId
-      if (method === 'new-pane' && !sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId })
+      if (method === 'new-pane' && !sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId }, pane.url)
       if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
@@ -2756,7 +2756,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       if (typeof args.agentId === 'string') pane.agentId = args.agentId
-      if (!sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId })
+      if (!sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId }, pane.url)
       if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }

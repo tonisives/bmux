@@ -261,7 +261,8 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
   return (usage.actors ?? []).flatMap(actor => {
     let pane = panes.find(pane => pane.id === actor.paneId && pane.profileId === usage.profileId)
-    return pane && automationSiteEnabled(state.automationSafety!.limits, usage.profileId, pane.url, Date.now(), pane.id) ? [{ ...actor, pane }] : []
+    let hosts = actor.hosts?.filter(host => automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host, Date.now(), actor.paneId))
+    return pane && automationWebsiteHost(pane.url) && automationSafetyEnabled(state.automationSafety!.limits, usage.profileId, pane.id) && (!actor.hosts?.length || hosts?.length) ? [{ ...actor, hosts, pane }] : []
   })
 }
 
@@ -275,7 +276,7 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   let selectedPane = selection(state).pane
   let pane = eligiblePanes.find(pane => pane.id === selectedPane?.id) ?? eligiblePanes[0]
   let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, { initial: undefined, value: 'anti-bot' }); void show('profiles', pane.id) } : undefined
-  let paneLinks = (host: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && automationWebsiteHost(actor.pane.url) === host).map(actor => {
+  let paneLinks = (host?: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && (!host || actor.hosts?.includes(host))).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
     let session = state.model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
     return { session: session?.name ?? actor.paneId, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
@@ -285,8 +286,9 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
-  let siteHosts = [...new Set(eligiblePanes.map(item => automationWebsiteHost(item.url)).filter((host): host is string => !!host))]
-  return siteHosts.map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, siteExclusion: { profileId: usage.profileId, host: siteHost }, text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost), resetSession: { title: `Reset the automation timer and cooldown for profile ${name} across all its panes. This does not reset a tmux session.`, run: () => { void run('automation.reset-session', { profile: usage.profileId }) } } }))
+  // Current tab URLs may come from manual browsing after automation stopped.
+  let siteHosts = [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost), resetSession: { title: `Reset the automation timer and cooldown for profile ${name} across all its panes. This does not reset a tmux session.`, run: () => { void run('automation.reset-session', { profile: usage.profileId }) } } }))
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
