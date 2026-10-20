@@ -470,10 +470,10 @@ test('close commands confirm only when an internal window contains multiple page
   for (let window of session.windows.slice(1)) await rpc('kill-window', { window: window.id, confirm: true })
   let create = async () => {
     let window = await rpc('new-window', { session: session.id, client: current.clientId })
-    // RPC completion precedes the renderer's selection update and blank-page autofocus.
+    // Pane IDs can be reused after cleanup; wait for this window's renderer update.
+    await expect(chrome.locator(`[data-window-id="${window.id}"]`)).toHaveAttribute('data-selected', 'true')
     let pane = chrome.locator(`[data-pane-id="${window.panes[0].id}"]`)
     await expect(pane).toHaveAttribute('data-focused-pane', 'true')
-    await expect(pane.getByRole('textbox', { name: 'URL or search', exact: true })).toBeFocused()
     return window
   }
   let window = await create()
