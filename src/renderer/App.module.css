@@ -220,8 +220,8 @@
 .newSession { color: #87a9c4; }
 .panel .sessionLabelRow { display: flex; align-items: center; overflow-wrap: normal; white-space: nowrap; }
 .sessionLabelText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sessionRow { display: flex; align-items: stretch; }
-.sessionRow > .listRow { flex: 1; min-width: 0; }
+.sessionRow { display: grid; grid-template-columns: minmax(0, 1fr) 30px 34px; align-items: stretch; }
+.sessionRow > .listRow { min-width: 0; }
 .sessionClose { flex: 0 0 34px; color: #778493; }
 .sessionClose:hover { color: #e6a69c; }
 .sessionConfirm { display: flex; align-items: center; gap: 12px; padding: 7px 0; color: #e6a69c; }
@@ -454,7 +454,7 @@
 .sessionList[data-session-recent] .sessionBranch { display: none; }
 .panel .sessionPicker .listRow { display: flex; align-items: center; gap: 8px; padding: 3px 8px; overflow-wrap: normal; white-space: nowrap; }
 .panel .sessionPicker .listRow[data-window-row][data-active="true"] { background: #252d34; color: inherit; font-weight: 400; }
-.sessionPicker .sessionClose { align-self: center; height: 1lh; min-height: 0; padding: 0 8px; }
+.sessionPicker .sessionClose { grid-column: 3; align-self: center; height: 1lh; min-height: 0; padding: 0 8px; }
 .sessionPicker .sessionConfirm { gap: 8px; padding: 3px 8px; }
 .sessionPicker .sessionConfirm span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sessionPicker .sessionConfirm button { height: 1lh; padding: 0 8px; }
@@ -474,8 +474,9 @@
 .sessionWindowActivity[data-age="recent"] { color: #a7c88d; }
 .sessionWindowActivity[data-age="today"] { color: #e5c07b; }
 .sessionWindowActivity[data-age="old"] { color: #e88b8b; }
-.sessionPicker .sessionAudio { display: flex; align-items: center; justify-content: center; align-self: center; flex: 0 0 23px; height: 1lh; padding: 0 4px; color: #a7c88d; }
+.sessionPicker .sessionAudio { grid-column: 2; display: flex; align-items: center; justify-content: center; padding: 3px 0; border-radius: 0; color: #a7c88d; }
 .sessionAudio[data-muted="true"] { color: #77818d; }
+.sessionPicker .sessionAudio:is(:hover, :focus-visible) { background: #303944; color: #f0f2f5; }
 .sessionAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
 .sessionSearchParent { padding: 3px 8px 3px calc(3ch + 38px); color: #8995a3; }
