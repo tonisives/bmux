@@ -1992,22 +1992,22 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let profileId = resolve(model.profiles, args.profile ?? (method === 'new-window' ? session.defaultProfileId : paneById(model, args.pane).pane.profileId), 'Profile').id
       await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)))
     }
-    if (method === 'window.audio.toggle') {
+    if (method === 'window.audio.toggle' || method === 'session.audio.toggle') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let client = resolve(model.clients, sourceClientId, 'Client')
-      let session = resolve(model.sessions, client.sessionId, 'Session')
-      let window = resolve(session.windows, args.window, 'Window')
-      let playing = window.panes.filter(pane => audio[pane.id]?.playing)
+      let window = method === 'window.audio.toggle' ? resolveWindow(model, args.window) : undefined
+      let session = window ? undefined : resolve(model.sessions, args.session, 'Session')
+      let panes = window?.panes ?? session!.windows.flatMap(window => window.panes)
+      let playing = panes.filter(pane => audio[pane.id]?.playing)
       if (!playing.length) return null
       let muted = playing.some(pane => !audio[pane.id]?.muted)
-      for (let pane of window.panes) {
+      for (let pane of panes) {
         let live = tabs.get(pane.id)
         if (!live || live.disposed || live.contents.isDestroyed()) continue
         live.contents.setAudioMuted(muted)
         audio[pane.id] = { playing: audio[pane.id]?.playing ?? false, muted }
       }
       publish()
-      return { window: window.id, muted }
+      return { ...(window ? { window: window.id } : { session: session!.id }), muted }
     }
     if (method === 'window.menu') {
       if (!sourceClientId) throw new Error('Trusted UI required')

@@ -1741,13 +1741,16 @@ let RemoteSessionRow = ({ host, service, session, name, onSelect }: { host: stri
   return <button className={`${css.listRow} ${css.remoteSession}`} data-session-row onClick={select} title={`${name} on ${service}`}>{name}<span>{service} · remote</span></button>
 }
 let SessionNumber = () => <span className={css.sessionNumber} data-session-number aria-hidden="true" />
-let SessionAudio = ({ panes }: { panes: InternalWindow['panes'] }) => {
-  let { state } = useUI()
+let SessionAudio = ({ window, sessionId }: { window?: InternalWindow; sessionId?: string }) => {
+  let { state, run } = useUI()
+  let session = state.model.sessions.find(session => session.id === sessionId)
+  let panes = window?.panes ?? session?.windows.flatMap(window => window.panes) ?? []
   let playing = panes.filter(pane => state.audio[pane.id]?.playing)
   if (!playing.length) return null
   let muted = playing.every(pane => state.audio[pane.id].muted)
-  let label = muted ? 'Sound muted' : 'Sound playing'
-  return <span className={css.sessionAudio} role="img" aria-label={label} title={label} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></span>
+  let label = `${muted ? 'Unmute' : 'Mute'} sound in ${window?.name ?? session?.name}`
+  let toggle = () => { void run(window ? 'window.audio.toggle' : 'session.audio.toggle', window ? { window: window.id } : { session: sessionId }) }
+  return <button type="button" className={css.sessionAudio} data-picker-action onClick={toggle} aria-label={label} title={label} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()
@@ -1766,7 +1769,7 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
     await run('kill-session', { session: id, confirm: true }); setBusy(false); cancel()
   }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}<SessionAudio panes={state.model.sessions.find(session => session.id === id)?.windows.flatMap(window => window.panes) ?? []} /></button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
@@ -1786,9 +1789,8 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   return <div className={css.sessionRow} data-session-target>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
       <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
-      <SessionAudio panes={window.panes} />
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
-    </button><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
+    </button><SessionAudio window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
   </div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }

@@ -474,7 +474,7 @@
 .sessionWindowActivity[data-age="recent"] { color: #a7c88d; }
 .sessionWindowActivity[data-age="today"] { color: #e5c07b; }
 .sessionWindowActivity[data-age="old"] { color: #e88b8b; }
-.sessionAudio { display: flex; align-items: center; flex: 0 0 15px; color: #a7c88d; }
+.sessionPicker .sessionAudio { display: flex; align-items: center; justify-content: center; align-self: center; flex: 0 0 23px; height: 1lh; padding: 0 4px; color: #a7c88d; }
 .sessionAudio[data-muted="true"] { color: #77818d; }
 .sessionAudio svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
