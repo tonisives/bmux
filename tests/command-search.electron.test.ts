@@ -468,7 +468,14 @@ test('close-pane shortcut immediately removes the selected pane', async () => {
 test('close commands confirm only when an internal window contains multiple pages', async () => {
   let current = await state(), session = current.model.sessions[0]
   for (let window of session.windows.slice(1)) await rpc('kill-window', { window: window.id, confirm: true })
-  let create = () => rpc('new-window', { session: session.id, client: current.clientId })
+  let create = async () => {
+    let window = await rpc('new-window', { session: session.id, client: current.clientId })
+    // RPC completion precedes the renderer's selection update and blank-page autofocus.
+    let pane = chrome.locator(`[data-pane-id="${window.panes[0].id}"]`)
+    await expect(pane).toHaveAttribute('data-focused-pane', 'true')
+    await expect(pane.getByRole('textbox', { name: 'URL or search', exact: true })).toBeFocused()
+    return window
+  }
   let window = await create()
   await open(); await prompt().fill('close-window'); await prompt().press('Enter')
   await expect.poll(async () => (await state()).model.sessions[0].windows.some((item: any) => item.id === window.id)).toBe(false)
