@@ -1,5 +1,18 @@
 # Focused test verification
 
+## Remote viewer layout with extensions
+
+The October 22 remote-view screenshot showed the stream at the window origin,
+covering its native status and address bars. The earlier layout fixtures had no
+extensions installed. With a profile extension loaded, reconciliation passed the
+app-owned viewer to that profile's extension host; its session mismatch threw
+before native bounds were applied, leaving the initial 1280 by 800 view in place.
+Adding an extension to the existing remote-picker test reproduced the bounds
+failure in Tart. Remote viewers now stay outside profile extension tracking.
+The regression checks native bounds, centering, scrolling, and screenshot pixels
+with top and bottom status bars. The live remote-host flow also loads an extension
+and verifies the viewer bounds before exercising control and navigation.
+
 ## October 15 full-suite failures
 
 The full Check on `d3d3d5a` retained assumptions from before search-first address

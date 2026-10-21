@@ -210,6 +210,10 @@ test('session window rows show the same page icons as the status bar in both sor
 })
 
 test('remote sessions open from the sessions popup title bar', async ({}, info) => {
+  let extensionPath = path.join(directory, 'remote-layout-extension')
+  await fs.mkdir(extensionPath, { recursive: true })
+  await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Remote layout fixture', version: '1.0', permissions: ['tabs'] }))
+  let extension = await rpc('extension.load', { profile: pane.profileId, path: extensionPath })
   await activate()
   await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
   let dialog = chrome.getByRole('dialog', { name: 'Sessions' })
@@ -263,7 +267,7 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
   expect((await rpc('diagnostics')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(nativeWindows.windows.map((window: { nativeId: number }) => window.nativeId))
   let viewerPane = current.model.clients.find((item: { id: string }) => item.id === current.clientId).paneId
   let content = chrome.locator(`[data-content-pane-id="${viewerPane}"]`)
-  await expect.poll(async () => {
+  let matchesContentBounds = async () => {
     let rect = (await content.boundingBox())!
     let bounds = await application.evaluate(({ BaseWindow }) => {
       for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) {
@@ -271,9 +275,13 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
       }
     })
     return bounds && (['x', 'y', 'width', 'height'] as const).every(key => Math.abs(bounds[key] - rect[key]) <= 1)
-  }).toBe(true)
+  }
+  await expect.poll(matchesContentBounds).toBe(true)
   let video = viewer.getByLabel('Remote browser'), viewport = viewer.getByRole('region', { name: 'Remote viewport' })
-  for (let size of [{ width: 320, height: 200 }, { width: 1920, height: 1080 }]) {
+  for (let position of ['top', 'bottom']) for (let size of [{ width: 320, height: 200 }, { width: 1920, height: 1080 }]) {
+    await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nkeyboard: {}\nbrowser:\n  autoUpdateFilters: false\n`)
+    await expect.poll(async () => (await state()).statusBar).toBe(position)
+    await expect.poll(matchesContentBounds).toBe(true)
     // Supply decoded frames without an external host or signaling service.
     await video.evaluate(async (element, size) => {
       let video = element as HTMLVideoElement, canvas = document.createElement('canvas')
@@ -300,12 +308,15 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
       let status = (await chrome.getByRole('contentinfo', { name: 'Browser status' }).boundingBox())!
       let address = (await chrome.locator(`[data-pane-id="${viewerPane}"]`).getByRole('button', { name: 'Address', exact: true }).boundingBox())!
       let region = (await content.boundingBox())!
-      expect(region.y).toBeGreaterThanOrEqual(status.y + status.height)
+      if (position === 'top') expect(region.y).toBeGreaterThanOrEqual(status.y + status.height)
+      else expect(region.y + region.height).toBeLessThanOrEqual(status.y)
       expect(region.y).toBeGreaterThanOrEqual(address.y + address.height)
+      await viewport.evaluate(element => { element.scrollLeft = 100; element.scrollTop = 120 })
+      await expect.poll(() => viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 100, y: 120 })
     }
     if (process.platform === 'darwin') {
       let windowInfo = JSON.parse((await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
-      let screenshot = info.outputPath(`remote-native-${size.width}.png`)
+      let screenshot = info.outputPath(`remote-native-${position}-${size.width}.png`)
       let points = await Promise.all([chrome.getByRole('contentinfo', { name: 'Browser status' }), chrome.getByRole('group', { name: 'Pane address', exact: true }), content].map(async locator => { let rect = (await locator.boundingBox())!; return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } }))
       await expect(async () => {
         await exec('/usr/sbin/screencapture', ['-x', '-o', '-l', String(windowInfo.kCGWindowNumber), screenshot])
@@ -336,6 +347,9 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
   await chrome.keyboard.press('Escape')
   await open('sessions')
   await expect(dialog.getByRole('tab', { name: 'Sessions', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await rpc('extension.remove', { profile: pane.profileId, id: extension.id })
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
+  await expect.poll(async () => (await state()).statusBar).toBe('top')
 })
 
 test('session picker goes back to the previously selected session', async () => {
