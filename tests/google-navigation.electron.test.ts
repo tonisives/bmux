@@ -99,12 +99,12 @@ test('Google navigation plugin selects and scrolls results with native arrow key
   await keys('Escape')
 })
 
-test('Google navigation automatic hooks can be enabled in Settings and select results after loading a search', async () => {
+test('Google navigation automatic hooks can be enabled in Extensions and select results after loading a search', async () => {
   await application.context().route('https://www.google.com/search**', route => route.fulfill({ contentType: 'text/html', body: fixture }))
   await chrome.getByRole('button', { name: 'Command prompt' }).click()
   let command = chrome.getByRole('combobox', { name: 'Command', exact: true })
-  await command.fill('settings'); await command.press('Enter')
-  let settings = chrome.getByRole('dialog', { name: 'Settings', exact: true })
+  await command.fill('extensions'); await command.press('Enter')
+  let settings = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
   await settings.getByRole('tab', { name: 'Plugins', exact: true }).click()
   await settings.getByRole('button', { name: 'Google result navigation Enabled', exact: true }).click()
   let hooks = settings.getByRole('checkbox', { name: 'Automatic hooks for Google result navigation', exact: true })

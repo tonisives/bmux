@@ -1,6 +1,6 @@
 # Built-in plugins
 
-Enter `plugins` in the command prompt (status bar `:`, or prefix then `:`), or open Settings → Plugins. Built-in plugins contain ad blocking, website dark mode, and userscripts. Select a plugin to configure it, then use Back or Escape to return to the list. Dark mode defaults to the profile; site overrides take precedence over profile and global defaults.
+Enter `plugins` in the command prompt (status bar `:`, or prefix then `:`), or open Extensions > Plugins beside a pane’s profile icon. Built-in plugins contain ad blocking, website dark mode, and userscripts. Select a plugin to configure it, then use Back or Escape to return to the list. Dark mode defaults to the profile; site overrides take precedence over profile and global defaults.
 
 ## Connection security
 

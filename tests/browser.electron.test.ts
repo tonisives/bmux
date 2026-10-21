@@ -3164,7 +3164,7 @@ test('status window list uses available room and hides its native scrollbar', as
   let tab = list.locator('[data-window-id]').last()
   let newTab = status.getByRole('button', { name: 'New tab', exact: true })
   await expect.poll(() => tab.locator('span').last().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-  let profile = status.getByRole('button', { name: 'Extensions', exact: true })
+  let profile = status.getByRole('button', { name: 'Command prompt', exact: true })
   let help = status.getByRole('button', { name: 'Help', exact: true })
   await expect.poll(async () => {
     let last = (await tab.boundingBox())!, plus = (await newTab.boundingBox())!, avatar = (await profile.boundingBox())!, question = (await help.boundingBox())!, bar = (await status.boundingBox())!

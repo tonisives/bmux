@@ -58,7 +58,8 @@ plugins:
     hooks: false
 ```
 
-Open `plugins` in the command prompt to search and run actions. `activity` shows
+Open **Extensions > Plugins** beside a pane’s profile icon to toggle plugins,
+configure built-in tools, and run actions. The `plugins` command also opens the plugin list. `activity` shows
 progress, failures, and cancellation controls. Manifests and config reload live;
 scripts are read on the next invocation. `plugin reload` rescans immediately.
 Invalid manifest edits preserve the last valid definition until corrected or the
@@ -295,7 +296,7 @@ parameters and keyed by profile and bookmark ID.
 
 ## Google result navigation
 
-In Settings > Plugins, enable Google result navigation and its **Automatic hooks**
+In Extensions > Plugins, enable Google result navigation and its **Automatic hooks**
 checkbox. Enabling the plugin alone does not install the keyboard handler.
 Alternatively, merge this into your config:
 

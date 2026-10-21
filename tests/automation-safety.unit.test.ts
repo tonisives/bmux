@@ -319,7 +319,7 @@ test('profile limits validate, inherit old defaults, and isolate pacing and cool
   let { settings, policy, advance, sleeps, restart } = fixture()
   settings.profileLimits = { bot: { maxSessionMinutes: 2, cooldownMinutes: 3, socialDelayMs: 500 }, other: { maxSessionMinutes: 20, cooldownMinutes: 10, socialDelayMs: 1500 } }
   expect(parseAutomationSettings({ safety: settings }).safety.profileLimits).toEqual(settings.profileLimits)
-  expect(automationProfileLimits(settings, 'default')).toEqual({ maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000 })
+  expect(automationProfileLimits(settings, 'default')).toEqual({ maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, simulateMouseMovement: true })
   for (let entry of [{ unknown: 1 }, { maxSessionMinutes: 0 }, { cooldownMinutes: '3' }, { socialDelayMs: 30001 }, false]) expect(() => parseAutomationSettings({ safety: { profileLimits: { bot: entry } } })).toThrow()
   await policy.before('bot', instagram)
   await policy.before('bot', instagram)
@@ -394,4 +394,13 @@ test('public website exclusions still apply after hostname normalization', () =>
   expect(automationWebsiteHost('https://EXAMPLE.COM.:8443/path')).toBe('example.com')
   expect(automationSiteEnabled(settings, 'bot', 'https://EXAMPLE.COM.:8443/path')).toBe(false)
   expect(automationSiteEnabled(settings, 'bot', 'https://sub.example.com/')).toBe(true)
+})
+
+test('mouse movement defaults on and can be overridden independently per profile', () => {
+  let settings = parseAutomationSettings({ safety: { simulateMouseMovement: true, profileLimits: { bot: { simulateMouseMovement: false } } } }).safety
+  expect(automationProfileLimits(settings, 'bot').simulateMouseMovement).toBe(false)
+  expect(automationProfileLimits(settings, 'other').simulateMouseMovement).toBe(true)
+  expect(() => parseAutomationSettings({ safety: { simulateMouseMovement: 'yes' } })).toThrow()
+  expect(() => parseAutomationSettings({ safety: { profileLimits: { bot: { simulateMouseMovement: 1 } } } })).toThrow()
+  expect(paceAutomationCommand('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved' } })).toBe(false)
 })

@@ -39,20 +39,34 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
     while (Date.now() < end) { if (await evaluate(expression)) return { matched: true }; await new Promise<void>(resolve => setTimeout(resolve, 100)) }
     throw new Error('Wait timed out')
   }
-  if (method === 'fill' || method === 'type' || method === 'click') {
+  if (method === 'click') {
+    if (typeof args.selector !== 'string') throw new Error('Selector required')
+    let point = await evaluate(`(() => {
+      let node = document.querySelector(${JSON.stringify(args.selector)});
+      if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled) throw new Error('Visible element required');
+      node.scrollIntoView({block:'center'});
+      let rect = node.getBoundingClientRect();
+      return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
+    })()`)
+    validate()
+    await options.cdp(context.paneId!, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+    validate()
+    await options.cdp(context.paneId!, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+    return { filled: 1 }
+  }
+  if (method === 'fill' || method === 'type') {
     if (method === 'fill' && (typeof args.origin !== 'string' || args.origin !== new URL(context.url!).origin)) throw new Error('Fill requires the original origin')
     let fields = method === 'fill' ? args.fields : [{ selector: args.selector, value: args.text }]
     if (!Array.isArray(fields) || !fields.length || fields.length > 50) throw new Error('Fields required')
-    for (let field of fields) if (!field || typeof field.selector !== 'string' || (method !== 'click' && typeof field.value !== 'string')) throw new Error('Invalid field')
+    for (let field of fields) if (!field || typeof field.selector !== 'string' || typeof field.value !== 'string') throw new Error('Invalid field')
     await evaluate(`(() => {
       let fields = ${JSON.stringify(fields)}, mode = ${JSON.stringify(method)};
       let nodes = fields.map(field => document.querySelector(field.selector));
       if (nodes.some((node, index) => fields[index].expectedType && node?.type !== fields[index].expectedType)) throw new Error('Form field type changed');
       if (nodes.some((node, index) => fields[index].requireEmpty && node?.value)) throw new Error('Field already contains a value');
       if (nodes.some((node, index) => fields[index].loginPassword && (node?.type !== 'password' || node.autocomplete.split(/\\s+/).includes('new-password')))) throw new Error('Login password field changed');
-      if (nodes.some(node => !node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled || node.readOnly || (mode !== 'click' && (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || node.type === 'hidden')))) throw new Error('Visible editable fields required');
+      if (nodes.some(node => !node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled || node.readOnly || (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || node.type === 'hidden'))) throw new Error('Visible editable fields required');
       nodes.forEach((node, index) => {
-        if (mode === 'click') { node.click(); return; }
         let setter = Object.getOwnPropertyDescriptor(node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set;
         let value = fields[index].value;
         if (mode === 'type') value = node.value.slice(0, node.selectionStart ?? node.value.length) + value + node.value.slice(node.selectionEnd ?? node.value.length);

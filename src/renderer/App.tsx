@@ -487,7 +487,6 @@ let Status = () => {
   let commands = () => show('command')
   let activity = () => show('activity')
   let downloads = () => show('downloads')
-  let extensions = () => show('extensions')
   let newTab = () => { void run('new-window', { session: session!.id, client: state.clientId }) }
   let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
   let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused)
@@ -530,7 +529,6 @@ let Status = () => {
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
-    <button onClick={extensions} aria-label="Extensions" title="Extensions" className={css.extensionsButton}><ExtensionsIcon /></button>
     <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -1069,6 +1067,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   let openAdblock = () => show('adblock-popup', paneId)
   let openDarkMode = () => show('dark-mode-popup', paneId)
   let openSiteInfo = () => show('site-info', paneId)
+  let openExtensions = () => show('extensions', paneId)
   let openProfile = () => show('profiles', paneId)
   let openProxy = () => show('proxy', paneId)
   let blank = !!pane && !session?.private && pane.url === 'about:blank' && !state.pendingUrls[pane.id] && !state.loading[pane.id] && !(state.navigation[pane.id]?.entries.some(entry => entry.url !== 'about:blank'))
@@ -1110,7 +1109,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
       {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
       {paneId && <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>}
     </div>
-    {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && pane?.device && <ProfileDeviceIcon />}</button>}{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
+    {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && pane?.device && <ProfileDeviceIcon />}</button>}<button type="button" className={css.profileRoute} onClick={openExtensions} aria-label="Extensions" title="Extensions"><ExtensionsIcon /></button>{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} data-plugin-pane={tab.id} data-plugin-button="adblock" data-enabled={blocking?.adblock ?? false} aria-label="Ad blocking" aria-haspopup="dialog" aria-expanded={control === 'adblock-popup' && client?.paneId === tab.id} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'}`} disabled={!blocking} onClick={openAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
     {tab && state.showDarkModeButton && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} data-plugin-pane={tab.id} data-plugin-button="dark-mode" data-enabled={!!blocking && blocking.darkMode !== 'off'} aria-label="Dark mode" aria-haspopup="dialog" aria-expanded={control === 'dark-mode-popup' && client?.paneId === tab.id} title={`Dark mode ${blocking?.darkMode ?? 'off'}`} disabled={!blocking} onClick={openDarkMode}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2a5.8 5.8 0 1 0 7 7.5Z" /></svg></button>}
   </div>
@@ -1270,7 +1269,7 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'bookmarks' && <BookmarkPicker />}
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
-      {type === 'extensions' && <ExtensionManager />}
+      {type === 'extensions' && <ExtensionsContent />}
       {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
@@ -1304,6 +1303,17 @@ let SiteInformation = () => {
     {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
     {notice && <p role="status">{notice}</p>}
   </section>
+}
+let ExtensionsContent = () => {
+  let [tab, setTab] = useSettingsState<'extensions' | 'plugins'>('extensions:tab', 'extensions')
+  let extensions = () => setTab('extensions'), plugins = () => setTab('plugins')
+  return <>
+    <div className={css.panelTabs} role="tablist" aria-label="Extensions sections">
+      <button type="button" role="tab" aria-selected={tab === 'extensions'} onClick={extensions}>Chrome extensions</button>
+      <button type="button" role="tab" aria-selected={tab === 'plugins'} onClick={plugins}>Plugins</button>
+    </div>
+    <div role="tabpanel" aria-label={tab === 'extensions' ? 'Chrome extensions' : 'Plugins'}>{tab === 'extensions' ? <ExtensionManager /> : <PluginList compact />}</div>
+  </>
 }
 let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()
@@ -2169,15 +2179,20 @@ let AutomationLimitInput = ({ setting, label, description, value, scale = 1, max
 }
 
 let AutomationLimitsEditor = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
   let { profile } = selection(state)
+  let [busy, setBusy] = useState(false)
   if (!profile) return null
+  let toggleMouse = async (event: ChangeEvent<HTMLInputElement>) => {
+    setBusy(true)
+    try { await run('automation.safety.set', { profile: profile.id, key: 'simulateMouseMovement', value: event.target.checked }) } finally { setBusy(false) }
+  }
   let limits = automationProfileLimits(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id)
   return <ProfileSection title="Limits"><div className={css.antiBotLimitFields}>
     <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
     <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
     <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
-  </div></ProfileSection>
+  </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
 }
 
 let ProfileAntiBotSettings = () => {
@@ -2956,9 +2971,9 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   </>
 }
 
-type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard' | 'plugins'
+type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard'
 type SettingsSearchItem = { tab: SettingsTab; label: string; section?: string; keywords?: string; target: string }
-let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'plugins', label: 'Plugins' }]
+let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }]
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
@@ -2971,17 +2986,9 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'appearance', label: 'Double tap to activate', section: 'Click mode', keywords: 'modifier', target: '[name="clickMode.doubleTapModifier"]' },
   { tab: 'memory', label: 'Load inactive sessions on demand', keywords: 'lazy restore', target: '[name="memory.lazyRestore"]' },
   { tab: 'memory', label: 'Unload idle pages', keywords: 'minutes', target: '[name="memory.idleUnloadMinutes"]' },
-  { tab: 'plugins', label: 'Apply changes to', keywords: 'site profile global', target: '[data-setting-id="tool-scope"]' },
-  { tab: 'plugins', label: 'Ad and tracker blocking', target: '[data-setting-id="adblock"]' },
-  { tab: 'plugins', label: 'Show dark mode next to URL bar', keywords: 'button address toolbar', target: '[name="showDarkModeButton"]' },
-  { tab: 'plugins', label: 'Website dark mode', target: '[data-setting-id="dark-mode"]' },
-  { tab: 'plugins', label: 'Reset to inherited settings', target: '[data-setting-id="reset-tools"]' },
-  { tab: 'plugins', label: 'Update filters', target: '[data-setting-id="update-filters"]' },
-  { tab: 'plugins', label: 'Reload scripts', keywords: 'userscripts styles', target: '[data-setting-id="reload-scripts"]' },
   { tab: 'keyboard', label: 'Keyboard prefix', target: '[aria-label="Keyboard prefix"]' },
   { tab: 'keyboard', label: 'Save prefix', target: '[data-setting-id="save-prefix"]' },
   { tab: 'keyboard', label: 'Edit shortcuts in config', target: '[data-setting-id="edit-shortcuts"]' },
-  { tab: 'plugins', label: 'Reload plugins', target: '[data-setting-id="reload-plugins"]' },
 ]
 let SearchAppOptions = () => <>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</>
 let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void; matches?: Set<string> }) => {
@@ -3045,13 +3052,12 @@ let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, curr
     {tab.id === 'appearance' && <AppearanceSettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'memory' && <MemorySettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={currentPrefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} matches={matches} />}
-    {tab.id === 'plugins' && <PluginList compact matches={matches} />}
   </section>)}{!results.length && <p role="status">No matching settings.</p>}</div>
 }
 let SettingsContent = () => {
   let { state, run, onMessage } = useUI()
   let [savedTab, setTab] = useSettingsState<SettingsTab>('settings:tab', 'general')
-  let tab = SETTINGS_TABS.some(tab => tab.id === savedTab) ? savedTab : 'plugins'
+  let tab = SETTINGS_TABS.some(tab => tab.id === savedTab) ? savedTab : 'general'
   let [query, setQuery] = useSettingsState('settings:query', '')
   let [prefix, setPrefix] = useSettingsState('settings:prefix', state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
   let root = useRef<HTMLDivElement>(null)
@@ -3076,12 +3082,7 @@ let SettingsContent = () => {
   let savePrefix = () => { void run('settings.set', { key: 'keyboard.prefix', value: prefix }) }
   let edit = () => { void run('settings.open') }
   let reload = () => { void run('settings.reload') }
-  let pluginItems: SettingsSearchItem[] = state.plugins?.flatMap(plugin => [
-    { tab: 'plugins', label: plugin.name, keywords: 'enable disable plugin', target: `[data-setting-plugin="${CSS.escape(plugin.id)}"]` },
-    ...plugin.actions.map(action => ({ tab: 'plugins' as const, label: action.title, keywords: `${plugin.name} ${action.description ?? ''}`, target: `[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]` })),
-  ]) ?? []
-  let scriptItems: SettingsSearchItem[] = state.browserTools?.scripts.map(script => ({ tab: 'plugins', label: script.name, keywords: 'userscript style enabled', target: `[data-setting-script="${CSS.escape(script.id)}"]` })) ?? []
-  let results = query.trim() ? [...SETTINGS_SEARCH_ITEMS, ...pluginItems, ...scriptItems].map(item => ({ item, match: fuzzyMatch(query, `${item.label} ${item.section ?? ''} ${SETTINGS_TABS.find(tab => tab.id === item.tab)?.label} ${item.keywords ?? ''}`) })).filter(result => result.match).sort((a, b) => b.match!.score - a.match!.score).map(result => result.item) : []
+  let results = query.trim() ? SETTINGS_SEARCH_ITEMS.map(item => ({ item, match: fuzzyMatch(query, `${item.label} ${item.section ?? ''} ${SETTINGS_TABS.find(tab => tab.id === item.tab)?.label} ${item.keywords ?? ''}`) })).filter(result => result.match).sort((a, b) => b.match!.score - a.match!.score).map(result => result.item) : []
   let focusResult = () => root.current?.querySelector<HTMLElement>(`.${css.settingsResults} input:not(:disabled), .${css.settingsResults} select:not(:disabled), .${css.settingsResults} button:not(:disabled)`)?.focus()
   let searchKeys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape' && query) { event.preventDefault(); event.stopPropagation(); setQuery(''); return }
@@ -3102,7 +3103,6 @@ let SettingsContent = () => {
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
       {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}
       {tab === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} />}
-      {tab === 'plugins' && <PluginList compact />}
       </>}
     </section>
     {state.configError && <p className={css.error}>{state.configError}</p>}

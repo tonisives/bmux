@@ -12,7 +12,7 @@
 .app[data-status-bar="bottom"] .newTab { align-self: flex-start; border-top: 0; border-bottom: 1px solid transparent; }
 .status .newTab:hover { border-radius: 3px; background: #48525f; color: #f0f2f5; }
 .status .session { display: inline-flex; align-items: center; flex-shrink: 0; max-width: none; white-space: nowrap; color: #bdc9b4; }
-.status .downloadButton, .status .extensionsButton { display: inline-flex; align-items: center; flex-shrink: 0; }
+.status .downloadButton { display: inline-flex; align-items: center; flex-shrink: 0; }
 .profileAvatar { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; overflow: hidden; }
 .statusIcon { width: 17px; height: 17px; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .status .downloadButton { position: relative; overflow: visible; }

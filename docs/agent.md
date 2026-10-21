@@ -95,7 +95,10 @@ needed for these defaults:
 - At least 2 seconds between actions on social sites, shared across a profile's
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
-  Mouse and key releases are immediate to avoid holding inputs down.
+  Mouse movement and input releases are immediate.
+- A visible virtual pointer moves along a curved path before automated clicks.
+  **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
+  It defaults on and follows profile, pane, and website protection settings.
 - Known account warnings, visible verification challenges, and rate-limit pages
   stop further automation. Detection runs before each browser operation.
 
@@ -152,6 +155,7 @@ automation:
     maxSessionMinutes: 10
     cooldownMinutes: 20
     socialDelayMs: 2000
+    simulateMouseMovement: true
     profiles:
       profile_default: false
 ```
