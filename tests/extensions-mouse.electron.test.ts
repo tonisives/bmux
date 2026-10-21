@@ -13,7 +13,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-mouse-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let recording: Promise<void> | undefined, stopped = false
-  let frames: { file: string; at: number }[] = [], chapters: { title: string; at: number }[] = []
+  let frames: { file: string; at: number }[] = [], chapters: { title: string; at: number }[] = [], pointerCues: { at: number; x: number; y: number }[] = []
   let destination = path.resolve('artifacts/extensions-mouse-demo'), started = 0
   let crop: { x: number; y: number; width: number; height: number } | undefined
   let record = process.env.BMUX_RECORD_DEMO === '1'
@@ -21,7 +21,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
   let chapter = async (title: string) => { console.log(title); chapters.push({ title, at: (Date.now() - started) / 1000 }); await hold(700) }
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end(`<!doctype html><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
+    response.end(`<!doctype html><meta charset="utf-8"><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
   })
   try {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -64,6 +64,8 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
         let bounds = BaseWindow.getFocusedWindow()!.getBounds(), scale = screen.getPrimaryDisplay().scaleFactor
         return { x: Math.round(bounds.x * scale), y: Math.round(bounds.y * scale), width: Math.round(bounds.width * scale), height: Math.round(bounds.height * scale) }
       })
+      await chrome.exposeFunction('recordDemoClick', (x: number, y: number) => { if (!stopped) pointerCues.push({ at: (Date.now() - started) / 1000, x, y }) })
+      await chrome.evaluate(() => document.addEventListener('mousedown', event => { void (window as any).recordDemoClick(event.clientX, event.clientY) }, true))
       started = Date.now()
       recording = (async () => {
         while (!stopped) {
@@ -111,7 +113,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     expect(clicks).toHaveLength(2); expect(clicks.every((event: any) => event.trusted)).toBe(true)
     expect(clicks[1].at - clicks[0].at).toBeGreaterThanOrEqual(1900)
     await hold(1700)
-    if (record) { stopped = true; await recording; await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, duration: (Date.now() - started) / 1000 }, null, 2)) }
+    if (record) { stopped = true; await recording; await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2)) }
     // Plugin clicks and raw CDP clicks share the same animated input path.
     await page.evaluate(() => { (window as any).events = [] })
     let run = await rpc('plugin.run', { action: 'demo/click' })
@@ -144,7 +146,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
 
   } finally {
     stopped = true; await recording
-    if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, duration: (Date.now() - started) / 1000 }, null, 2))
+    if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2))
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })
