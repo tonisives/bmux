@@ -143,6 +143,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
 
   } finally {
     stopped = true; await recording
+    if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, duration: (Date.now() - started) / 1000 }, null, 2))
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })

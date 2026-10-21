@@ -99,6 +99,11 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     queues.set(profileId, task)
     try { await task } finally { if (queues.get(profileId) === task) queues.delete(profileId) }
   }
+  let after = (profileId: string, paneId: string, url: string) => {
+    if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
+    let value = usage[profileId]
+    if (value) { value.lastUsed = now(); persist() }
+  }
   let resume = (profileId: string, page: Page) => {
     ensureLedger()
     if (page.warning) throw safetyError('The page still shows an account warning or challenge')
@@ -114,5 +119,5 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (value) { value.startedAt = now(); value.lastUsed = value.startedAt; value.actors = value.actors?.map(actor => ({ ...actor, hosts: [] })); persist() }
     return { reset: true }
   }
-  return { before, assertAvailable, resume, resetSession, status, track }
+  return { before, after, assertAvailable, resume, resetSession, status, track }
 }

@@ -675,6 +675,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
     }
     let result = await debuggerApi.sendCommand(method, params, sessionId)
+    if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
+      let { pane } = paneById(model, tabId)
+      automationSafety?.after(pane.profileId, pane.id, live.contents.getURL())
+    }
     if (method === 'Page.setInterceptFileChooserDialog') filePickers.interception(tabId, params, sessionId)
     return result
   }
@@ -3211,7 +3215,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           if (args.selector) {
             let result = await cdp(tabId, 'Runtime.evaluate', { expression: `(() => { let e = document.querySelector(${JSON.stringify(args.selector)}); if (!e) throw new Error('Selector not found'); e.scrollIntoView({block:'center'}); e.focus(); let r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`, returnByValue: true })
             if (result.exceptionDetails) throw new Error('Selector not found or not interactable')
-            if (method === 'click') { let point = result.result.value; await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 }, undefined, false, true); await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 }) }
+            if (method === 'click') { let point = result.result.value; await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 }, undefined, false, true); await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 }, undefined, false, true) }
           } else if (method === 'click') {
             if (!Number.isFinite(Number(args.x)) || !Number.isFinite(Number(args.y))) throw new Error('Provide selector or x and y')
             for (let type of ['mousePressed', 'mouseReleased']) await cdp(tabId, 'Input.dispatchMouseEvent', { type, x: Number(args.x), y: Number(args.y), button: 'left', clickCount: 1 }, undefined, false, true)

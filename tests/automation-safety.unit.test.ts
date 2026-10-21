@@ -404,3 +404,13 @@ test('mouse movement defaults on and can be overridden independently per profile
   expect(() => parseAutomationSettings({ safety: { profileLimits: { bot: { simulateMouseMovement: 1 } } } })).toThrow()
   expect(paceAutomationCommand('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved' } })).toBe(false)
 })
+
+test('social delay starts after an animated click completes', async () => {
+  let { policy, advance, sleeps, restart } = fixture()
+  await policy.before('bot', instagram)
+  advance(600)
+  policy.after('bot', 'pane', 'https://www.instagram.com/')
+  advance(100)
+  await restart().before('bot', instagram)
+  expect(sleeps).toEqual([1900])
+})
