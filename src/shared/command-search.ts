@@ -48,6 +48,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'rename-window', usage: 'rename-window -n NAME', description: 'Rename the current window', action: 'rename-window', control: 'rename-window' },
   { command: 'toggle-window-pin', description: 'Pin or unpin the current window', action: 'toggle-window-pin' },
   { command: 'close-window', description: 'Close the current internal window', action: 'close-window', control: 'close-window' },
+  { command: 'kill-window ', usage: 'kill-window [-t WINDOW] [--confirm]', description: 'Close an internal window by index or ID', complete: true },
   { command: 'next-window', description: 'Switch to the next window', action: 'next-window' },
   { command: 'previous-window', description: 'Switch to the previous window', action: 'previous-window' },
   { command: 'move-window', usage: 'move-window -t INDEX', description: 'Move the current window to an index', action: 'move-window', control: 'move-window' },
@@ -63,6 +64,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'new-session', usage: 'new-session [-s NAME] [--profile PROFILE] [--private]', description: 'Create a session' },
   { command: 'session ', usage: 'session NAME', description: 'Switch this client to a session', complete: true },
   { command: 'rename-session', usage: 'rename-session -n NAME', description: 'Rename the current session', action: 'rename-session', control: 'rename-session' },
+  { command: 'kill-session ', usage: 'kill-session [-t SESSION] --confirm', description: 'Close a session and all its windows after explicit confirmation', complete: true },
   { command: 'next-session', description: 'Switch to the next session', action: 'next-session' },
   { command: 'previous-session', description: 'Switch to the previous session', action: 'previous-session' },
   { command: 'new-client', description: 'Open another native browser client', action: 'new-client' },
@@ -82,7 +84,11 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'join-pane', usage: 'join-pane [--destination PANE] [-h|-v]', description: 'Return this floating pane to a split' },
   { command: 'joinp -t ', usage: 'joinp [-s PANE] -t WINDOW[.PANE] [-h|-v] [-b] [-d]', description: 'Join a pane into another session, window, or pane', complete: true },
   { command: 'swapp -t ', usage: 'swapp [-s PANE] [-t PANE] [-U|-D] [-d] [-Z]', description: 'Exchange pane positions within or between windows', complete: true },
+  { command: 'swap-pane -t ', usage: 'swap-pane [-s PANE] [-t PANE] [-U|-D] [-d] [-Z]', description: 'Exchange pane positions within or between windows', complete: true },
   { command: 'rotatew', usage: 'rotatew [-t WINDOW] [-U|-D] [-Z]', description: 'Rotate tiled pane positions in a window' },
+  { command: 'rotate-window', usage: 'rotate-window [-t WINDOW] [-U|-D] [-Z]', description: 'Rotate tiled pane positions in a window' },
+  { command: 'resize-pane ', usage: 'resize-pane [-t PANE] --width WIDTH --height HEIGHT', description: 'Resize a floating pane', complete: true },
+  { command: 'resize-pane --split ', usage: 'resize-pane [-t WINDOW] --split SPLIT_ID --ratio RATIO', description: 'Set the size ratio of a tiled split', complete: true },
   { command: 'kill-pane ', usage: 'kill-pane --confirm', description: 'Close the selected pane after explicit confirmation', action: 'close-pane', complete: true },
   ...['back', 'forward', 'reload', 'hard-reload', 'stop'].map(command => ({ command, description: ({ back: 'Go back in page history', forward: 'Go forward in page history', reload: 'Reload the page', 'hard-reload': 'Reload without cached resources', stop: 'Stop loading this page' })[command]!, action: command })),
   ...['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].map(command => ({ command, description: ({ 'scroll-up': 'Scroll up', 'scroll-down': 'Scroll down', 'scroll-half-up': 'Scroll half a page up', 'scroll-half-down': 'Scroll half a page down', 'scroll-top': 'Scroll to the top', 'scroll-bottom': 'Scroll to the bottom' })[command]!, action: command })),
@@ -97,6 +103,9 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'plugin runs', description: 'List plugin runs' },
   { command: 'plugin cancel ', usage: 'plugin cancel RUN_ID', description: 'Cancel a running plugin', complete: true },
   { command: 'plugin reload', description: 'Rescan local plugin manifests' },
+  { command: 'automation status', description: 'Show active browser automation leases' },
+  { command: 'automation safety', description: 'Show automation limits and paused sites' },
+  { command: 'automation resume', description: 'Resume automation for the selected pane' },
   { command: 'import-brave', description: 'Import Brave profiles and bookmark folders' },
   { command: 'edit-config', description: 'Open the YAML configuration file' },
   { command: 'reload-config', description: 'Reload settings from the configuration file' },
@@ -140,7 +149,7 @@ export let searchCommands = (entries: CommandEntry[], query: string, history: st
   }).filter(item => item.score !== -Infinity).sort((a, b) => b.score - a.score).map(item => item.entry)
 }
 
-let commandNames = new Set([...COMMANDS.map(entry => entry.command.trim().split(' ')[0]), 'navigate', 'split', 'switch-client', 'attach-session', 'detach-client', 'kill-window', ...Object.keys(COMMAND_ALIASES)])
+let commandNames = new Set([...COMMANDS.map(entry => entry.command.trim().split(' ')[0]), 'navigate', 'split', 'switch-client', 'attach-session', 'detach-client', 'reopen-closed-tab', ...Object.keys(COMMAND_ALIASES), ...Object.values(COMMAND_ALIASES)])
 export let literalCommand = (line: string) => {
   let [name, argument] = line.trim().replace(/^:/, '').split(/\s+/)
   let choices: Record<string, string[]> = { dark: ['on', 'off', 'system', 'inherit'], adblock: ['on', 'off', 'inherit'], profile: ['create', 'rename'], plugin: ['list', 'run', 'runs', 'cancel', 'reload'] }

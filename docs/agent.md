@@ -77,6 +77,7 @@ Close only the pane or internal window you created when finished:
 ```sh
 bmux kill-pane -t <pane-id>
 bmux kill-window -t <window-id>
+bmux kill-session -t <session-id-or-name> --confirm
 ```
 
 Panes are persistent by default. Global anti-bot protection is enabled for every
