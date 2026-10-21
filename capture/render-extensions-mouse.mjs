@@ -19,7 +19,13 @@ let manifest = frames.flatMap((frame, index) => [
 ])
 manifest.push(`file '${quote(path.join(source, 'frames', frames.at(-1).file))}'`)
 await writeFile(path.join(destination, 'frames.txt'), manifest.join('\n'))
-let crop = capture.crop
+let crop = { ...capture.crop }
+if (capture.video) {
+  let dimensions = async file => JSON.parse((await exec('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', file])).stdout).streams[0]
+  let video = await dimensions(path.join(source, capture.video)), frame = await dimensions(path.join(source, 'frames', frames[0].file))
+  let ratio = video.width / frame.width
+  crop = Object.fromEntries(Object.entries(crop).map(([key, value]) => [key, Math.round(value * ratio / 2) * 2]))
+}
 let filters = [`crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}`, 'scale=1440:900:force_original_aspect_ratio=decrease', 'pad=1440:900:(ow-iw)/2:(oh-ih)/2:color=0x171b20', 'pad=1920:1080:240:40:color=0x171b20']
 for (let [index, chapter] of capture.chapters.entries()) {
   let filename = path.join(destination, `chapter-${index}.txt`)

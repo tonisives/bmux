@@ -67,8 +67,12 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await chrome.exposeFunction('recordDemoClick', (x: number, y: number) => { if (!stopped) pointerCues.push({ at: (Date.now() - started) / 1000, x, y }) })
       await chrome.evaluate(() => document.addEventListener('mousedown', event => { void (window as any).recordDemoClick(event.clientX, event.clientY) }, true))
       started = Date.now()
-      recordingVideo = exec('/usr/sbin/screencapture', ['-x', '-D1', '-v', '-V', '30', path.join(destination, 'screen.mov')], { timeout: 45000 })
-      await expect.poll(async () => (await fs.stat(path.join(destination, 'screen.mov')).catch(() => ({ size: 0 }))).size, { timeout: 10000 }).toBeGreaterThan(0)
+      let recorder = path.join(directory, 'record-screen'), ready = path.join(destination, 'ready.txt')
+      await exec('/usr/bin/swiftc', ['capture/record-screen.swift', '-j4', '-o', recorder])
+      started = Date.now()
+      recordingVideo = exec(recorder, [path.join(destination, 'screen.mov'), ready, '30'], { timeout: 45000 })
+      await expect.poll(async () => (await fs.stat(ready).catch(() => ({ size: 0 }))).size, { timeout: 15000 }).toBeGreaterThan(0)
+      started = Math.round(Number(await fs.readFile(ready, 'utf8')) * 1000)
       recording = (async () => {
         while (!stopped) {
           let file = `${String(frames.length).padStart(5, '0')}.jpg`, before = Date.now()
