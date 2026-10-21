@@ -83,6 +83,15 @@ shared by this repository's linked worktrees, but the hook skips merges inside
 task worktrees so only a merge into the primary checkout replaces the installed
 application. It also skips non-macOS systems and never restarts a running app.
 
+`pnpm package` holds `.bmux-build.lock` in the output folder from the start of
+the build through signing and installation queueing. Hyper-B waits for this
+marker, the pending installation, and the promotion lock before opening bmux.
+You can quit during the build and press Hyper-B immediately; launching waits
+for the finished bundle. A failed build leaves `.bmux-build-failed`, which the
+macro reports instead of opening the old app. A successful retry clears it.
+If a build is forcibly killed, confirm it has stopped and remove its leftover
+`.bmux-build.lock` directory before retrying.
+
 Set `BMUX_OUTPUT_DIR` to change the installation folder. Set
 `BMUX_SKIP_POST_MERGE_PACKAGE=1` for a merge that should not create a package.
 
