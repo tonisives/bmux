@@ -198,6 +198,39 @@ test('command arguments, completion, history, and keyboard result selection work
   await prompt().press('Escape'); await expect(prompt()).toHaveCount(0)
 })
 
+test('kill-session is discoverable, completes targets, and requires confirmation before closing', async () => {
+  let original = await state(), clientId = original.clientId
+  let originalSession = original.model.clients.find((client: any) => client.id === clientId).sessionId
+  let target = await rpc('new-session', { name: 'close session fixture' })
+  try {
+    await open(); await prompt().fill('kill-session')
+    await expect(chrome.getByRole('option', { selected: true })).toContainText('kill-session [-t SESSION] --confirm')
+    await prompt().press('Enter'); await expect(prompt()).toHaveValue('kill-session ')
+    expect((await state()).model.sessions.some((session: any) => session.id === target.id)).toBe(true)
+    await prompt().fill('kill-session -t "close session')
+    await expect(chrome.getByRole('listbox', { name: 'Targets', exact: true })).toBeVisible()
+    await expect(chrome.getByRole('option', { selected: true })).toContainText(target.name)
+    await prompt().press('Tab'); await expect(prompt()).toHaveValue(`kill-session -t ${target.id}`)
+    await prompt().press('Enter')
+    await expect(chrome.getByRole('status')).toContainText('Closing a session requires confirmation')
+    expect((await state()).model.sessions.some((session: any) => session.id === target.id)).toBe(true)
+    await prompt().fill(`kill-session -t ${target.id} --confirm`); await prompt().press('Enter')
+    await expect(prompt()).toHaveCount(0)
+    await expect.poll(async () => (await state()).model.sessions.some((session: any) => session.id === target.id)).toBe(false)
+    expect((await state()).model.clients.find((client: any) => client.id === clientId).sessionId).toBe(originalSession)
+
+    target = await rpc('new-session', { name: 'close current fixture', client: clientId })
+    await open(); await prompt().fill('kill-session --confirm'); await prompt().press('Enter')
+    await expect(prompt()).toHaveCount(0)
+    await expect.poll(async () => (await state()).model.sessions.some((session: any) => session.id === target.id)).toBe(false)
+    expect((await state()).model.clients.find((client: any) => client.id === clientId).sessionId).toBe(originalSession)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    if ((await state()).model.sessions.some((session: any) => session.id === target.id)) await rpc('kill-session', { session: target.id, confirm: true })
+    await rpc('switch-client', { client: clientId, session: originalSession })
+  }
+})
+
 test('movew opens the index prompt and reorders windows from the finder and CLI', async () => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let originalWindowId = client.windowId

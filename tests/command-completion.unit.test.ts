@@ -34,6 +34,19 @@ test('pane move targets include sessions and distinct windows, and every complet
   expect(commandTargetSuggestions('movep -t work -v', current)).toBeUndefined()
 })
 
+test('session close completion targets stable session IDs and preserves explicit confirmation', () => {
+  let current = state(), target = current.model.sessions[1]
+  target.name = 'work "notes"'
+  for (let line of ['kill-session -t ', 'kill-session -t', ':kill-session --target=', 'kill-session --confirm -t "work']) {
+    let entries = commandTargetSuggestions(line, current)!.entries
+    let entry = entries.find(entry => entry.usage === target.name)!
+    expect(entry.complete).toBe(true)
+    expect(parseCommandLine(entry.command, current).args).toEqual({ client: 'client', session: target.id, ...(line.includes('--confirm') ? { confirm: true } : {}) })
+  }
+  expect(commandTargetSuggestions('kill-session -t nonexistent', current)!.entries).toEqual([])
+  expect(commandTargetSuggestions('kill-session -s ', current)).toBeUndefined()
+})
+
 test('target completion preserves source and split flags and quotes names while typing unfinished quotes', () => {
   let current = state(), target = current.model.sessions[1], source = current.model.clients[0].paneId
   target.name = 'work "notes" \\ archive'

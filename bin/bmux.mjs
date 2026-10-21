@@ -19,6 +19,7 @@ Host:     host (foreground browser runtime; requires a display on Linux)
 Profiles: profile list | profile create NAME [--background] | profile rename PROFILE NAME
 Import:   import-brave [--source BRAVE_USER_DATA_DIRECTORY]
 Sessions: new-session -s NAME [--profile PROFILE] | list-sessions | rename-session -t SESSION -n NAME
+          kill-session -t SESSION --confirm
 Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | activate-client -c CLIENT
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
@@ -135,7 +136,7 @@ let parseCommand = () => {
   if (method === 'extension.load') { if (!positional[0]) throw new Error('Extension path is required'); args.path = path.resolve(positional[0]) }
   if (['extension.open', 'extension.options', 'extension.enable', 'extension.disable', 'extension.remove'].includes(method)) args.id = positional[0]
   let targetKeys = {
-    'rename-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
+    'rename-session': 'session', 'kill-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
     'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
     'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
