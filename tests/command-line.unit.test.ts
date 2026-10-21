@@ -22,6 +22,14 @@ it('routes manual automation resume to the selected pane', () => {
   expect(parseCommandLine('automation resume', current)).toEqual({ method: 'automation.resume', args: { pane: current.model.clients[0].paneId } })
   expect(parseCommandLine('automation safety', current)).toEqual({ method: 'automation.safety' })
 })
+it('closes the current or explicitly targeted session without inventing confirmation', () => {
+  let current = state(), session = current.model.sessions[0]
+  expect(parseCommandLine('kill-session', current)).toEqual({ method: 'kill-session', args: { client: 'client', session: session.id } })
+  expect(parseCommandLine('kill-session --confirm', current)).toEqual({ method: 'kill-session', args: { client: 'client', session: session.id, confirm: true } })
+  expect(parseCommandLine('kill-session -t "work notes" --confirm', current)).toEqual({ method: 'kill-session', args: { client: 'client', session: 'work notes', confirm: true } })
+  expect(parseCommandLine('kill-session --session other --confirm=false', current)).toEqual({ method: 'kill-session', args: { client: 'client', session: 'other', confirm: false } })
+  expect(parseCommandLine('kill-session --target=2 --confirm', current).args).toMatchObject({ session: '2', confirm: true })
+})
 it('resolves current targets, numeric indices, and confirmation flags', () => {
   let current = state(), session = current.model.sessions[0], window = session.windows[0]
   let secondWindow = newWindow('second', session.defaultProfileId)

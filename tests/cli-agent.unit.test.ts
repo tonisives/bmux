@@ -27,6 +27,8 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
     await listenSocket(server, socket)
     expect(await invoke(['--agent-id', '%42', 'navigate', '-t', '%3', 'http://fixture.test/'])).toEqual({ method: 'navigate', args: { pane: '%3', url: 'http://fixture.test/', agentId: '%42' } })
     expect(await invoke(['new-window', '-t', 'work', '--agent-id=worker'])).toEqual({ method: 'new-window', args: { session: 'work', agentId: 'worker' } })
+    expect(await invoke(['kill-session', '-t', 'work notes', '--confirm'])).toEqual({ method: 'kill-session', args: { session: 'work notes', confirm: true } })
+    expect(await invoke(['kill-session', '--session', '$2'])).toEqual({ method: 'kill-session', args: { session: '$2' } })
     expect(await invoke(['rpc', 'dom', '{"pane":"%3"}', '--agent-id', '%42'])).toEqual({ method: 'dom', args: { pane: '%3', agentId: '%42' } })
     expect(await invoke(['movew', '-c', 'client', '-t', '2', '--agent-id', '%42'])).toMatchObject({ method: 'command-line', args: { client: 'client', agentId: '%42' } })
     expect(await invoke(['dom', '-t', '%3'], '%42')).toEqual({ method: 'dom', args: { pane: '%3', agentId: '%42' } })

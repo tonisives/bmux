@@ -1,6 +1,16 @@
 import { test, expect } from 'vitest'
 import { commandEntries, COMMANDS, fuzzyMatch, literalCommand, searchCommands } from '../src/shared/command-search'
 import { DEFAULT_KEYBOARD } from '../src/shared/keyboard'
+import { COMMAND_ALIASES } from '../src/shared/command-line'
+
+test('session closing and previously hidden commands are discoverable and preserve typed arguments', () => {
+  for (let command of ['kill-session', 'kill-window', 'resize-pane', 'swap-pane', 'rotate-window', 'automation status', 'automation safety', 'automation resume']) {
+    expect(searchCommands(COMMANDS, command)[0].command.trim()).toMatch(new RegExp(`^${command}( |$)`))
+    expect(literalCommand(command)).toBe(true)
+  }
+  expect(searchCommands(COMMANDS, 'kill-session')[0]).toMatchObject({ complete: true, usage: 'kill-session [-t SESSION] --confirm' })
+  for (let name of [...Object.keys(COMMAND_ALIASES), ...Object.values(COMMAND_ALIASES)]) expect(literalCommand(`${name} -t target`)).toBe(true)
+})
 
 test('fuzzy command search matches subsequences and independent terms while preferring command names', () => {
   expect(searchCommands(COMMANDS, 'plgns')[0].command).toBe('plugins')
