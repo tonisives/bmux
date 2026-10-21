@@ -241,6 +241,47 @@ test('kill-session is discoverable, completes targets, and requires confirmation
   }
 })
 
+test('prefix quote selects persistent window indices and preserves selection on cancel or error', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
+  let session = await rpc('new-session', { name: 'window-index-fixture' })
+  let first = session.windows[0], target = first
+  for (let index = 2; index <= 12; index++) target = await rpc('new-window', { session: session.id, name: `window-${index}`, ...(index === 12 ? { url } : {}) })
+  let selected = async () => (await state()).model.clients.find((item: any) => item.id === client.id).windowId
+  let indexPrompt = chrome.getByRole('textbox', { name: 'Select window by index', exact: true })
+  let show = async () => { await closeShortcut("'"); await expect(indexPrompt).toBeFocused(); await expect(indexPrompt).toHaveValue('') }
+  try {
+    await rpc('switch-client', { client: client.id, session: session.id })
+    await rpc('move-window', { window: target.id, position: 'first' })
+    await rpc('select-window', { client: client.id, window: first.id })
+    await show()
+    await indexPrompt.fill('12'); await indexPrompt.press('Escape')
+    await expect(indexPrompt).toHaveCount(0)
+    expect(await selected()).toBe(first.id)
+
+    await show()
+    await indexPrompt.fill('999'); await indexPrompt.press('Enter')
+    await expect(chrome.getByRole('status').filter({ hasText: "Window '999' not found" })).toBeVisible()
+    await expect(indexPrompt).toBeFocused()
+    expect(await selected()).toBe(first.id)
+    await indexPrompt.fill('12'); await indexPrompt.press('Enter')
+    await expect(indexPrompt).toHaveCount(0)
+    await expect.poll(selected).toBe(target.id)
+    await expect.poll(nativeVisible).toBe(true)
+    await expect.poll(() => application.evaluate(({ webContents }, url) => webContents.getFocusedWebContents()?.getURL() === url, url)).toBe(true)
+
+    await open(); await prompt().fill('select-window'); await prompt().press('Enter')
+    await expect(indexPrompt).toBeFocused()
+    await indexPrompt.fill('1'); await indexPrompt.press('Enter')
+    await expect(indexPrompt).toHaveCount(0)
+    await expect.poll(selected).toBe(first.id)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    await rpc('kill-session', { session: session.id, confirm: true })
+  }
+})
+
 test('movew opens the index prompt and reorders windows from the finder and CLI', async () => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let originalWindowId = client.windowId

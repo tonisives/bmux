@@ -40,6 +40,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
     expect(shortcutMatchesContext(binding, true, false)).toBe(true)
     expect(shortcutMatchesContext(binding, true, true)).toBe(false)
   }
+  expect(defaults.prefixBindings["'"]).toBe('select-window')
+  expect(parseConfig('keyboard:\n  prefixBindings:\n    g: select-window\n').keyboard.prefixBindings.g).toBe('select-window')
   expect(defaults.prefixBindings['1']).toBe('select-window-1')
   expect(defaults.prefixBindings['9']).toBe('select-window-9')
   expect(defaults.prefixBindings['!']).toBe('break-pane')

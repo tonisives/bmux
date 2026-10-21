@@ -4,7 +4,7 @@ import type { KeyboardConfig } from './keyboard'
 import type { PluginInfo } from './plugins'
 
 export let PANEL_COMMANDS = ['site-info', 'help', 'settings', 'plugins', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles'] as const
-export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'; shortcuts?: string[] }
+export type CommandEntry = { command: string; description: string; usage?: string; action?: string; complete?: boolean; control?: 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'; shortcuts?: string[] }
 
 export let COMMANDS: CommandEntry[] = [
   { command: 'site-info', description: 'Connection security and certificate details for this page', action: 'site-info' },
@@ -60,6 +60,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'move-window-last', description: 'Move the current window to the last position', action: 'move-window-last' },
   { command: 'swap-window -t ', usage: 'swap-window [-s WINDOW] -t WINDOW [-d]', description: 'Exchange two windows within or between sessions', complete: true },
   { command: 'movew -t ', usage: 'movew [-s WINDOW] -t SESSION:INDEX [-a|-b] [-d]', description: 'Move a window into another session or position', complete: true },
+  { command: 'select-window', usage: 'select-window -t INDEX', description: 'Select a window by index', action: 'select-window', control: 'select-window' },
   { command: 'select-window -t ', usage: 'select-window -t INDEX', description: 'Switch to a window by index or ID', complete: true },
   { command: 'new-session', usage: 'new-session [-s NAME] [--profile PROFILE] [--private]', description: 'Create a session' },
   { command: 'session ', usage: 'session NAME', description: 'Switch this client to a session', complete: true },

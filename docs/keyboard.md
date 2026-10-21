@@ -5,6 +5,7 @@ The default prefix is Control+B. Press the next key within 1.6 seconds.
 | Key | Action |
 | --- | --- |
 | 1–9 | Select internal window 1–9 |
+| ' | Prompt for an internal window index to select |
 | c | New internal window |
 | n / p | Next / previous internal window |
 | % | Split pane side by side |
@@ -22,6 +23,33 @@ The default prefix is Control+B. Press the next key within 1.6 seconds.
 | $ | Rename session |
 | ( / ) | Previous / next session |
 | d | Detach client |
+
+Press prefix then `'`, type the number shown on a window's status tab, and press
+Enter. Indices above 9 work, and moving a window keeps its number. Escape cancels;
+an unknown index keeps the prompt open. The configurable action is `select-window`.
+
+## Native tmux shortcut audit
+
+Compared with [tmux's default prefix bindings](https://github.com/tmux/tmux/blob/master/key-bindings.c),
+these browser-relevant bindings are still missing:
+
+| Prefix key | tmux action | Current bmux support |
+| --- | --- | --- |
+| Arrow keys | Select the pane in that direction | `pane-left`, `pane-down`, `pane-up`, and `pane-right` actions exist; no default prefix bindings |
+| w | Choose a window | The `s` session picker also lists windows; no `w` binding |
+| l / ; | Select the last window / pane | `select-window -t :!` selects the last window; no default bindings or last-pane action |
+| { / } | Swap the pane backward / forward | `swap-pane -U` / `swap-pane -D` commands exist; no default bindings |
+| Ctrl+O / Alt+O | Rotate panes forward / backward | `rotate-window` / `rotate-window -D` commands exist; no default bindings |
+| Ctrl+arrows / Alt+arrows | Resize a pane | `resize-pane` command exists; no default bindings |
+| Space / Alt+1–7 | Cycle / select pane layouts | No equivalent layout presets |
+| q | Display pane numbers and select one | No numbered pane picker |
+| f | Find a window or pane | The session picker can search windows; no `f` binding |
+
+Existing differences: `r` renames a window (tmux refreshes its client), `E`
+renumbers windows (tmux spreads panes evenly), and `(`/`)` cycle sessions
+(tmux cycles attached clients). Window numbering starts at 1, so `0` is unbound.
+Terminal copy mode, paste buffers, suspend, and clock bindings have no direct
+browser equivalent.
 
 Common direct shortcuts:
 

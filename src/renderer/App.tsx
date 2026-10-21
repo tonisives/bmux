@@ -45,7 +45,7 @@ import { BookmarkActions, BookmarkTitle, useBookmarkActions } from './BookmarkAc
 import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
-type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
+type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
@@ -115,7 +115,7 @@ export let App = () => {
     })
     return () => { unsubscribe(); controls() }
   }, [accept, show, dismiss])
-  let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window'
+  let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
   useEffect(() => {
@@ -149,7 +149,7 @@ export let App = () => {
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     </footer>
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
@@ -961,10 +961,11 @@ let FindPrompt = () => {
 let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: string }) => {
   let { state, run, dismiss } = useUI()
   let { client, session, window, pane } = selection(state)
+  let selecting = mode === 'select-window'
   let closingPane = mode === 'close-pane', closingWindow = mode === 'close-window', closing = closingPane || closingWindow
   let ref = useRef<HTMLInputElement>(null)
   let renaming = mode === 'rename-window' || mode === 'rename-session', vim = useAddressVim(undefined, undefined, 'NORMAL', state.vimEditing !== false, ref, () => finish())
-  let [text, setText] = useState(closing ? '' : mode === 'rename-session' ? session!.name : mode === 'move-window' ? String(session!.windows.indexOf(window!) + 1) : window!.name)
+  let [text, setText] = useState(closing || selecting ? '' : mode === 'rename-session' ? session!.name : mode === 'move-window' ? String(session!.windows.indexOf(window!) + 1) : window!.name)
   let [busy, setBusy] = useState(false)
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -979,7 +980,7 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
   let apply = async () => {
     if (busy) return
     setBusy(true)
-    let result = await run(closingPane ? 'kill-pane' : closingWindow ? 'kill-window' : mode, { client: client!.id, window: window!.id, pane: pane?.id, session: session!.id, ...(closing ? { confirm: true } : mode === 'move-window' ? { position: text.trim() } : { name: text.trim() }) })
+    let result = selecting ? await run('command-line', { client: client!.id, line: `select-window -t :${text.trim()}` }) : await run(closingPane ? 'kill-pane' : closingWindow ? 'kill-window' : mode, { client: client!.id, window: window!.id, pane: pane?.id, session: session!.id, ...(closing ? { confirm: true } : mode === 'move-window' ? { position: text.trim() } : { name: text.trim() }) })
     if (!mounted.current) return
     setBusy(false)
     if (result !== undefined) finish()
@@ -992,8 +993,8 @@ let ManagementPrompt = ({ mode, message }: { mode: ManagementControl; message: s
     if (closing && event.key.toLowerCase() === 'y') { event.preventDefault(); void apply() }
   }
   let selectName = renaming ? vim.select : undefined
-  let label = closingPane ? 'Close pane? (y/n)' : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : mode === 'move-window' ? 'Move window to index' : 'Rename window'
-  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label>{renaming && vim.enabled && <VimMode mode={vim.mode} label="Name editing mode" />}<div className={css.addressInput}><input id="manage" ref={ref} data-vim-mode={renaming ? vim.mode : undefined} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} onMouseUp={selectName} autoComplete="off" spellCheck={false} readOnly={busy} />{renaming && <VimCursor input={ref} mode={vim.mode} value={text} />}</div><span className={message ? css.error : undefined} role="status">{message || (renaming ? '' : 'esc')}</span>{renaming && <CloseButton label="Cancel rename" onClick={finish} />}<button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
+  let label = selecting ? 'Select window by index' : closingPane ? 'Close pane? (y/n)' : closingWindow ? `Close window "${window!.name}"? (y/n)` : mode === 'rename-session' ? 'Rename session' : mode === 'move-window' ? 'Move window to index' : 'Rename window'
+  return <form className={css.prompt} onSubmit={submit}><label htmlFor="manage">{label}</label>{renaming && vim.enabled && <VimMode mode={vim.mode} label="Name editing mode" />}<div className={css.addressInput}><input id="manage" ref={ref} inputMode={selecting ? 'numeric' : undefined} pattern={selecting ? '[0-9]+' : undefined} data-vim-mode={renaming ? vim.mode : undefined} aria-label={closingPane ? 'Close pane confirmation' : closingWindow ? 'Close window confirmation' : label} value={text} onChange={change} onKeyDown={keys} onMouseUp={selectName} autoComplete="off" spellCheck={false} readOnly={busy} />{renaming && <VimCursor input={ref} mode={vim.mode} value={text} />}</div><span className={message ? css.error : undefined} role="status">{message || (renaming ? '' : 'esc')}</span>{renaming && <CloseButton label="Cancel rename" onClick={finish} />}<button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
 }
 
 let EmptyWorkspace = () => {
