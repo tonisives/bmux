@@ -408,6 +408,7 @@ test('session picker creates a private session with an indicator', async () => {
   await expect(chrome.getByRole('button', { name: 'Sessions', exact: true }).getByRole('img', { name: 'Private session' })).toBeVisible()
   await open('extensions')
   let privateExtensions = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
+  await privateExtensions.getByRole('tab', { name: 'Chrome extensions', exact: true }).click()
   await expect(privateExtensions).toContainText('Private session: private-1')
   await privateExtensions.getByRole('button', { name: 'Enable Private layout fixture' }).click()
   await expect(privateExtensions.getByRole('switch', { name: 'Enable Private layout fixture' })).toHaveAttribute('aria-checked', 'true')

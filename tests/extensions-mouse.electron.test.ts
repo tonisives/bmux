@@ -88,6 +88,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await expect(chrome.locator('header').getByRole('button', { name: 'Extensions', exact: true })).toHaveCount(0)
     await extensions.click()
     let panel = chrome.getByRole('dialog', { name: 'Extensions', exact: true }), toggle = panel.getByRole('switch', { name: 'Enable Demo extension', exact: true })
+    await panel.getByRole('tab', { name: 'Chrome extensions', exact: true }).click()
     await expect(toggle).toBeChecked(); await hold()
     await toggle.click(); await expect(toggle).not.toBeChecked(); await hold()
     await toggle.click(); await expect(toggle).toBeChecked()
