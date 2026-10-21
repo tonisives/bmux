@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import https from 'node:https'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { stringify } from 'yaml'
@@ -19,14 +20,16 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
   let record = process.env.BMUX_RECORD_DEMO === '1'
   let hold = async (ms = 1400) => { if (record) await new Promise(resolve => setTimeout(resolve, ms)) }
   let chapter = async (title: string) => { console.log(title); chapters.push({ title, at: (Date.now() - started) / 1000 }); await hold(700) }
-  let server = http.createServer((_request, response) => {
+  let server: https.Server | undefined
+  let respond: http.RequestListener = (_request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end(`<!doctype html><meta charset="utf-8"><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
-  })
+  }
   try {
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-    let url = 'https://x.com/bmux-demo'
-    let fixture = await (await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}`)).text()
+    await exec('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'fixture.key', '-out', 'fixture.pem', '-days', '1', '-subj', '/CN=x.com'], { cwd: directory })
+    server = https.createServer({ key: await fs.readFile(path.join(directory, 'fixture.key')), cert: await fs.readFile(path.join(directory, 'fixture.pem')) }, respond)
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
+    let url = `https://x.com:${(server.address() as { port: number }).port}/bmux-demo`
     let plugin = path.join(directory, 'plugins/demo'), extension = path.join(directory, 'extension')
     await fs.mkdir(plugin, { recursive: true }); await fs.mkdir(extension)
     await fs.writeFile(path.join(plugin, 'plugin.yaml'), stringify({ schema_version: 1, id: 'demo', name: 'Demo page tools', version: '1', actions: [{ id: 'click', title: 'Click second link', command: ['node', './click.mjs'], capabilities: ['browser.write'] }] }))
@@ -34,9 +37,8 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await fs.writeFile(path.join(extension, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Demo extension', version: '1.0', content_scripts: [{ matches: ['https://x.com/*'], js: ['content.js'] }] }))
     await fs.writeFile(path.join(extension, 'content.js'), 'document.documentElement.dataset.demoExtension="enabled"')
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { adblock: false, autoUpdateFilters: false }, keyboard: {}, plugins: { demo: { enabled: true } } }))
-    application = await electron.launch({ args: [process.cwd(), '--no-proxy-server'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await electron.launch({ args: [process.cwd(), '--no-proxy-server', '--host-resolver-rules=MAP x.com 127.0.0.1', '--ignore-certificate-errors'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
-    await application.context().route(url, route => route.fulfill({ contentType: 'text/html', body: fixture }))
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((item: any) => item.id === state.clientId), pane = client.paneId
@@ -113,8 +115,20 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await chapter('Virtual pointer moves between automated link clicks')
     await cli('click', { pane, selector: '#first' })
     await expect(page.locator('output')).toHaveText('First link clicked')
+    let pointer = page.locator('#bmux-virtual-mouse')
+    await expect(pointer).toBeVisible()
+    expect(await pointer.evaluate(element => getComputedStyle(element).pointerEvents)).toBe('none')
+    // Keep the pointer visible throughout the normal delay between clicks.
+    await page.waitForTimeout(2100)
+    await expect(pointer).toBeVisible()
+    await fs.mkdir('artifacts', { recursive: true })
+    await page.screenshot({ path: 'artifacts/virtual-mouse-visible.png' })
     await cli('click', { pane, selector: '#second' })
     await expect(page.locator('output')).toHaveText('Second link clicked')
+    await expect(pointer).toBeVisible()
+    let target = await page.locator('#second').boundingBox(), position = await pointer.boundingBox()
+    expect(position!.x).toBeCloseTo(target!.x + target!.width / 2, 0)
+    expect(position!.y).toBeCloseTo(target!.y + target!.height / 2, 0)
     let events = await page.evaluate(() => (window as any).events), clicks = events.filter((event: any) => event.type === 'click')
     expect(events.filter((event: any) => event.type === 'mousemove').length).toBeGreaterThanOrEqual(40)
     expect(clicks).toHaveLength(2); expect(clicks.every((event: any) => event.trusted)).toBe(true)
@@ -155,7 +169,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     stopped = true; await recording; await recordingVideo
     if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', video: 'screen.mov', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2))
     await closeTestApplication(application)
-    await new Promise<void>(resolve => server.close(() => resolve()))
+    if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server!.close(() => resolve())) }
     await fs.rm(directory, { recursive: true, force: true })
   }
 })

@@ -7,9 +7,21 @@ let pointerScript = `(() => {
   let pointer = document.createElement('div');
   pointer.id = id;
   pointer.setAttribute('aria-hidden', 'true');
-  pointer.style.cssText = 'all:initial!important;position:fixed!important;left:0!important;top:0!important;width:18px!important;height:24px!important;background:white!important;clip-path:polygon(0 0,0 95%,25% 72%,45% 100%,61% 91%,42% 63%,78% 63%)!important;filter:drop-shadow(0 0 2px black)!important;pointer-events:none!important;z-index:2147483647!important;display:none!important;';
+  pointer.style.cssText = 'all:initial!important;position:fixed!important;left:0!important;top:0!important;width:22px!important;height:30px!important;pointer-events:none!important;z-index:2147483647!important;display:none!important;';
+  let shadow = pointer.attachShadow({mode:'closed'});
+  let svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 22 30');
+  svg.setAttribute('width', '22');
+  svg.setAttribute('height', '30');
+  let arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  arrow.setAttribute('d', 'M1 1L1 23L7 18L12 28L17 25L12 16L21 16Z');
+  arrow.setAttribute('fill', 'white');
+  arrow.setAttribute('stroke', '#171b20');
+  arrow.setAttribute('stroke-width', '2');
+  arrow.setAttribute('stroke-linejoin', 'round');
+  svg.append(arrow);
+  shadow.append(svg);
   document.documentElement.append(pointer);
-  setTimeout(() => pointer.remove(), 1500);
 })()`
 
 export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))) => {

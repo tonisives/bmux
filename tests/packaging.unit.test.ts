@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,16 +8,14 @@ import { promisify } from 'node:util'
 let exec = promisify(execFile)
 let installer = path.resolve('scripts/install-app.mjs')
 let directories: string[] = []
+let compilerDirectory: string
+let fixtureExecutable: string
 let fixture = async () => {
   let root = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-install-test-'))
   directories.push(root)
   let source = path.join(root, 'release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'bmux.app')
   await fs.mkdir(path.join(source, 'Contents/MacOS'), { recursive: true })
-  // Re-signing Apple's system sleep binary can crash on macOS CI runners.
-  // Build our own executable so the fixture has no platform signing metadata.
-  let program = path.join(root, 'fixture.c')
-  await fs.writeFile(program, '#include <unistd.h>\nint main(void) { for (;;) pause(); }\n')
-  await exec('/usr/bin/xcrun', ['clang', program, '-o', path.join(source, 'Contents/MacOS/bmux')])
+  await fs.copyFile(fixtureExecutable, path.join(source, 'Contents/MacOS/bmux'))
   await fs.writeFile(path.join(source, 'Contents/Info.plist'), '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>bmux</string><key>CFBundleIdentifier</key><string>dev.bmux.install-fixture</string></dict></plist>')
   await fs.mkdir(path.join(source, 'Contents/Resources'), { recursive: true })
   await fs.writeFile(path.join(source, 'Contents/Resources/version'), 'new build')
@@ -28,6 +26,20 @@ let install = (root: string, output = '') => exec(process.execPath, [installer],
 afterEach(async () => { await Promise.all(directories.splice(0).map(directory => fs.rm(directory, { recursive: true, force: true }))) })
 
 describe.runIf(process.platform === 'darwin')('packaged app output', () => {
+  beforeAll(async () => {
+    // Compile once during suite setup: cold compiler startup can exceed a test's
+    // five-second budget. Each test still owns a separate copied, signed app.
+    compilerDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-install-compiler-'))
+    fixtureExecutable = path.join(compilerDirectory, 'bmux')
+    let program = path.join(compilerDirectory, 'fixture.c')
+    // Use our own executable; re-signing Apple's sleep can crash on CI runners.
+    await fs.writeFile(program, '#include <unistd.h>\nint main(void) { for (;;) pause(); }\n')
+    await exec('/usr/bin/xcrun', ['clang', program, '-o', fixtureExecutable])
+  })
+  afterAll(async () => {
+    if (compilerDirectory) await fs.rm(compilerDirectory, { recursive: true, force: true })
+  })
+
   test('defaults to build and preserves build resources', async () => {
     let { root } = await fixture()
     await fs.mkdir(path.join(root, 'build'), { recursive: true })
