@@ -16,6 +16,17 @@ or pass `--agent-id "$TMUX_PANE"` to individual commands:
 export BMUX_AGENT_ID="$TMUX_PANE"
 ```
 
+Optionally provide a name and browsing reason with `--agent-name` and
+`--agent-purpose`, or set `BMUX_AGENT_NAME` and `BMUX_AGENT_PURPOSE` alongside
+`BMUX_AGENT_ID`. For example:
+
+```sh
+bmux dom -t '%3' --agent-id "$TMUX_PANE" --agent-name 'Research agent' --agent-purpose 'Compare browser features'
+```
+
+The agent icon in an automation alert opens these details for the agents that
+used that website, including the selected pane. Missing details show **Not provided**.
+
 The identifier stays attached to panes created or used by the agent and appears
 in automation pause notices. Outside tmux, use a stable name of your own.
 
@@ -108,8 +119,9 @@ Human browser controls remain available. Session usage and warning pauses surviv
 restarts. A pause applies to the profile across websites. Resolve the warning on
 the affected website manually, then use **Resume automation** in the Anti-bot
 tab. The notice names the blocking website and provides links to affected
-automation panes, including their agent identifiers. The gear at the far right
-opens Anti-bot settings for an affected pane. Manual browsing never consumes
+automation panes, including their agent identifiers. The **General anti-bot** row below the alerts holds the shared controls. Its gear
+opens a profile selector for Anti-bot settings, which apply across agents using
+that profile. Manual browsing never consumes
 automation time or waits for a cooldown, including in the same profile.
 Permission requests use the same notice bar with the requesting pane and
 **Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
@@ -139,9 +151,9 @@ warning pause or change these settings. Resuming does not clear session usage or
 bypass a cooldown.
 
 Reaching the session limit shows a UI alert with the retry time. Wait for that
-time, or choose **Reset session** in the alert or the profile's **Anti-bot** tab
-to start a fresh session. Resetting applies to all panes using that profile and
-keeps account warnings and site exclusions. The CLI cannot reset a session.
+time, or choose **Reset all anti bot sessions** in the general row to restart
+timers and end cooldowns across every profile. **Reset session** in a profile's
+**Anti-bot** tab resets that profile only. Both keep account warnings and site exclusions. The CLI cannot reset a session.
 Dismissal hides the current alert without resetting the session.
 
 ```sh

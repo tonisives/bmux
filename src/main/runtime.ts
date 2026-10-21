@@ -1,3 +1,4 @@
+import { agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
 import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
@@ -1896,7 +1897,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!context.profileId || !context.paneId) return
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
-    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, { paneId: context.paneId, agentId: context.agentId ?? pane.agentId })
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, { paneId: context.paneId, ...agentInfo(pane), agentId: context.agentId ?? pane.agentId })
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
@@ -1919,7 +1920,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
-    if (args.agentId !== undefined && (typeof args.agentId !== 'string' || !args.agentId.trim() || args.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(args.agentId))) throw new Error('agentId must be a nonempty identifier of at most 128 characters')
+    validateAgentInfo(args)
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
     let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
@@ -1978,6 +1979,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       configuration?.update(['automation', 'safety', 'sites', profile.id, host], exclusion)
       return { exclusion }
     }
+    if (method === 'automation.reset-all-sessions') {
+      if (!sourceClientId) throw new Error('Reset anti-bot sessions in the bmux UI')
+      for (let profile of automationSafety?.status().profiles ?? []) automationSafety?.resetSession(profile.profileId)
+      return { reset: true }
+    }
     if (method === 'automation.reset-session') {
       if (!sourceClientId) throw new Error('Reset the automation session in the bmux UI alert or Profile > Anti-bot')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
@@ -1994,7 +2000,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'automation.acquire') {
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
-      if (typeof args.agentId === 'string' && pane.agentId !== args.agentId) { pane.agentId = args.agentId; save(); publish() }
+      if (args.agentId !== undefined || args.agentName !== undefined || args.agentPurpose !== undefined) { updateAgentInfo(pane, args); save(); publish() }
       if (!automation) throw new Error('Automation policy unavailable')
       let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url'), searchAppForSession(session)) })
       tabAutomation.set(tabId, lease.token)
@@ -2020,9 +2026,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return memory.report(args.history === true)
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
-    if (!sourceClientId && typeof args.agentId === 'string' && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
+    if (!sourceClientId && (args.agentId !== undefined || args.agentName !== undefined || args.agentPurpose !== undefined) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
-      if (pane.agentId !== args.agentId) { pane.agentId = args.agentId; save(); publish() }
+      updateAgentInfo(pane, args); save(); publish()
     }
     if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, session } = tabById(model, args.tab)
@@ -2322,7 +2328,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!clientId) throw new Error('Specify a client with -c CLIENT')
       let command = parseCommandLine(required(args, 'line'), state(String(clientId)))
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
-      if (args.agentId !== undefined) command.args = { ...command.args, agentId: args.agentId }
+      for (let key of ['agentId', 'agentName', 'agentPurpose'] as const) if (args[key] !== undefined) command.args = { ...command.args, [key]: args[key] }
       return execute(command, sourceClientId)
     }
     if (method === 'settings.default-browser') {
@@ -2558,7 +2564,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
       let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true, model)
-      if (typeof args.agentId === 'string') session.windows[0].panes[0].agentId = args.agentId
+      updateAgentInfo(session.windows[0].panes[0], args)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
       if (args.client) { let client = resolve(model.clients, args.client, 'Client'); client.sessionId = session.id; client.windowId = session.windows[0].id; client.paneId = session.windows[0].panes[0].id }
@@ -2667,8 +2673,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
       if (args._bookmarkSource) window.panes[0].bookmarkSource = args._bookmarkSource as { profileId: string; bookmarkId: string }
-      if (typeof args.agentId === 'string') window.panes[0].agentId = args.agentId
-      if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, agentId: window.panes[0].agentId }, normalizeUrl(String(args.url), searchAppForSession(session)))
+      updateAgentInfo(window.panes[0], args)
+      if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, ...agentInfo(window.panes[0]) }, normalizeUrl(String(args.url), searchAppForSession(session)))
       if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
@@ -2824,8 +2830,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
       let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
-      if (method === 'new-pane' && typeof args.agentId === 'string') pane.agentId = args.agentId
-      if (method === 'new-pane' && !sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId }, pane.url)
+      if (method === 'new-pane') updateAgentInfo(pane, args)
+      if (method === 'new-pane' && !sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, ...agentInfo(pane) }, pane.url)
       if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
@@ -2845,8 +2851,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
-      if (typeof args.agentId === 'string') pane.agentId = args.agentId
-      if (!sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, agentId: pane.agentId }, pane.url)
+      updateAgentInfo(pane, args)
+      if (!sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, ...agentInfo(pane) }, pane.url)
       if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }

@@ -11,7 +11,7 @@ export type AutomationGroup = {
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
 export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; simulateMouseMovement?: boolean; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
-export type AutomationActor = { paneId: string; agentId?: string; hosts?: string[] }
+export type AutomationActor = { paneId: string; agentId?: string; agentName?: string; agentPurpose?: string; hosts?: string[] }
 export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
 export type AutomationProfileLimits = Pick<AutomationSafety, AutomationSafetyLimitKey> & { simulateMouseMovement?: boolean }
 export let automationProfileLimits = (settings: AutomationSafety, profileId: string): AutomationProfileLimits => ({ maxSessionMinutes: settings.maxSessionMinutes, cooldownMinutes: settings.cooldownMinutes, socialDelayMs: settings.socialDelayMs, simulateMouseMovement: settings.simulateMouseMovement ?? true, ...settings.profileLimits?.[profileId] })

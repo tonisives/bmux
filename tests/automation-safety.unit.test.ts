@@ -95,7 +95,7 @@ test('records affected automation panes and agent IDs, including denied commands
 
 test('records command destinations across navigation and clears sites for a new session', async () => {
   let { policy, advance, restart } = fixture()
-  let actor = { paneId: '%1', agentId: 'research' }
+  let actor = { paneId: '%1', agentId: 'research', agentName: 'Research agent', agentPurpose: 'Compare browsers' }
   await policy.before('bot', instagram, 'https://example.com/path', true, actor)
   await policy.before('bot', instagram, 'https://example.com/other', true, actor)
   expect(policy.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['example.com'] }])
@@ -110,6 +110,8 @@ test('records command destinations across navigation and clears sites for a new 
   advance(30 * 60_000)
   await next.before('bot', instagram, 'https://youtube.com/', true, actor)
   expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['youtube.com'] }])
+  next.track('bot', { paneId: actor.paneId, agentId: 'review' }, 'https://youtube.com/')
+  expect(next.status().profiles[0].actors).toEqual([{ paneId: actor.paneId, agentId: 'review', hosts: ['youtube.com'] }])
 })
 
 test('new-pane tracking skips local and excluded sites', async () => {

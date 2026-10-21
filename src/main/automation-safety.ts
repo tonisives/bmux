@@ -1,3 +1,4 @@
+import { updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { AutomationActor, AutomationSafety, AutomationSafetyState, AutomationWarning } from '../shared/automation'
@@ -37,6 +38,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded) || Object.values(loaded).some(value => !value || !Number.isFinite(value.startedAt) || !Number.isFinite(value.lastUsed) || value.lastUsed < value.startedAt || value.warning !== undefined && (!warnings.includes(value.warning) || typeof value.warningHost !== 'string' || !value.warningHost))) throw new Error('Invalid safety ledger')
     usage = loaded as Record<string, Usage>
     for (let value of Object.values(usage)) if (value.actors !== undefined && (!Array.isArray(value.actors) || value.actors.some(actor => !actor || typeof actor.paneId !== 'string' || !actor.paneId || actor.agentId !== undefined && typeof actor.agentId !== 'string' || actor.hosts !== undefined && (!Array.isArray(actor.hosts) || actor.hosts.some(host => typeof host !== 'string' || automationWebsiteHost(`https://${host}`) !== host))))) throw new Error('Invalid automation actors')
+    for (let value of Object.values(usage)) for (let actor of value.actors ?? []) validateAgentInfo(actor)
   } catch (error) { ledgerError = (error as NodeJS.ErrnoException).code !== 'ENOENT' }
   let queues = new Map<string, Promise<void>>()
   let ensureLedger = () => { if (ledgerError) throw safetyError('Automation safety ledger is unreadable; repair it before automating') }
@@ -67,13 +69,15 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let previous = value.actors?.find(item => item.paneId === actor.paneId)
     let host = automationWebsiteHost(url)
     let hosts = [...new Set([...(previous?.hosts ?? []), ...(host ? [host] : [])])]
-    return [...(value.actors ?? []).filter(item => item.paneId !== actor.paneId), { ...previous, ...actor, hosts }]
+    let next = { ...previous, paneId: actor.paneId, hosts }
+    updateAgentInfo(next, actor)
+    return [...(value.actors ?? []).filter(item => item.paneId !== actor.paneId), next]
   }
   let track = (profileId: string, actor: AutomationActor, url?: string) => {
     let value = usage[profileId]
     if (!value || !automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return
     let previous = value.actors?.find(item => item.paneId === actor.paneId)
-    if (previous && (!actor.agentId || previous.agentId === actor.agentId) && previous.hosts?.includes(automationWebsiteHost(url)!)) return
+    if (previous && previous.agentId === actor.agentId && previous.agentName === actor.agentName && previous.agentPurpose === actor.agentPurpose && previous.hosts?.includes(automationWebsiteHost(url)!)) return
     value.actors = actorsFor(value, actor, url)
     persist()
   }
