@@ -13,11 +13,12 @@ let pointerScript = `(() => {
   svg.setAttribute('viewBox', '0 0 22 30');
   svg.setAttribute('width', '22');
   svg.setAttribute('height', '30');
+  svg.style.cssText = 'display:block;overflow:visible;filter:drop-shadow(0 1px 1px rgb(0 0 0 / .3));';
   let arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  arrow.setAttribute('d', 'M1 1L1 23L7 18L12 28L17 25L12 16L21 16Z');
-  arrow.setAttribute('fill', 'white');
-  arrow.setAttribute('stroke', '#171b20');
-  arrow.setAttribute('stroke-width', '2');
+  arrow.setAttribute('d', 'M2 1.5C1.8 1.34 1.5 1.48 1.5 1.75V23C1.5 23.45 2.05 23.66 2.36 23.35L7.2 18.45L11.15 27.05C11.32 27.42 11.75 27.58 12.12 27.41L15.02 26.05C15.4 25.88 15.55 25.44 15.38 25.07L11.4 16.5H18.9C19.36 16.5 19.56 15.93 19.2 15.64Z');
+  arrow.setAttribute('fill', '#202124');
+  arrow.setAttribute('stroke', '#f8fafc');
+  arrow.setAttribute('stroke-width', '1.25');
   arrow.setAttribute('stroke-linejoin', 'round');
   svg.append(arrow);
   shadow.append(svg);
