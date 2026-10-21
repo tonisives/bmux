@@ -47,7 +47,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       return value.result
     }
     await rpc('activate-client', { client: client.id })
-    await application.evaluate(({ BaseWindow }) => { BaseWindow.getFocusedWindow()?.setBounds({ x: 60, y: 80, width: 1280, height: 800 }) })
+    await application.evaluate(({ BaseWindow, screen }) => { let area = screen.getPrimaryDisplay().workArea; BaseWindow.getFocusedWindow()?.setBounds({ x: area.x + 20, y: area.y + 20, width: Math.min(1280, area.width - 40), height: Math.min(800, area.height - 40) }) })
     await rpc('extension.load', { profile: 'profile_default', path: extension })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -97,6 +97,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     let movement = profile.getByRole('switch', { name: 'Simulate mouse movement', exact: true })
     await expect(movement).toBeChecked()
     await expect(profile.getByRole('spinbutton', { name: 'Social site delay (seconds)' })).toHaveValue('2')
+    await movement.scrollIntoViewIfNeeded()
     await hold(2400)
     await profile.getByRole('button', { name: 'Close', exact: true }).click()
     await page.evaluate(() => { (window as any).events = [] })
