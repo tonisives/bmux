@@ -12,7 +12,7 @@ import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
 import { automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
-import type { AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
+import type { AutomationActor, AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -46,15 +46,15 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings'
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; settings?: () => void; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; resetSession?: { title: string; run: () => void }; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { agentDetails: AutomationActor[]; setAgentDetails: (actors: AutomationActor[]) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -62,7 +62,7 @@ export let App = () => {
   let [control, setControl] = useState<Control | null>(null), [initialPlugin, setInitialPlugin] = useState<BuiltinTool | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
-  let [message, setMessage] = useState('')
+  let [message, setMessage] = useState(''), [agentDetails, setAgentDetails] = useState<AutomationActor[]>([])
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
@@ -120,7 +120,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousDialogPrompt.current = !!state.dialogPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
@@ -142,10 +142,10 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, show, run, settingsMemory).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
+    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, run).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
-  let context = { initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
+  let context = { agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <footer className={css.status} aria-label="Browser status">
@@ -267,7 +267,7 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   })
 }
 
-let automationWarningNotices = (state: PublicState, show: UIContext['show'], run: UIContext['run'], settingsMemory: UIContext['settingsMemory']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
+let automationWarningNotices = (state: PublicState, run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
@@ -275,8 +275,6 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   if (!eligiblePanes.length) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
-  let pane = eligiblePanes.find(pane => pane.id === selectedPane?.id) ?? eligiblePanes[0]
-  let settings = pane ? () => { settingsMemory.set(`profile:${pane.profileId}:tab`, { initial: undefined, value: 'anti-bot' }); void show('profiles', pane.id) } : undefined
   let paneLinks = (host?: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && (!host || actor.hosts?.includes(host))).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
     let session = state.model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
@@ -284,12 +282,12 @@ let automationWarningNotices = (state: PublicState, show: UIContext['show'], run
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
-  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, settings, siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
+  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
   let siteHosts = [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, settings, ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost), resetSession: { title: `Reset the automation timer and cooldown for profile ${name} across all its panes. This does not reset a tmux session.`, run: () => { void run('automation.reset-session', { profile: usage.profileId }) } } }))
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -360,18 +358,38 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
 
 let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <div className={css.notificationPaneLink}><span>{session}</span><button type="button" title={title} aria-label={title} onClick={run}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button></div>
 
-let Notifications = ({ notices }: { notices: Notification[] }) => <div className={css.notifications} aria-label="Notifications">
-  {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
-    {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
-    {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
-    <span className={css.notificationText}>{notice.text}</span>
-    {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
-    {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
-    {notice.resetSession && <div className={css.notificationReset} role="group" aria-label="Automation session"><button type="button" className={css.notificationAction} title={notice.resetSession.title} onClick={notice.resetSession.run}>Reset session</button></div>}
-    {notice.settings && <button type="button" className={css.notificationSettings} onClick={notice.settings} aria-label="Anti-bot settings" title="Anti-bot settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 3-2.5 1.4-2.9-1L1.5 10l2.3 2v2l-2.3 2L3 19.6l2.9-1L8.4 20 9 23h4l.6-3 2.5-1.4 2.9 1 1.5-3.6-2.3-2v-2l2.3-2L19 6.4l-2.9 1L13.6 6 13 3Z" /><circle cx="11" cy="13" r="3" /></svg></button>}
-    {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
-  </div>)}
-</div>
+let NotificationAgentButton = ({ agents }: { agents: AutomationActor[] }) => {
+  let { show, setAgentDetails } = useUI()
+  let open = () => { setAgentDetails(agents); show('agent-info') }
+  return <button type="button" aria-label="Agent information" title="Agent information" onClick={open}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
+}
+
+let Notifications = ({ notices }: { notices: Notification[] }) => {
+  let { state, run, show } = useUI()
+  let [resetting, setResetting] = useState(false)
+  let automation = notices.filter(notice => notice.profileId)
+  let openSettings = () => show('anti-bot-settings')
+  let resetAll = async () => {
+    setResetting(true)
+    try { await run('automation.reset-all-sessions') } finally { setResetting(false) }
+  }
+  return <div className={css.notifications} aria-label="Notifications">
+    {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
+      {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
+      {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+      <span className={css.notificationText}>{notice.text}</span>
+      {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
+      {!!notice.agents?.length && <NotificationAgentButton agents={notice.agents} />}
+      {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
+      {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+    </div>)}
+    {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="General anti-bot settings">
+      <span className={css.notificationText}>General anti-bot · all agents and profiles</span>
+      {state.automationSafety?.profiles.some(profile => profile.retryAfter) && <button type="button" className={css.notificationAction} disabled={resetting} onClick={resetAll}>Reset all anti bot sessions</button>}
+      <button type="button" className={css.notificationSettings} onClick={openSettings} aria-label="Anti-bot settings" title="General anti-bot settings"><SettingsIcon /></button>
+    </div>}
+  </div>
+}
 
 let useWindowDrag = () => {
   let { state, run } = useUI()
@@ -1300,7 +1318,7 @@ let Panel = ({ type }: { type: Control }) => {
   useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
   if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
   let sessionPicker = type === 'sessions'
-  let title = sessionPicker ? 'Sessions' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'General anti-bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
   return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
@@ -1312,6 +1330,8 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'plugins' && <PluginList />}
       {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
       {type === 'site-info' && <SiteInformation />}
+      {type === 'agent-info' && <AgentInformation />}
+      {type === 'anti-bot-settings' && <GeneralAntiBotSettings />}
       {type === 'settings' && <SettingsContent />}
       {sessionPicker && (sessionTab === 'remote' ? <RemoteSessionPicker /> : <SessionPicker />)}
       {type === 'profiles' && <ProfileInfo />}
@@ -1325,6 +1345,27 @@ let Panel = ({ type }: { type: Control }) => {
     </div>
   </div></div>
 }
+let AgentInformation = () => {
+  let { agentDetails, state } = useUI()
+  return <div className={css.agentInformation}>{agentDetails.map(actor => <section key={actor.paneId}>
+    <strong>{actor.agentName ?? actor.agentId ?? 'Unidentified agent'}</strong>
+    <dl><dt>Agent ID</dt><dd>{actor.agentId ?? 'Not provided'}</dd><dt>Browsing reason</dt><dd>{actor.agentPurpose ?? 'Not provided'}</dd><dt>Pane</dt><dd>{permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId}</dd></dl>
+  </section>)}</div>
+}
+
+let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
+  let { state, show, settingsMemory } = useUI()
+  let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
+  let pane = panes.find(pane => pane.id === selection(state).pane?.id && pane.profileId === profile.id) ?? panes.find(pane => pane.profileId === profile.id)
+  let open = () => { settingsMemory.set(`profile:${profile.id}:tab`, { initial: undefined, value: 'anti-bot' }); show('profiles', pane?.id) }
+  return <button type="button" disabled={!pane} onClick={open}>{profile.name}</button>
+}
+
+let GeneralAntiBotSettings = () => {
+  let { state } = useUI()
+  return <div className={css.agentInformation}><p>Profile settings apply to every agent using that profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
+}
+
 let SiteInformation = () => {
   let { state, run } = useUI()
   let { tab, profile } = selection(state)
