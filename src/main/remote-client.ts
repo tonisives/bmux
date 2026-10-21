@@ -1,3 +1,4 @@
+import type { RemoteViewUpdate } from '../shared/remote'
 import { ipcMain, session } from 'electron'
 import type { WebContents } from 'electron'
 import type { RemotePage } from './runtime'
@@ -11,7 +12,7 @@ export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHos
 export let createLocalRemote = () => {
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
-  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; token: string; close: () => Promise<unknown> }>()
+  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; token: string; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
   let preferredProfileId: string | undefined, activeToken: string | undefined
   let profiles: () => string[] = () => []
   let useProfiles = (available: () => string[]) => { profiles = available }
@@ -48,6 +49,7 @@ export let createLocalRemote = () => {
     return { origin, host: selected.host, session: selected.session }
   })
   ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => connect(publicKey, selection(event.sender).token))
+  ipcMain.handle('remote-client-update', (event, state: RemoteViewUpdate) => selection(event.sender).update(state))
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
   let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>) => {
     let listing = await list()
@@ -59,8 +61,9 @@ export let createLocalRemote = () => {
     await show({
       key: `${hostId}:${sessionId}`,
       title: host.sessions.find(item => item.id === sessionId)!.name,
-      attach: (contents, close) => {
-        viewers.set(contents, { host, session: sessionId, token, close })
+      view: { name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, panes: [] },
+      attach: (contents, close, update) => {
+        viewers.set(contents, { host, session: sessionId, token, close, update })
         contents.once('destroyed', () => viewers.delete(contents))
       },
     })

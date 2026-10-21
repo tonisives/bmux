@@ -1,3 +1,4 @@
+import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
 import { connectionProfile, defaultConnectionId, paneConnectionId } from '../shared/profile-connections'
@@ -77,7 +78,7 @@ import { clipViewportInput, clearViewportInput } from './viewport-input'
 
 type LiveTab = { view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
-export type RemotePage = { key: string; title: string; url?: string; attach?: (contents: WebContents, close: () => Promise<unknown>) => void }
+export type RemotePage = { key: string; title: string; url?: string; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
 let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
@@ -362,7 +363,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -765,6 +766,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       invoke({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }); return
     }
     let windowNumber = action.match(/^select-window-([1-9])$/)?.[1]
+    let remoteView = tab ? remotePages.get(tab)?.view : undefined
+    if (remoteView && windowNumber) {
+      let target = remoteView.panes[Number(windowNumber) - 1]
+      if (target) invoke({ method: 'remote.action', args: { pane: tab, action: 'switch', target: target.id } })
+      return
+    }
     let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : windowNumber ? `select-window -t ${windowNumber}` : action
     let command = parseCommandLine(line, state(client.id))
     if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
@@ -907,7 +914,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (owner) owner.pageFocused = true
     })
     installKeys(contents)
-    remote.attach!(contents, () => execute({ method: 'kill-pane', args: { pane: tabId } }))
+    remote.attach!(contents, () => execute({ method: 'kill-pane', args: { pane: tabId } }), update => {
+      if (live.disposed || !remote.view) return
+      remote.view = { ...remote.view, ...update }
+      let selected = update.panes.find(pane => pane.id === update.pane)
+      pane.title = selected?.title || update.name
+      publish()
+    })
     live.ready = process.env.ELECTRON_RENDERER_URL
       ? contents.loadURL(new URL('remote-client.html', process.env.ELECTRON_RENDERER_URL).href)
       : contents.loadFile(path.join(import.meta.dirname, '../renderer/remote-client.html'))
@@ -1907,8 +1920,30 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     if (args.agentId !== undefined && (typeof args.agentId !== 'string' || !args.agentId.trim() || args.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(args.agentId))) throw new Error('agentId must be a nonempty identifier of at most 128 characters')
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
+    let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
+    let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
+    if (remoteTab && remoteView && ['cycle-window', 'cycle-pane'].includes(method) && remoteView.panes.length) {
+      let index = remoteView.panes.findIndex(pane => pane.id === remoteView.pane)
+      let next = remoteView.panes[(index + (Number(args.direction) < 0 ? -1 : 1) + remoteView.panes.length) % remoteView.panes.length]
+      tabs.get(remoteTab)?.contents.send('remote-client-action', { type: 'switch', pane: next.id } satisfies RemoteViewAction)
+      return { remote: true }
+    }
+    if (remoteTab && remoteView && (method === 'remote.action' || ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'stop'].includes(method))) {
+      let action: RemoteViewAction
+      if (method === 'remote.action') {
+        if (!sourceClientId || model.clients.find(client => client.id === sourceClientId)?.paneId !== remoteTab) throw new Error('Select the remote session first')
+        if (args.action === 'switch' && typeof args.target === 'string' && remoteView.panes.some(pane => pane.id === args.target)) action = { type: 'switch', pane: args.target }
+        else if (args.action === 'acquire' && remoteView.canControl) action = { type: 'acquire' }
+        else if (args.action === 'release') action = { type: 'release' }
+        else throw new Error('Unknown remote action')
+      } else {
+        if (!remoteView.controlling) throw new Error('Take control to navigate the remote session')
+        action = { type: 'command', method, args: method === 'navigate' ? { url: normalizeUrl(required(args, 'url'), searchAppForSession(tabById(model, remoteTab).session)) } : {} }
+      }
+      tabs.get(remoteTab)?.contents.send('remote-client-action', action)
+      return { remote: true }
+    }
     checkControl(method, args)
-    if (method === 'navigate' && typeof args.tab === 'string' && remotePages.get(args.tab)?.attach) throw new Error('Use the remote viewer address to navigate this session')
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()
     if (method === 'pane.anti-bot.set') {
@@ -3329,7 +3364,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     release: (session: string, owner?: string) => { controls.release(session, owner); clearRemoteSizes(); publish() },
     disconnect: (owner: string) => { controls.disconnect(owner); clearRemoteSizes(); publish() },
     command: (owner: string, generation: number, command: Command) => {
-      if (!['navigate', 'back', 'forward', 'reload', 'click', 'type', 'key', 'permission.respond'].includes(command.method)) throw new Error('Remote command is not allowed')
+      if (!['navigate', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'click', 'type', 'key', 'permission.respond'].includes(command.method)) throw new Error('Remote command is not allowed')
       return remoteActor.run({ owner, generation }, () => execute(command))
     },
     input: async (owner: string, generation: number, pane: string, viewportGeneration: number, event: Electron.MouseInputEvent | Electron.MouseWheelInputEvent | Electron.KeyboardInputEvent) => {

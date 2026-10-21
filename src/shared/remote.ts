@@ -24,3 +24,17 @@ export let createControlLeases = (now = Date.now) => {
   let disconnect = (owner: string) => { for (let [session, lease] of leases) if (lease.owner === owner) leases.delete(session) }
   return { get, acquire, assert, renew, release, disconnect }
 }
+
+export type RemoteView = {
+  name: string
+  service: string
+  canControl: boolean
+  connected: boolean
+  controlling: boolean
+  occupied: boolean
+  pane?: string
+  panes: { id: string; title: string; url: string }[]
+  error?: string
+}
+export type RemoteViewUpdate = Omit<RemoteView, 'service' | 'canControl'>
+export type RemoteViewAction = { type: 'acquire' | 'release' } | { type: 'switch'; pane: string } | { type: 'command'; method: string; args: Record<string, unknown> }

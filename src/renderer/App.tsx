@@ -1,3 +1,4 @@
+import type { RemoteView } from '../shared/remote'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { VimMode } from './VimMode'
@@ -479,6 +480,31 @@ let useWindowDrag = () => {
 }
 
 let Status = () => {
+  let { state } = useUI()
+  let { client } = selection(state)
+  let remote = client?.paneId ? state.remoteViews?.[client.paneId] : undefined
+  return remote ? <RemoteStatus remote={remote} paneId={client!.paneId!} /> : <LocalStatus />
+}
+let RemoteStatus = ({ remote, paneId }: { remote: RemoteView; paneId: string }) => {
+  let { show, run } = useUI()
+  let sessions = () => show('sessions')
+  let control = () => { void run('remote.action', { pane: paneId, action: remote.controlling ? 'release' : 'acquire' }) }
+  let disconnect = () => { void run('kill-pane', { pane: paneId, confirm: true }) }
+  return <>
+    <button onClick={sessions} aria-label="Sessions" title={`${remote.name} on ${remote.service}`} className={css.session}>{remote.name}</button>
+    <div className={css.windows} data-remote-window-list>{remote.panes.map((pane, index) => <RemoteStatusPane key={pane.id} pane={pane} index={index + 1} selected={pane.id === remote.pane} viewerPane={paneId} />)}</div>
+    <span className={css.drag} />
+    <span className={css.remoteConnection} role="status" title={remote.error || remote.service}>{remote.error || (!remote.connected ? 'Connecting' : remote.controlling ? 'Controlling' : 'Watching')}</span>
+    {remote.canControl && <button onClick={control} disabled={!remote.connected}>{remote.controlling ? 'Release control' : remote.occupied ? 'Take over' : 'Take control'}</button>}
+    <button onClick={disconnect}>Disconnect</button>
+  </>
+}
+let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteView['panes'][number]; index: number; selected: boolean; viewerPane: string }) => {
+  let { run } = useUI()
+  let choose = () => { void run('remote.action', { pane: viewerPane, action: 'switch', target: pane.id }) }
+  return <div className={css.windowTab} data-selected={selected}><button className={css.windowSelect} onClick={choose} aria-pressed={selected} title={pane.url}><span className={css.windowLabel}>{index}:{pane.title || pane.url || 'Blank page'}</span></button></div>
+}
+let LocalStatus = () => {
   let { state, show, run, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
   let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
@@ -772,7 +798,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let { state, run, dismiss, message, onMessage, addressFocusVersion, setAddressSuggestionsVisible } = useUI()
   let { client, pane, tab, profile, session } = selection(state)
   let [index, setIndex] = useState(-1), [preferRoot, setPreferRoot] = useState(true)
-  let currentUrl = tab ? state.pendingUrls[tab.id] ?? tab.url : ''
+  let remote = tab ? state.remoteViews?.[tab.id] : undefined, currentUrl = remote ? remote.panes.find(pane => pane.id === remote.pane)?.url ?? '' : tab ? state.pendingUrls[tab.id] ?? tab.url : ''
   let [text, setText] = useState(currentUrl !== 'about:blank' ? currentUrl : '')
   let [query, setQuery] = useState('')
   let [inlineUrl, setInlineUrl] = useState<{ value: string; url: string }>()
@@ -785,7 +811,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   let mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useAddressFocus(ref, addressFocusVersion, takeSelection, state.vimEditing !== false)
-  let profileHistory = profile?.history ?? [], bookmarkMatches = searchBookmarkPages(profile?.bookmarks ?? [], query)
+  let profileHistory = remote ? [] : profile?.history ?? [], bookmarkMatches = remote ? [] : searchBookmarkPages(profile?.bookmarks ?? [], query)
   let savedUrls = [...bookmarkMatches.map(bookmark => bookmark.url!), ...profileHistory.map(entry => entry.url)]
   let destination = addressDestination(query, savedUrls), baseUrl = addressUrlCompletion(query, savedUrls) ?? destination ?? searchUrlDestination(query, savedUrls)
   let baseTitle = baseUrl ? urlDestinationTitle(baseUrl.url, [...bookmarkMatches, ...profileHistory]) ?? baseUrl.value : '', inlineHistory = inlineUrl ? profileHistory.find(entry => entry.url === inlineUrl.url) : undefined
@@ -1028,6 +1054,31 @@ let useDisplayedAddressSelection = (open: () => void) => {
 }
 
 let PaneAddress = ({ paneId }: { paneId?: string }) => {
+  let { state } = useUI()
+  let remote = paneId ? state.remoteViews?.[paneId] : undefined
+  return remote ? <RemoteAddress paneId={paneId!} remote={remote} /> : <LocalPaneAddress paneId={paneId} />
+}
+let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView }) => {
+  let { run, show, control } = useUI()
+  let url = remote.panes.find(pane => pane.id === remote.pane)?.url ?? ''
+  let open = () => show('address', paneId)
+  let { beginSelection, editSelection, takeAddressSelection } = useDisplayedAddressSelection(open)
+  let selectAddress = useAddressSelection()
+  let editFromClick = (event: MouseEvent<HTMLInputElement>) => { if (event.detail === 0) void open() }
+  let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void open() } }
+  let back = () => { void run('back', { tab: paneId }) }
+  let forward = () => { void run('forward', { tab: paneId }) }
+  let reload = () => { void run('reload', { tab: paneId }) }
+  return <div className={css.addressBar} role="group" aria-label="Pane address" data-remote-address>
+    <div className={css.navigationControls}>
+      <button className={css.navigationButton} aria-label="Back" title="Back" disabled={!remote.controlling} onClick={back}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 3.5 6 8l4.5 4.5" /></svg></button>
+      <button className={css.navigationButton} aria-label="Forward" title="Forward" disabled={!remote.controlling} onClick={forward}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5 10 8l-4.5 4.5" /></svg></button>
+      <button className={css.navigationButton} aria-label="Refresh" title="Refresh" disabled={!remote.controlling} onClick={reload}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
+    </div>
+    <div className={css.urlBar}>{control === 'address' ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={editFromClick} onKeyDown={editFromKeyboard} onMouseDown={selectAddress} onPointerDown={beginSelection} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} />}</div>
+  </div>
+}
+let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {
   let { state, control, show, run, historyPopup, setHistoryPopup } = useUI()
   let { client, session, window } = selection(state)
   let pane = window?.panes.find(pane => pane.id === paneId)

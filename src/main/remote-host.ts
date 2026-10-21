@@ -38,13 +38,15 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let serialized = JSON.stringify(sessions)
     if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
   }
-  let disconnect = (id: string) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); stream?.peer.close(); runtime.remote.disconnect(id) }
+  let disconnect = (id: string, release = true) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); stream?.peer.close(); if (release) runtime.remote.disconnect(id) }
   let signal = (to: string, payload: unknown) => send({ type: 'signal', to, envelope: identity.seal(to, generation, payload) })
   let state = (id: string) => { let stream = streams.get(id); stream?.peer.send(JSON.stringify({ type: 'state', ...runtime.remote.state(), pane: stream.pane })) }
-  let open = async (id: string, pane?: string, request?: string) => {
+  let open = async (id: string, pane?: string, request?: string, switching = false) => {
     if (!allowed(id)) throw new Error('Access revoked')
     if (!streams.has(id) && !opening.has(id) && streams.size + opening.size >= 8) throw new Error('Viewer capacity reached')
-    disconnect(id)
+    let previousPane = streams.get(id)?.pane
+    let sameSession = switching && runtime.model.sessions.some(session => { let panes = session.windows.flatMap(window => window.panes); return panes.some(item => item.id === previousPane) && panes.some(item => item.id === pane) })
+    disconnect(id, !sameSession)
     let attempt = Symbol(); opening.set(id, attempt)
     let selected = pane ?? runtime.model.sessions[0]?.windows[0]?.panes[0]?.id
     if (!selected) { opening.delete(id); throw new Error('No pane available') }
@@ -74,7 +76,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           if (!message || typeof message !== 'object' || typeof message.type !== 'string') throw new Error('Invalid command')
           let result: unknown
           if (message.type === 'state') { state(id); return }
-          if (message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane, request); return }
+          if (message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane, request, true); return }
           if (allowed(id) !== 'control') throw new Error('Watch only access')
           if (message.type === 'acquire') result = runtime.remote.acquire(String(message.session), id, message.takeover === true)
           else if (message.type === 'renew') result = runtime.remote.renew(String(message.session), id, Number(message.generation))

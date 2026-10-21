@@ -556,3 +556,5 @@
 .pluginPopup > button:hover:not(:disabled), .pluginPopup select:hover { background: #303844; }
 .pluginPopup > button:disabled { opacity: .4; }
 .pluginPopup [role="switch"][aria-checked="true"] { color: #b4d49a; }
+
+.remoteConnection { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
