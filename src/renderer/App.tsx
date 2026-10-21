@@ -1065,6 +1065,9 @@ let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView })
   let url = remote.panes.find(pane => pane.id === remote.pane)?.url ?? ''
   let open = () => show('address', paneId)
   let { beginSelection, editSelection, takeAddressSelection } = useDisplayedAddressSelection(open)
+  let selectAddress = useAddressSelection()
+  let editFromClick = (event: MouseEvent<HTMLInputElement>) => { if (event.detail === 0) void open() }
+  let editFromKeyboard = (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void open() } }
   let back = () => { void run('back', { tab: paneId }) }
   let forward = () => { void run('forward', { tab: paneId }) }
   let reload = () => { void run('reload', { tab: paneId }) }
@@ -1074,7 +1077,7 @@ let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView })
       <button className={css.navigationButton} aria-label="Forward" title="Forward" disabled={!remote.controlling} onClick={forward}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5 10 8l-4.5 4.5" /></svg></button>
       <button className={css.navigationButton} aria-label="Refresh" title="Refresh" disabled={!remote.controlling} onClick={reload}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
     </div>
-    <div className={css.urlBar}>{control === 'address' ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={open} onPointerDown={beginSelection} onPointerUp={editSelection} />}</div>
+    <div className={css.urlBar}>{control === 'address' ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={editFromClick} onKeyDown={editFromKeyboard} onMouseDown={selectAddress} onPointerDown={beginSelection} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} />}</div>
   </div>
 }
 let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {

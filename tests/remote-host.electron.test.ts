@@ -232,6 +232,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await viewer.getByRole('button',{name:'Release control',exact:true}).click()
       await expect.poll(async()=>await command('eval','-t',pane,'window.memory')).toBe('retained')
     }, { timeout: 30000 })
+    let remoteTab = await command('rpc', 'new-window', JSON.stringify({ session: status.model.sessions[0].id, url: `${fixtureUrl}/?remote-tab=2` }))
+    await command('wait', '-t', remoteTab.panes[0].id, '--selector', 'input')
     let attachedClient = await test.step('Attach and focus the desktop session',async()=>{
       let client = await command('attach-session','-t',status.model.sessions[0].id)
       await command('rpc','activate-client',JSON.stringify({client:client.id}))
@@ -286,6 +288,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(local.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${fixtureUrl}/?desktop=1`)
       await local.getByRole('button', { name: 'Back', exact: true }).click()
       await expect.poll(() => page.url()).not.toContain('desktop=1')
+      await local.evaluate(() => (window as any).bmux.command({ method: 'cycle-window', args: { direction: 1 } }))
+      await expect(local.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${fixtureUrl}/?remote-tab=2`)
+      await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await local.locator('[data-remote-window-list] button').first().click()
+      await expect(local.getByRole('button', { name: 'Address', exact: true })).not.toHaveValue(`${fixtureUrl}/?remote-tab=2`)
+      await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       await local.getByRole('button', { name: 'Release control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeVisible()
       await application!.evaluate(({ BaseWindow }, { id, size }) => {
