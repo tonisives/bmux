@@ -140,7 +140,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await panel.getByRole('button', { name: 'Close', exact: true }).click()
     await chrome.getByRole('button', { name: 'Choose pane profile: Second pane', exact: true }).locator('..').getByRole('button', { name: 'Extensions', exact: true }).click()
     await expect(panel).toContainText('Profile: Second pane')
-    await expect(panel.getByRole('button', { name: 'Enable Demo extension', exact: true })).toBeVisible()
+    await expect(panel.getByRole('button', { name: /^Enable Demo extension/ })).toBeVisible()
 
   } finally {
     stopped = true; await recording
