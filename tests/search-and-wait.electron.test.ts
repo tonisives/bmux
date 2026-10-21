@@ -66,6 +66,7 @@ test.beforeAll(async () => {
       response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', service: 'fixture', sessions: [{ id: 'fixture-session', name: 'Remote fixture', panes: [{ id: 'fixture-pane', title: 'Fixture page' }] }] }] : { error: 'Login required' }))
       return
     }
+    if (request.url === '/api/connect') { response.writeHead(503); response.end(); return }
     if (request.url === '/favicon.svg') {
       response.writeHead(200, { 'Content-Type': 'image/svg+xml' })
       response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#173353"/></svg>')
@@ -208,7 +209,7 @@ test('session window rows show the same page icons as the status bar in both sor
   await picker.getByRole('textbox', { name: 'Search sessions' }).press('Escape')
 })
 
-test('remote sessions open from the sessions popup title bar', async () => {
+test('remote sessions open from the sessions popup title bar', async ({}, info) => {
   await activate()
   await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
   let dialog = chrome.getByRole('dialog', { name: 'Sessions' })
@@ -248,7 +249,14 @@ test('remote sessions open from the sessions popup title bar', async () => {
   await expect(dialog).toHaveCount(0)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/remote-client.html'))).toBe(true)
   let viewer = application.context().pages().find(page => page.url().endsWith('/remote-client.html'))!
-  await expect(viewer.locator('header')).toContainText('Remote fixture')
+  await expect(viewer.locator('header, form, button')).toHaveCount(0)
+  await expect(chrome.getByRole('button', { name: 'Sessions', exact: true })).toHaveText('Remote fixture')
+  await expect(chrome.locator('[data-remote-address]')).toHaveCount(1)
+  await expect(chrome.getByRole('group', { name: 'Pane address', exact: true })).toHaveCount(1)
+  await expect(chrome.getByRole('status').filter({ hasText: 'Remote connection unavailable' })).toBeVisible()
+  await viewer.evaluate(url => (window as any).remoteClient.update({ name: 'Remote fixture', connected: true, controlling: false, occupied: false, pane: 'fixture-pane', panes: [{ id: 'fixture-pane', title: 'Fixture page', url }], error: '' }), `${url}/remote-page`)
+  await expect(chrome.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${url}/remote-page`)
+  await expect(chrome.locator('[data-remote-window-list]')).toContainText('Fixture page')
   current = await state()
   expect(current.model.sessions.filter((item: { ephemeral?: boolean }) => item.ephemeral)).toHaveLength(1)
   expect(current.model.clients).toHaveLength(clients)
@@ -271,6 +279,7 @@ test('remote sessions open from the sessions popup title bar', async () => {
       let video = element as HTMLVideoElement, canvas = document.createElement('canvas')
       if (video.srcObject) for (let track of (video.srcObject as MediaStream).getTracks()) track.stop()
       canvas.width = size.width; canvas.height = size.height
+      canvas.getContext('2d')!.fillStyle = 'rgb(207,61,89)'
       canvas.getContext('2d')!.fillRect(0, 0, canvas.width, canvas.height)
       video.srcObject = canvas.captureStream()
       await video.play()
@@ -285,8 +294,8 @@ test('remote sessions open from the sessions popup title bar', async () => {
       await expect.poll(() => viewport.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
       await viewport.evaluate(element => { element.scrollLeft = element.scrollWidth; element.scrollTop = element.scrollHeight })
       await expect.poll(() => viewport.evaluate(element => element.scrollLeft > 0 && element.scrollTop > 0)).toBe(true)
-      let frame = (await viewport.boundingBox())!, header = (await viewer.locator('header').boundingBox())!
-      expect(frame.y).toBeGreaterThanOrEqual(header.y + header.height)
+      let frame = (await viewport.boundingBox())!
+      expect(frame.y).toBe(0)
       expect(await viewer.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true)
       let status = (await chrome.getByRole('contentinfo', { name: 'Browser status' }).boundingBox())!
       let address = (await chrome.locator(`[data-pane-id="${viewerPane}"]`).getByRole('button', { name: 'Address', exact: true }).boundingBox())!
@@ -294,10 +303,27 @@ test('remote sessions open from the sessions popup title bar', async () => {
       expect(region.y).toBeGreaterThanOrEqual(status.y + status.height)
       expect(region.y).toBeGreaterThanOrEqual(address.y + address.height)
     }
+    if (process.platform === 'darwin') {
+      let windowInfo = JSON.parse((await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
+      let screenshot = info.outputPath(`remote-native-${size.width}.png`)
+      let points = await Promise.all([chrome.getByRole('contentinfo', { name: 'Browser status' }), chrome.getByRole('group', { name: 'Pane address', exact: true }), content].map(async locator => { let rect = (await locator.boundingBox())!; return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } }))
+      await expect(async () => {
+        await exec('/usr/sbin/screencapture', ['-x', '-o', '-l', String(windowInfo.kCGWindowNumber), screenshot])
+        let colors = await application.evaluate(({ BaseWindow, nativeImage }, { screenshot, points, frame }) => {
+          let origin = BaseWindow.getAllWindows().find(window => window.isVisible())!.getContentBounds()
+          let image = nativeImage.createFromPath(screenshot), size = image.getSize(), pixels = image.toBitmap(), scale = size.width / frame.Width
+          return points.map(point => { let offset = (Math.round((origin.y + point.y - frame.Y) * scale) * size.width + Math.round((origin.x + point.x - frame.X) * scale)) * 4; return [pixels[offset + 2], pixels[offset + 1], pixels[offset]] })
+        }, { screenshot, points, frame: windowInfo.kCGWindowBounds })
+        expect(colors[0][0]).toBeLessThan(100)
+        expect(colors[1][0]).toBeLessThan(100)
+        expect(colors[2][0]).toBeGreaterThan(190)
+        expect(colors[2][1]).toBeLessThan(80)
+      }).toPass({ timeout: 5000 })
+    }
   }
-  await expect(rpc('navigate', { tab: viewerPane, url: `${url}/docs` })).rejects.toThrow('Use the remote viewer address')
+  await expect(rpc('navigate', { tab: viewerPane, url: `${url}/docs` })).rejects.toThrow('Take control to navigate')
   await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions.some((item: { ephemeral?: boolean }) => item.ephemeral)).toBe(false)
-  await viewer.getByRole('button', { name: 'Close', exact: true }).click({ noWaitAfter: true })
+  await chrome.getByRole('button', { name: 'Disconnect', exact: true }).click()
   await expect.poll(() => viewer.isClosed()).toBe(true)
   await expect.poll(async () => (await state()).model.sessions.find((item: { ephemeral?: boolean }) => item.ephemeral)?.windows.length).toBe(1)
   await rpc('switch-client', { client: current.clientId, session: previousSession })
