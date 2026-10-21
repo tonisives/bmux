@@ -4,6 +4,7 @@ import type { RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { createRoot } from 'react-dom/client'
 import { createViewer } from '../../remote/web/client'
 import type { Host, State } from '../../remote/web/client'
+import './global.css'
 import css from './remote-client.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>

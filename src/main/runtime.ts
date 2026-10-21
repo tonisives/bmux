@@ -1902,7 +1902,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     if (args.agentId !== undefined && (typeof args.agentId !== 'string' || !args.agentId.trim() || args.agentId.length > 128 || /[\x00-\x1f\x7f]/.test(args.agentId))) throw new Error('agentId must be a nonempty identifier of at most 128 characters')
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
-    checkControl(method, args)
     let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
     let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
     if (remoteTab && remoteView && ['cycle-window', 'cycle-pane'].includes(method) && remoteView.panes.length) {
@@ -1926,6 +1925,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       tabs.get(remoteTab)?.contents.send('remote-client-action', action)
       return { remote: true }
     }
+    checkControl(method, args)
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()
     if (method === 'pane.anti-bot.set') {
