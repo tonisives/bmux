@@ -12,7 +12,7 @@ let exec = promisify(execFile)
 test('unified extensions controls and virtual mouse clicks respect profile protection and social pacing', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-mouse-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
-  let recording: Promise<void> | undefined, stopped = false
+  let recording: Promise<void> | undefined, recordingVideo: ReturnType<typeof exec> | undefined, stopped = false
   let frames: { file: string; at: number }[] = [], chapters: { title: string; at: number }[] = [], pointerCues: { at: number; x: number; y: number }[] = []
   let destination = path.resolve('artifacts/extensions-mouse-demo'), started = 0
   let crop: { x: number; y: number; width: number; height: number } | undefined
@@ -67,6 +67,8 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await chrome.exposeFunction('recordDemoClick', (x: number, y: number) => { if (!stopped) pointerCues.push({ at: (Date.now() - started) / 1000, x, y }) })
       await chrome.evaluate(() => document.addEventListener('mousedown', event => { void (window as any).recordDemoClick(event.clientX, event.clientY) }, true))
       started = Date.now()
+      recordingVideo = exec('/usr/sbin/screencapture', ['-x', '-m', '-v', '-V', '30', path.join(destination, 'screen.mov')], { timeout: 45000 })
+      await expect.poll(async () => (await fs.stat(path.join(destination, 'screen.mov')).catch(() => ({ size: 0 }))).size, { timeout: 10000 }).toBeGreaterThan(0)
       recording = (async () => {
         while (!stopped) {
           let file = `${String(frames.length).padStart(5, '0')}.jpg`, before = Date.now()
@@ -113,7 +115,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     expect(clicks).toHaveLength(2); expect(clicks.every((event: any) => event.trusted)).toBe(true)
     expect(clicks[1].at - clicks[0].at).toBeGreaterThanOrEqual(1900)
     await hold(1700)
-    if (record) { stopped = true; await recording; await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2)) }
+    if (record) { stopped = true; await recording; await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', video: 'screen.mov', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2)) }
     // Plugin clicks and raw CDP clicks share the same animated input path.
     await page.evaluate(() => { (window as any).events = [] })
     let run = await rpc('plugin.run', { action: 'demo/click' })
@@ -145,8 +147,8 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await expect(panel.getByRole('button', { name: /^Enable Demo extension/ })).toBeVisible()
 
   } finally {
-    stopped = true; await recording
-    if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2))
+    stopped = true; await recording; await recordingVideo
+    if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', video: 'screen.mov', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2))
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })

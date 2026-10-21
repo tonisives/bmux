@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
 let exec = promisify(execFile)
+let ffmpeg = process.env.BMUX_FFMPEG ?? '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg'
 let [source, destination] = process.argv.slice(2)
 if (!source || !destination) throw new Error('Usage: node capture/render-extensions-mouse.mjs SOURCE DESTINATION')
 source = path.resolve(source); destination = path.resolve(destination)
@@ -26,6 +27,6 @@ for (let [index, chapter] of capture.chapters.entries()) {
   filters.push(`drawtext=fontfile=/System/Library/Fonts/Supplemental/Arial.ttf:textfile=${filename}:fontcolor=0xd8dfd2:fontsize=28:x=240:y=987:enable='between(t,${chapter.at.toFixed(3)},${(capture.chapters[index + 1]?.at ?? capture.duration).toFixed(3)})'`)
 }
 await writeFile(path.join(destination, 'filter.txt'), filters.join(','))
-await exec('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', path.join(destination, 'frames.txt'), '-vf', filters.join(','), '-r', '30', '-an', '-c:v', 'libx264', '-threads', '4', '-preset', 'fast', '-crf', '19', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(destination, 'extensions-mouse-demo.mp4')], { timeout: 120000 })
-await exec('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', '2', '-i', path.join(destination, 'extensions-mouse-demo.mp4'), '-frames:v', '1', path.join(destination, 'poster.jpg')])
+await exec(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', ...(capture.video ? ['-i', path.join(source, capture.video)] : ['-f', 'concat', '-safe', '0', '-i', path.join(destination, 'frames.txt')]), '-t', String(capture.duration), '-vf', filters.join(','), '-r', '30', '-an', '-c:v', 'libx264', '-threads', '4', '-preset', 'fast', '-crf', '19', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(destination, 'extensions-mouse-demo.mp4')], { timeout: 120000 })
+await exec(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', '2', '-i', path.join(destination, 'extensions-mouse-demo.mp4'), '-frames:v', '1', path.join(destination, 'poster.jpg')])
 console.log(path.join(destination, 'extensions-mouse-demo.mp4'))
