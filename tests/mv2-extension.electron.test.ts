@@ -71,7 +71,9 @@ test('a Manifest V2 popup can restore settings and resize the selected page', as
     await expect(page.locator('#thai')).toBeVisible()
     await expect(page.locator('#thai')).toHaveCSS('font-size', '13px')
     await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
-    await chrome.getByRole('dialog', { name: 'Extensions', exact: true }).getByRole('button', { name: 'Thai font fixture', exact: true }).click()
+    let extensionPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
+    await extensionPanel.getByRole('tab', { name: 'Chrome extensions', exact: true }).click()
+    await extensionPanel.getByRole('button', { name: 'Thai font fixture', exact: true }).click()
     let popupUrl = `chrome-extension://${installed.id}/popup.html`
     await expect.poll(() => application!.context().pages().some(page => page.url() === popupUrl)).toBe(true)
     let popup = application.context().pages().find(page => page.url() === popupUrl)!
