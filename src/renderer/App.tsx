@@ -120,7 +120,7 @@ export let App = () => {
   let panel = control && !prompt ? control : null
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousDialogPrompt.current = !!state.dialogPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
@@ -131,7 +131,7 @@ export let App = () => {
     })
     return () => { cancelled = true }
   }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, run])
-  useEscapeDismiss(dismiss, !!state?.dialogPrompt)
+  useControlDismiss(control, dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
@@ -157,7 +157,15 @@ export let App = () => {
   </div></Context.Provider>
 }
 
-let useEscapeDismiss = (dismiss: () => void, blocked: boolean) => {
+let useControlDismiss = (control: Control | null, dismiss: () => void, blocked: boolean) => {
+  useEffect(() => {
+    if (control !== 'command') return
+    let outside = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Element && !event.target.closest(`[aria-label="Command finder"], [aria-label="Command prompt"]`)) dismiss()
+    }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [control, dismiss])
   useEffect(() => {
     let escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape' && !blocked) dismiss() }
     document.addEventListener('keydown', escape)
@@ -523,12 +531,12 @@ let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteVie
   return <div className={css.windowTab} data-selected={selected}><button className={css.windowSelect} onClick={choose} aria-pressed={selected} title={pane.url}><span className={css.windowLabel}>{index}:{pane.title || pane.url || 'Blank page'}</span></button></div>
 }
 let LocalStatus = () => {
-  let { state, show, run, acknowledgedDownloads } = useUI()
+  let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
   let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
   let help = () => show('help')
-  let commands = () => show('command')
+  let commands = () => control === 'command' ? dismiss() : show('command')
   let activity = () => show('activity')
   let downloads = () => show('downloads')
   let newTab = () => { void run('new-window', { session: session!.id, client: state.clientId }) }
@@ -573,7 +581,7 @@ let LocalStatus = () => {
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
-    <button onClick={commands} aria-label="Command prompt">:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
+    <button onClick={commands} aria-label="Command prompt" aria-expanded={control === 'command'}>:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
 let PageIcon = ({ paneId }: { paneId?: string }) => {
@@ -1317,10 +1325,19 @@ let Panel = ({ type }: { type: Control }) => {
   let chooseRemoteSessions = () => { setSessionTab('remote'); localStorage.setItem('session-picker-tab', 'remote') }
   useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
   if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
+  let cycleTabs = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
+    let tabs = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
+    if (tabs.length < 2) return
+    let selected = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
+    let next = tabs[(selected + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length]
+    event.preventDefault(); event.stopPropagation()
+    next.click(); next.focus()
+  }
   let sessionPicker = type === 'sessions'
   let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'General anti-bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref}>
+  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Sessions</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote sessions</button>
@@ -1396,13 +1413,14 @@ let SiteInformation = () => {
     {notice && <p role="status">{notice}</p>}
   </section>
 }
+let ExtensionInfoIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg>
 let ExtensionsContent = () => {
-  let [tab, setTab] = useSettingsState<'extensions' | 'plugins'>('extensions:tab', 'extensions')
+  let [tab, setTab] = useSettingsState<'extensions' | 'plugins'>('extensions:tab', 'plugins')
   let extensions = () => setTab('extensions'), plugins = () => setTab('plugins')
   return <>
     <div className={css.panelTabs} role="tablist" aria-label="Extensions sections">
-      <button type="button" role="tab" aria-selected={tab === 'extensions'} onClick={extensions}>Chrome extensions</button>
       <button type="button" role="tab" aria-selected={tab === 'plugins'} onClick={plugins}>Plugins</button>
+      <button type="button" role="tab" aria-selected={tab === 'extensions'} onClick={extensions}>Chrome extensions</button>
     </div>
     <div role="tabpanel" aria-label={tab === 'extensions' ? 'Chrome extensions' : 'Plugins'}>{tab === 'extensions' ? <ExtensionManager /> : <PluginList compact />}</div>
   </>
@@ -1446,7 +1464,7 @@ let ExtensionManager = () => {
     } finally { setBusy(false) }
   }
   let selected = listing?.extensions.find(extension => extension.path === selectedPath)
-  if (selected) return <section aria-label="Extension details" className={css.extensionDetails} onKeyDown={keys}>
+  let details = selected && <section aria-label="Extension details" className={css.extensionDetails}>
     <button ref={detailsBack} onClick={back}>Back to extensions</button>
     <h2>{selected.name}</h2>
     {selected.description && <p>{selected.description}</p>}
@@ -1477,19 +1495,22 @@ let ExtensionManager = () => {
     </section>
     {notice && <p role="status">{notice}</p>}
   </section>
-  return <section aria-label="Profile extensions" onKeyDown={keys} ref={listRef} tabIndex={-1}><p>{session?.private ? `Private session: ${session.name}. Extension choices and data last only for this session.` : `Profile: ${profile?.name ?? 'No selected pane'}. Changes apply only to this profile.`}</p>
+  return <div className={css.extensionWorkspace} data-details-open={!!selected} onKeyDown={keys}>
+    <section aria-label="Profile extensions" className={css.extensionList} ref={listRef} tabIndex={-1}><p>{session?.private ? `Private session: ${session.name}. Extension choices and data last only for this session.` : `Profile: ${profile?.name ?? 'No selected pane'}. Changes apply only to this profile.`}</p>
     {!listing && <p>Loading extensions…</p>}
     {listing && !listing.extensions.length && <p>{session?.private ? 'No extensions enabled in this private session.' : 'No extensions in this profile.'}</p>}
     {listing?.extensions.map(extension => <div key={extension.path} data-panel-row className={css.extensionRow}>
       <button className={css.extensionName} data-id={extension.id} data-action="open" onClick={action} disabled={busy || !extension.enabled || !extension.hasPopup}><strong>{extension.name}</strong>{extension.error && <span className={css.error}>Failed to load</span>}</button>
-      <button className={css.extensionInfo} data-details={extension.path} onClick={showDetails} aria-label={`Details for ${extension.name}`} title="Extension details"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg></button>
+      <button className={css.extensionInfo} data-details={extension.path} aria-current={selectedPath === extension.path || undefined} onClick={showDetails} aria-label={`Details for ${extension.name}`} title="Extension details"><ExtensionInfoIcon /></button>
       <button className={css.extensionToggle} role="switch" aria-checked={extension.enabled} aria-label={`Enable ${extension.name}`} data-id={extension.id} data-action={extension.enabled ? 'disable' : 'enable'} onClick={action} disabled={busy} />
     </div>)}
     {!!listing?.available.length && <p>{session?.private ? 'Installed extensions' : 'Available from other profiles'}</p>}
     {listing?.available.map(extension => <button key={extension.path} className={css.listRow} disabled={busy} data-action="load" data-path={extension.path} onClick={action}><strong>Enable {extension.name}</strong><span className={css.pluginDescription}>Version {extension.version}</span></button>)}
     {notice && <p role="status">{notice}</p>}
     {listing?.errors.map(error => <p key={`${error.path}:${error.error}`} className={css.error}>{error.error}</p>)}
-  </section>
+    </section>
+    {details || <p className={css.extensionPlaceholder}>Select an extension to see its details.</p>}
+  </div>
 }
 
 let BUILTIN_TOOLS = [
@@ -1518,7 +1539,7 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  if (builtin || plugin) return <section aria-label="Plugin details" onKeyDown={stack.keys}>
+  let details = (builtin || plugin) && <section aria-label="Plugin details" className={css.extensionDetails}>
     <button ref={stack.backButton} onClick={stack.back}>Back to plugins</button>
     <h2>{builtin?.name ?? plugin?.name}</h2>
     {builtin ? <><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /></>}
@@ -1527,19 +1548,22 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.name} ${plugin.actions.map(action => `${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
-    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} onClick={stack.open}><strong>{plugin.name}</strong><span className={css.pluginDescription}>{plugin.error || (plugin.enabled ? 'Enabled' : 'Disabled')}</span></button>
+    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={stack.open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
-  return <section aria-label="Plugin list" ref={stack.list} tabIndex={-1} onKeyDown={stack.keys}>
+  return <div className={css.extensionWorkspace} data-details-open={!!details} onKeyDown={stack.keys}>
+    <section aria-label="Plugin list" className={css.extensionList} ref={stack.list} tabIndex={-1}>
     <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
     <h2>Built-in</h2>
-    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} onClick={stack.open}><strong>{tool.name}</strong><span className={css.pluginDescription}>{tool.description}</span></button></div>)}
+    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={stack.open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled).map(row)}
     <h2>Custom</h2>
     {plugins.filter(plugin => !plugin.bundled).map(row)}
     {!plugins.some(plugin => !plugin.bundled) && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
     <button onClick={reload}>Reload plugins</button>
-  </section>
+    </section>
+    {details || <p className={css.extensionPlaceholder}>Select a plugin to see its details.</p>}
+  </div>
 }
 
 let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: boolean; matches?: Set<string>; pluginId?: string }) => {

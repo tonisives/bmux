@@ -242,6 +242,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{timeout:25000})
     let localPages = await test.step('Find the attached desktop renderer',()=>Promise.all(application!.context().pages().filter(page=>page.url().endsWith('/index.html')).map(async page=>({page,clientId:(await page.evaluate(()=>(window as any).bmux.state())).clientId}))),{timeout:10000})
     let local = localPages.find(item=>item.clientId===attachedClient.id)!.page
+    let extensionPath = path.join(directory, 'remote-layout-extension')
+    await fs.mkdir(extensionPath)
+    await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Remote layout fixture', version: '1.0', permissions: ['tabs'] }))
+    let extension = await command('rpc', 'extension.load', JSON.stringify({ profile: status.model.sessions[0].defaultProfileId, path: extensionPath }))
+    expect(extension.id).toBeTruthy()
     await test.step('Open the attached desktop session picker',async()=>{
       await expect(local.locator(`[data-pane-id="${pane}"]`)).toHaveAttribute('data-focused-pane','true')
       await local.getByRole('button',{name:'Sessions',exact:true}).click()
@@ -258,6 +263,15 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(local.locator('[data-remote-window-list] button')).not.toHaveCount(0, { timeout: 25000 })
       await expect(attached.locator('header, form, button')).toHaveCount(0)
       await expect(local.locator('[data-remote-address]')).toHaveCount(1)
+      await expect.poll(async () => {
+        let rect = (await local.locator('[data-browser-content]').boundingBox())!
+        let bounds = await application!.evaluate(({ BaseWindow }) => {
+          for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) {
+            if ('webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('/remote-client.html')) return view.getBounds()
+          }
+        })
+        return bounds && (['x', 'y', 'width', 'height'] as const).every(key => Math.abs(bounds[key] - rect[key]) <= 1)
+      }).toBe(true)
       await expect(attached.getByLabel('Remote browser')).toBeVisible()
       await attached.waitForFunction(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames>0,undefined,{timeout:15000})
       await expect(local.getByRole('button',{name:'Take control'})).toBeVisible()

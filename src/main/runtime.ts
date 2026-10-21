@@ -1628,7 +1628,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       live.view.setVisible(!retainPickerOwner)
       live.camera?.setVisible(!retainPickerOwner)
       let { session, pane } = tabById(model, tabId)
-      extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
+      // Remote viewer contents belong to the app session, outside profile extensions.
+      if (!remotePages.get(tabId)?.attach) extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
         let persona = remoteSizes.has(tabId) ? undefined : tabById(model, tabId).pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
