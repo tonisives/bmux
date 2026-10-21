@@ -106,12 +106,17 @@ Watch reports a host rejection or timeout instead of showing an idle video area.
 
 ## Attach from the desktop app
 
-Open the **Sessions** popup, then select **Remote sessions** in its title bar. Sign-in opens
-`remote.bmux.cc` in a new bmux window while the remote picker stays open and
-checks for completion. Select a remote session to open a local viewer window;
-the stream and input still use the remote connection service. Closing the window
-leaves the hosted session running. Set `BMUX_REMOTE_URL` before launching bmux
-to use a different HTTPS service origin. The default is `https://remote.bmux.cc`.
+Open the **Sessions** popup, then select **Remote sessions** in its title bar. The
+popup remembers the selected tab. Sign-in and remote viewing reuse the current
+bmux window. Selecting a remote session replaces its tab strip and address bar
+with the remote pages and URL. The status bar offers **Take control**, **Release
+control**, and **Disconnect**. Navigation buttons, URL entry, and tab switching
+operate on the remote session; switching its tabs keeps your control lease.
+
+Small streams are centered in the page area. Larger streams have scrollbars.
+Disconnect leaves the hosted session running and returns to the remaining local
+view. Set `BMUX_REMOTE_URL` before launching bmux to use a different HTTPS service
+origin. The default is `https://remote.bmux.cc`.
 
 ## Control and reporting
 
