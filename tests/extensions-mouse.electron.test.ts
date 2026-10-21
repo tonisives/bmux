@@ -67,7 +67,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await chrome.exposeFunction('recordDemoClick', (x: number, y: number) => { if (!stopped) pointerCues.push({ at: (Date.now() - started) / 1000, x, y }) })
       await chrome.evaluate(() => document.addEventListener('mousedown', event => { void (window as any).recordDemoClick(event.clientX, event.clientY) }, true))
       started = Date.now()
-      recordingVideo = exec('/usr/sbin/screencapture', ['-x', '-m', '-v', '-V', '30', path.join(destination, 'screen.mov')], { timeout: 45000 })
+      recordingVideo = exec('/usr/sbin/screencapture', ['-x', '-D1', '-v', '-V', '30', path.join(destination, 'screen.mov')], { timeout: 45000 })
       await expect.poll(async () => (await fs.stat(path.join(destination, 'screen.mov')).catch(() => ({ size: 0 }))).size, { timeout: 10000 }).toBeGreaterThan(0)
       recording = (async () => {
         while (!stopped) {
