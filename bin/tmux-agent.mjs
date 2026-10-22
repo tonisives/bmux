@@ -41,11 +41,11 @@ let readThread = async (id, env) => {
 }
 
 let listPanes = async (socket, execute) => {
-  let fields = ['session_id', 'window_id', 'pane_id', 'pane_pid', 'pane_current_command', 'pane_title', 'pane_current_path', 'client_tty']
+  let fields = ['session_id', 'window_id', 'pane_id', 'pane_pid', 'pane_current_command', 'pane_title', 'pane_current_path', 'client_tty', 'session_name']
   let output = await execute('tmux', [...(socket ? ['-S', socket] : []), 'list-panes', '-a', '-F', fields.map(field => `#{${field}}`).join('\t')])
   return output.trimEnd().split('\n').filter(Boolean).map(line => {
-    let [sessionId, windowId, paneId, panePid, command, title, cwd, clientTty] = line.split('\t')
-    return { sessionId, windowId, paneId, panePid, command, title, cwd, clientTty }
+    let [sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName] = line.split('\t')
+    return { sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName }
   })
 }
 
@@ -60,7 +60,7 @@ export let resolveTmuxAgent = async ({ env = process.env, pid = process.pid, exe
     processes = output.trim().split('\n').map(line => { let [pid, parent] = line.trim().split(/\s+/).map(Number); return { pid, parent } })
   }
   let pane = findAgentPane(panes, processes, pid, thread)
-  let agentData = { sessionId: pane.sessionId, windowId: pane.windowId, paneId: pane.paneId, ...(pane.clientTty ? { clientTty: pane.clientTty } : {}) }
+  let agentData = { sessionId: pane.sessionId, windowId: pane.windowId, paneId: pane.paneId, ...(pane.clientTty ? { clientTty: pane.clientTty } : {}), ...(pane.sessionName ? { sessionName: pane.sessionName } : {}) }
   let agentOrigin = { type: 'tmux', paneId: pane.paneId, panePid: pane.panePid, ...(socketPath ? { socketPath } : {}), ...(threadId ? { threadId } : {}) }
   return { agentId: threadId ?? pane.paneId, agentType: 'tmux', agentData, agentOrigin }
 }
