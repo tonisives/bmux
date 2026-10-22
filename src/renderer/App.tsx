@@ -2,6 +2,7 @@ import type { RemoteView } from '../shared/remote'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { VimMode } from './VimMode'
+import { pickerRemovalFocus } from './picker-removal-focus'
 import { VimCursor } from './VimCursor'
 import { usePanelStack } from './usePanelStack'
 import { useAddressVim } from './useAddressVim'
@@ -72,11 +73,11 @@ export let App = () => {
   let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
-    let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`
-    if (previous.current && previous.current !== target) { setControl(null); setHistoryPopup(null); setMessage('') }
+    let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
+    if (previous.current && previous.current !== target) { setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
     if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
-      setControl('address')
+      setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
     knownPanes.current = new Set(paneIds)
@@ -1838,7 +1839,7 @@ let SessionPicker = () => {
     if (profile) { await run('session.new-profile.set', { profile: profile.id }); cancelNewProfile() }
     setBusy(false)
   }
-  return <div ref={ref} className={css.sessionPicker} onKeyDown={sessionKeys} onFocusCapture={focusMode} role="group" aria-label="Choose session">
+  return <div ref={ref} data-picker className={css.sessionPicker} onKeyDown={sessionKeys} onFocusCapture={focusMode} role="group" aria-label="Choose session">
     <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list data-session-recent={recent || undefined}>
     {(backFirst || (!recent && !query.trim())) && backRow}
@@ -1923,7 +1924,7 @@ let RemoteSessionPicker = () => {
     if (event.key === 'Escape' && event.target === input.current && !query && !sessions.length) { event.preventDefault(); event.stopPropagation(); dismiss(); return }
     sessionKeys(event)
   }
-  return <div ref={ref} className={css.sessionPicker} onKeyDown={remoteKeys} onFocusCapture={focusMode} role="group" aria-label="Choose remote session">
+  return <div ref={ref} data-picker className={css.sessionPicker} onKeyDown={remoteKeys} onFocusCapture={focusMode} role="group" aria-label="Choose remote session">
     <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list>
     {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={lastActive === `${host.id}:${session.id}`} visitedAt={visited(host.id, session)} now={now} onSelect={openRemote} onClosed={refresh} />)}
@@ -1942,14 +1943,13 @@ let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => P
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null), confirmButton = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
-  let ask = () => setConfirming(true)
+  let restore = useRef<() => void>(() => {})
+  let ask = () => { restore.current = pickerRemovalFocus(row.current); setConfirming(true) }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => {
     if (busy) return
     setBusy(true)
-    let target = confirmButton.current?.closest('[data-session-target]')
-    let next = target?.nextElementSibling?.querySelector<HTMLButtonElement>('[data-session-row]') ?? target?.previousElementSibling?.querySelector<HTMLButtonElement>('[data-session-row]')
-    try { await bridge.closeRemoteSession(host, session); await onClosed?.(); cancel(); requestAnimationFrame(() => next?.focus()) }
+    try { await bridge.closeRemoteSession(host, session); await onClosed?.(); setConfirming(false); restore.current() }
     catch (error) { onMessage(error instanceof Error ? error.message : String(error)); cancel() }
     finally { setBusy(false) }
   }
@@ -1986,13 +1986,16 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   let row = useRef<HTMLButtonElement>(null)
   let confirmButton = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
-  let ask = () => setConfirming(true)
+  let restore = useRef<() => void>(() => {})
+  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-tree]')); setConfirming(true) }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   let close = async () => {
     if (busy) return
     setBusy(true)
-    await run('kill-session', { session: id, confirm: true }); setBusy(false); cancel()
+    let result = await run('kill-session', { session: id, confirm: true }) as { closed?: string } | undefined
+    setBusy(false); setConfirming(false)
+    if (!result?.closed) cancel(); else restore.current()
   }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
@@ -2007,9 +2010,10 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   let confirmButton = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
   let select = async () => { if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
-  let ask = () => setConfirming(true)
+  let restore = useRef<() => void>(() => {})
+  let ask = () => { restore.current = pickerRemovalFocus(row.current); setConfirming(true) }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
-  let close = async () => { if (busy) return; setBusy(true); await run('kill-window', { window: window.id, confirm: true }); setBusy(false); setConfirming(false) }
+  let close = async () => { if (busy) return; setBusy(true); let result = await run('kill-window', { window: window.id, confirm: true }) as { closed?: string } | undefined; setBusy(false); setConfirming(false); if (!result?.closed) cancel(); else restore.current() }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target>
@@ -2891,7 +2895,7 @@ let BookmarkPicker = () => {
     let row = event.target.closest<HTMLElement>('[data-bookmark-id]')
     let key = row ? bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '') : null
     if (key) {
-      setSelectedBookmarkId(key); setSettingsClosed(false)
+      setHoveredBookmarkId(null); setSelectedBookmarkId(key); setSettingsClosed(false)
       if (profile) rememberBookmarkSelection(profile.id, key)
     }
     if (event.target === input.current) {
@@ -2924,7 +2928,7 @@ let BookmarkPicker = () => {
   }, [query, allBookmarkProfiles])
   let bookmarks = <BookmarkActions key={`${query}:${allBookmarkProfiles}`} run={run} focusSearch={focusSearch}>{groups.map(group => <div key={group.profile.id}>{allBookmarkProfiles && <h2 className={css.bookmarkProfile}>{group.profile.name}</h2>}{group.bookmarks.map(bookmark => <BookmarkRow key={bookmark.id} bookmark={bookmark} profileId={group.profile.id} parentId="" />)}</div>)}</BookmarkActions>
   let results = <div data-bookmark-results>{bookmarks}{!groups.length && <p role="status">{query ? 'No matching bookmarks.' : allBookmarkProfiles ? 'No bookmarks.' : 'No bookmarks in this profile.'}</p>}</div>
-  return <BookmarkExpansionContext.Provider value={{ searching: !!query.trim(), canAdd, reordering, activate, expandedBookmarkId, settingsClosed, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} className={css.bookmarkPicker} data-bookmark-picker onPointerMove={pointerMove} onPointerLeave={pointerLeave} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
+  return <BookmarkExpansionContext.Provider value={{ searching: !!query.trim(), canAdd, reordering, activate, expandedBookmarkId, settingsClosed, setExpandedBookmarkId, startDrag: drag => { dragSource.current = drag }, endDrag, dragOver, drop, dropTarget }}><div ref={ref} data-picker className={css.bookmarkPicker} data-bookmark-picker onPointerMove={pointerMove} onPointerLeave={pointerLeave} onFocusCapture={focus} onKeyDown={keys} role="group" aria-label="Choose bookmark">
     <div className={css.bookmarkToolbar}><VimMode mode={`${mode}${count && ` ${count}`}`} label="Bookmark navigation mode" /><div className={css.bookmarkSearch}><SearchInput ref={input} aria-label="Search bookmarks" data-vim-mode={vim.mode} value={query} onChange={changeQuery} onKeyDown={searchKeys} onMouseUp={vim.select} /><VimCursor input={input} mode={vim.mode} value={query} /></div><label><input type="checkbox" checked={allBookmarkProfiles} onChange={changeProfiles} />All profiles</label><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder bookmarks" title="Reorder bookmarks" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button>{canAdd && <button type="button" data-picker-action className={css.bookmarkAdd} aria-label="Bookmark current page" title="Bookmark current page" onClick={addBookmark}>+</button>}</div>
     <div className={css.bookmarkColumns} data-settings-open={!!expanded}><div ref={list} className={css.bookmarkList} data-bookmark-scroll onScroll={scroll}>{results}</div>
     {expanded && <BookmarkSettings key={expanded.key} bookmark={expanded.bookmark} profileId={expanded.profileId} />}</div>

@@ -104,6 +104,8 @@ Choose a pane action before typing its link hint. The pane actions show hints fo
 
 Pickers support typing to search, Up/Down to select, Enter to confirm, and Escape to clear or close. Open `?` or press F1 to see active shortcuts and commands.
 
+In session and bookmark lists, press `x` then `y` to delete the selected window, session, bookmark, or folder. The next row stays selected; at the end, selection moves to the previous row. Press `n` or Escape to cancel.
+
 In the bookmark editor, press `/` from a folder row to search folders, use Up/Down and Enter to select one, or create a new folder inside the selected folder.
 
 ## Command prompt

@@ -580,6 +580,7 @@ test('session picker creates by keyboard and confirms session closing', async ()
   await expect(confirmation).toBeVisible(); await confirmation.getByRole('button', { name: 'no', exact: true }).click()
   await close.click(); await confirmation.getByRole('button', { name: 'yes', exact: true }).click()
   await expect.poll(async () => (await state()).model.sessions.some((session: { id: string }) => session.id === created.id)).toBe(false)
+  await expect(create).toBeFocused()
 })
 
 test('session tree shows window visits and supports counted vim navigation and window closing', async () => {
@@ -644,9 +645,39 @@ test('session tree shows window visits and supports counted vim navigation and w
   await chrome.keyboard.press('Escape')
   await expect(secondRow).toBeFocused(); await chrome.keyboard.press('x'); await chrome.keyboard.press('y')
   await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows).some((item: any) => item.id === second.id)).toBe(false)
+  await expect(unnamedRow).toBeFocused()
+  await chrome.keyboard.press('k'); await expect(firstRow).toBeFocused()
+  await chrome.keyboard.press('j'); await expect(unnamedRow).toBeFocused()
   if (await group.count()) await chrome.keyboard.press('Escape')
   await rpc('kill-window', { window: first.id, confirm: true })
   await rpc('kill-window', { window: unnamed.id, confirm: true })
+})
+
+for (let recent of [false, true]) test(`session xy deletion continues through windows (${recent ? 'recent' : 'tree'})`, async () => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
+  let target = await rpc('new-session', { name: 'Removal windows', client: client.id })
+  let first = target.windows[0]
+  let second = await rpc('new-window', { session: target.id, name: 'Removal middle' })
+  let third = await rpc('new-window', { session: target.id, name: 'Removal next' })
+  await rpc('select-window', { client: client.id, window: first.id })
+  try {
+    await open('sessions')
+    let group = chrome.getByRole('group', { name: 'Choose session', exact: true })
+    let sort = group.getByRole('button', { name: 'Sort by recently visited', exact: true })
+    if ((await sort.getAttribute('aria-pressed')) !== String(recent)) await sort.click()
+    await group.getByRole('textbox', { name: 'Search sessions' }).fill(target.name)
+    let row = (id: string) => group.locator(`[data-window-row="${id}"]`)
+    await row(first.id).focus()
+    await chrome.keyboard.press('j'); await expect(row(second.id)).toBeFocused()
+    await chrome.keyboard.press('x'); await chrome.keyboard.press('y')
+    await expect(row(second.id)).toHaveCount(0); await expect(row(third.id)).toBeFocused()
+    await chrome.keyboard.press('k'); await expect(row(first.id)).toBeFocused()
+  } finally {
+    await chrome.keyboard.press('Escape'); await chrome.keyboard.press('Escape')
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    await rpc('kill-session', { session: target.id, confirm: true })
+    await chrome.evaluate(() => localStorage.removeItem('session-sort-recent'))
+  }
 })
 
 test('session visit times use age colors in tree and recent views', async () => {
@@ -2062,7 +2093,7 @@ for (let searching of [false, true]) test(`bookmark deletion updates the saved t
   await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(group.getByRole('button', { name: 'Disposable entry', exact: true })).toHaveCount(0)
-  await expect(search).toBeFocused()
+  await expect(group.locator(`[data-bookmark-id="${folder.folder.id}"]`)).toBeFocused()
   expect((await state()).bookmarkParameters[profile]?.[saved.bookmark.id]).toBeUndefined()
   await expect.poll(async () => (await fs.readFile(path.join(directory, 'bookmarks.yaml'), 'utf8')).includes(targetUrl)).toBe(false)
   await group.locator('[data-bookmark-folder-title]').filter({ hasText: /^Disposable / }).click({ button: 'right' })
@@ -2072,6 +2103,38 @@ for (let searching of [false, true]) test(`bookmark deletion updates the saved t
   await folderConfirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect.poll(async () => flattenBookmarks((await state()).model.profiles[0].bookmarks).some(item => item.id === folder.folder.id)).toBe(false)
   await expect(group).toBeVisible()
+})
+
+test('bookmark xy deletion keeps the next visible row active and falls back at the end', async () => {
+  let profile = model.profiles[0].id
+  let folder = await rpc('bookmark.folder.add', { tab: original, profile, title: 'Removal focus folder' })
+  let saved = []
+  for (let title of ['Removal focus first', 'Removal focus second', 'Removal focus third']) {
+    await rpc('navigate', { pane: original, url: `${url}/removal-focus-${saved.length}` })
+    saved.push(await rpc('bookmark.add', { tab: original, profile, title, folder: folder.folder.id }))
+  }
+  await open('bookmarks')
+  let group = chrome.getByRole('group', { name: 'Choose bookmark', exact: true })
+  let search = group.getByRole('textbox', { name: 'Search bookmarks', exact: true })
+  await search.fill('Removal focus')
+  await search.hover()
+  let row = (index: number) => group.locator(`[data-bookmark-id="${saved[index].bookmark.id}"]`)
+  await row(0).focus()
+  await chrome.keyboard.press('x')
+  await expect(chrome.getByRole('alertdialog', { name: 'Delete bookmark "Removal focus first"?' })).toBeVisible()
+  await chrome.keyboard.press('n'); await expect(row(0)).toBeFocused()
+  await chrome.keyboard.press('x'); await chrome.keyboard.press('y')
+  await expect(row(0)).toHaveCount(0); await expect(row(1)).toBeFocused()
+  await expect(row(1)).toHaveAttribute('data-active', 'true')
+  await chrome.keyboard.press('j'); await expect(row(2)).toBeFocused()
+  await chrome.keyboard.press('x'); await chrome.keyboard.press('y')
+  await expect(row(2)).toHaveCount(0); await expect(row(1)).toBeFocused()
+  await chrome.keyboard.press('k')
+  let folderRow = group.locator(`[data-bookmark-id="${folder.folder.id}"]`)
+  await expect(folderRow).toBeFocused()
+  await chrome.keyboard.press('x'); await chrome.keyboard.press('y')
+  await expect(folderRow).toHaveCount(0); await expect(row(1)).toHaveCount(0)
+  await expect(search).toBeFocused()
 })
 
 test('bookmark rename and recursive deletion keep duplicate IDs in other profiles untouched', async () => {
