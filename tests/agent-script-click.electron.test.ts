@@ -69,6 +69,15 @@ test('script clicks move the cursor before clicking and preserve synchronous scr
     await expect.poll(async () => (await rpc('plugin.runs')).find((item: any) => item.id === run.id)?.status, { timeout: 20000 }).toBe('completed')
     await expect(page.locator('output')).toHaveText('5')
     expect(await page.evaluate(() => HTMLElement.prototype.click === (window as any).originalClick)).toBe(true)
+    // Human navigation can interrupt the pre-click movement without sending the
+    // old click into either document or leaving JavaScript paused.
+    let interrupted = cli('eval', { pane, expression: "window.attemptingClick=true; document.querySelector('#first').click()" }).then(() => true, () => false)
+    await expect.poll(() => page.evaluate(() => (window as any).attemptingClick)).toBe(true)
+    await rpc('navigate', { pane, url: `${url}?replacement`, waitUntil: 'none' })
+    await expect(page).toHaveURL(`${url}?replacement`)
+    expect(await interrupted).toBe(false)
+    await expect(page.locator('output')).toHaveText('0')
+    expect(await page.evaluate(() => HTMLElement.prototype.click === (window as any).originalClick)).toBe(true)
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
