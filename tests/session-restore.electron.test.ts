@@ -22,7 +22,7 @@ for (let crash of [false, true]) test(`restores the last focused client and its 
   let botClient = { id: 'client_bot', sessionId: bot.id, windowId: bot.windows[0].id, paneId: bot.windows[0].panes[0].id, width: 1000, height: 700 }
   model.clients.push(gpClient, botClient)
   writeModel(directory, model)
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  keys: {}\nadblock:\n  autoUpdate: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let application: ElectronApplication | undefined, child: ChildProcess | undefined
   let launch = async () => {
     application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
