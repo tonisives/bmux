@@ -13,6 +13,8 @@ let exec = promisify(execFile)
 test('unified extensions controls and virtual mouse clicks respect profile protection and social pacing', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-extensions-mouse-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let originalPointer: { x: number; y: number } | undefined
+  let movePointer = (point: { x: number; y: number }) => exec(process.execPath, ['-e', 'require(process.argv[1]).move(Number(process.argv[2]), Number(process.argv[3]))', path.resolve('out/native/pointer.node'), String(point.x), String(point.y)])
   let recording: Promise<void> | undefined, recordingVideo: ReturnType<typeof exec> | undefined, stopped = false
   let frames: { file: string; at: number }[] = [], chapters: { title: string; at: number }[] = [], pointerCues: { at: number; x: number; y: number }[] = []
   let destination = path.resolve('artifacts/extensions-mouse-demo'), started = 0
@@ -50,6 +52,13 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     }
     await rpc('activate-client', { client: client.id })
     await application.evaluate(({ BaseWindow, screen }) => { let area = screen.getPrimaryDisplay().workArea; BaseWindow.getFocusedWindow()?.setBounds({ x: area.x + 20, y: area.y + 20, width: Math.min(1280, area.width - 40), height: Math.min(800, area.height - 40) }) })
+    if (process.platform === 'darwin') {
+      originalPointer = await application.evaluate(({ screen }) => screen.getCursorScreenPoint())
+      let parked = await application.evaluate(({ screen }) => { let { x, y } = screen.getPrimaryDisplay().workArea; return { x, y } })
+      // An inherited native cursor over the page produces hover events after navigation.
+      await movePointer(parked)
+      await expect.poll(() => application!.evaluate(({ screen }) => screen.getCursorScreenPoint())).toEqual(parked)
+    }
     await rpc('extension.load', { profile: 'profile_default', path: extension })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -186,6 +195,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     stopped = true; await recording; await recordingVideo
     if (record && started) await fs.writeFile(path.join(destination, 'capture.json'), JSON.stringify({ source: 'Native Tart guest recording; disposable profile and local social-site fixture', video: 'screen.mov', crop, frames, chapters, pointerCues, duration: (frames.at(-1)?.at ?? 0) + .1 }, null, 2))
     await closeTestApplication(application)
+    if (originalPointer) await movePointer(originalPointer)
     if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server!.close(() => resolve())) }
     await fs.rm(directory, { recursive: true, force: true })
   }
