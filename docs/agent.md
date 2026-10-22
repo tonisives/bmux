@@ -212,9 +212,10 @@ needed for these defaults:
 - Agent scroll commands and CDP wheel events move the page smoothly and finish
   scrolling before the action pause starts. Reduced motion uses immediate
   scrolling. Modified wheel events keep their normal zoom or shortcut behavior.
-- Reading page content through CLI or plugins gives the page a subtle blue pulse
-  during the read and for 2.4 seconds afterward. Reduced motion uses a steady
-  highlight. Read commands do not show or refresh the agent cursor.
+- Reading page content through CLI or plugins outlines the page and up to three
+  large visible sections with pulsing blue borders and a bright highlight moving
+  around each border. This continues for 2.4 seconds after reading. Reduced motion
+  uses steady borders. Read commands do not show or refresh the agent cursor.
 - A white wedge cursor appears on pointer actions and automated navigation.
   It rotates gently while idle and pulses blue on clicks. It hides after 20
   seconds without pointer or navigation activity. **Hide agent cursor** in Agent
@@ -225,7 +226,13 @@ needed for these defaults:
   available. Hiding the agent cursor does not release the input lock. The agent
   sends browser input events without moving the system mouse cursor.
   Before each click it follows a varied curve with small deviations,
-  changing speed and timing, and lands exactly on the target.
+  changing speed and timing, and lands exactly on the target before pressing.
+  Movement takes a random 0.8–1.2 seconds by default; **Mouse movement minimum**
+  and **Mouse movement maximum** in Anti-bot > Limits configure the range per
+  profile. Clicking an already reached target waits for the same duration before
+  pressing. The action lock also covers this movement and wait.
+  Use `bmux click` or CDP mouse events for animated clicks; JavaScript
+  `element.click()` invokes the page directly without mouse input.
   **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
   It defaults on independently of Anti-bot protection, including profiles or panes
   with protection off, excluded websites, files, and local addresses.
@@ -289,6 +296,8 @@ automation:
     cooldownMinutes: 20
     socialDelayMs: 2000
     simulateMouseMovement: true
+    mouseMoveMinMs: 800
+    mouseMoveMaxMs: 1200
     profiles:
       profile_default: false
 ```

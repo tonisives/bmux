@@ -3,18 +3,20 @@ import { createContext, runInContext } from 'node:vm'
 import { readsPage, withAgentReading } from '../src/main/agent-reading'
 
 let fixture = () => {
-  let overlay: any, shade: any
+  let overlay: any, nodes: any[] = [], regions = [{ left: 30, top: 80, right: 700, bottom: 500 }]
   let motion = Object.assign(new EventTarget(), { matches: false })
   let element = (): any => Object.assign(new EventTarget(), {
     style: { setProperty(key: string, value: string) { this[key] = value } } as Record<string, any>,
-    setAttribute: () => {}, attachShadow: () => ({ append: (node: any) => { shade = node } }),
+    attributes: {} as Record<string, string>,
+    setAttribute(key: string, value: string) { this.attributes[key] = value }, append: (...children: any[]) => { nodes.push(...children) }, attachShadow: () => ({ append: () => {} }),
     animate: vi.fn(() => ({ cancel: vi.fn() }))
   })
   class ReadingEvent extends Event { detail: unknown; constructor(type: string, options: { detail: unknown }) { super(type); this.detail = options.detail } }
-  let context = createContext({ setTimeout, clearTimeout, CustomEvent: ReadingEvent, matchMedia: () => motion,
-    document: { getElementById: () => overlay, createElement: element, documentElement: { append: (node: any) => { overlay = node } } } })
+  let events = new EventTarget()
+  let context = createContext({ setTimeout, clearTimeout, requestAnimationFrame: (callback: () => void) => setTimeout(callback, 16), addEventListener: events.addEventListener.bind(events), innerWidth: 1000, innerHeight: 800, CustomEvent: ReadingEvent, matchMedia: () => motion,
+    document: { getElementById: () => overlay, createElement: element, createElementNS: element, querySelectorAll: () => regions.map(rect => ({ getBoundingClientRect: () => rect })), documentElement: { append: (node: any) => { overlay = node } } } })
   let send = async (_method: string, params: Record<string, unknown>) => runInContext(String(params.expression), context)
-  return { send, motion, overlay: () => overlay, shade: () => shade, navigate: () => { overlay = undefined } }
+  return { send, motion, overlay: () => overlay, shade: () => nodes[0], wisp: () => nodes[1], events, regions, navigate: () => { overlay = undefined; nodes = [] } }
 }
 
 test('recognizes content reads without treating clicks, screenshots, waits, or navigation as reads', () => {
@@ -63,6 +65,23 @@ test('respects reduced motion and clears feedback after a failed read', async ()
     expect(shade().animate.mock.results[0].value.cancel).toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(2400)
     expect(overlay().style.display).toBe('none')
+  } finally { vi.useRealTimers() }
+})
+
+test('outlines the viewport and large visible sections with moving wisps and tracks scrolling', async () => {
+  vi.useFakeTimers()
+  try {
+    let { send, overlay, shade, wisp, regions, events } = fixture()
+    await withAgentReading(send, async () => 'content')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(overlay().attributes['data-regions']).toBe('2')
+    expect(shade().attributes).toMatchObject({ x: '5', y: '5', width: '990', height: '790', 'stroke-width': '2' })
+    expect(wisp().attributes).toMatchObject({ 'stroke-width': '4', 'stroke-dasharray': '12 88' })
+    expect(wisp().animate).toHaveBeenCalledWith([{ strokeDashoffset: 100 }, { strokeDashoffset: 0 }], expect.objectContaining({ iterations: Infinity }))
+    regions[0].bottom = -20
+    events.dispatchEvent(new Event('scroll'))
+    await vi.advanceTimersByTimeAsync(16)
+    expect(overlay().attributes['data-regions']).toBe('1')
   } finally { vi.useRealTimers() }
 })
 

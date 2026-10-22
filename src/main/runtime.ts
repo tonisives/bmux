@@ -736,11 +736,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (automationProfileLimits(safety, pane.profileId).simulateMouseMovement !== false) {
         automationPointerTabs.add(tabId)
         let document = documents.get(tabId)
+        let limits = automationProfileLimits(safety, pane.profileId)
         await virtualMouse.move(tabId, params, (method, params) => debuggerApi.sendCommand(method, params, sessionId), () => {
           if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
           checkControl('cdp', { tab: tabId })
           automationSafety?.assertAvailable(pane.profileId, pane.id, live.contents.getURL())
-        })
+        }, { minMs: limits.mouseMoveMinMs, maxMs: limits.mouseMoveMaxMs, clicking: params.type === 'mousePressed' })
         if (params.type === 'mousePressed') await virtualMouse.click(tabId, (method, params) => debuggerApi.sendCommand(method, params, sessionId))
       }
     }
@@ -2123,7 +2124,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'automation.safety.set') {
       if (!sourceClientId) throw new Error('Change anti-bot limits in the bmux UI')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
-      let value = args.key === 'simulateMouseMovement' ? (() => { if (typeof args.value !== 'boolean') throw new Error('simulateMouseMovement must be true or false'); return args.value })() : updateAutomationSafetyLimit(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, args.key, args.value)
+      let safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
+      let value = args.key === 'simulateMouseMovement' ? (() => { if (typeof args.value !== 'boolean') throw new Error('simulateMouseMovement must be true or false'); return args.value })() : updateAutomationSafetyLimit({ ...safety, ...automationProfileLimits(safety, profile.id), profileLimits: {} }, args.key, args.value)
       configuration?.update(['automation', 'safety', 'profileLimits', profile.id, String(args.key)], value)
       return { value }
     }

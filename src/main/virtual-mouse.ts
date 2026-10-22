@@ -51,7 +51,7 @@ let pointerScript = `(() => {
   });
 })()`
 
-export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random) => {
+export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random, now = () => performance.now()) => {
   let positions = new Map<string, Point>()
   let hiddenTabs = new Set<string>()
   let update = async (tab: string, send: Send, detail: Record<string, unknown> = {}) => {
@@ -73,12 +73,13 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     validate()
     positions.set(tab, point)
   }
-  let move = async (tab: string, target: Record<string, unknown>, send: Send, validate: () => void) => {
+  let move = async (tab: string, target: Record<string, unknown>, send: Send, validate: () => void, timing = { minMs: 800, maxMs: 1200, clicking: false }) => {
     let end = { x: Number(target.x), y: Number(target.y) }
     if (!Number.isFinite(end.x) || !Number.isFinite(end.y)) throw new Error('Invalid mouse coordinates')
     let { point: start, width, height } = await startPoint(tab, send, validate)
+    let duration = timing.minMs + random() * (timing.maxMs - timing.minMs)
     let dx = end.x - start.x, dy = end.y - start.y, distance = Math.hypot(dx, dy)
-    if (distance < .01) { await show(tab, send, validate); return }
+    if (distance < .01) { await show(tab, send, validate); if (timing.clicking) { await sleep(duration); validate() }; return }
     let normal = { x: -dy / distance, y: dx / distance }
     let bend = Math.min(70, distance / 4) * (random() < .5 ? -1 : 1)
     let middle = { x: (start.x + end.x) / 2 + normal.x * bend, y: (start.y + end.y) / 2 + normal.y * bend }
@@ -87,10 +88,12 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     let first = { x: start.x + dx * .3 + normal.x * firstBend, y: start.y + dy * .3 + normal.y * firstBend }
     let second = { x: start.x + dx * .75 + normal.x * secondBend, y: start.y + dy * .75 + normal.y * secondBend }
     let jitter = Math.min(4, distance / 100), phase = random() * Math.PI * 2, waves = 1 + random() * 2
-    let steps = Math.max(20, Math.min(38, Math.ceil(distance / 24)))
-    let waits = Array.from({ length: steps }, () => 12 + Math.round(random() * 12))
-    let duration = waits.reduce((total, wait) => total + wait, 0), elapsed = 0
+    let steps = Math.max(20, Math.min(72, Math.ceil(duration / 16)))
+    let weights = Array.from({ length: steps }, () => 12 + random() * 12)
+    let totalWeight = weights.reduce((total, weight) => total + weight, 0)
+    let waits = weights.map(weight => duration * weight / totalWeight), elapsed = 0
     await send('Runtime.evaluate', { expression: pointerScript })
+    let started = now()
     for (let step = 0; step <= steps; step++) {
       validate()
       let progress = elapsed / duration, t = progress ** 3 * (10 - 15 * progress + 6 * progress ** 2)
@@ -101,7 +104,7 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
       validate()
       await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' })
       positions.set(tab, { x, y })
-      if (step < steps) { await sleep(waits[step]); elapsed += waits[step] }
+      if (step < steps) { elapsed += waits[step]; await sleep(Math.max(0, started + elapsed - now())) }
     }
     validate()
   }

@@ -2416,6 +2416,8 @@ let AutomationLimitsEditor = () => {
     <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
     <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
     <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
+    <AutomationLimitInput setting="mouseMoveMinMs" label="Mouse movement minimum (seconds)" description="Move to the target before clicking" value={limits.mouseMoveMinMs} scale={1000} maximum={30} />
+    <AutomationLimitInput setting="mouseMoveMaxMs" label="Mouse movement maximum (seconds)" description="Random duration up to this limit" value={limits.mouseMoveMaxMs} scale={1000} maximum={30} />
   </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
 }
 

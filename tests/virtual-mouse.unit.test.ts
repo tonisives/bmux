@@ -8,7 +8,8 @@ let randomSequence = (seed = 42) => () => {
 }
 let fixture = () => {
   let events: Record<string, any>[] = [], waits: number[] = [], expressions: string[] = []
-  let mouse = createVirtualMouse(async ms => { waits.push(ms) }, randomSequence())
+  let elapsed = 0
+  let mouse = createVirtualMouse(async ms => { waits.push(ms); elapsed += ms }, randomSequence(), () => elapsed)
   let send = async (method: string, params: Record<string, unknown>) => {
     if (method === 'Input.dispatchMouseEvent') events.push(params)
     if (method === 'Runtime.evaluate') expressions.push(String(params.expression))
@@ -100,6 +101,8 @@ test('varies direction and speed, lands exactly on the target, and starts from i
   expect(Math.max(...speeds)).toBeGreaterThan(speeds[0] * 3)
   expect(speeds.at(-1)).toBeLessThan(Math.max(...speeds) / 3)
   expect(new Set(waits).size).toBeGreaterThan(1)
+  expect(waits.reduce((total, ms) => total + ms, 0)).toBeGreaterThanOrEqual(800)
+  expect(waits.reduce((total, ms) => total + ms, 0)).toBeLessThanOrEqual(1200)
   let previousCount = events.length
   await mouse.move('one', { x: 800, y: 600 }, send, () => {})
   expect(events[previousCount]).toMatchObject({ x: 100, y: 200 })
@@ -124,6 +127,22 @@ test('pressing a target already reached by a hover keeps the pointer still', asy
   await mouse.move('one', { x: 100, y: 200 }, send, () => {})
   expect(events).toHaveLength(previousCount)
   expect(waits).toHaveLength(previousWaits)
+})
+
+test('configures the movement duration and waits before pressing an already reached target', async () => {
+  let { mouse, send, waits, events } = fixture()
+  let timing = { minMs: 1500, maxMs: 1800, clicking: true }
+  await mouse.move('one', { x: 100, y: 200 }, send, () => {}, timing)
+  expect(waits.reduce((total, ms) => total + ms, 0)).toBeGreaterThanOrEqual(1500)
+  expect(waits.reduce((total, ms) => total + ms, 0)).toBeLessThanOrEqual(1800)
+  let count = events.length
+  waits.length = 0
+  await mouse.move('one', { x: 100, y: 200 }, send, () => {}, timing)
+  expect(events).toHaveLength(count)
+  expect(waits).toHaveLength(1)
+  expect(waits[0]).toBeGreaterThanOrEqual(1500)
+  expect(waits[0]).toBeLessThanOrEqual(1800)
+  await expect(mouse.move('one', { x: 100, y: 200 }, send, () => { if (waits.length > 1) throw new Error('Document changed') }, timing)).rejects.toThrow('Document changed')
 })
 
 test('stops before clicking when the document or control changes during movement', async () => {

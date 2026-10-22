@@ -12,11 +12,11 @@ export type AutomationGroup = {
 }
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
-export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; simulateMouseMovement?: boolean; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; mouseMoveMinMs?: number; mouseMoveMaxMs?: number; simulateMouseMovement?: boolean; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
 export type AutomationActor = AgentInfo & { paneId: string; hosts?: string[] }
-export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
-export type AutomationProfileLimits = Pick<AutomationSafety, AutomationSafetyLimitKey> & { simulateMouseMovement?: boolean }
-export let automationProfileLimits = (settings: AutomationSafety, profileId: string): AutomationProfileLimits => ({ maxSessionMinutes: settings.maxSessionMinutes, cooldownMinutes: settings.cooldownMinutes, socialDelayMs: settings.socialDelayMs, simulateMouseMovement: settings.simulateMouseMovement ?? true, ...settings.profileLimits?.[profileId] })
+export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs' | 'mouseMoveMinMs' | 'mouseMoveMaxMs'
+export type AutomationProfileLimits = Pick<AutomationSafety, 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'> & { mouseMoveMinMs: number; mouseMoveMaxMs: number; simulateMouseMovement?: boolean }
+export let automationProfileLimits = (settings: AutomationSafety, profileId: string): AutomationProfileLimits => ({ maxSessionMinutes: settings.maxSessionMinutes, cooldownMinutes: settings.cooldownMinutes, socialDelayMs: settings.socialDelayMs, mouseMoveMinMs: settings.mouseMoveMinMs ?? 800, mouseMoveMaxMs: settings.mouseMoveMaxMs ?? 1200, simulateMouseMovement: settings.simulateMouseMovement ?? true, ...settings.profileLimits?.[profileId] })
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
 export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; siteHost?: string; startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
 export type AutomationSettings = { agents: AgentSettings; safety: AutomationSafety; groups: Record<string, AutomationGroup> }
@@ -80,9 +80,15 @@ let limits = (value: unknown, name: string): AutomationLimits => {
   }
   return result
 }
+let safetyLimit = (key: unknown, value: unknown) => {
+  if (!['maxSessionMinutes', 'cooldownMinutes', 'socialDelayMs', 'mouseMoveMinMs', 'mouseMoveMaxMs'].includes(String(key))) throw new Error('Choose a session, break, social site delay, or mouse movement limit')
+  let maximum = key === 'socialDelayMs' || String(key).startsWith('mouseMove') ? 30_000 : 1440
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > maximum) throw new Error(`Invalid automation.safety.${key}`)
+  return Number(value)
+}
 export let updateAutomationSafetyLimit = (settings: AutomationSafety, key: unknown, value: unknown) => {
-  if (key !== 'maxSessionMinutes' && key !== 'cooldownMinutes' && key !== 'socialDelayMs') throw new Error('Choose a session, break, or social site delay limit')
-  return parseAutomationSettings({ safety: { ...settings, [key]: value } }).safety[key]
+  let amount = safetyLimit(key, value)
+  return parseAutomationSettings({ safety: { ...settings, [key as string]: amount } }).safety[key as AutomationSafetyLimitKey]!
 }
 export let parseAutomationSettings = (value: unknown): AutomationSettings => {
   if (value === undefined) return structuredClone(DEFAULT_AUTOMATION)
@@ -111,7 +117,7 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
         let rawLimits = mapping(entry, `automation.safety.profileLimits.${profileId}`), parsed: Partial<AutomationProfileLimits> = {}
         for (let [limitKey, amount] of Object.entries(rawLimits)) {
           if (limitKey === 'simulateMouseMovement') { if (typeof amount !== 'boolean') throw new Error('simulateMouseMovement must be true or false'); parsed.simulateMouseMovement = amount }
-          else parsed[limitKey as AutomationSafetyLimitKey] = updateAutomationSafetyLimit(DEFAULT_AUTOMATION.safety, limitKey, amount)
+          else parsed[limitKey as AutomationSafetyLimitKey] = safetyLimit(limitKey, amount)
         }
         overrides[profileId] = parsed
       }
@@ -122,9 +128,11 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
       if (Object.values(entries).some(enabled => typeof enabled !== 'boolean')) throw new Error(`automation.safety.${key} must map ${key === 'profiles' ? 'profile' : 'pane'} IDs to true or false`)
       safety[key] = entries as Record<string, boolean>; continue
     }
-    let maximum = key === 'socialDelayMs' ? 30_000 : 1440
-    if (!['maxSessionMinutes', 'cooldownMinutes', 'socialDelayMs'].includes(key) || !Number.isInteger(value) || Number(value) < 1 || Number(value) > maximum) throw new Error(`Invalid automation.safety.${key}`)
-    safety[key as 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'] = Number(value)
+    safety[key as AutomationSafetyLimitKey] = safetyLimit(key, value)
+  }
+  for (let profileId of ['', ...Object.keys(safety.profileLimits ?? {})]) {
+    let limits = automationProfileLimits(safety, profileId)
+    if (limits.mouseMoveMinMs > limits.mouseMoveMaxMs) throw new Error('Mouse movement minimum must not exceed the maximum')
   }
   let groups = mapping(raw.groups ?? {}, 'automation.groups'), result: AutomationSettings = { agents: parseAgentSettings(raw.agents), safety, groups: {} }
   let assigned = new Set<string>()

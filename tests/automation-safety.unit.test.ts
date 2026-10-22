@@ -359,7 +359,7 @@ test('profile limits validate, inherit old defaults, and isolate pacing and cool
   let { settings, policy, advance, sleeps, restart } = fixture()
   settings.profileLimits = { bot: { maxSessionMinutes: 2, cooldownMinutes: 3, socialDelayMs: 500 }, other: { maxSessionMinutes: 20, cooldownMinutes: 10, socialDelayMs: 1500 } }
   expect(parseAutomationSettings({ safety: settings }).safety.profileLimits).toEqual(settings.profileLimits)
-  expect(automationProfileLimits(settings, 'default')).toEqual({ maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, simulateMouseMovement: true })
+  expect(automationProfileLimits(settings, 'default')).toEqual({ maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, mouseMoveMinMs: 800, mouseMoveMaxMs: 1200, simulateMouseMovement: true })
   for (let entry of [{ unknown: 1 }, { maxSessionMinutes: 0 }, { cooldownMinutes: '3' }, { socialDelayMs: 30001 }, false]) expect(() => parseAutomationSettings({ safety: { profileLimits: { bot: entry } } })).toThrow()
   await policy.before('bot', instagram)
   await policy.before('bot', instagram)
@@ -376,6 +376,13 @@ test('profile limits validate, inherit old defaults, and isolate pacing and cool
   settings.profileLimits.bot.maxSessionMinutes = 2
   advance(3 * 60_000)
   await next.before('bot', instagram)
+})
+
+test('mouse movement ranges inherit globally and can be configured per profile', () => {
+  let settings = parseAutomationSettings({ safety: { mouseMoveMinMs: 900, mouseMoveMaxMs: 1500, profileLimits: { bot: { mouseMoveMinMs: 1600, mouseMoveMaxMs: 2000 } } } }).safety
+  expect(automationProfileLimits(settings, 'other')).toMatchObject({ mouseMoveMinMs: 900, mouseMoveMaxMs: 1500 })
+  expect(automationProfileLimits(settings, 'bot')).toMatchObject({ mouseMoveMinMs: 1600, mouseMoveMaxMs: 2000 })
+  for (let safety of [{ mouseMoveMinMs: 1300 }, { mouseMoveMaxMs: 700 }, { mouseMoveMinMs: 0 }, { mouseMoveMaxMs: 30001 }, { mouseMoveMinMs: '800' }, { profileLimits: { bot: { mouseMoveMinMs: 1600 } } }]) expect(() => parseAutomationSettings({ safety })).toThrow()
 })
 
 test('excluded websites skip session limits, pacing, and warnings only in their profile', async () => {
