@@ -221,6 +221,9 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await expect(page.locator('input')).toHaveValue('')
       expect(await page.evaluate(() => (window as any).events)).toHaveLength(0)
       await exec('/usr/sbin/screencapture', ['-x', 'artifacts/agent-input-locked.png'])
+      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', "ObjC.import('CoreGraphics'); [true,false].forEach(down => { let event=$.CGEventCreateKeyboardEvent(null,37,down); $.CGEventSetFlags(event,1<<20); $.CGEventPost(0,event); delay(.08) });"])
+      await expect(address).toBeVisible()
+      await address.press('Escape')
       // Wait for the main-process inactivity timeout, independently of the page clock.
       await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).lockedAgentPanes, { timeout: 25000 }).not.toContain(pane)
       await expect(pointer).toBeHidden()
