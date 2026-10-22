@@ -369,12 +369,13 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
 let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
 
 let AgentButton = ({ agents, paneId }: { agents: AutomationActor[]; paneId?: string }) => {
-  let { show, setAgentDetails } = useUI()
+  let { state, show, setAgentDetails } = useUI()
   let open = () => { setAgentDetails(paneId ? { paneId } : { actors: agents }); show('agent-info') }
   let actor = agents[0]
   let label = paneId ? 'Active agent' : 'Agent information'
-  let title = paneId ? `${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
-  return <button type="button" className={paneId ? `${css.navigationButton} ${css.adblockButton}` : undefined} aria-label={label} title={title} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
+  let locked = !!paneId && state.lockedAgentPanes?.includes(paneId)
+  let title = paneId ? `${locked ? 'Agent controlling · page input locked · ' : ''}${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
+  return <button type="button" className={paneId ? `${css.navigationButton} ${css.adblockButton}` : undefined} aria-label={label} title={title} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg></button>
 }
 
 let PaneAgentButton = ({ paneId }: { paneId: string }) => {
@@ -1398,6 +1399,7 @@ let AgentInformation = () => {
     let toggleVisibility = () => { void toggleCursor(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <strong>{actor.agentName ?? actor.agentId ?? 'Unidentified agent'}</strong>
+      {state.lockedAgentPanes?.includes(actor.paneId) && <p role="status">Agent controlling. Page input unlocks after 20 seconds of inactivity.</p>}
       <dl><dt>Agent ID</dt><dd>{actor.agentId ?? 'Not provided'}</dd><dt>Browsing reason</dt><dd>{actor.agentPurpose ?? 'Not provided'}</dd><dt>Browser pane</dt><dd>{permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId}</dd>
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
         {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session ID', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{value}</dd></Fragment>)}

@@ -47,7 +47,7 @@ let pointerScript = `(() => {
       clickAnimation?.cancel();
       clickAnimation = pulse.animate([{transform:'translate(-50%,-50%) scale(.5)',opacity:1},{transform:'translate(-50%,-50%) scale(1.8)',opacity:0}], {duration:650,easing:'ease-out'});
     }
-    idleTimer = setTimeout(hide,15000);
+    idleTimer = setTimeout(hide,20000);
   });
 })()`
 

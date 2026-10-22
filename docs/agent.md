@@ -188,9 +188,14 @@ needed for these defaults:
   longer social-site delays still apply.
 - A white wedge cursor appears when CLI or plugin browser activity starts,
   including read commands, and across automated navigation. It rotates gently
-  while idle and pulses blue on clicks. It hides after 15 seconds without agent
+  while idle and pulses blue on clicks. It hides after 20 seconds without agent
   activity and reappears on the next command. **Hide agent cursor** in Agent
   information keeps it hidden for that pane until **Show agent cursor** is chosen.
+  Agent activity locks human mouse and keyboard input to that page; a lock badge
+  appears over the pane and in its toolbar. Input unlocks after commands finish
+  and 20 seconds pass without activity. Browser controls and shortcuts remain
+  available. Hiding the agent cursor does not release the input lock. The agent
+  sends browser input events without moving the system mouse cursor.
   Before each click it follows a varied curve with small deviations,
   changing speed and timing, and lands exactly on the target.
   **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
