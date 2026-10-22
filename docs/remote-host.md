@@ -21,7 +21,10 @@ The image supports Debian Bookworm-compatible hosts on Linux x64 and arm64.
 
 To embed bmux, use this image as the base for an application worker. Alternatively,
 run it beside an application container with the same UID, `BMUX_DATA_DIR`, and a
-shared `/tmp/bmux-1000` socket directory. Run only one host per data directory.
+shared `/tmp/bmux-1000` socket directory. Run only one host per data directory. For a dedicated legacy adapter that sends
+raw socket RPC without agent metadata, set `BMUX_DEFAULT_AGENT_ID` on the host
+to a stable adapter name. Explicit request identities take precedence; desktop
+hosts keep requiring each caller to identify itself.
 The application container needs Node 22.12+ and the CLI files from `resources/bin`.
 Its readiness check must test the socket without auto-starting another host.
 
@@ -113,14 +116,18 @@ with the remote pages and URL. The status bar offers **Take control**, **Release
 control**, **Close session**, and **Disconnect**. Navigation buttons, URL entry, and tab switching
 operate on the remote session; switching its tabs keeps your control lease.
 
-The remote list shows session and service names with the host's last activity
-time. Returning to the list highlights and focuses the last opened session,
+The remote list shows session and service names with the host's last used
+time. Hosts persist agent browser use and remote input, and advertise the latest
+of that activity and local window visits. Watching, listing sessions, and lease
+renewal leave the timestamp unchanged. Returning to the list highlights and focuses the last opened session,
 including after restarting the app. Use the local Sessions navigation: j/k,
 counts, gg/G, / to search, and x to close. The close button and x ask for yes/no
 confirmation. Control access can close a hosted session from the list without
 opening its video, or from the viewer's status bar. Closing ends that hosted
 session and its control lease; Disconnect keeps it running. Hosts must run a
-version supporting remote session closing and activity metadata.
+version supporting remote session closing and activity metadata. An older host
+returns an update-required message before a close request is sent. The list uses
+host timestamps; opening a viewer never substitutes its local visit time.
 
 Small streams are centered in the page area. Larger streams have scrollbars.
 Disconnect leaves the hosted session running and returns to the remaining local

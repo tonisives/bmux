@@ -32,7 +32,7 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   if (key.kty !== 'OKP' || key.crv !== 'Ed25519' || typeof key.x !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key.x)) throw new Error('Invalid public key')
   return digest(key.x)
 }
-type ListedSession = { id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
+type ListedSession = { canClose?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
 type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[] }
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean }>()
@@ -227,6 +227,7 @@ server.on('upgrade', (request, socket, head) => {
             let sessions = message.sessions
             if (!Array.isArray(sessions) || sessions.length > 100 || !sessions.every((session: ListedSession) =>
               typeof session.id === 'string' && session.id.length <= 128 && typeof session.name === 'string' && session.name.length <= 256 &&
+              (session.canClose === undefined || typeof session.canClose === 'boolean') &&
               (session.lastActivityAt === undefined || Number.isFinite(session.lastActivityAt) && session.lastActivityAt >= 0) &&
               Array.isArray(session.panes) && session.panes.length <= 100 && session.panes.every(pane =>
                 typeof pane.id === 'string' && pane.id.length <= 128 && typeof pane.title === 'string' && pane.title.length <= 512))) throw new Error('Invalid sessions')

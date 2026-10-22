@@ -30,8 +30,15 @@ let close = (reply: 'session-closed' | 'error' | 'forged') => {
     if (reply === 'forged') response.signature = 'invalid'
     socket.send(JSON.stringify({ type: 'signal', from: 'host', envelope: response }))
   }))
-  return requestRemoteSessionClose(`http://127.0.0.1:${(server.address() as { port: number }).port}`, { id: 'host', generation: 'generation', key: host.publicKey }, 'session', remoteIdentity(path.join(directory, 'viewer.pem')), async publicKey => { key = publicKey; return { ticket: 'fixture' } })
+  return requestRemoteSessionClose(`http://127.0.0.1:${(server.address() as { port: number }).port}`, { id: 'host', generation: 'generation', key: host.publicKey, canClose: true }, 'session', remoteIdentity(path.join(directory, 'viewer.pem')), async publicKey => { key = publicKey; return { ticket: 'fixture' } })
 }
 it('sends a signed close request and waits for the authenticated host acknowledgement', async () => { await expect(close('session-closed')).resolves.toBeUndefined() })
 it('returns a host rejection to the caller', async () => { await expect(close('error')).rejects.toThrow('Watch only access') })
 it('rejects a forged close acknowledgement', async () => { await expect(close('forged')).rejects.toThrow('Invalid remote response') })
+
+it('rejects an older host before creating a connection instead of timing out', async () => {
+  let identity = remoteIdentity(path.join(directory, 'viewer.pem'))
+  let connected = false
+  await expect(requestRemoteSessionClose('http://127.0.0.1:18889', { id: 'host', generation: 'generation', key: identity.publicKey }, 'session', identity, async () => { connected = true; return { ticket: 'unused' } })).rejects.toThrow('Update this remote host to close sessions')
+  expect(connected).toBe(false)
+})

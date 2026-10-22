@@ -5,7 +5,7 @@ import { WebSocket } from 'ws'
 import { remoteIdentity, createEnvelopeVerifier } from './remote-identity'
 import type { createRuntime } from './runtime'
 import type { RemoteEnvelope } from '../shared/remote'
-import { windowVisitTime } from '../shared/pane-activity'
+import { sessionActivityTime } from '../shared/pane-activity'
 
 type PublicKey = { kty: string; crv: string; x: string }
 type Config = { url: string; token: string; identityFile?: string }
@@ -35,7 +35,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let send = (value: unknown) => { if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 262144) socket.send(JSON.stringify(value)) }
   let lastSessions = ''
   let advertise = () => {
-    let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({ id: session.id, name: session.name, lastActivityAt: Math.max(0, ...session.windows.map(window => windowVisitTime(window) ?? 0)) || undefined, panes: session.windows.flatMap(window => window.panes.map(pane => ({ id: pane.id, title: pane.title }))) }))
+    let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({ id: session.id, name: session.name, canClose: true, lastActivityAt: sessionActivityTime(session), panes: session.windows.flatMap(window => window.panes.map(pane => ({ id: pane.id, title: pane.title }))) }))
     let serialized = JSON.stringify(sessions)
     if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
   }

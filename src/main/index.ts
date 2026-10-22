@@ -11,6 +11,7 @@ import { controlSocketPath, prepareControlSocket, listenSocket, removeSocket } f
 import { startRemoteHost } from './remote-host'
 import { createLocalRemote } from './remote-client'
 import { installUpdateMenu } from './update-menu'
+import { socketAgent } from './socket-agent'
 
 let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
 let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
@@ -152,6 +153,7 @@ void app.whenReady().then(async () => {
         try {
           let command = JSON.parse(request) as Command
           if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
+          command = socketAgent(command, process.env.BMUX_DEFAULT_AGENT_ID)
           let result = command.method === 'remote.status' ? remoteHost?.status() ?? { enabled: false }
             : command.method === 'remote.job' ? (() => {
               if (!remoteHost) throw new Error('Remote reporting is not enabled')

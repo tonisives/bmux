@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
+import net from 'node:net'
 import { spawn, execFile } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -10,6 +11,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
 import { closeTestApplication } from './electron-fixture'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
+import { initialModel } from '../src/main/model'
+import { controlSocketPath } from '../bin/ipc.mjs'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
@@ -24,6 +27,9 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   await pool.query('INSERT INTO bmux_services (id,owner,token_hash) VALUES ($1,$2,$3)', [service, owner, digest(token)])
   await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '1 hour')", [digest(cookie),owner])
   await fs.writeFile(path.join(directory,'remote.json'),JSON.stringify({url:origin,token}),{mode:0o600})
+  let savedModel = initialModel(), previousUse = Date.now() - 86400000
+  savedModel.sessions[0].lastActivityAt = previousUse
+  await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(savedModel))
   await fs.writeFile(path.join(directory,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
   let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
@@ -31,7 +37,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let failed = true
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
-    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
+    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_DEFAULT_AGENT_ID:'fixture-adapter',BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
     applicationProcess = application.process()
     application.context().setDefaultTimeout(10000)
     application.context().setDefaultNavigationTimeout(10000)
@@ -94,10 +100,28 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       }
     }
     let status = await command('status'), pane = status.model.sessions[0].windows[0].panes[0].id
+    expect(status.model.sessions[0].lastActivityAt).toBe(previousUse)
     await command('navigate','-t',pane,fixtureUrl)
     await command('wait','-t',pane,'--selector','input')
     await command('eval','-t',pane,'document.querySelector("input").focus()')
     await expect.poll(async()=>(await command('remote','status')).connected).toBe(true)
+    await new Promise<void>((resolve, reject) => {
+      let socket = net.connect(controlSocketPath(directory))
+      socket.setTimeout(10000, () => socket.destroy(new Error('Adapter RPC timed out')))
+      socket.on('error', reject)
+      socket.on('connect', () => socket.write(JSON.stringify({ method: 'eval', args: { pane, expression: '1' } }) + '\n'))
+      let reply = ''
+      socket.on('data', data => { reply += data })
+      socket.on('end', () => { try { expect(JSON.parse(reply)).toMatchObject({ ok: true, result: 1 }); resolve() } catch (error) { reject(error) } })
+    })
+    expect((await command('status')).model.sessions[0].windows[0].panes[0].agentId).toBe('fixture-adapter')
+    let lastUse = (await command('status')).model.sessions[0].lastActivityAt
+    expect(lastUse).toBeGreaterThan(previousUse)
+    await expect.poll(async () => {
+      let hosts = await fetch(`${origin}/api/hosts`, { headers: { Cookie: `bmux_session=${cookie}` } }).then(response => response.json())
+      return hosts.flatMap((host: { sessions: { id: string; lastActivityAt?: number; canClose?: boolean }[] }) => host.sessions).find((session: { id: string }) => session.id === status.model.sessions[0].id)
+    }, { timeout: 10000 }).toMatchObject({ lastActivityAt: lastUse, canClose: true })
+    await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions[0].lastActivityAt).toBe(lastUse)
     let other = await command('new-session','-s','uncontrolled')
     let otherPane = other.windows[0].panes[0].id
     // Establish the desktop before remote control; automation cannot take over a lease.
@@ -152,6 +176,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.getByRole('button',{name:new RegExp(`main.*${service}`)}).click()
     // Watching allows up to twenty seconds for signaling and ICE negotiation.
     await expect(viewer.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
+    expect((await command('status')).model.sessions[0].lastActivityAt).toBe(lastUse)
     await expect.poll(()=>viewer.evaluate(()=>document.querySelector('video')!.getVideoPlaybackQuality().totalVideoFrames),{timeout:15000}).toBeGreaterThan(5)
     let bookmarkedUrl = new URL(viewer.url())
     expect(bookmarkedUrl.searchParams.get('host')).toBeTruthy()

@@ -1,6 +1,8 @@
-import type { InternalWindow } from './types'
+import type { InternalWindow, WorkspaceSession } from './types'
 
 export let windowVisitTime = (window: Pick<InternalWindow, 'lastVisitedAt' | 'panes'>) => window.lastVisitedAt ?? (Math.max(0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)) || undefined)
+
+export let sessionActivityTime = (session: Pick<WorkspaceSession, 'lastActivityAt' | 'windows'>) => Math.max(session.lastActivityAt ?? 0, ...session.windows.flatMap(window => [window.lastVisitedAt ?? 0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)])) || undefined
 
 export let activityAge = (when: number, now = Date.now()) => {
   let age = Math.max(0, now - when)
