@@ -675,9 +675,10 @@ test('agent identity is required by default, typed context can focus its termina
     expect((await cli(['dom', '-t', sibling.id, '--agent-id', 'research'])).ok).toBe(true)
     for (let text of ['Research agent', 'Inspect agent context', 'Terminal session', 'research-work', 'Terminal window', '@8', 'Terminal pane', '%9']) await expect(dialog).toContainText(text)
     let origin = { type: 'tmux', paneId: '%9', panePid: '12345', threadId: 'research-thread' }
-    expect((await cli(['rpc', 'dom', JSON.stringify({ pane: sibling.id, agentId: 'research', agentOrigin: origin })])).ok).toBe(true)
+    expect((await cli(['rpc', 'dom', JSON.stringify({ pane: sibling.id, agentId: 'research', agentOrigin: origin, agentData: { sessionId: '$7', sessionName: 'research-renamed', windowId: '@8', paneId: '%9' } })])).ok).toBe(true)
     let staleFocus = await chrome.evaluate(args => (window as any).bmux.command({ method: 'agent.focus', args }).then(() => '').catch((error: Error) => error.message), { pane: sibling.id, agentId: 'research' })
     expect(staleFocus).toContain('agent terminal in this browser pane has changed')
+    await expect(dialog.getByText('research-renamed', { exact: true })).toBeVisible()
     await fs.rm(marker)
     await dialog.getByRole('button', { name: 'Focus agent', exact: true }).click()
     await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['research', '$7', '@8', '%9'])
