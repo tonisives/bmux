@@ -156,8 +156,10 @@ needed for these defaults:
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
   Mouse movement and input releases are immediate.
-- An outlined virtual pointer moves along a curved path before automated clicks
-  and stays visible in the pane between clicks until the page navigates.
+- An outlined virtual pointer appears when CLI or plugin browser activity starts,
+  including read commands, and stays visible between commands and across automated
+  navigation. Before each click it follows a varied curve with small deviations,
+  changing speed and timing, and lands exactly on the target.
   **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
   It defaults on and follows profile, pane, and website protection settings.
 - Known account warnings, visible verification challenges, and rate-limit pages

@@ -669,14 +669,29 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     save()
     return profile
   }
-  let virtualMouse = createVirtualMouse()
+  let virtualMouse = createVirtualMouse(), automationPointerTabs = new Set<string>()
+  let showAutomationPointer = (tabId: string, targetUrl?: string) => {
+    let live = tabs.get(tabId), { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
+    let url = targetUrl ?? (live && !live.contents.isDestroyed() ? live.contents.getURL() : pane.url)
+    if (!automationSiteEnabled(safety, pane.profileId, url, Date.now(), pane.id) || automationProfileLimits(safety, pane.profileId).simulateMouseMovement === false) return
+    automationPointerTabs.add(tabId)
+    if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return
+    let document = documents.get(tabId), debuggerApi = live.contents.debugger
+    // Showing activity must not wait for page loading or delay navigation commands.
+    void (async () => {
+      if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+      await virtualMouse.show(tabId, (method, params) => debuggerApi.sendCommand(method, params), () => {
+        if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
+      })
+    })().catch(() => undefined)
+  }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false) => {
     let live = await ensureLiveTab(tabId)
     if (!readOnly && !['Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) checkControl('cdp', { tab: tabId })
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mousePressed') {
+    if (automatedMouse && method === 'Input.dispatchMouseEvent' && (params.type === 'mousePressed' || params.type === 'mouseMoved' && !params.buttons && (!params.button || params.button === 'none'))) {
       let { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
       if (automationSiteEnabled(safety, pane.profileId, live.contents.getURL(), Date.now(), pane.id) && automationProfileLimits(safety, pane.profileId).simulateMouseMovement !== false) {
         let document = documents.get(tabId)
@@ -1062,6 +1077,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('destroyed', () => { automatedNavigations.delete(tabId); activeAgents.delete(tabId) })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame) { invalidate(); if (!inPlace) bookmarkPluginPages?.invalidate(tabId) } })
+    contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap() && automationPointerTabs.has(tabId)) showAutomationPointer(tabId) })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap()) void bookmarkPluginPages?.refresh(tabId); if (!session.private && !live.disposed && !internalBootstrap()) plugins?.hook('page-ready', pluginContext({ paneId: tabId })) })
     contents.on('did-navigate-in-page', (_event, _url, mainFrame) => { if (mainFrame && !live.disposed) void bookmarkPluginPages?.refresh(tabId); if (!session.private && mainFrame && !live.disposed) plugins?.hook('url-change', pluginContext({ paneId: tabId })) })
     contents.once('destroyed', () => {
@@ -1467,6 +1483,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
       virtualMouse.forget(tabId)
+      automationPointerTabs.delete(tabId)
     }
     remotePages.delete(tabId)
     for (let [requestId, request] of permissions) if (request.paneId === tabId) { request.reply(false); permissions.delete(requestId) }
@@ -1916,6 +1933,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!context.profileId || !context.paneId) return
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
+    showAutomationPointer(context.paneId, destination)
     await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, { paneId: context.paneId, ...agentInfo(pane), agentId: context.agentId ?? pane.agentId }, !destination)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
@@ -2073,6 +2091,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return memory.report(args.history === true)
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
+    if (sourceClientId && ['navigate', 'reload', 'hard-reload', 'back', 'forward', 'history.go-to'].includes(method) && typeof args.tab === 'string') automationPointerTabs.delete(args.tab)
     if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID; configure automation.agents.requireId to disable')
     if (!sourceClientId && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
