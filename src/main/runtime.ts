@@ -340,6 +340,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
+  let virtualMouse = createVirtualMouse()
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
@@ -384,7 +385,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -678,7 +679,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     save()
     return profile
   }
-  let virtualMouse = createVirtualMouse(), automationPointerTabs = new Set<string>()
+  let automationPointerTabs = new Set<string>()
   let showAutomationPointer = (tabId: string) => {
     let live = tabs.get(tabId), { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
     if (automationProfileLimits(safety, pane.profileId).simulateMouseMovement === false) return
@@ -708,6 +709,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           checkControl('cdp', { tab: tabId })
           automationSafety?.assertAvailable(pane.profileId, pane.id, live.contents.getURL())
         })
+        if (params.type === 'mousePressed') await virtualMouse.click(tabId, (method, params) => debuggerApi.sendCommand(method, params, sessionId))
       }
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
@@ -2014,6 +2016,22 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return { remote: true }
     }
     checkControl(method, args)
+    if (method === 'agent.cursor.set') {
+      if (!sourceClientId) throw new Error('Change agent cursor visibility in the bmux UI')
+      let { pane } = paneById(model, required(args, 'pane'))
+      if (args.agentId !== pane.agentId) throw new Error('The agent in this browser pane has changed; reopen Agent information')
+      if (typeof args.hidden !== 'boolean') throw new Error('hidden must be true or false')
+      let live = tabs.get(pane.id)
+      await virtualMouse.setHidden(pane.id, args.hidden, async (method, params) => {
+        if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return
+        let debuggerApi = live.contents.debugger
+        if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+        return debuggerApi.sendCommand(method, params)
+      })
+      if (!args.hidden) showAutomationPointer(pane.id)
+      publish()
+      return { hidden: args.hidden }
+    }
     if (method === 'agent.focus') {
       if (!sourceClientId) throw new Error('Focus agents from the bmux UI')
       let { pane } = paneById(model, required(args, 'pane'))

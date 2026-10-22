@@ -83,7 +83,7 @@
 .agentInformation section + section { padding-top: 12px; border-top: 1px solid #343c48; }
 .agentInformation dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
 .agentInformation dt { color: #9ca3ad; }
-.agentInformation button { margin-top: 12px; padding: 6px 10px; border: 1px solid #505a66; }
+.agentInformation button { margin: 12px 8px 0 0; padding: 6px 10px; border: 1px solid #505a66; }
 .agentInformation dd { margin: 0; overflow-wrap: anywhere; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
 .prompt label { color: #c2ceb9; }

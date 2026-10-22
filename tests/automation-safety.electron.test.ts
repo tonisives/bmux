@@ -626,6 +626,7 @@ test('agent identity is required by default, typed context can focus its termina
     await expect(paneAgent).toHaveAttribute('title', 'Research agent (research)')
     await expect(chrome.locator(`[data-pane-id="${sibling.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     expect(await cli(['rpc', 'agent.focus', JSON.stringify({ pane, agentId: 'research' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
+    expect(await cli(['rpc', 'agent.cursor.set', JSON.stringify({ pane, agentId: 'research', hidden: true })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
     await dialog.getByRole('button', { name: 'Focus agent', exact: true }).click()
     await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['research', '$7', '@8', '%9'])
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })

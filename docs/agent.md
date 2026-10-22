@@ -172,14 +172,17 @@ needed for these defaults:
 - Every automated click pauses for a random 0.8–1.2 seconds after release before the
   command completes. This also applies when Anti-bot or mouse simulation is off;
   longer social-site delays still apply.
-- A white wedge cursor with a soft blue pulse appears when CLI or plugin browser activity starts,
-  including read commands, and stays visible between commands and across automated
-  navigation. Before each click it follows a varied curve with small deviations,
+- A white wedge cursor appears when CLI or plugin browser activity starts,
+  including read commands, and across automated navigation. It rotates gently
+  while idle and pulses blue on clicks. It hides after 15 seconds without agent
+  activity and reappears on the next command. **Hide agent cursor** in Agent
+  information keeps it hidden for that pane until **Show agent cursor** is chosen.
+  Before each click it follows a varied curve with small deviations,
   changing speed and timing, and lands exactly on the target.
   **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
   It defaults on independently of Anti-bot protection, including profiles or panes
   with protection off, excluded websites, files, and local addresses.
-  The pulse becomes static when the system requests reduced motion.
+  Rotation and click pulses stop when the system requests reduced motion.
 - Known account warnings, visible verification challenges, and rate-limit pages
   stop further automation. Detection runs before each browser operation.
 
