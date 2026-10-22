@@ -27,6 +27,25 @@ test('changing agent identity or type clears the previous terminal context', () 
   expect(pane).toEqual({ agentId: 'new', agentType: 'other' })
 })
 
+test('identity errors describe configured required fields and follow settings changes', () => {
+  let registry = createAgentRegistry([])
+  expect(() => registry.resolve({}, parseAgentSettings(undefined), true)).toThrow('Agent ID required. Expected JSON: {"agentId":"<id>"}')
+  let settings = parseAgentSettings({ requireType: true, definitions: {
+    editor: { fields: { pane_id: { label: 'Editor pane', type: 'pane', required: true }, project: { label: 'Project', required: true }, optional: { label: 'Optional' } }, focusCommand: 'editor-focus-command' },
+    terminal: { fields: { session: { label: 'Session', type: 'session', required: true } } },
+  } })
+  let editor = '{"agentId":"<id>","agentType":"editor","agentData":{"pane_id":"<pane>","project":"<text>"}}'
+  expect(() => registry.resolve({}, settings, true)).toThrow(`Agent ID required. Expected JSON: ${editor}; types: editor, terminal`)
+  expect(() => registry.resolve({ agentId: 'new' }, settings, true)).toThrow(`Agent type required. Expected JSON: ${editor}; types: editor, terminal`)
+  expect(() => registry.resolve({ agentId: 'new', agentType: 'unknown' }, settings, true)).toThrow(`Unknown agent type: unknown. Expected JSON: ${editor}; types: editor, terminal`)
+  expect(() => registry.resolve({ agentId: 'new', agentType: 'editor', agentData: { pane_id: '%1' } }, settings, true)).toThrow(`Agent editor requires agentData.project. Expected JSON: ${editor}`)
+  expect(() => registry.resolve({ agentId: 'new', agentType: 'terminal' }, settings, true)).toThrow('Expected JSON: {"agentId":"<id>","agentType":"terminal","agentData":{"session":"<session>"}}')
+  settings.definitions.editor.fields = { workspace_id: { label: 'Workspace', type: 'window', required: true } }
+  expect(() => registry.resolve({}, settings, true)).toThrow('Expected JSON: {"agentId":"<id>","agentType":"editor","agentData":{"workspace_id":"<window>"}}')
+  expect(() => registry.resolve({}, { ...settings, requireId: false }, true)).toThrow('Expected JSON: {"agentType":"editor","agentData":{"workspace_id":"<window>"}}')
+  expect(() => registry.resolve({ agentId: 'new' }, parseAgentSettings({ requireType: true }), true)).toThrow('Expected JSON: {"agentId":"<id>","agentType":"<type>","agentData":{}}; configure automation.agents.definitions')
+})
+
 test('focus commands receive literal agent fields and EOF on unused standard input', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-focus-'))
   try {

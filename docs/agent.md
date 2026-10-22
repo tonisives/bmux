@@ -6,6 +6,8 @@ returns a run ID; `bmux plugin runs` reports completion. Do not print invocation
 credentials or send secrets through command arguments or explicit plugin results.
 
 Use `bmux` for bmux pages. The existing c-cdp Chrome instance is separate.
+See [Agent identity and focus](agent-identity.md) for payloads, configuration,
+identity errors, stored context, and terminal focus.
 
 ## Start a bot session
 

@@ -5,7 +5,19 @@ export type AgentDefinition = { fields: Record<string, AgentField>; focusCommand
 export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
 export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
 export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData', 'agentOrigin'] as const
-export let AGENT_ID_REQUIRED = 'Agent ID required: --agent-id ID or BMUX_AGENT_ID. Typed context: --agent-type TYPE --agent-data JSON (env: BMUX_AGENT_TYPE, BMUX_AGENT_DATA).'
+let agentRequirementError = (reason: string, actor: AgentInfo, settings: AgentSettings) => {
+  let types = Object.keys(settings.definitions)
+  let knownType = actor.agentType && Object.hasOwn(settings.definitions, actor.agentType) ? actor.agentType : undefined
+  let type: string | undefined = knownType ?? types[0]
+  let example: AgentInfo = settings.requireId || actor.agentId ? { agentId: '<id>' } : {}
+  if (type || settings.requireType) {
+    example.agentType = type ?? '<type>'
+    let fields = type ? settings.definitions[type].fields : {}
+    example.agentData = Object.fromEntries(Object.entries(fields).filter(([, field]) => field.required).map(([key, field]) => [key, `<${field.type ?? 'text'}>`]))
+  }
+  let choices = !type && settings.requireType ? '; configure automation.agents.definitions' : !knownType && types.length > 1 ? `; types: ${types.join(', ')}` : ''
+  return new Error(`${reason}. Expected JSON: ${JSON.stringify(example)}${choices}`)
+}
 export let validateAgentInfo = (value: AgentInfo) => {
   for (let [key, maximum] of [['agentId', 128], ['agentName', 128], ['agentPurpose', 1000], ['agentType', 128]] as const) {
     let text = value[key]
@@ -22,12 +34,12 @@ export let updateAgentInfo = (pane: AgentInfo, value: AgentInfo) => {
   Object.assign(pane, agentInfo(value))
 }
 export let validateAgentRequirements = (actor: AgentInfo, settings: AgentSettings) => {
-  if (settings.requireId && !actor.agentId) throw new Error(AGENT_ID_REQUIRED)
-  if (settings.requireType && !actor.agentType) throw new Error('Agent type required: pass --agent-type TYPE and --agent-data JSON with this agent ID; configure automation.agents.requireType to disable')
+  if (settings.requireId && !actor.agentId) throw agentRequirementError('Agent ID required', actor, settings)
+  if (settings.requireType && !actor.agentType) throw agentRequirementError('Agent type required', actor, settings)
   let definition = actor.agentType ? settings.definitions[actor.agentType] : undefined
-  if (settings.requireType && !definition) throw new Error(`Unknown agent type: ${actor.agentType}; configure automation.agents.definitions`)
+  if (settings.requireType && !definition) throw agentRequirementError(`Unknown agent type: ${actor.agentType}`, actor, settings)
   let missing = Object.entries(definition?.fields ?? {}).filter(([key, field]) => field.required && !actor.agentData?.[key]).map(([key]) => `agentData.${key}`)
-  if (missing.length) throw new Error(`Agent ${actor.agentType} requires ${missing.join(', ')}; pass --agent-data JSON or set BMUX_AGENT_DATA`)
+  if (missing.length) throw agentRequirementError(`Agent ${actor.agentType} requires ${missing.join(', ')}`, actor, settings)
 }
 export let parseAgentSettings = (value: unknown): AgentSettings => {
   if (value === undefined) return structuredClone(DEFAULT_AGENTS)

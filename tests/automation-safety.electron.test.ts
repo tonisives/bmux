@@ -584,6 +584,7 @@ test('files and local sites bypass paused website automation and never show anti
 test('agent identity is required by default, typed context can focus its terminal, and the requirement can be disabled', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-identity-'))
   let marker = path.join(directory, 'focused.json')
+  let expectedIdentity = '{"agentId":"<id>","agentType":"terminal","agentData":{"sessionId":"<session>","windowId":"<window>","paneId":"<pane>"}}'
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Agent identity</title><main>Agent context fixture</main>') })
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
@@ -615,9 +616,9 @@ test('agent identity is required by default, typed context can focus its termina
     await address.press('Enter')
     await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
     await expect(application.context().pages().find(page => page.url() === url)!.getByRole('main')).toHaveText('Agent context fixture')
-    expect(await cli(['dom', '-t', pane])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect(await cli(['dom', '-t', pane])).toMatchObject({ ok: false, error: `Agent ID required. Expected JSON: ${expectedIdentity}` })
     expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
-    expect(await cli(['rpc', 'dom', JSON.stringify({ pane })])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect(await cli(['rpc', 'dom', JSON.stringify({ pane })])).toMatchObject({ ok: false, error: `Agent ID required. Expected JSON: ${expectedIdentity}` })
     expect((await cli(['dom', '-t', pane, '--agent-id', 'plain-agent'])).ok).toBe(true)
     await expect(chrome.getByLabel('Notifications').getByRole('status')).toHaveCount(0)
     let sibling = await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane, client: state.clientId, url: `${url}?sibling` })
@@ -681,7 +682,7 @@ test('agent identity is required by default, typed context can focus its termina
       ['rpc', 'navigate', JSON.stringify({ pane, url: `${url}?blocked`, agentId: 'unregistered' })],
       ['automation', 'acquire', '-t', pane, '--url', url, '--agent-id', 'unregistered'],
       ['new-window', '-t', state.model.clients.find((client: { id: string }) => client.id === state.clientId).sessionId, '--url', url, '--agent-id', 'unregistered'],
-    ]) expect(await cli(args)).toMatchObject({ ok: false, error: expect.stringContaining('Agent type required') })
+    ]) expect(await cli(args)).toMatchObject({ ok: false, error: `Agent type required. Expected JSON: ${expectedIdentity}` })
     expect(await cli(['dom', '-t', pane, '--agent-id', 'incomplete', '--agent-type', 'terminal', '--agent-data', '{"paneId":"%99"}'])).toMatchObject({ ok: false, error: expect.stringContaining('agentData.sessionId, agentData.windowId') })
     expect(await cli(['dom', '-t', pane, '--agent-id', 'unregistered', '--agent-type', 'missing'])).toMatchObject({ ok: false, error: expect.stringContaining('Unknown agent type') })
     await expect(paneAgent).toHaveAttribute('title', 'Agent controlling · page input locked · Research agent (research)')
