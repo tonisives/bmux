@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+exec </dev/null
 
 pane=${BMUX_AGENT_PANE_ID:?Agent pane ID is required}
 client=${BMUX_AGENT_FIELD_CLIENT_TTY:-}

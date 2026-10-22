@@ -17,6 +17,8 @@ export let focusAgent = async (actor: AgentInfo, settings: AgentSettings) => {
   }
   let executable = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : process.env.SHELL ?? '/bin/sh'
   let args = process.platform === 'win32' ? ['/d', '/s', '/c', definition.focusCommand] : ['-lc', definition.focusCommand]
-  await promisify(execFile)(executable, args, { env, timeout: 10_000, maxBuffer: 64 * 1024 }).catch(() => { throw new Error('Agent focus command failed') })
+  let command = promisify(execFile)(executable, args, { env, timeout: 10_000, maxBuffer: 64 * 1024 })
+  command.child.stdin?.end()
+  await command.catch(() => { throw new Error('Agent focus command failed') })
   return { focused: true }
 }

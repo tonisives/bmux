@@ -164,7 +164,9 @@ needed for these defaults:
 
 - At most 10 minutes per website hostname in a profile, followed by a 20-minute
   break for that website. Other hostnames keep their own timers. Panes using the
-  same website and profile share its timer.
+  same website and profile share its timer. A limit alert appears when an
+  automation command reaches the limit; idle pages do not raise alerts. A full
+  break without commands starts a fresh session on the next command.
 - At least 2 seconds between actions on social sites, shared across a profile's
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.

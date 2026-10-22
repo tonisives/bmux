@@ -25,12 +25,12 @@ test('changing agent identity or type clears the previous terminal context', () 
   expect(pane).toEqual({ agentId: 'new', agentType: 'other' })
 })
 
-test('focus commands receive agent fields as literal environment values', async () => {
+test('focus commands receive literal agent fields and EOF on unused standard input', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-focus-'))
   try {
     let output = path.join(directory, 'focus.json'), marker = path.join(directory, 'injected')
     let actor = { agentId: 'test-agent', agentType: 'terminal', agentData: { sessionId: '$1', windowId: '@2', paneId: `%42; touch ${marker}` } }
-    let command = `"${process.execPath}" -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_WINDOW_ID, process.env.BMUX_AGENT_PANE_ID]))' "${output}"`
+    let command = `"${process.execPath}" -e 'process.stdin.resume(); process.stdin.on("end", () => require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_WINDOW_ID, process.env.BMUX_AGENT_PANE_ID])))' "${output}"`
     await focusAgent(actor, { requireId: true, requireType: false, definitions: { terminal: { fields: { sessionId: { label: 'Session', type: 'session' }, windowId: { label: 'Window', type: 'window' }, paneId: { label: 'Pane', type: 'pane' } }, focusCommand: command } } })
     expect(JSON.parse(await fs.readFile(output, 'utf8'))).toEqual(['test-agent', '$1', '@2', actor.agentData.paneId])
     await expect(fs.stat(marker)).rejects.toThrow()
