@@ -231,8 +231,9 @@ needed for these defaults:
   and **Mouse movement maximum** in Anti-bot > Limits configure the range per
   profile. Clicking an already reached target waits for the same duration before
   pressing. The action lock also covers this movement and wait.
-  Use `bmux click` or CDP mouse events for animated clicks; JavaScript
-  `element.click()` invokes the page directly without mouse input.
+  CLI and plugin scripts using JavaScript `element.click()` also move the pointer
+  before the original click runs, preserving synchronous script order and the
+  page's original click behavior. Reading scripts alone do not show a cursor.
   **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
   It defaults on independently of Anti-bot protection, including profiles or panes
   with protection off, excluded websites, files, and local addresses.

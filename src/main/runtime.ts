@@ -29,6 +29,7 @@ import { createPluginBrowser } from './plugin-browser'
 import { createVirtualMouse } from './virtual-mouse'
 import { readsPage, withAgentReading } from './agent-reading'
 import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
+import { withAgentScriptClicks } from './agent-script-click'
 import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
 import { AGENT_INPUT_LOCK_MS, createAgentInputLock, scheduleAgentInputUnlock } from './agent-input-lock'
 import { movePointer } from './pointer'
@@ -749,10 +750,27 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
     let send = () => debuggerApi.sendCommand(method, params, sessionId)
+    let script = send
+    if (automatedMouse && ['Runtime.evaluate', 'Runtime.callFunctionOn'].includes(method)) {
+      let { pane } = paneById(model, tabId), limits = automationProfileLimits(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, pane.profileId), document = documents.get(tabId)
+      if (limits.simulateMouseMovement !== false) script = () => withAgentScriptClicks(method, params, (method, params) => debuggerApi.sendCommand(method, params, sessionId), paused => {
+        let listener = (_event: Electron.Event, method: string, params: any, incoming = '') => { if (method === 'Debugger.paused' && incoming === (sessionId ?? '')) paused(params) }
+        debuggerApi.on('message', listener)
+        return () => { debuggerApi.off('message', listener) }
+      }, async (target, visual) => {
+        automationPointerTabs.add(tabId)
+        await virtualMouse.move(tabId, target, visual, () => {
+          if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
+          checkControl('cdp', { tab: tabId })
+          automationSafety?.assertAvailable(pane.profileId, pane.id, live.contents.getURL())
+        }, { minMs: limits.mouseMoveMinMs, maxMs: limits.mouseMoveMaxMs, clicking: true })
+        await virtualMouse.click(tabId, visual)
+      }, send)
+    }
     try {
       result = process.platform === 'darwin' && /^(Input\.|Runtime\.(evaluate|callFunctionOn))/.test(method)
-        ? await filePickers.input(tabId, params => debuggerApi.sendCommand('Page.setInterceptFileChooserDialog', params, sessionId), send, sessionId)
-        : await send()
+        ? await filePickers.input(tabId, params => debuggerApi.sendCommand('Page.setInterceptFileChooserDialog', params, sessionId), script, sessionId)
+        : await script()
     } catch (error) { if (navigationActor && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId); throw error }
     if (navigationActor && result.errorText && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
@@ -3394,7 +3412,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
         if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
         if (method === 'eval') {
-          let result = await cdp(tabId, 'Runtime.evaluate', { expression: required(args, 'expression'), awaitPromise: true, returnByValue: true, timeout: 15000 })
+          let result = await cdp(tabId, 'Runtime.evaluate', { expression: required(args, 'expression'), awaitPromise: true, returnByValue: true, timeout: 15000 }, undefined, false, true)
           if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
           return result.result.value ?? null
         }
