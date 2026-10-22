@@ -1880,12 +1880,14 @@ let RemoteSessionPicker = () => {
     setOpeningSignIn(true)
     void bridge.openRemote().then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))).finally(() => setOpeningSignIn(false))
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose remote session">
+  return <div ref={ref} className={css.sessionPicker} onKeyDown={keys} role="group" aria-label="Choose remote session">
     <SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} />
+    <div className={css.sessionList}>
     {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
     {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
     {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
+    </div>
   </div>
 }
 let RemoteSessionRow = ({ host, service, session, name, onSelect }: { host: string; service: string; session: string; name: string; onSelect: (host: string, session: string) => void }) => {
