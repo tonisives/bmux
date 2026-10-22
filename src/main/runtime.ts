@@ -1105,7 +1105,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    live.inputLock = createAgentInputLock(view, installKeys)
+    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys)
     refreshAgentInputLock(tabId)
     let recordActivity = () => {
       if (live.disposed || internalBootstrap() || automatedContents.has(contents.id)) return
@@ -1681,6 +1681,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (live.disposed) continue
       moveView(live, target)
       live.view.setVisible(!retainPickerOwner)
+      live.inputLock?.refresh()
       live.camera?.setVisible(!retainPickerOwner)
       let { session, pane } = tabById(model, tabId)
       // Remote viewer contents belong to the app session, outside profile extensions.
@@ -1736,6 +1737,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         live.remoteFrame.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
         live.view.setBounds({ x: Math.max(0, Math.round((width - remoteSize.width) / 2)) - Math.round(scrollX), y: Math.max(0, Math.round((height - remoteSize.height) / 2)) - Math.round(scrollY), width: remoteSize.width, height: remoteSize.height })
       }
+      live.inputLock?.refresh()
     }
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
@@ -1749,7 +1751,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
-        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.camera) ordered.push(page.camera) }
+        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.inputLock?.view) ordered.push(page.inputLock.view); if (page.camera) ordered.push(page.camera) }
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
@@ -1757,6 +1759,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let page = tabs.get(paneById(model, placement.paneId).pane.id)
         if (page?.parent === live.window) {
           ordered.push(pageRoot(page))
+          if (page.inputLock?.view) ordered.push(page.inputLock.view)
           if (page.camera) ordered.push(page.camera)
         }
       }
