@@ -212,7 +212,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await cli('dom', { pane })
     await expect(pointer).toBeVisible()
     await page.clock.resume()
-    await chrome.getByRole('button', { name: 'Active agents', exact: true }).click()
+    await chrome.locator(`[data-pane-id="${pane}"]`).getByRole('button', { name: 'Active agent', exact: true }).click()
     let agent = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
     await agent.getByRole('button', { name: 'Hide agent cursor', exact: true }).click()
     await expect(pointer).toBeHidden()
