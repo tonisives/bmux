@@ -364,7 +364,7 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
   </div>
 }
 
-let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <div className={css.notificationPaneLink}><span>{session}</span><button type="button" title={title} aria-label={title} onClick={run}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button></div>
+let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
 
 let NotificationAgentButton = ({ agents }: { agents: AutomationActor[] }) => {
   let { show, setAgentDetails } = useUI()

@@ -74,7 +74,7 @@
 .notificationSiteExclusion { display: inline-flex; align-items: center; gap: 8px; padding-left: 6px; border: 1px solid #76565a; }
 .notificationSiteExclusion > span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notificationSiteExclusion .notificationAction { padding: 2px 6px; border: 0; border-left: 1px solid #76565a; }
-.notificationPaneLink { display: inline-flex; align-items: center; gap: 4px; }
+.notification .notificationPaneLink { display: inline-flex; align-items: center; gap: 4px; }
 .notificationPaneLink > span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notificationGeneral { min-height: 26px; padding-top: 3px; padding-bottom: 3px; background: #23282f; border-color: #343c48; color: #9ca3ad; }
 .notificationGeneral .notificationAction { border-color: #56616f; color: #d5dbe3; }
