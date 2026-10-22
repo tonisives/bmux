@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { parse, stringify } from 'yaml'
 
-for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert supports ${action} without allowing a CLI reset`, async () => {
+for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit alert supports ${action} without allowing a CLI reset`, async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-session-limit-'))
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
@@ -19,8 +19,9 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
   try {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as any).port}/fixture`
-    let startedAt = Date.now() - (action === 'expiry' ? 30 * 60_000 - 15_000 : 11 * 60_000)
-    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000 }, profile_other: { profileId: 'profile_other', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000 } }))
+    let startedAt = Date.now() - (action === 'expiry' ? 30 * 60_000 - 15_000 : action === 'idle' ? 29 * 60_000 : 11 * 60_000)
+    let savedUsage = { siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, ...(action === 'idle' ? {} : { limitReachedAt: startedAt + 10 * 60_000 }) }
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { ...savedUsage, profileId: 'profile_default' }, profile_other: { ...savedUsage, profileId: 'profile_other' } }))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -42,6 +43,23 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     let page = application.context().pages().find(page => page.url() === url)!
     await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached for default' })
+    if (action === 'idle') {
+      await expect(alert).toHaveCount(0)
+      let otherUrl = url.replace('one.example.com', 'two.example.com')
+      let other = await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane: client.paneId, client: state.clientId, url: otherUrl })
+      expect((await cli(['dom', '-t', other.id, '--agent-id', 'other-agent'])).ok).toBe(true)
+      let usages = (await cli(['automation', 'safety'])).result.profiles
+      expect(usages.find((item: { profileId: string; siteHost: string }) => item.profileId === 'profile_default' && item.siteHost === 'one.example.com')).toMatchObject({ startedAt, lastUsed: startedAt + 1000, retryAfter: null })
+      await expect(alert).toHaveCount(0)
+      expect((await cli(['dom', '-t', client.paneId])).ok).toBe(true)
+      let fresh = (await cli(['automation', 'safety'])).result.profiles.find((item: { profileId: string; siteHost: string }) => item.profileId === 'profile_default' && item.siteHost === 'one.example.com')
+      expect(fresh).toMatchObject({ retryAfter: null, actors: [{ paneId: client.paneId, agentId: 'test-agent', hosts: ['one.example.com'] }] })
+      expect(fresh.startedAt).toBeGreaterThan(startedAt + 28 * 60_000)
+      await expect(alert).toHaveCount(0)
+      await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+      await chrome.screenshot({ path: path.resolve('artifacts/session-limit-idle.png') })
+      return
+    }
     await expect(alert).toBeVisible()
     await expect(alert.getByRole('combobox')).toHaveCount(1)
     expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
@@ -193,7 +211,7 @@ test('automation and permission notices identify agent panes while personal brow
     application = undefined
     let ledgerFile = path.join(directory, 'automation-safety.json')
     let ledger = JSON.parse(await fs.readFile(ledgerFile, 'utf8'))
-    for (let usage of Object.values(ledger) as { startedAt: number; lastUsed: number }[]) { usage.startedAt = startedAt; usage.lastUsed = startedAt + 1000 }
+    for (let usage of Object.values(ledger) as { startedAt: number; lastUsed: number; limitReachedAt?: number }[]) { usage.startedAt = startedAt; usage.lastUsed = startedAt + 1000; usage.limitReachedAt = startedAt + 10 * 60_000 }
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -571,7 +589,7 @@ test('agent identity is required by default, typed context can focus its termina
   try {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as { port: number }).port}/identity`
-    let focusCommand = `node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_WINDOW_ID, process.env.BMUX_AGENT_PANE_ID]))' "${marker}"`
+    let focusCommand = `node -e 'process.stdin.resume(); process.stdin.on("end", () => require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_WINDOW_ID, process.env.BMUX_AGENT_PANE_ID])))' "${marker}"`
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { sessionId: { label: 'Terminal session', type: 'session', required: true }, windowId: { label: 'Terminal window', type: 'window', required: true }, paneId: { label: 'Terminal pane', type: 'pane', required: true } }, focusCommand } } } } }))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
