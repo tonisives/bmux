@@ -47,6 +47,21 @@ test('nested plugin commands share the action lock and pause once', async () => 
   expect(waits).toEqual([1200])
 })
 
+test('navigation holds both the source and destination domain until its pause finishes', async () => {
+  vi.useFakeTimers()
+  try {
+    let actions = createAgentActions(undefined, () => 0), events: string[] = []
+    let navigating = actions.run('one', () => ['https://source.com/', 'https://destination.com/'], async () => { events.push('navigation') })
+    let target = actions.run('two', () => ['https://destination.com/'], async () => { events.push('destination') })
+    let source = actions.run('three', () => ['https://source.com/'], async () => { events.push('source') })
+    await vi.advanceTimersByTimeAsync(799)
+    expect(events).toEqual(['navigation'])
+    await vi.advanceTimersByTimeAsync(801)
+    await Promise.all([navigating, target, source])
+    expect(events).toEqual(['navigation', 'destination', 'source'])
+  } finally { vi.useRealTimers() }
+})
+
 test('raw input holds its domain lock until release without delaying the press or release', async () => {
   vi.useFakeTimers()
   try {
