@@ -3,6 +3,7 @@ import type { BaseWindow, Rectangle } from 'electron'
 
 // A separate native view receives human input; CDP still targets the page below.
 export let createAgentInputLock = (page: WebContentsView, placement: () => { window: BaseWindow; bounds: Rectangle }, installKeys: (contents: Electron.WebContents) => void) => {
+  let pageContents = page.webContents
   let shield: WebContentsView | undefined
   let owner: BaseWindow | undefined
   let locked = false
@@ -31,17 +32,18 @@ export let createAgentInputLock = (page: WebContentsView, placement: () => { win
     }
     let restoreFocus = !locked && shield?.webContents.isFocused()
     refresh()
-    if (locked && page.webContents.isFocused()) guardFocus()
-    if (restoreFocus) page.webContents.focus()
+    if (locked && pageContents.isFocused()) guardFocus()
+    if (restoreFocus) pageContents.focus()
   }
   page.on('bounds-changed', refresh)
-  page.webContents.on('focus', guardFocus)
+  pageContents.on('focus', guardFocus)
   let dispose = () => {
     locked = false
     page.off('bounds-changed', refresh)
-    page.webContents.off('focus', guardFocus)
+    pageContents.off('focus', guardFocus)
+    pageContents.off('destroyed', dispose)
     if (shield) { if (owner && !owner.isDestroyed()) owner.contentView.removeChildView(shield); if (!shield.webContents.isDestroyed()) shield.webContents.close(); shield = undefined }
   }
-  page.webContents.once('destroyed', dispose)
+  pageContents.once('destroyed', dispose)
   return { setLocked, refresh, dispose, get view() { return shield }, get contents() { return shield?.webContents } }
 }

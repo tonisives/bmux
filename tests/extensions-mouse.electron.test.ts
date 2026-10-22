@@ -38,7 +38,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await fs.writeFile(path.join(plugin, 'click.mjs'), `import {execFileSync} from 'node:child_process';execFileSync(process.env.BMUX_CLI,['plugin','host','click','--stdin'],{input:JSON.stringify({selector:'#first'}),stdio:['pipe','pipe','pipe']});`)
     await fs.writeFile(path.join(extension, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Demo extension', version: '1.0', content_scripts: [{ matches: ['https://x.com/*'], js: ['content.js'] }] }))
     await fs.writeFile(path.join(extension, 'content.js'), 'document.documentElement.dataset.demoExtension="enabled"')
-    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { adblock: false, autoUpdateFilters: false }, keyboard: {}, plugins: { demo: { enabled: true } } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ vimEditing: false, browser: { adblock: false, autoUpdateFilters: false }, keyboard: {}, plugins: { demo: { enabled: true } } }))
     application = await electron.launch({ args: [process.cwd(), '--no-proxy-server', '--host-resolver-rules=MAP x.com 127.0.0.1', '--ignore-certificate-errors'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -213,7 +213,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
         let origin = window.getContentBounds(), bounds = page.getBounds()
         return { x: origin.x + bounds.x + point.x, y: origin.y + bounds.y + point.y }
       }, { url: page.url(), point })
-      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); [5,1,2].forEach(type => { $.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,$.CGPointMake(${location.x},${location.y}),0)); delay(.08) }); [true,false].forEach(down => { $.CGEventPost(0,$.CGEventCreateKeyboardEvent(null,0,down)); delay(.08) });`])
+      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); [5,1,2].forEach(type => { $.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,$.CGPointMake(${location.x},${location.y}),0)); delay(.08) }); [true,false].forEach(down => { let event=$.CGEventCreateKeyboardEvent(null,0,down); $.CGEventSetFlags(event,0); $.CGEventPost(0,event); delay(.08) });`])
     }
     if (process.platform === 'darwin') {
       await page.evaluate(() => { (window as any).events = [] })
