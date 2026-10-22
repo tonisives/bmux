@@ -747,7 +747,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseWheel') return smoothAgentScroll((method, params) => debuggerApi.sendCommand(method, params, sessionId), params)
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
-    try { result = await debuggerApi.sendCommand(method, params, sessionId) } catch (error) { if (navigationActor && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId); throw error }
+    let send = () => debuggerApi.sendCommand(method, params, sessionId)
+    try {
+      result = process.platform === 'darwin' && /^(Input\.|Runtime\.(evaluate|callFunctionOn))/.test(method)
+        ? await filePickers.input(tabId, params => debuggerApi.sendCommand('Page.setInterceptFileChooserDialog', params, sessionId), send, sessionId)
+        : await send()
+    } catch (error) { if (navigationActor && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId); throw error }
     if (navigationActor && result.errorText && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
       let { pane } = paneById(model, tabId)

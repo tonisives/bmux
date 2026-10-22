@@ -6,6 +6,7 @@ type Entry = { at: number; event: string; paneId?: string; windowId?: number; vi
 export let createFilePickers = (settled = () => {}) => {
   let events: Entry[] = [], sheets = new Set<number>()
   let pending = new Map<string, number>(), intercepted = new Map<string, Set<string>>()
+  let owners = new Map<string, () => Owner>()
   let record = (entry: Omit<Entry, 'at'>) => {
     events.push({ at: Date.now(), ...entry })
     if (events.length > 100) events.shift()
@@ -22,6 +23,7 @@ export let createFilePickers = (settled = () => {}) => {
       window.once('closed', () => { sheets.delete(windowId); releaseWindow(windowId) })
     },
     watchPage: (paneId: string, contents: WebContents, owner: () => Owner) => {
+      owners.set(paneId, owner)
       // Page.enable opts into notifications without intercepting native pickers.
       // Retain only browser identities and state, never paths or page contents.
       let debuggerApi = contents.debugger
@@ -39,12 +41,21 @@ export let createFilePickers = (settled = () => {}) => {
       debuggerApi.on('detach', detached)
       contents.on('did-navigate', navigated)
       contents.once('destroyed', () => {
+        owners.delete(paneId)
         pending.delete(paneId)
         intercepted.delete(paneId)
         debuggerApi.off('message', message)
         debuggerApi.off('detach', detached)
         contents.off('did-navigate', navigated)
       })
+    },
+    input: async <T>(paneId: string, intercept: (params: { enabled: boolean; cancel?: boolean }) => Promise<unknown>, operation: () => Promise<T>, sessionId = ''): Promise<T> => {
+      if (owners.get(paneId)?.().visible !== false || intercepted.get(paneId)?.has(sessionId)) return operation()
+      // A background CDP click can open a sheet on the hidden parking window.
+      // Cancel that native request without taking over an agent's interception.
+      await intercept({ enabled: true, cancel: true })
+      try { return await operation() }
+      finally { await intercept({ enabled: false }) }
     },
     interception: (paneId: string, params: Record<string, unknown>, sessionId?: string) => {
       let sessions = intercepted.get(paneId) ?? new Set<string>()

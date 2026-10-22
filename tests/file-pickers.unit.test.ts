@@ -3,6 +3,37 @@ import { EventEmitter } from 'node:events'
 import type { BaseWindow, WebContents } from 'electron'
 import { createFilePickers } from '../src/main/file-pickers'
 
+test('cancels hidden native pickers during input and restores native handling after errors', async () => {
+  let pickers = createFilePickers()
+  let contents = Object.assign(new EventEmitter(), { debugger: new EventEmitter() })
+  let owner = { windowId: 2, visible: false }
+  pickers.watchPage('%1', contents as unknown as WebContents, () => owner)
+  let commands: unknown[] = []
+  let intercept = async (params: { enabled: boolean; cancel?: boolean }) => { commands.push(params) }
+  let input = async () => { commands.push('click'); return 'clicked' }
+  expect(await pickers.input('%1', intercept, input)).toBe('clicked')
+  expect(commands).toEqual([{ enabled: true, cancel: true }, 'click', { enabled: false }])
+  commands.length = 0
+  await expect(pickers.input('%1', intercept, async () => { throw new Error('input failed') })).rejects.toThrow('input failed')
+  expect(commands).toEqual([{ enabled: true, cancel: true }, { enabled: false }])
+  commands.length = 0
+  owner.visible = true
+  await pickers.input('%1', intercept, input)
+  expect(commands).toEqual(['click'])
+  commands.length = 0
+  owner.visible = false
+  pickers.interception('%1', { enabled: true }, 'frame')
+  await pickers.input('%1', intercept, input, 'frame')
+  expect(commands).toEqual(['click'])
+  commands.length = 0
+  await pickers.input('%1', intercept, input)
+  expect(commands).toEqual([{ enabled: true, cancel: true }, 'click', { enabled: false }])
+  commands.length = 0
+  contents.emit('destroyed')
+  await pickers.input('%1', intercept, input)
+  expect(commands).toEqual(['click'])
+})
+
 test('distinguishes picker requests, native sheets, and shared CDP interception', () => {
   let trace = createFilePickers()
   let window = Object.assign(new EventEmitter(), { id: 2, isVisible: () => true, isDestroyed: () => false })
