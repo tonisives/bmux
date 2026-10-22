@@ -123,9 +123,12 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await page.evaluate(() => { (window as any).events = [] })
     let pointer = page.locator('#bmux-virtual-mouse')
     let expectClickPause = async () => {
-      let clickedAt = await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'click').at(-1)?.wall)
-      expect(clickedAt).toBeDefined()
-      expect(Date.now() - clickedAt).toBeGreaterThanOrEqual(800)
+      let elapsed = await page.evaluate(() => {
+        let clickedAt = (window as any).events.filter((event: any) => event.type === 'click').at(-1)?.wall
+        return clickedAt === undefined ? undefined : Date.now() - clickedAt
+      })
+      expect(elapsed).toBeDefined()
+      expect(elapsed).toBeGreaterThanOrEqual(800)
     }
     await expect(pointer).toHaveCount(0)
     // Read commands expose CLI activity before the first click, without hover events.
