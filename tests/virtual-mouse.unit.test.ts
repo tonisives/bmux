@@ -16,6 +16,15 @@ let fixture = () => {
   return { mouse, send, events, waits, expressions }
 }
 
+test('chooses a fresh post-click pause within the 0.8–1.2 second range', async () => {
+  let { mouse, waits, events } = fixture()
+  for (let click = 0; click < 40; click++) await mouse.pauseAfterClick()
+  expect(waits).toHaveLength(40)
+  expect(waits.every(wait => wait >= 800 && wait <= 1200)).toBe(true)
+  expect(new Set(waits).size).toBeGreaterThan(1)
+  expect(events).toHaveLength(0)
+})
+
 test('shows CLI activity without dispatching mouse input and keeps each pane position separate', async () => {
   let { mouse, send, events, expressions } = fixture()
   await mouse.show('one', send, () => {})

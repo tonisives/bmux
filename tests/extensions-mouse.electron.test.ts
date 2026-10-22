@@ -125,7 +125,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     let expectClickPause = async () => {
       let clickedAt = await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'click').at(-1)?.wall)
       expect(clickedAt).toBeDefined()
-      expect(Date.now() - clickedAt).toBeGreaterThanOrEqual(1000)
+      expect(Date.now() - clickedAt).toBeGreaterThanOrEqual(800)
     }
     await expect(pointer).toHaveCount(0)
     // Read commands expose CLI activity before the first click, without hover events.

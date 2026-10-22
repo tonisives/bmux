@@ -78,5 +78,6 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     }
     validate()
   }
-  return { show, move, forget: (tab: string) => positions.delete(tab) }
+  let pauseAfterClick = () => sleep(800 + random() * 400)
+  return { show, move, pauseAfterClick, forget: (tab: string) => positions.delete(tab) }
 }
