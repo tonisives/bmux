@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
+import net from 'node:net'
 import { spawn, execFile } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -11,6 +12,7 @@ import { Pool } from 'pg'
 import { closeTestApplication } from './electron-fixture'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
 import { initialModel } from '../src/main/model'
+import { controlSocketPath } from '../bin/ipc.mjs'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
@@ -35,7 +37,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let failed = true
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
-    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
+    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_DEFAULT_AGENT_ID:'fixture-adapter',BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
     applicationProcess = application.process()
     application.context().setDefaultTimeout(10000)
     application.context().setDefaultNavigationTimeout(10000)
@@ -103,6 +105,16 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await command('wait','-t',pane,'--selector','input')
     await command('eval','-t',pane,'document.querySelector("input").focus()')
     await expect.poll(async()=>(await command('remote','status')).connected).toBe(true)
+    await new Promise<void>((resolve, reject) => {
+      let socket = net.connect(controlSocketPath(directory))
+      socket.setTimeout(10000, () => socket.destroy(new Error('Adapter RPC timed out')))
+      socket.on('error', reject)
+      socket.on('connect', () => socket.write(JSON.stringify({ method: 'eval', args: { pane, expression: '1' } }) + '\n'))
+      let reply = ''
+      socket.on('data', data => { reply += data })
+      socket.on('end', () => { try { expect(JSON.parse(reply)).toMatchObject({ ok: true, result: 1 }); resolve() } catch (error) { reject(error) } })
+    })
+    expect((await command('status')).model.sessions[0].windows[0].panes[0].agentId).toBe('fixture-adapter')
     let lastUse = (await command('status')).model.sessions[0].lastActivityAt
     expect(lastUse).toBeGreaterThan(previousUse)
     await expect.poll(async () => {

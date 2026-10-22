@@ -21,7 +21,10 @@ The image supports Debian Bookworm-compatible hosts on Linux x64 and arm64.
 
 To embed bmux, use this image as the base for an application worker. Alternatively,
 run it beside an application container with the same UID, `BMUX_DATA_DIR`, and a
-shared `/tmp/bmux-1000` socket directory. Run only one host per data directory.
+shared `/tmp/bmux-1000` socket directory. Run only one host per data directory. For a dedicated legacy adapter that sends
+raw socket RPC without agent metadata, set `BMUX_DEFAULT_AGENT_ID` on the host
+to a stable adapter name. Explicit request identities take precedence; desktop
+hosts keep requiring each caller to identify itself.
 The application container needs Node 22.12+ and the CLI files from `resources/bin`.
 Its readiness check must test the socket without auto-starting another host.
 
