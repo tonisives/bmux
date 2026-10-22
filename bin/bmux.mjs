@@ -94,7 +94,7 @@ let parse = () => {
   if (info.agentData !== undefined) { info.agentData = JSON.parse(info.agentData); if (!info.agentData || typeof info.agentData !== 'object' || Array.isArray(info.agentData)) throw new Error('agentData must be a JSON object') }
   let identify = command => {
     let args = { ...command.args }
-    for (let [key, value] of Object.entries(info)) if (key !== 'agentData' && value !== undefined && (explicit.has(key) || args[key] === undefined)) args[key] = value
+    for (let [key, value] of Object.entries(info)) if (value !== undefined && (explicit.has(key) || args[key] === undefined)) args[key] = value
     return { ...command, args }
   }
   return identify(parseCommand())
