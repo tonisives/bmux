@@ -2824,9 +2824,10 @@ let useBookmarkPreview = (list: RefObject<HTMLDivElement | null>, dragging: () =
     if (row && list.current?.contains(row)) {
       let key = bookmarkKey(row.dataset.bookmarkProfile ?? '', row.dataset.bookmarkId ?? '')
       if (key !== hoveredBookmarkId) {
-        setHoveredBookmarkId(key); setSelectedBookmarkId(key); setSettingsClosed(false); rememberSelection(key)
+        // Focus handlers clear hover state; record this pointer selection after the handoff.
         // Keep row navigation in sync without taking focus from search or settings inputs.
         if (document.activeElement?.matches('[data-bookmark-id]') && list.current.contains(document.activeElement) && row.getAttribute('aria-disabled') !== 'true') row.focus({ preventScroll: true })
+        setHoveredBookmarkId(key); setSelectedBookmarkId(key); setSettingsClosed(false); rememberSelection(key)
       }
     } else if (!target?.closest('[aria-label="Bookmark settings"]')) setHoveredBookmarkId(null)
   }

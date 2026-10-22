@@ -930,8 +930,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // Electron emits back/forward here, although its input types only list three buttons.
       let button = String(mouse.button)
       if (!['back', 'forward'].includes(button) || automatedContents.has(contents.id)) return
-      let owner = [...clients.values()].find(client => client.window.isFocused() && (client.chrome.webContents === contents || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === client.window)))
-      if (!owner) return
+      let entry = [...clients].find(([, client]) => client.window.isFocused() && (client.chrome.webContents === contents || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === client.window)))
+      if (!entry) return
+      let [clientId, owner] = entry
       let tabId = [...tabs].find(([, tab]) => tab.contents === contents)?.[0]
       if (!tabId) {
         let client = model.clients.find(client => clients.get(client.id) === owner)
@@ -939,7 +940,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       if (!tabId) return
       event.preventDefault()
-      if (mouse.type === 'mouseUp') void execute({ method: button, args: { tab: tabId } }).catch(reportError)
+      if (mouse.type === 'mouseUp') void execute({ method: button, args: { tab: tabId } }, clientId).catch(reportError)
     })
   }
   let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
