@@ -111,9 +111,9 @@ export let App = () => {
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
-    let controls = bridge.controls(control => {
+    let controls = bridge.controls((control, paneId) => {
       if (control === 'dismiss') { dismiss(); return }
-      void bridge.state().then(next => { accept(next); if (control !== 'plugin-dialog') show(control as Control) })
+      void bridge.state().then(next => { accept(next); if (control === 'agent-info' && paneId) setAgentDetails({ paneId }); if (control !== 'plugin-dialog') show(control as Control) })
     })
     return () => { unsubscribe(); controls() }
   }, [accept, show, dismiss])

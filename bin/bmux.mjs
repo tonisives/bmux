@@ -41,6 +41,7 @@ Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
 Layouts:  save-layout -t WINDOW -n NAME | list-layouts
           restore-layout -t WINDOW -n NAME --confirm
 Browser:  navigate -t PANE URL | dom -t PANE [--html] | eval -t PANE EXPRESSION [--file FILE]
+          PANE accepts a global ID (%29), SESSION:WINDOW (gp:6), or SESSION:WINDOW.PANE (gp:6.0).
           screenshot -t PANE --output FILE [--viewport]
           click -t PANE --selector CSS | type -t PANE --selector CSS --text TEXT
           key -t PANE Enter | wait -t PANE --selector CSS [--state attached|detached|visible|hidden] [--timeout 15000]

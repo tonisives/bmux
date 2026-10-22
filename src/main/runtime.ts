@@ -19,7 +19,7 @@ import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
-import { selectedPane } from '../shared/command-target'
+import { resolvePaneTarget, selectedPane } from '../shared/command-target'
 import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
@@ -1115,7 +1115,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys)
+    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys, () => {
+      let owner = [...clients.values()].find(owner => owner.window === live.parent)
+      if (!owner) return
+      owner.chrome.webContents.focus()
+      owner.chrome.webContents.send('focus-control', 'agent-info', tabId)
+    })
     refreshAgentInputLock(tabId)
     let recordActivity = () => {
       if (live.disposed || internalBootstrap() || automatedContents.has(contents.id)) return
@@ -1986,6 +1991,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let required = !creation || command.args?.url !== undefined
       let actor = agentRegistry.resolve(command.args ?? {}, configuration?.automation.agents ?? DEFAULT_AGENTS, required)
       command = { ...command, args: { ...command.args, ...actor } }
+    }
+    if (agentCommands.has(command.method) || command.method === 'automation.acquire' || command.method === 'browser.set') {
+      let args = command.args ?? {}, target = args.pane ?? args.tab ?? args.window
+      if (target !== undefined) {
+        let { pane } = resolvePaneTarget({ model, clientId: sourceClientId ?? String(args.client ?? focusedClientId ?? '') }, target)
+        command = { ...command, args: { ...args, pane: pane.id, tab: pane.id } }
+      }
     }
     let client = model.clients.find(client => client.id === sourceClientId)
     let previousWindow = client?.windowId, previousPane = client?.paneId

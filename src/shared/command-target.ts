@@ -1,6 +1,8 @@
 import { windowNumber } from './window-number'
 import type { InternalWindow, Layout, PublicState, WorkspaceSession } from './types'
 
+type TargetState = Pick<PublicState, 'model' | 'clientId'>
+
 export let paneOrder = (window: InternalWindow): string[] => {
   let visit = (layout: Layout | null): string[] => !layout ? [] : layout.kind === 'pane' ? [layout.paneId] : [...visit(layout.first), ...visit(layout.second)]
   return [...new Set([...visit(window.layout), ...window.floating?.map(item => item.paneId) ?? [], ...window.panes.map(pane => pane.id)])]
@@ -20,19 +22,19 @@ export let indexedTarget = <T extends { id: string; name?: string }>(items: T[],
   return matches[0]
 }
 
-export let selectedWindow = (state: PublicState, session: WorkspaceSession) => {
+export let selectedWindow = (state: TargetState, session: WorkspaceSession) => {
   let client = state.model.clients.find(client => client.id === state.clientId && client.sessionId === session.id)
     ?? state.model.clients.find(client => client.sessionId === session.id)
   return session.windows.find(window => window.id === client?.windowId) ?? session.windows[0]
 }
 
-export let selectedPane = (state: PublicState, window: InternalWindow) => {
+export let selectedPane = (state: TargetState, window: InternalWindow) => {
   let client = state.model.clients.find(client => client.id === state.clientId && client.windowId === window.id)
     ?? state.model.clients.find(client => client.windowId === window.id)
   return window.panes.find(pane => pane.id === client?.paneId) ?? window.panes.find(pane => pane.id === paneOrder(window)[0])!
 }
 
-export let windowInSession = (state: PublicState, session: WorkspaceSession, selector: string) => {
+export let windowInSession = (state: TargetState, session: WorkspaceSession, selector: string) => {
   let current = selectedWindow(state, session), index = session.windows.indexOf(current)
   let token = selector.replace(/^\{(.+)\}$/, '$1')
   if (!token || ['current', '@'].includes(token)) return current
@@ -52,9 +54,9 @@ export let windowInSession = (state: PublicState, session: WorkspaceSession, sel
   return indexedTarget(session.windows, selector.replace(/^\{(.+)\}$/, '$1'), 'Window')
 }
 
-export let resolveWindowTarget = (state: PublicState, target?: unknown) => {
-  let sessions = state.model.sessions, client = state.model.clients.find(client => client.id === state.clientId)!
-  let session = sessions.find(session => session.id === client.sessionId)!
+export let resolveWindowTarget = (state: TargetState, target?: unknown) => {
+  let sessions = state.model.sessions, client = state.model.clients.find(client => client.id === state.clientId)
+  let session = sessions.find(session => session.id === client?.sessionId)
   let value = target === undefined ? '' : String(target)
   let global = sessions.flatMap(session => session.windows.map(window => ({ session, window }))).find(item => item.window.id === value || item.window.panes.some(pane => pane.id === value))
   if (global) return global
@@ -67,6 +69,7 @@ export let resolveWindowTarget = (state: PublicState, target?: unknown) => {
     }
     value = value.slice(separator + 1)
   }
+  if (!session) throw new Error('Specify a session with SESSION:WINDOW')
   let window = windowInSession(state, session, value)
   if (!window && separator < 0 && !/^[1-9]\d*$/.test(value)) {
     let targetSession = indexedTarget(sessions, value, 'Session')
@@ -76,7 +79,7 @@ export let resolveWindowTarget = (state: PublicState, target?: unknown) => {
   return { session, window }
 }
 
-export let resolvePaneTarget = (state: PublicState, target?: unknown) => {
+export let resolvePaneTarget = (state: TargetState, target?: unknown) => {
   let value = target === undefined ? '' : String(target)
   let global = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => ({ session, window, pane })))).find(item => item.pane.id === value)
   if (global) return global

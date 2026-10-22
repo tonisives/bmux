@@ -205,15 +205,15 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).lockedAgentPanes).toContain(pane)
     let shield = application.context().pages().find(item => item.url().startsWith('data:text/html;') && item.url().includes('Agent%20input%20lock'))!
     await expect(shield.getByRole('status')).toHaveText('Agent controlling · input locked')
-    let nativeClick = async () => {
-      let point = await page.locator('input').evaluate(element => { let r = element.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
+    let nativeClick = async (target = page.locator('input'), typeText = true) => {
+      let point = await target.evaluate(element => { let r = element.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
       let location = await application!.evaluate(({ BaseWindow }, { url, point }) => {
         let window = BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some((view: any) => view.webContents?.getURL() === url))!
         let page = window.contentView.children.find((view: any) => view.webContents?.getURL() === url)!
         let origin = window.getContentBounds(), bounds = page.getBounds()
         return { x: origin.x + bounds.x + point.x, y: origin.y + bounds.y + point.y }
       }, { url: page.url(), point })
-      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); [5,1,2].forEach(type => { $.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,$.CGPointMake(${location.x},${location.y}),0)); delay(.08) }); [true,false].forEach(down => { let event=$.CGEventCreateKeyboardEvent(null,0,down); $.CGEventSetFlags(event,0); $.CGEventPost(0,event); delay(.08) });`])
+      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); [5,1,2].forEach(type => { $.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,$.CGPointMake(${location.x},${location.y}),0)); delay(.08) }); ${typeText ? '[true,false].forEach(down => { let event=$.CGEventCreateKeyboardEvent(null,0,down); $.CGEventSetFlags(event,0); $.CGEventPost(0,event); delay(.08) });' : ''}`])
     }
     if (process.platform === 'darwin') {
       await page.evaluate(() => { (window as any).events = [] })
@@ -221,6 +221,11 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await expect(page.locator('input')).toHaveValue('')
       expect(await page.evaluate(() => (window as any).events)).toHaveLength(0)
       await exec('/usr/sbin/screencapture', ['-x', 'artifacts/agent-input-locked.png'])
+      await nativeClick(shield.getByRole('link', { name: 'Agent information', exact: true }), false)
+      let agentDialog = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
+      await expect(agentDialog).toContainText('test-agent')
+      await chrome.screenshot({ path: 'artifacts/agent-input-lock-information.png' })
+      await agentDialog.getByRole('button', { name: 'Close', exact: true }).click()
       await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', "ObjC.import('CoreGraphics'); [true,false].forEach(down => { let event=$.CGEventCreateKeyboardEvent(null,37,down); $.CGEventSetFlags(event,1<<20); $.CGEventPost(0,event); delay(.08) });"])
       await expect(address).toBeVisible()
       await address.press('Escape')

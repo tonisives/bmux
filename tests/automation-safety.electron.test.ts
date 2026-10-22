@@ -642,6 +642,11 @@ test('agent identity is required by default, typed context can focus its termina
     expect((await cli(['dom', '-t', pane, '--agent-id', 'research', '--agent-name', 'Research agent', '--agent-purpose', 'Inspect agent context', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', windowId: '@8', paneId: '%9' })])).ok).toBe(true)
     for (let text of ['Research agent', 'Inspect agent context', 'Terminal session', '$7', 'Terminal window', '@8', 'Terminal pane', '%9']) await expect(dialog).toContainText(text)
     await expect(dialog).not.toContainText('plain-agent')
+    let targetSession = state.model.sessions.find((session: any) => session.windows.some((window: any) => window.panes.some((item: any) => item.id === pane)))
+    let targetWindow = targetSession.windows.find((window: any) => window.panes.some((item: any) => item.id === pane))
+    let windowTarget = `${targetSession.name}:${targetWindow.number ?? targetSession.windows.indexOf(targetWindow) + 1}`
+    for (let target of [pane, `${windowTarget}.0`]) expect(await cli(['eval', '-t', target, '--agent-id', 'research', 'location.href'])).toMatchObject({ ok: true, result: url })
+    expect(await cli(['eval', '-t', windowTarget, '--agent-id', 'other-review', 'location.href'])).toMatchObject({ ok: true, result: `${url}?sibling` })
     await expect(paneAgent).toHaveAttribute('title', 'Agent controlling · page input locked · Research agent (research)')
     await expect(chrome.locator(`[data-pane-id="${sibling.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     expect(await cli(['rpc', 'agent.focus', JSON.stringify({ pane, agentId: 'research' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })

@@ -29,6 +29,19 @@ values, all strings. Field names come from the config: a definition using
 Browser commands also have their own target, such as `pane: "%3"`. That BMUX
 pane is separate from the terminal's `agentData.paneId`.
 
+Pane IDs are globally unique; a window ID is unnecessary when targeting one.
+Browser commands accept tmux-style targets:
+
+```sh
+bmux eval -t '%29' 'document.title'
+bmux eval -t gp:6 'document.title'
+bmux eval -t gp:6.0 'document.title'
+```
+
+`gp:6` uses the selected pane in window 6 of session `gp`, or its first pane
+when no client selects one. `gp:6.0` explicitly uses its first pane; pane
+indices start at zero. These commands do not change the client's selection.
+
 ## Sending it
 
 | Payload field | CLI flag | Environment variable |
@@ -120,6 +133,10 @@ known context when BMUX restarts.
 Fields typed `session`, `window`, or `pane` also become
 `BMUX_AGENT_SESSION_ID`, `BMUX_AGENT_WINDOW_ID`, or `BMUX_AGENT_PANE_ID`.
 Text fields become `BMUX_AGENT_FIELD_<UPPER_SNAKE_CASE_NAME>`.
+
+Click **Agent controlling · input locked** on a page to open that pane's
+**Agent information**, then click **Focus agent** to go to its terminal.
+Page input stays locked during automation; browser controls remain available.
 
 The tmux helper uses the recorded origin to verify the terminal before focusing
 it. Origin is added by automatic CLI context and stored separately from visible
