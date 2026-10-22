@@ -203,7 +203,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     }
     // Native guest input hits the shield while agent CDP input still reaches the page.
     await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).lockedAgentPanes).toContain(pane)
-    let shield = application.context().pages().find(item => item.url().startsWith('data:text/html,') && item.url().includes('Agent%20input%20lock'))!
+    let shield = application.context().pages().find(item => item.url().startsWith('data:text/html;') && item.url().includes('Agent%20input%20lock'))!
     await expect(shield.getByRole('status')).toHaveText('Agent controlling · input locked')
     let nativeClick = async () => {
       let point = await page.locator('input').evaluate(element => { let r = element.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })

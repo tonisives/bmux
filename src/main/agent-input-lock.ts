@@ -15,7 +15,8 @@ export let createAgentInputLock = (page: WebContentsView, installKeys: (contents
       shield = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
       shield.setBackgroundColor('#00000000')
       installKeys(shield.webContents)
-      void shield.webContents.loadURL('data:text/html,' + encodeURIComponent('<!doctype html><title>Agent input lock</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:not-allowed}body{font:12px system-ui;color:#e6d9b5}aside{position:absolute;right:12px;top:12px;display:flex;align-items:center;gap:6px;padding:7px 10px;background:#252a32;border:1px solid #5b5342;pointer-events:none}svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5}</style><aside role="status"><svg viewBox="0 0 20 20"><rect x="4" y="8" width="12" height="9" rx="1"/><path d="M6 8V6a4 4 0 0 1 8 0v2"/></svg>Agent controlling · input locked</aside>'))
+      let contents = shield.webContents
+      void contents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>Agent input lock</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;cursor:not-allowed}body{font:12px system-ui;color:#e6d9b5}aside{position:absolute;right:12px;top:12px;display:flex;align-items:center;gap:6px;padding:7px 10px;background:#252a32;border:1px solid #5b5342;pointer-events:none}svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5}</style><aside role="status"><svg viewBox="0 0 20 20"><rect x="4" y="8" width="12" height="9" rx="1"/><path d="M6 8V6a4 4 0 0 1 8 0v2"/></svg>Agent controlling · input locked</aside>')).catch(error => { if (!contents.isDestroyed()) console.error('bmux: agent input lock', error) })
       page.addChildView(shield)
       resize()
     }
