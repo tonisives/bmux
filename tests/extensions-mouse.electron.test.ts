@@ -170,6 +170,25 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     expect(hoverMoves).toBeGreaterThanOrEqual(20)
     for (let type of ['mousePressed', 'mouseReleased']) await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type, ...point, button: 'left', clickCount: 1 } })
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBe(hoverMoves)
+    // The default pointer setting is independent of every Anti-bot exclusion.
+    for (let mode of ['profile-off', 'pane-off', 'excluded-site', 'local-address']) {
+      await rpc('profile.anti-bot.set', { profile: 'profile_default', enabled: mode !== 'profile-off' })
+      await rpc('pane.anti-bot.set', { pane, enabled: mode !== 'pane-off' })
+      if (mode === 'excluded-site') await rpc('profile.anti-bot.site.set', { profile: 'profile_default', host: 'x.com', enabled: false })
+      if (mode === 'local-address') await rpc('profile.anti-bot.site.remove', { profile: 'profile_default', host: 'x.com' })
+      let destinationUrl = `${mode === 'local-address' ? url.replace('x.com', '127.0.0.1') : url}?${mode}`
+      // Human navigation clears the old overlay before fresh CLI activity.
+      await rpc('navigate', { pane, url: destinationUrl })
+      await expect(page).toHaveURL(destinationUrl)
+      await expect(pointer).toHaveCount(0)
+      await cli('dom', { pane })
+      await expect(pointer).toBeVisible()
+      await page.evaluate(() => { (window as any).events = [] })
+      await cli('click', { pane, selector: '#first' })
+      await cli('click', { pane, selector: '#second' })
+      await expect(page.locator('output')).toHaveText('Second link clicked')
+      expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length), mode).toBeGreaterThanOrEqual(40)
+    }
     await chrome.getByRole('button', { name: /^Profile: default/ }).click()
     await profile.getByRole('tab', { name: 'Anti-bot', exact: true }).click()
     await movement.click(); await expect(movement).not.toBeChecked()
@@ -178,6 +197,10 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await page.evaluate(() => { (window as any).events = [] })
     await cli('click', { pane, selector: '#first' })
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBe(0)
+    await rpc('navigate', { pane, url: `${url}?movement-off` })
+    await expect(page).toHaveURL(`${url}?movement-off`)
+    await cli('dom', { pane })
+    await expect(pointer).toHaveCount(0)
     expect((await fs.readFile(path.join(directory, 'config.yaml'), 'utf8'))).toContain('simulateMouseMovement: false')
     let other = await rpc('profile.create', { name: 'Second pane' })
     await rpc('split-window', { pane, profile: other.id })

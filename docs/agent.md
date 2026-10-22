@@ -161,7 +161,8 @@ needed for these defaults:
   navigation. Before each click it follows a varied curve with small deviations,
   changing speed and timing, and lands exactly on the target.
   **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
-  It defaults on and follows profile, pane, and website protection settings.
+  It defaults on independently of Anti-bot protection, including profiles or panes
+  with protection off, excluded websites, files, and local addresses.
 - Known account warnings, visible verification challenges, and rate-limit pages
   stop further automation. Detection runs before each browser operation.
 

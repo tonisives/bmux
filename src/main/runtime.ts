@@ -67,7 +67,7 @@ import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { createAutomationPolicy } from './automation-policy'
-import { automationSiteEnabled, automationProfileLimits, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { automationProfileLimits, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
 import { automationWarningScript, createAutomationSafety } from './automation-safety'
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
@@ -677,10 +677,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return profile
   }
   let virtualMouse = createVirtualMouse(), automationPointerTabs = new Set<string>()
-  let showAutomationPointer = (tabId: string, targetUrl?: string) => {
+  let showAutomationPointer = (tabId: string) => {
     let live = tabs.get(tabId), { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
-    let url = targetUrl ?? (live && !live.contents.isDestroyed() ? live.contents.getURL() : pane.url)
-    if (!automationSiteEnabled(safety, pane.profileId, url, Date.now(), pane.id) || automationProfileLimits(safety, pane.profileId).simulateMouseMovement === false) return
+    if (automationProfileLimits(safety, pane.profileId).simulateMouseMovement === false) return
     automationPointerTabs.add(tabId)
     if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return
     let document = documents.get(tabId), debuggerApi = live.contents.debugger
@@ -700,7 +699,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && (params.type === 'mousePressed' || params.type === 'mouseMoved' && !params.buttons && (!params.button || params.button === 'none'))) {
       let { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
-      if (automationSiteEnabled(safety, pane.profileId, live.contents.getURL(), Date.now(), pane.id) && automationProfileLimits(safety, pane.profileId).simulateMouseMovement !== false) {
+      if (automationProfileLimits(safety, pane.profileId).simulateMouseMovement !== false) {
         let document = documents.get(tabId)
         await virtualMouse.move(tabId, params, (method, params) => debuggerApi.sendCommand(method, params, sessionId), () => {
           if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
@@ -1940,7 +1939,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!context.profileId || !context.paneId) return
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
-    showAutomationPointer(context.paneId, destination)
+    showAutomationPointer(context.paneId)
     let actor = { paneId: context.paneId, ...agentInfo(pane) }
     updateAgentInfo(actor, { agentId: context.agentId ?? pane.agentId })
     await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, actor, !destination)
