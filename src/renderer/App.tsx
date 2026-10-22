@@ -1992,7 +1992,7 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
   let restore = useRef<() => void>(() => {})
   let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-tree]')); setConfirming(true) }
-  let cancel = () => { restoreRow.current = true; setConfirming(false) }
+  let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   let close = async () => {
     if (busy) return
@@ -2016,7 +2016,7 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   let select = async () => { if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
   let restore = useRef<() => void>(() => {})
   let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-target]')); setConfirming(true) }
-  let cancel = () => { restoreRow.current = true; setConfirming(false) }
+  let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => { if (busy) return; setBusy(true); let result = await run('kill-window', { window: window.id, confirm: true }) as { closed?: string } | undefined; setBusy(false); setConfirming(false); if (!result?.closed) cancel(); else restore.current() }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
