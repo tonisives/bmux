@@ -96,7 +96,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     value.actors = actorsFor(value, actor, url)
     persist()
   }
-  let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true, actor?: AutomationActor, recordActor = true) => {
+  let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true, actor?: AutomationActor, recordUsage = true) => {
     if (!automationSafetyEnabled(options.settings(), profileId, actor?.paneId)) return
     let previous = queues.get(profileId) ?? Promise.resolve()
     let task = previous.catch(() => undefined).then(async () => {
@@ -120,12 +120,12 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       let lastUsed = Math.max(0, ...Object.values(usage).filter(item => item.profileId === profileId).map(item => item.lastUsed))
       let delay = pace && lastUsed && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
       if (delay) { await sleep(delay); page = await inspect(); if (!enabledForPage()) return; checkWarning(); assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url) }
-      if (!recordActor) return
+      if (!recordUsage) return
       if (key !== usageKey(profileId, targetUrl ?? page.url)) {
         key = usageKey(profileId, targetUrl ?? page.url)
         value = usage[key] ?? { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: now(), lastUsed: now() }
       }
-      usage[key] = { ...value, lastUsed: now(), ...(actor && recordActor ? { actors: actorsFor(value, actor, targetUrl ?? page.url) } : {}) }
+      usage[key] = { ...value, lastUsed: now(), ...(actor && recordUsage ? { actors: actorsFor(value, actor, targetUrl ?? page.url) } : {}) }
       persist()
       assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
     })
@@ -136,7 +136,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return
     ensureLedger()
     let key = usageKey(profileId, url), value = usage[key]
-    if (!value || now() >= retryAt(profileId, value)) value = { profileId, siteHost: automationWebsiteHost(url)!, startedAt: now(), lastUsed: now() }
+    if (!value || now() >= retryAt(profileId, value) || now() - value.lastUsed >= automationProfileLimits(options.settings(), profileId).cooldownMinutes * 60_000) value = { profileId, siteHost: automationWebsiteHost(url)!, startedAt: now(), lastUsed: now() }
     usage[key] = { ...value, lastUsed: now(), actors: actorsFor(value, actor, url) }
     persist()
   }

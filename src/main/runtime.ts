@@ -339,13 +339,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
+  let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
+    let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
+    updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); publish()
+    let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
+    expire.unref()
+  }
   let automatedNavigations = new Map<string, { paneId: string } & ReturnType<typeof agentInfo>>()
   let trackAutomatedNavigation = (paneId: string) => { let { pane } = paneById(model, paneId); let actor = { paneId, ...agentInfo(pane) }; automatedNavigations.set(paneId, actor); return actor }
   let completeAutomatedNavigation = (paneId: string, url: string) => {
     let actor = automatedNavigations.get(paneId)
     if (!actor || url === 'about:blank') return
     automatedNavigations.delete(paneId)
-    automationSafety?.complete(paneById(model, paneId).pane.profileId, actor, url)
+    try { automationSafety?.complete(paneById(model, paneId).pane.profileId, actor, url); touchAgent(actor) }
+    catch (error) { reportError(error); publish() }
   }
   let automationSafety: ReturnType<typeof createAutomationSafety> | undefined
   let tabAutomation = new Map<string, string>()
@@ -702,7 +709,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         })
       }
     }
-    let navigationActor = automatedMouse && method === 'Page.navigate' ? trackAutomatedNavigation(tabId) : undefined
+    let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
     try { result = await debuggerApi.sendCommand(method, params, sessionId) } catch (error) { if (navigationActor && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId); throw error }
     if (navigationActor && result.errorText && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId)
@@ -1934,7 +1941,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
     showAutomationPointer(context.paneId, destination)
-    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, { paneId: context.paneId, ...agentInfo(pane), agentId: context.agentId ?? pane.agentId }, !destination)
+    let actor = { paneId: context.paneId, ...agentInfo(pane) }
+    updateAgentInfo(actor, { agentId: context.agentId ?? pane.agentId })
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, actor, !destination)
+    touchAgent(actor)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
@@ -1957,9 +1967,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         current.pending = Math.max(0, current.pending - 1); current.lastUsed = Date.now()
         let pane = model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === current.paneId)
         if (pane && pane.agentId === current.agentId) Object.assign(current, agentInfo(pane))
-        publish()
-        let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
-        expire.unref()
+        touchAgent(current)
       }
     }
     if (client && sourceClientId) {
@@ -2045,7 +2053,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'automation.reset-all-sessions') {
       if (!sourceClientId) throw new Error('Reset anti-bot sessions in the bmux UI')
-      for (let profile of automationSafety?.status().profiles ?? []) automationSafety?.resetSession(profile.profileId)
+      for (let profileId of new Set((automationSafety?.status().profiles ?? []).map(profile => profile.profileId))) automationSafety?.resetSession(profileId)
       return { reset: true }
     }
     if (method === 'automation.reset-session') {

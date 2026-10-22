@@ -104,14 +104,16 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true })).toHaveCount(0)
       let usages = (await cli(['automation', 'safety'])).result.profiles
       expect(usages.find((usage: { siteHost: string }) => usage.siteHost === 'two.example.com')).toMatchObject({ retryAfter: null, actors: [{ paneId: otherPane.id }] })
-      // A later manual navigation in an actor pane must not relabel its history.
+      // Denied commands never attributed this pane to the expired session.
       let manualUrl = url.replace('one.example.com', 'three.example.com')
       await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: manualUrl })
       await expect.poll(() => application!.context().pages().some(page => page.url() === manualUrl)).toBe(true)
       await expect(application.context().pages().find(page => page.url() === manualUrl)!.getByRole('main')).toHaveText('Visible session limit fixture')
-      await expect(firstRow).toBeVisible()
-      await expect(alert).toHaveCount(1)
+      await expect(firstRow).toHaveCount(0)
+      await expect(alert).toHaveCount(0)
       await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for three.example.com', exact: true })).toHaveCount(0)
+      await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url })
+      await expect(firstRow).toBeVisible()
       await general.getByRole('button', { name: 'Reset all anti bot sessions' }).click()
     }
     else {
@@ -514,7 +516,7 @@ test('files and local sites bypass paused website automation and never show anti
     let file = path.join(directory, 'review.html')
     await fs.writeFile(file, '<!doctype html><title>Local review</title><main>Local review</main><h1>Verify that you are human</h1>')
     let startedAt = Date.now() - 11 * 60_000
-    let ledger = { profile_default: { startedAt, lastUsed: startedAt + 1000, warning: 'account-warning', warningHost: 'one.example.com' } }
+    let ledger = { profile_default: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, warning: 'account-warning', warningHost: 'one.example.com' } }
     let ledgerFile = path.join(directory, 'automation-safety.json')
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
@@ -548,7 +550,7 @@ test('files and local sites bypass paused website automation and never show anti
       await expect(chrome.getByRole('region', { name: 'Paused automation' })).toHaveCount(0)
       await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('button', { name: 'Close', exact: true }).click()
     }
-    let after = JSON.parse(await fs.readFile(ledgerFile, 'utf8')).profile_default
+    let after = Object.values(JSON.parse(await fs.readFile(ledgerFile, 'utf8'))).find((value: any) => value.profileId === 'profile_default') as typeof ledger.profile_default
     expect(after.startedAt).toBe(ledger.profile_default.startedAt)
     expect(after.lastUsed).toBe(ledger.profile_default.lastUsed)
     expect(after.warningHost).toBe('one.example.com')
@@ -580,6 +582,12 @@ test('agent identity is required by default, typed context can focus its termina
       let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: undefined, BMUX_AGENT_NAME: undefined, BMUX_AGENT_PURPOSE: undefined, BMUX_AGENT_TYPE: undefined, BMUX_AGENT_DATA: undefined }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
       return JSON.parse(result.stdout)
     }
+    let failedUrl = 'http://two.example.com:1/unreachable'
+    expect((await cli(['navigate', '-t', pane, failedUrl, '--agent-id', 'research'])).ok).toBe(false)
+    expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
+    let failedCdp = await cli(['cdp', '-t', pane, 'Page.navigate', JSON.stringify({ url: failedUrl }), '--agent-id', 'research'])
+    expect(failedCdp.result.errorText).toContain('ERR_UNSAFE_PORT')
+    expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.pressSequentially(url); await address.press('Enter')
@@ -588,6 +596,7 @@ test('agent identity is required by default, typed context can focus its termina
     expect(await cli(['dom', '-t', pane])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
     expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
     expect(await cli(['rpc', 'dom', JSON.stringify({ pane })])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect((await cli(['dom', '-t', pane, '--agent-id', 'plain-agent'])).ok).toBe(true)
     expect((await cli(['dom', '-t', pane, '--agent-id', 'research', '--agent-name', 'Research agent', '--agent-purpose', 'Inspect agent context', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', windowId: '@8', paneId: '%9' })])).ok).toBe(true)
     await expect(chrome.getByLabel('Notifications').getByRole('status')).toHaveCount(0)
     await chrome.getByRole('button', { name: 'Active agents', exact: true }).click()

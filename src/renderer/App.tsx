@@ -533,7 +533,7 @@ let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteVie
 let LocalStatus = () => {
   let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
-  let agents = (state.activeAgents ?? []).filter(actor => session?.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
+  let agents = state.activeAgents ?? []
   let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
   let help = () => show('help')
@@ -1397,8 +1397,15 @@ let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
 
 let GeneralAntiBotSettings = () => {
   let { state, run } = useUI()
-  let changeIdentity = (event: ChangeEvent<HTMLInputElement>) => { void run('automation.agents.set', { requireId: event.target.checked }) }
-  return <div className={css.agentInformation}><label className={css.settingsRow}><span>Require agent ID</span><input type="checkbox" role="switch" aria-label="Require agent ID" checked={state.automationAgents?.requireId ?? true} onChange={changeIdentity} /></label><p>Limits apply to each website in a profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
+  let savedRequired = state.automationAgents?.requireId ?? true
+  let [required, setRequired] = useState(savedRequired), [busy, setBusy] = useState(false)
+  useEffect(() => { setRequired(savedRequired) }, [savedRequired])
+  let changeIdentity = async (event: ChangeEvent<HTMLInputElement>) => {
+    let next = event.target.checked
+    setRequired(next); setBusy(true)
+    try { if (!await run('automation.agents.set', { requireId: next })) setRequired(savedRequired) } finally { setBusy(false) }
+  }
+  return <div className={css.agentInformation}><label className={css.settingsRow}><span>Require agent ID</span><input type="checkbox" role="switch" aria-label="Require agent ID" checked={required} disabled={busy} onChange={changeIdentity} /></label><p>Limits apply to each website in a profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
 }
 
 let SiteInformation = () => {
@@ -2370,7 +2377,7 @@ let ProfileAntiBotSettings = () => {
   return <div className={css.antiBotSections} role="tabpanel" aria-label="Anti-bot settings">
     {paused && <ProfileSection title="Paused automation">
       <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
-      {paneEnabled && cooldown && <p>Reset starts a new session now, ending the break for this profile.</p>}
+      {paneEnabled && cooldown && <p>Reset starts a new session for this website.</p>}
       {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
     </ProfileSection>}
     <ProfileSection title="Enable Anti-bot">
