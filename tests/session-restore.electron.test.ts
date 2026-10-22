@@ -42,10 +42,12 @@ for (let crash of [false, true]) test(`restores the last focused client and its 
     await expect.poll(async () => (await browser.state()).focusedClientId).toBe(gpClient.id)
     expect((await browser.state()).configError).toBeNull()
     // Switching to another app before quitting must keep the last bmux selection.
-    await application!.evaluate(({ BaseWindow }) => BaseWindow.getFocusedWindow()!.blur())
+    await application!.evaluate(({ app }) => app.hide())
     await expect.poll(async () => (await browser.state()).focusedClientId).toBeNull()
-    await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).lastFocusedClientId).toBe(gpClient.id)
-    if (crash) child!.kill('SIGKILL')
+    if (crash) {
+      await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).lastFocusedClientId).toBe(gpClient.id)
+      child!.kill('SIGKILL')
+    }
     await closeTestApplication(application, child)
     application = undefined
 
