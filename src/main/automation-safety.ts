@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { AutomationActor, AutomationSafety, AutomationSafetyState, AutomationWarning } from '../shared/automation'
 import { automationProfileLimits, automationSafetyEnabled, automationSiteEnabled, automationWarningEnabled, automationWebsiteHost, isSocialUrl } from '../shared/automation'
 
-type Usage = { startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string }
+type Usage = { profileId: string; siteHost: string; startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string }
 type Page = { url: string; warning?: AutomationWarning }
 let warnings = ['account-warning', 'challenge', 'rate-limit']
 let safetyError = (message: string) => Object.assign(new Error(message), { code: 'AUTOMATION_SAFETY' })
@@ -36,10 +36,24 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   try {
     let loaded: unknown = JSON.parse(fs.readFileSync(options.file, 'utf8'))
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded) || Object.values(loaded).some(value => !value || !Number.isFinite(value.startedAt) || !Number.isFinite(value.lastUsed) || value.lastUsed < value.startedAt || value.warning !== undefined && (!warnings.includes(value.warning) || typeof value.warningHost !== 'string' || !value.warningHost))) throw new Error('Invalid safety ledger')
-    usage = loaded as Record<string, Usage>
-    for (let value of Object.values(usage)) if (value.actors !== undefined && (!Array.isArray(value.actors) || value.actors.some(actor => !actor || typeof actor.paneId !== 'string' || !actor.paneId || actor.agentId !== undefined && typeof actor.agentId !== 'string' || actor.hosts !== undefined && (!Array.isArray(actor.hosts) || actor.hosts.some(host => typeof host !== 'string' || automationWebsiteHost(`https://${host}`) !== host))))) throw new Error('Invalid automation actors')
-    for (let value of Object.values(usage)) for (let actor of value.actors ?? []) validateAgentInfo(actor)
+    for (let [key, raw] of Object.entries(loaded as Record<string, Usage>)) {
+      let value = raw as Usage
+      for (let actor of value.actors ?? []) {
+        if (!actor || typeof actor.paneId !== 'string' || !actor.paneId || actor.hosts !== undefined && (!Array.isArray(actor.hosts) || actor.hosts.some(host => typeof host !== 'string' || automationWebsiteHost(`https://${host}`) !== host))) throw new Error('Invalid automation actors')
+        validateAgentInfo(actor)
+      }
+      if (value.siteHost !== undefined) {
+        if (typeof value.profileId !== 'string' || !value.profileId || automationWebsiteHost(`https://${value.siteHost}`) !== value.siteHost) throw new Error('Invalid website usage')
+        usage[JSON.stringify([value.profileId, value.siteHost])] = value
+      } else {
+        // Website start times are absent from profile clocks. Keep warning
+        // pauses; website sessions begin with their next admitted command.
+        let siteHost = value.warningHost
+        if (value.warning && siteHost && automationWebsiteHost(`https://${siteHost}`) === siteHost) usage[JSON.stringify([key, siteHost])] = { ...value, profileId: key, siteHost, startedAt: now(), lastUsed: now(), actors: value.actors?.filter(actor => actor.hosts?.includes(siteHost)).map(actor => ({ ...actor, hosts: [siteHost] })) }
+      }
+    }
   } catch (error) { ledgerError = (error as NodeJS.ErrnoException).code !== 'ENOENT' }
+  let usageKey = (profileId: string, url?: string) => JSON.stringify([profileId, automationWebsiteHost(url)])
   let queues = new Map<string, Promise<void>>()
   let ensureLedger = () => { if (ledgerError) throw safetyError('Automation safety ledger is unreadable; repair it before automating') }
   let persist = () => {
@@ -58,8 +72,9 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   let assertAvailable = (profileId: string, paneId?: string, url?: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
     ensureLedger()
-    let value = usage[profileId]
-    if (value?.warning && automationWarningEnabled(options.settings(), profileId, value.warningHost!, now(), paneId)) throw safetyError(`Automation paused: ${value.warning} on ${value.warningHost}. Open the UI alert or Profile > Anti-bot to resolve, resume, or exclude this website`)
+    let value = usage[usageKey(profileId, url)]
+    let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning && automationWarningEnabled(options.settings(), profileId, item.warningHost!, now(), paneId))
+    if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Anti-bot to resolve, resume, or exclude this website`)
     if (value && now() >= value.startedAt + automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 && now() < retryAt(profileId, value)) {
       options.changed?.()
       throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(profileId, value)).toISOString()}. Open the UI alert or Profile > Anti-bot to reset the session`)
@@ -74,14 +89,14 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     return [...(value.actors ?? []).filter(item => item.paneId !== actor.paneId), next]
   }
   let track = (profileId: string, actor: AutomationActor, url?: string) => {
-    let value = usage[profileId]
+    let value = usage[usageKey(profileId, url)]
     if (!value || !automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return
     let previous = value.actors?.find(item => item.paneId === actor.paneId)
-    if (previous && previous.agentId === actor.agentId && previous.agentName === actor.agentName && previous.agentPurpose === actor.agentPurpose && previous.hosts?.includes(automationWebsiteHost(url)!)) return
+    if (previous && previous.agentId === actor.agentId && previous.agentName === actor.agentName && previous.agentPurpose === actor.agentPurpose && previous.agentType === actor.agentType && JSON.stringify(previous.agentData) === JSON.stringify(actor.agentData) && previous.hosts?.includes(automationWebsiteHost(url)!)) return
     value.actors = actorsFor(value, actor, url)
     persist()
   }
-  let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true, actor?: AutomationActor) => {
+  let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true, actor?: AutomationActor, recordActor = true) => {
     if (!automationSafetyEnabled(options.settings(), profileId, actor?.paneId)) return
     let previous = queues.get(profileId) ?? Promise.resolve()
     let task = previous.catch(() => undefined).then(async () => {
@@ -90,38 +105,60 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       let enabledForPage = () => automationSiteEnabled(options.settings(), profileId, targetUrl ?? page.url, now(), actor?.paneId)
       if (!enabledForPage()) return
       ensureLedger()
-      if (actor) track(profileId, actor, targetUrl ?? page.url)
+      let checkWarning = () => {
+        let host = automationWebsiteHost(page.url)
+        if (!page.warning || !host || !automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId)) return
+        let key = usageKey(profileId, page.url), value = usage[key] ?? { profileId, siteHost: host, startedAt: now(), lastUsed: now() }
+        usage[key] = { ...value, warning: page.warning, warningHost: host, ...(actor ? { actors: actorsFor(value, actor, page.url) } : {}) }
+        persist()
+      }
+      checkWarning()
       assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
-      let value = usage[profileId], current = now()
-      if (!value || current >= retryAt(profileId, value) || current - value.lastUsed >= automationProfileLimits(options.settings(), profileId).cooldownMinutes * 60_000) value = { startedAt: current, lastUsed: current }
-      let delay = pace && usage[profileId] && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, value.lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
-      if (delay) { await sleep(delay); page = await inspect(); if (!enabledForPage()) return; assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url) }
-      usage[profileId] = { ...value, lastUsed: now(), ...(actor ? { actors: actorsFor(value, actor, targetUrl ?? page.url) } : {}), ...(page.warning && automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId) && automationWarningEnabled(options.settings(), profileId, new URL(page.url).hostname, now(), actor?.paneId) ? { warning: page.warning, warningHost: new URL(page.url).hostname } : {}) }
+      let key = usageKey(profileId, targetUrl ?? page.url)
+      let value = usage[key], current = now()
+      if (!value || current >= retryAt(profileId, value) || current - value.lastUsed >= automationProfileLimits(options.settings(), profileId).cooldownMinutes * 60_000) value = { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: current, lastUsed: current, ...(value?.warning ? { warning: value.warning, warningHost: value.warningHost } : {}) }
+      let lastUsed = Math.max(0, ...Object.values(usage).filter(item => item.profileId === profileId).map(item => item.lastUsed))
+      let delay = pace && lastUsed && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
+      if (delay) { await sleep(delay); page = await inspect(); if (!enabledForPage()) return; checkWarning(); assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url) }
+      if (!recordActor) return
+      if (key !== usageKey(profileId, targetUrl ?? page.url)) {
+        key = usageKey(profileId, targetUrl ?? page.url)
+        value = usage[key] ?? { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: now(), lastUsed: now() }
+      }
+      usage[key] = { ...value, lastUsed: now(), ...(actor && recordActor ? { actors: actorsFor(value, actor, targetUrl ?? page.url) } : {}) }
       persist()
       assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
     })
     queues.set(profileId, task)
     try { await task } finally { if (queues.get(profileId) === task) queues.delete(profileId) }
   }
+  let complete = (profileId: string, actor: AutomationActor, url: string) => {
+    if (!automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return
+    ensureLedger()
+    let key = usageKey(profileId, url), value = usage[key]
+    if (!value || now() >= retryAt(profileId, value)) value = { profileId, siteHost: automationWebsiteHost(url)!, startedAt: now(), lastUsed: now() }
+    usage[key] = { ...value, lastUsed: now(), actors: actorsFor(value, actor, url) }
+    persist()
+  }
   let after = (profileId: string, paneId: string, url: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
-    let value = usage[profileId]
+    let value = usage[usageKey(profileId, url)]
     if (value) { value.lastUsed = now(); persist() }
   }
   let resume = (profileId: string, page: Page) => {
     ensureLedger()
     if (page.warning) throw safetyError('The page still shows an account warning or challenge')
-    let value = usage[profileId]
-    if (value?.warningHost && new URL(page.url).hostname.replace(/^www\./, '') !== value.warningHost.replace(/^www\./, '')) throw safetyError(`Open ${value.warningHost} and resolve its warning before resuming automation`)
+    let value = Object.values(usage).find(value => value.profileId === profileId && value.siteHost.replace(/^www\./, '') === new URL(page.url).hostname.replace(/^www\./, ''))
+    let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning)
+    if (!value && warning) throw safetyError(`Open ${warning.warningHost} and resolve its warning before resuming automation`)
     if (value) { delete value.warning; delete value.warningHost; persist() }
     return { resumed: true }
   }
-  let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.entries(usage).map(([profileId, value]) => ({ profileId, ...value, retryAfter: now() >= value.startedAt + automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 && now() < retryAt(profileId, value) ? new Date(retryAt(profileId, value)).toISOString() : null })) })
-  let resetSession = (profileId: string) => {
+  let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.values(usage).map(value => ({ ...value, retryAfter: now() >= value.startedAt + automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000 && now() < retryAt(value.profileId, value) ? new Date(retryAt(value.profileId, value)).toISOString() : null })) })
+  let resetSession = (profileId: string, siteHost?: string) => {
     ensureLedger()
-    let value = usage[profileId]
-    if (value) { value.startedAt = now(); value.lastUsed = value.startedAt; value.actors = value.actors?.map(actor => ({ ...actor, hosts: [] })); persist() }
+    for (let value of Object.values(usage).filter(value => value.profileId === profileId && (!siteHost || value.siteHost === siteHost))) { value.startedAt = now(); value.lastUsed = value.startedAt; value.actors = []; persist() }
     return { reset: true }
   }
-  return { before, after, assertAvailable, resume, resetSession, status, track }
+  return { before, complete, after, assertAvailable, resume, resetSession, status, track }
 }

@@ -58,8 +58,8 @@ Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Automation: automation status | automation safety | automation acquire -t PANE --url URL | automation release
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
-            Use --agent-id ID or BMUX_AGENT_ID to identify your automation pane.
-            Add --agent-name NAME and --agent-purpose REASON for the agent info popup.
+            Browser commands require --agent-id ID or BMUX_AGENT_ID by default.
+            Add --agent-name NAME, --agent-purpose REASON, --agent-type TYPE and --agent-data JSON for agent details.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
 Advanced: rpc METHOD JSON_ARGS
@@ -77,9 +77,9 @@ let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process
 let socketPath = controlSocketPath(dataDirectory)
 
 let parse = () => {
-  let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE }
+  let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
-  let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose' }
+  let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
   let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
@@ -90,10 +90,11 @@ let parse = () => {
       info[key] = value; explicit.add(key); argv.splice(index, inline ? 1 : 2); index--
     } else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, ''))) index++
   }
-  for (let [key, value] of Object.entries(info)) if (value !== undefined && (!value.trim() || value.length > (key === 'agentPurpose' ? 1000 : 128) || /[\x00-\x1f\x7f]/.test(value))) throw new Error(`Invalid ${key}`)
+  for (let [key, value] of Object.entries(info)) if (key !== 'agentData' && value !== undefined && (!value.trim() || value.length > (key === 'agentPurpose' ? 1000 : 128) || /[\x00-\x1f\x7f]/.test(value))) throw new Error(`Invalid ${key}`)
+  if (info.agentData !== undefined) { info.agentData = JSON.parse(info.agentData); if (!info.agentData || typeof info.agentData !== 'object' || Array.isArray(info.agentData)) throw new Error('agentData must be a JSON object') }
   let identify = command => {
     let args = { ...command.args }
-    for (let [key, value] of Object.entries(info)) if (value !== undefined && (explicit.has(key) || args[key] === undefined)) args[key] = value
+    for (let [key, value] of Object.entries(info)) if (key !== 'agentData' && value !== undefined && (explicit.has(key) || args[key] === undefined)) args[key] = value
     return { ...command, args }
   }
   return identify(parseCommand())

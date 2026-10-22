@@ -99,7 +99,7 @@ test.beforeAll(async () => {
   proxy = new ProxyServer({ host: '127.0.0.1', port: 0, prepareRequestFunction: request => { proxyRequests++; return { requestAuthentication: request.username !== 'fixture-user' || request.password !== 'fixture-password' } } })
   proxy.on('requestFailed', () => undefined); await proxy.listen()
   let installed = process.env.BMUX_TEST_INSTALLED === '1'
-  application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_PROXY_TEST_URL: `http://127.0.0.1:${(server.address() as any).port}/ip` } })
+  application = await electron.launch({ ...(installed ? { executablePath: path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app/Contents/MacOS/bmux') } : {}), args: installed ? [] : [process.cwd()], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_PROXY_TEST_URL: `http://127.0.0.1:${(server.address() as any).port}/ip` } })
   await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -304,7 +304,7 @@ test('movew opens the index prompt and reorders windows from the finder and CLI'
     await expect(prompt()).toHaveCount(0)
     await expect.poll(async () => (await windows())[1].id).toBe(source.id)
     for (let [command, index] of [['movew', '1'], ['move-window', '2']]) {
-      let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', command, '-c', client.id, '-t', index], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20_000 })
+      let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', command, '-c', client.id, '-t', index], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20_000 })
       expect(JSON.parse(stdout)).toMatchObject({ ok: true, result: { id: source.id } })
       await expect.poll(async () => (await windows())[Number(index) - 1].id).toBe(source.id)
     }
@@ -424,7 +424,7 @@ test('pane movement commands preserve live pages through same-window joins, swap
   let local = await rpc('new-session', { name: 'movement-local' }), other = await rpc('new-session', { name: 'movement-other' })
   let first = local.windows[0], a = first.panes[0]
   let cli = async (...args: string[]) => {
-    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args, '-c', client.id], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20_000 })
+    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args, '-c', client.id], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20_000 })
     let result = JSON.parse(stdout); expect(result.ok, stdout).toBe(true); return result.result
   }
   let window = async () => (await state()).model.sessions.find((session: any) => session.id === local.id).windows.find((window: any) => window.id === first.id)
@@ -485,7 +485,7 @@ test('window movement commands transfer and exchange explicit windows across ses
   let local = await rpc('new-session', { name: 'windows-local' }), other = await rpc('new-session', { name: 'windows-other' })
   let a = local.windows[0], b = await rpc('new-window', { session: local.id, name: 'b' }), c = await rpc('new-window', { session: local.id, name: 'c', url })
   let cli = async (...args: string[]) => {
-    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args, '-c', client.id], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20_000 })
+    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args, '-c', client.id], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20_000 })
     let result = JSON.parse(stdout); expect(result.ok, stdout).toBe(true); return result.result
   }
   let windows = async (session: string) => (await state()).model.sessions.find((item: any) => item.id === session).windows.map((window: any) => window.id)

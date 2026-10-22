@@ -15,7 +15,7 @@ import { automationWebsiteHost, automationExclusionActive, automationProfileLimi
 import type { AutomationActor, AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing } from '../shared/types'
@@ -178,7 +178,7 @@ let useIgnoredAutomationWarnings = (state: PublicState | null) => {
   useAutomationExpiry(state?.automationSafety)
   let warningKeys = (state?.automationSafety?.profiles ?? []).flatMap(item => [
     ...(item.warning && (automationActors(state!, item).some(actor => automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!, Date.now(), actor.paneId)) || !item.actors?.length && automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!)) ? [`${item.profileId}:${item.warningHost}:${item.warning}`] : []),
-    ...((automationActors(state!, item).length > 0 || !item.actors?.length && automationSafetyEnabled(state!.automationSafety!.limits, item.profileId)) && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:session:${item.retryAfter}`] : []),
+    ...((automationActors(state!, item).length > 0 || !item.actors?.length && automationSafetyEnabled(state!.automationSafety!.limits, item.profileId)) && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:${item.siteHost ?? ''}:session:${item.retryAfter}`] : []),
   ]).join('|')
   useEffect(() => { setIgnoredWarnings(current => current.filter(key => warningKeys.split('|').includes(key))) }, [warningKeys])
   return { ignoredWarnings, setIgnoredWarnings }
@@ -279,7 +279,7 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
-  let eligiblePanes = actors.length ? actors.map(actor => actor.pane) : usage.actors?.length ? [] : panes.filter(item => item.profileId === usage.profileId && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))
+  let eligiblePanes = actors.length ? actors.map(actor => actor.pane) : usage.actors?.length ? [] : panes.filter(item => item.profileId === usage.profileId && (!usage.siteHost || automationWebsiteHost(item.url) === usage.siteHost) && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))
   if (!eligiblePanes.length) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
@@ -294,8 +294,8 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
-  let siteHosts = [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
+  let siteHosts = usage.siteHost ? [usage.siteHost] : [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
 })
 
 const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
@@ -366,10 +366,10 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
 
 let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <div className={css.notificationPaneLink}><span>{session}</span><button type="button" title={title} aria-label={title} onClick={run}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button></div>
 
-let NotificationAgentButton = ({ agents }: { agents: AutomationActor[] }) => {
+let NotificationAgentButton = ({ agents, label = 'Agent information' }: { agents: AutomationActor[]; label?: string }) => {
   let { show, setAgentDetails } = useUI()
   let open = () => { setAgentDetails(agents); show('agent-info') }
-  return <button type="button" aria-label="Agent information" title="Agent information" onClick={open}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
+  return <button type="button" aria-label={label} title={label} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => {
@@ -533,6 +533,7 @@ let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteVie
 let LocalStatus = () => {
   let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
+  let agents = (state.activeAgents ?? []).filter(actor => session?.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
   let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
   let help = () => show('help')
@@ -581,6 +582,7 @@ let LocalStatus = () => {
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
+    {!!agents.length && <NotificationAgentButton agents={agents} label="Active agents" />}
     <button onClick={commands} aria-label="Command prompt" aria-expanded={control === 'command'}>:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -1364,11 +1366,25 @@ let Panel = ({ type }: { type: Control }) => {
   </div></div>
 }
 let AgentInformation = () => {
-  let { agentDetails, state } = useUI()
-  return <div className={css.agentInformation}>{agentDetails.map(actor => <section key={actor.paneId}>
-    <strong>{actor.agentName ?? actor.agentId ?? 'Unidentified agent'}</strong>
-    <dl><dt>Agent ID</dt><dd>{actor.agentId ?? 'Not provided'}</dd><dt>Browsing reason</dt><dd>{actor.agentPurpose ?? 'Not provided'}</dd><dt>Pane</dt><dd>{permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId}</dd></dl>
-  </section>)}</div>
+  let { agentDetails, state, run, show } = useUI()
+  let [busy, setBusy] = useState<string | null>(null)
+  let focus = async (actor: AutomationActor) => {
+    setBusy(actor.paneId)
+    try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId }) } finally { setBusy(null) }
+  }
+  let settings = () => show('anti-bot-settings')
+  return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{agentDetails.map(actor => {
+    let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
+    let fields = Object.entries(actor.agentData ?? {})
+    return <section key={`${actor.paneId}:${actor.agentId}`}>
+      <strong>{actor.agentName ?? actor.agentId ?? 'Unidentified agent'}</strong>
+      <dl><dt>Agent ID</dt><dd>{actor.agentId ?? 'Not provided'}</dd><dt>Browsing reason</dt><dd>{actor.agentPurpose ?? 'Not provided'}</dd><dt>Browser pane</dt><dd>{permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId}</dd>
+        {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
+        {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session ID', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{value}</dd></Fragment>)}
+      </dl>
+      {definition?.focusCommand && <button type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}>Focus agent</button>}
+    </section>
+  })}</div>
 }
 
 let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
@@ -1380,8 +1396,9 @@ let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
 }
 
 let GeneralAntiBotSettings = () => {
-  let { state } = useUI()
-  return <div className={css.agentInformation}><p>Profile settings apply to every agent using that profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
+  let { state, run } = useUI()
+  let changeIdentity = (event: ChangeEvent<HTMLInputElement>) => { void run('automation.agents.set', { requireId: event.target.checked }) }
+  return <div className={css.agentInformation}><label className={css.settingsRow}><span>Require agent ID</span><input type="checkbox" role="switch" aria-label="Require agent ID" checked={state.automationAgents?.requireId ?? true} onChange={changeIdentity} /></label><p>Limits apply to each website in a profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
 }
 
 let SiteInformation = () => {
@@ -2324,7 +2341,7 @@ let ProfileAntiBotSettings = () => {
   useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
   useEffect(() => { setPaneEnabled(savedPaneEnabled) }, [savedPaneEnabled, pane?.id])
   if (!profile) return null
-  let usage = safety?.profiles.find(item => item.profileId === profile.id)
+  let usage = safety?.profiles.find(item => item.profileId === profile.id && (!item.siteHost || item.siteHost === automationWebsiteHost(pane?.url)))
   let warning = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!, Date.now(), pane?.id) ? usage : undefined
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
@@ -2342,7 +2359,7 @@ let ProfileAntiBotSettings = () => {
   }
   let resetSession = async () => {
     setBusy(true)
-    try { await run('automation.reset-session', { profile: profile.id }) } finally { setBusy(false) }
+    try { await run('automation.reset-session', { profile: profile.id, host: usage?.siteHost }) } finally { setBusy(false) }
   }
   let togglePane = async (event: ChangeEvent<HTMLInputElement>) => {
     if (!pane) return
@@ -2482,7 +2499,7 @@ let ProfileInfo = () => {
   let { state, run } = useUI()
   let { session, pane, profile } = selection(state)
   let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => {
-    let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id)
+    let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id && (!item.siteHost || item.siteHost === automationWebsiteHost(pane?.url)))
     return profile && automationSiteEnabled(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id, pane?.url, Date.now(), pane?.id) && (usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()) ? 'anti-bot' : 'overview'
   }, false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
