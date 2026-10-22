@@ -15,7 +15,7 @@ it can come from a terminal, an editor, or another application. Set it in each
 command shell, or pass `--agent-id ID`:
 
 ```sh
-export BMUX_AGENT_ID="$TMUX_PANE"
+export BMUX_AGENT_ID='research-task-42'
 export BMUX_AGENT_NAME='Research agent'
 export BMUX_AGENT_PURPOSE='Compare browser features'
 ```
@@ -62,17 +62,24 @@ records restore known agent context when BMUX restarts. An unknown ID must suppl
 its own type and required data; it never inherits another agent's context.
 
 Pass the type and its data using `--agent-type` and `--agent-data`, or
-`BMUX_AGENT_TYPE` and `BMUX_AGENT_DATA`. For a tmux agent:
+`BMUX_AGENT_TYPE` and `BMUX_AGENT_DATA`. For local tmux agents, let the CLI derive
+the terminal context on every command:
 
 ```sh
-export BMUX_AGENT_ID="$TMUX_PANE"
 export BMUX_AGENT_TYPE=tmux
-export BMUX_AGENT_DATA="$(tmux display-message -p -t "$TMUX_PANE" '{"sessionId":"#{session_id}","windowId":"#{window_id}","paneId":"#{pane_id}","clientTty":"#{client_tty}"}')"
+bmux agent context
 bmux dom -t '%3'
 ```
 
-These terminal IDs are separate from BMUX session, window and pane IDs. Refresh
-the data when the agent moves. Other applications can supply their own type and
+The CLI uses the calling process's tmux pane. Shared-daemon Codex commands use
+their injected thread ID and a unique exact terminal session name and directory;
+the selected tmux pane and inherited `TMUX_PANE` are not used as identity. It
+rejects supplied terminal IDs that disagree with the caller. Codex agents in tmux
+get this context automatically, with their thread ID as the default agent ID.
+`bmux agent context` prints the resolved context without starting the browser.
+
+These terminal IDs are separate from BMUX session, window and pane IDs. The CLI
+refreshes them when the agent moves. Other applications can supply their own type and
 field values. Undeclared fields are shown by name; `sessionId`, `windowId`, and
 `paneId` get default labels.
 
@@ -83,7 +90,12 @@ literal environment values: `BMUX_AGENT_ID`, `BMUX_AGENT_TYPE`, and
 Text fields use `BMUX_AGENT_FIELD_` plus their upper snake case name, such as
 `BMUX_AGENT_FIELD_CLIENT_TTY`. Quote these variables in shell commands.
 
-The supplied focus script selects the tmux client, window and pane directly.
+The supplied focus script verifies the recorded terminal origin before selecting
+the tmux client, window and pane. For Codex it finds the same thread's current
+terminal again; it refuses missing, ambiguous or recycled terminal contexts.
+Legacy tmux agents must send a new CLI command to refresh their origin before
+using this focus helper. The origin is stored separately from visible fields and
+passed to focus commands as `BMUX_AGENT_ORIGIN` JSON.
 On macOS it brings Alacritty forward through Hammerspoon's `hs` CLI. An optional
 `terminalWindowId` text field focuses that exact native terminal window.
 The command has a ten-second timeout. Configure commands locally; bots provide

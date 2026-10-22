@@ -1,20 +1,23 @@
-export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: string; agentType?: string; agentData?: Record<string, string> }
+export type AgentOrigin = { type: 'tmux'; paneId: string; panePid: string; socketPath?: string; threadId?: string }
+export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: string; agentType?: string; agentData?: Record<string, string>; agentOrigin?: AgentOrigin }
 export type AgentField = { label: string; type?: 'text' | 'session' | 'window' | 'pane'; required?: boolean }
 export type AgentDefinition = { fields: Record<string, AgentField>; focusCommand?: string }
 export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
 export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
-export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData'] as const
+export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData', 'agentOrigin'] as const
 export let validateAgentInfo = (value: AgentInfo) => {
   for (let [key, maximum] of [['agentId', 128], ['agentName', 128], ['agentPurpose', 1000], ['agentType', 128]] as const) {
     let text = value[key]
     if (text !== undefined && (typeof text !== 'string' || !text.trim() || text.length > maximum || /[\x00-\x1f\x7f]/.test(text))) throw new Error(`${key} must be nonempty text of at most ${maximum} characters`)
   }
   if (value.agentData !== undefined && (!value.agentData || typeof value.agentData !== 'object' || Array.isArray(value.agentData) || Object.keys(value.agentData).length > 32 || Object.entries(value.agentData).some(([key, text]) => !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || typeof text !== 'string' || !text.trim() || text.length > 1000 || /[\x00-\x1f\x7f]/.test(text)))) throw new Error('agentData must map up to 32 field names to nonempty text')
+  let origin = value.agentOrigin
+  if (origin !== undefined && (!origin || typeof origin !== 'object' || Array.isArray(origin) || origin.type !== 'tmux' || !/^%\d+$/.test(origin.paneId) || !/^[1-9]\d*$/.test(origin.panePid) || Object.keys(origin).some(key => !['type', 'paneId', 'panePid', 'socketPath', 'threadId'].includes(key)) || [origin.socketPath, origin.threadId].some(text => text !== undefined && (typeof text !== 'string' || !text.trim() || text.length > 1000 || /[\x00-\x1f\x7f]/.test(text))))) throw new Error('Invalid agent terminal origin')
 }
 export let agentInfo = (value: AgentInfo): AgentInfo => Object.fromEntries(AGENT_KEYS.filter(key => value[key] !== undefined).map(key => [key, value[key]]))
 export let updateAgentInfo = (pane: AgentInfo, value: AgentInfo) => {
-  if (value.agentId !== undefined && value.agentId !== pane.agentId) { delete pane.agentName; delete pane.agentPurpose; delete pane.agentType; delete pane.agentData }
-  if (value.agentType !== undefined && value.agentType !== pane.agentType) delete pane.agentData
+  if (value.agentId !== undefined && value.agentId !== pane.agentId) { delete pane.agentName; delete pane.agentPurpose; delete pane.agentType; delete pane.agentData; delete pane.agentOrigin }
+  if (value.agentType !== undefined && value.agentType !== pane.agentType) { delete pane.agentData; delete pane.agentOrigin }
   Object.assign(pane, agentInfo(value))
 }
 export let validateAgentRequirements = (actor: AgentInfo, settings: AgentSettings) => {

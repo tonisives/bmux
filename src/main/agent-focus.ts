@@ -9,7 +9,7 @@ export let focusAgent = async (actor: AgentInfo, settings: AgentSettings) => {
   if (!definition?.focusCommand) throw new Error('Configure a focus command for this agent type in automation.agents.definitions')
   let env: NodeJS.ProcessEnv = { ...process.env }
   for (let key of Object.keys(env)) if (key.startsWith('BMUX_AGENT_')) delete env[key]
-  Object.assign(env, { BMUX_AGENT_ID: actor.agentId ?? '', BMUX_AGENT_TYPE: actor.agentType ?? '', BMUX_AGENT_DATA: JSON.stringify(actor.agentData ?? {}) })
+  Object.assign(env, { BMUX_AGENT_ID: actor.agentId ?? '', BMUX_AGENT_TYPE: actor.agentType ?? '', BMUX_AGENT_DATA: JSON.stringify(actor.agentData ?? {}), BMUX_AGENT_ORIGIN: JSON.stringify(actor.agentOrigin ?? null), BMUX_AGENT_SOCKET_PATH: actor.agentOrigin?.socketPath ?? '' })
   // Data travels through environment variables, never shell source interpolation.
   for (let [key, field] of Object.entries(definition.fields)) {
     let name = field.type && field.type !== 'text' ? `${field.type.toUpperCase()}_ID` : `FIELD_${key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`

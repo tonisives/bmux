@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { runtimeDataDirectory, developmentExecutable } from './runtime-paths.mjs'
 import { controlSocketPath } from './ipc.mjs'
+import { identifyTmuxAgent, resolveTmuxAgent } from './tmux-agent.mjs'
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 let argv = process.argv.slice(2)
@@ -60,6 +61,7 @@ Automation: automation status | automation safety | automation acquire -t PANE -
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
             Browser commands require --agent-id ID or BMUX_AGENT_ID by default.
             Add --agent-name NAME, --agent-purpose REASON, --agent-type TYPE and --agent-data JSON for agent details.
+            agent context prints verified tmux context for the calling agent.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
 Advanced: rpc METHOD JSON_ARGS
@@ -112,7 +114,7 @@ let parseCommand = () => {
   let command = argv.shift()
   if (command === 'movew') command = 'move-window'
   if (command === 'tab') throw new Error('Unknown command: tab')
-  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'pane'].includes(command) ? argv.shift() : null
+  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'agent', 'pane'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
   let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled'])
@@ -232,6 +234,11 @@ try {
     process.exit(response.ok ? 0 : 1)
   }
   let command = parse()
+  if (command.method === 'agent.context') {
+    process.stdout.write(`${JSON.stringify({ ok: true, result: await resolveTmuxAgent() })}\n`)
+    process.exit(0)
+  }
+  command = await identifyTmuxAgent(command)
   let response
   try { response = await request(command) } catch (error) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error

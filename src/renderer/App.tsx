@@ -1385,7 +1385,7 @@ let AgentInformation = () => {
   let [busy, setBusy] = useState<string | null>(null)
   let focus = async (actor: AutomationActor) => {
     setBusy(actor.paneId)
-    try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId }) } finally { setBusy(null) }
+    try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId, agentOrigin: actor.agentOrigin }) } finally { setBusy(null) }
   }
   let toggleCursor = async (actor: AutomationActor) => {
     setBusy(actor.paneId)

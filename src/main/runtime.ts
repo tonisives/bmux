@@ -2036,6 +2036,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!sourceClientId) throw new Error('Focus agents from the bmux UI')
       let { pane } = paneById(model, required(args, 'pane'))
       if (args.agentId !== pane.agentId) throw new Error('The agent in this browser pane has changed; reopen Agent information')
+      if (JSON.stringify(args.agentOrigin ?? null) !== JSON.stringify(pane.agentOrigin ?? null)) throw new Error('The agent terminal in this browser pane has changed; reopen Agent information')
       return focusAgent(pane, configuration?.automation.agents ?? DEFAULT_AGENTS)
     }
     if (method === 'automation.agents.set') {

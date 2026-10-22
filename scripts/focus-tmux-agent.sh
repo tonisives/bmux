@@ -2,15 +2,23 @@
 set -eu
 exec </dev/null
 
-pane=${BMUX_AGENT_PANE_ID:?Agent pane ID is required}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+pane=$(node "$script_dir/../bin/tmux-agent.mjs" focus-pane)
+tmux_agent() {
+  if [ -n "${BMUX_AGENT_SOCKET_PATH:-}" ]; then
+    tmux -S "$BMUX_AGENT_SOCKET_PATH" "$@"
+  else
+    tmux "$@"
+  fi
+}
 client=${BMUX_AGENT_FIELD_CLIENT_TTY:-}
 if [ -n "$client" ]; then
-  tmux switch-client -c "$client" -t "$pane"
+  tmux_agent switch-client -c "$client" -t "$pane"
 else
-  tmux switch-client -t "$pane"
+  tmux_agent switch-client -t "$pane"
 fi
-tmux select-window -t "$pane"
-tmux select-pane -t "$pane"
+tmux_agent select-window -t "$pane"
+tmux_agent select-pane -t "$pane"
 
 if [ "$(uname -s)" = Darwin ]; then
   window=${BMUX_AGENT_FIELD_TERMINAL_WINDOW_ID:-}

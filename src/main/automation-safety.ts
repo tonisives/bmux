@@ -97,7 +97,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let value = usage[usageKey(profileId, url)]
     if (!value || !automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return
     let previous = value.actors?.find(item => item.paneId === actor.paneId)
-    if (previous && previous.agentId === actor.agentId && previous.agentName === actor.agentName && previous.agentPurpose === actor.agentPurpose && previous.agentType === actor.agentType && JSON.stringify(previous.agentData) === JSON.stringify(actor.agentData) && previous.hosts?.includes(automationWebsiteHost(url)!)) return
+    if (previous && previous.agentId === actor.agentId && previous.agentName === actor.agentName && previous.agentPurpose === actor.agentPurpose && previous.agentType === actor.agentType && JSON.stringify(previous.agentData) === JSON.stringify(actor.agentData) && JSON.stringify(previous.agentOrigin) === JSON.stringify(actor.agentOrigin) && previous.hosts?.includes(automationWebsiteHost(url)!)) return
     value.actors = actorsFor(value, actor, url)
     persist()
   }
