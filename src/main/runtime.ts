@@ -696,8 +696,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let automationPointerTabs = new Set<string>()
   let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => agentActions.run(pane, () => {
-    let live = tabs.get(pane), target = automationTargetUrl(method, args)
-    return [live && !live.contents.isDestroyed() ? live.contents.getURL() : tabById(model, pane).tab.url, ...(target ? [target] : [])]
+    let live = tabs.get(pane), { tab, session } = tabById(model, pane), target = automationTargetUrl(method, args)
+    let current = live && !live.contents.isDestroyed() ? live.contents.getURL() : ''
+    if (!current || current === 'about:blank' && tab.url !== 'about:blank') current = live?.pendingUrl ?? tab.url
+    return [current, ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])]
   }, operation, agentActionInput(method, args, owner))
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
     let live = tabs.get(tabId), document = documents.get(tabId)
