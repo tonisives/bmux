@@ -289,6 +289,7 @@ test('page context menu opens links in a float using the source profile', async 
     await expect.poll(async () => (await state()).model.sessions[0].windows[0].floating.length).toBe(1)
     let added = (await state()).model.sessions[0].windows[0].panes.at(-1)
     expect(added.profileId).toBe(pane.profileId)
+    expect((await state()).lockedAgentPanes).not.toContain(added.id)
     await rpc('wait', { tab: added.id, selector: '#counter' })
     expect((await state()).model.sessions[0].windows[0].panes.at(-1).url).toBe(`${url}/linked`)
   } finally { await application.evaluate(() => (globalThis as any).restoreFloatingMenu()) }

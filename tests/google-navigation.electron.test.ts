@@ -124,6 +124,9 @@ test('Google navigation automatic hooks can be enabled in Extensions and select 
   page = application.context().pages().find(page => page.url() === url)!
   await expect(page.locator('#result-0')).toBeVisible()
   await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.status === 'completed'))).toBe(true)
+  // The hook is an agent command; native input resumes after its inactivity lock.
+  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).lockedAgentPanes), { timeout: 25000 }).toEqual([])
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(page.url())
   await keys('Down')
   await expect(page.locator('#result-0')).toBeFocused()
   await keys('Down')
@@ -164,6 +167,9 @@ test('Google navigation recovers when an in-page URL change cancels installation
   }
   await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.actionId === 'navigation' && run.status === 'cancelled'))).toBe(true)
   await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.actionId === 'navigation-change' && run.status === 'completed'))).toBe(true)
+  // The hook is an agent command; native input resumes after its inactivity lock.
+  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).lockedAgentPanes), { timeout: 25000 }).toEqual([])
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(page.url())
   await keys('Down')
   await expect(page.locator('#result-0')).toBeFocused()
   await keys('Down')

@@ -321,8 +321,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     },
     openLink: async (clientId, tabId, url, action) => {
       let pane = tabById(model, tabId).pane
-      if (action === 'float') await execute({ method: 'new-pane', args: { pane: pane.id, client: clientId, url } })
-      else await execute({ method: 'split-window', args: { pane: pane.id, client: clientId, url, axis: 'horizontal', before: action === 'split-left' } })
+      if (action === 'float') await execute({ method: 'new-pane', args: { pane: pane.id, client: clientId, url } }, clientId)
+      else await execute({ method: 'split-window', args: { pane: pane.id, client: clientId, url, axis: 'horizontal', before: action === 'split-left' } }, clientId)
     },
     error: error => reportError(error),
     changed: () => publishClickMode(),
@@ -992,7 +992,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     filePickers.watchPage(tabId, contents, () => !isLiveTabOpen(live) || live.parent.isDestroyed() ? { visible: false } : { windowId: live.parent.id, visible: live.parent.isVisible() && !live.parent.isMinimized() && view.getVisible() })
     let installSwipe = process.platform === 'darwin' ? createSwipeNavigation(contents, () => isLiveTabOpen(live) && !live.remoteFrame && !automatedContents.has(contents.id) && [...clients].some(([id, owner]) => owner.window === live.parent && owner.window.isFocused() && !overlays.has(id) && view.getVisible()), () => ({ window: live.parent, bounds: view.getBounds(), order: live.parent.contentView.children.indexOf(view) }), {
       available: () => !!backOpener(model, pane),
-      navigate: () => { void execute({ method: 'back', args: { tab: tabId } }).catch(reportError).finally(() => installSwipe?.cancel()) },
+      navigate: () => {
+        let clientId = [...clients].find(([, owner]) => owner.window === live.parent)?.[0]
+        if (clientId) void execute({ method: 'back', args: { tab: tabId } }, clientId).catch(reportError).finally(() => installSwipe?.cancel())
+      },
       snapshot: (width, height) => { let opener = backOpener(model, pane); return opener ? tabs.get(opener.pane.id)?.refreshSwipe?.snapshot(width, height) : undefined },
     }) : undefined
     live.refreshSwipe = installSwipe
@@ -1249,8 +1252,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('context-menu', (event, params) => {
       event.preventDefault()
-      let owner = [...clients.values()].find(client => client.window === live.parent)
-      if (!owner) return
+      let entry = [...clients].find(([, client]) => client.window === live.parent)
+      if (!entry) return
+      let [clientId, owner] = entry
       let show = async () => {
         let linkUrl = params.linkURL
         let selectionText = params.selectionText.trim()
@@ -1264,7 +1268,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let template: Electron.MenuItemConstructorOptions[] = []
         if (selectionText) template.push(
           ...(process.platform === 'darwin' ? [{ label: 'Look Up', click: () => contents.showDefinitionForSelection() }] : []),
-          { label: 'Translate', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(selectionText)}&op=translate` } }).catch(reportError) } },
+          { label: 'Translate', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: clientId, url: `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(selectionText)}&op=translate` } }, clientId).catch(reportError) } },
           { type: 'separator' },
         )
         if (params.isEditable && params.misspelledWord) {
@@ -1278,7 +1282,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (linkUrl) {
           template.push(
             { label: 'Open link', click: () => { if (isLiveTabOpen(live)) void guardedLoad(live, linkUrl).catch(reportError) } },
-            { label: 'Open link in floating pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: [...clients].find(([, live]) => live === owner)?.[0], url: linkUrl } }).catch(reportError) } },
+            { label: 'Open link in floating pane', click: () => { void execute({ method: 'new-pane', args: { pane: tabById(model, tabId).pane.id, client: clientId, url: linkUrl } }, clientId).catch(reportError) } },
             { label: 'Open link in new window', click: () => { openLinkWindow(linkUrl, true) } },
             { label: 'Copy link address', click: () => clipboard.writeText(linkUrl) },
           )

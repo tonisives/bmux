@@ -1813,9 +1813,12 @@ test('find reports counts, moves in both directions, and stays responsive during
     await chrome.screenshot({ path: path.resolve('artifacts/find-counts.png') })
     await input.press('Escape'); await expect(input).toHaveCount(0)
     await expect.poll(async () => (await state()).findResults[original]).toBeUndefined()
-    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/fixture`)
+    await expect.poll(async () => (await state()).lockedAgentPanes).toContain(pane.id)
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getTitle())).toBe('Agent input lock')
   } finally { await page.evaluate(() => { (window as any).waitReady = true }); await result }
   expect(await result).toEqual({ value: { matched: true } })
+  await expect.poll(async () => (await state()).lockedAgentPanes, { timeout: 25000 }).not.toContain(pane.id)
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/fixture`)
 })
 
 test('find results stay scoped to each tab and refresh after navigation', async () => {

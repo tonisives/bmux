@@ -68,6 +68,8 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
   }).toBe(true)
   return selected!
 }
+// Native interaction fixtures must not renew an agent input lock while inspecting readiness.
+let ui = (chrome: Page, method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let launch = async () => {
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
   application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
@@ -807,7 +809,8 @@ for (let floating of [false, true]) test(`URL Vim mode uses Escape to leave INSE
       await expect(address).toBeFocused()
     }
     await address.press('Enter')
-    await expect.poll(() => cli('eval', { pane: pane.id, expression: 'location.pathname' })).toBe(`/url-vim-${floating}`)
+    await expect.poll(() => ui(chrome, 'eval', { pane: pane.id, expression: 'location.pathname' })).toBe(`/url-vim-${floating}`)
+    expect((await cli('state')).lockedAgentPanes).not.toContain(pane.id)
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/url-vim-${floating}`)
     if (floating) await address.click()
     else await chrome.getByRole('button', { name: 'Address', exact: true }).click()
@@ -1076,13 +1079,13 @@ test('address controls navigate, refresh, and open the per-tab history on hold',
 for (let floating of [false, true]) test(`Command-click opens Back and Forward history in background windows from ${floating ? 'floating' : 'tiled'} panes`, async () => {
   let session = await cli('new-session', { name: `command-navigation-${floating}` })
   let profile = await cli('profile.create', { name: `history-profile-${floating}` })
-  let pane = await cli('split-window', { pane: session.windows[0].panes[0].id, profile: profile.id, url: `${url}/command-one` })
-  await cli('wait', { tab: pane.id, selector: '#text' })
   let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  let pane = await ui(chrome, 'split-window', { pane: session.windows[0].panes[0].id, profile: profile.id, url: `${url}/command-one` })
+  await ui(chrome, 'wait', { tab: pane.id, selector: '#text' })
   try {
     await cli('select-pane', { client: client.id, pane: pane.id })
     await cli('activate-client', { client: client.id })
-    let chrome = await rendererForClient(client.id)
     let controls = chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('group', { name: 'Pane address' })
     if (floating) {
       await cli('break-pane', { pane: pane.id, floating: true, client: client.id })
@@ -1099,7 +1102,7 @@ for (let floating of [false, true]) test(`Command-click opens Back and Forward h
       let address = controls.getByRole('textbox', { name: floating ? 'Address' : 'URL or search', exact: true })
       if (floating) await address.click()
       await address.fill(`${url}${path}`); await address.press('Enter')
-      await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe(path)
+      await expect.poll(() => ui(chrome, 'eval', { tab: pane.id, expression: 'location.pathname' })).toBe(path)
       // The floating form returns focus after navigation completes. Finish that
       // handoff before starting the next edit, or Enter can reach the page.
       if (floating) await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}${path}`)
@@ -1108,9 +1111,9 @@ for (let floating of [false, true]) test(`Command-click opens Back and Forward h
     expect((await cli('list-windows', { session: session.id })).map((window: { id: string }) => window.id)).toEqual(initialWindows.map((window: { id: string }) => window.id))
     await expect(controls.getByRole('button', { name: 'Forward', exact: true })).toBeDisabled()
     await controls.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe('/command-two')
+    await expect.poll(() => ui(chrome, 'eval', { tab: pane.id, expression: 'location.pathname' })).toBe('/command-two')
     await expect(controls.getByRole('button', { name: 'Forward', exact: true })).toBeEnabled()
-    let identity = await cli('eval', { tab: pane.id, expression: 'window.identity' })
+    let identity = await ui(chrome, 'eval', { tab: pane.id, expression: 'window.identity' })
     let history = (await cli('state')).navigation[pane.id]
     let selection = (await cli('list-clients')).find((item: { id: string }) => item.id === client.id)
     for (let [direction, path] of [['Back', '/command-one'], ['Forward', '/command-three']]) {
@@ -1120,10 +1123,10 @@ for (let floating of [false, true]) test(`Command-click opens Back and Forward h
       await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(before.length + 1)
       let opened = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !before.some((item: { id: string }) => item.id === window.id))
       expect(opened.panes[0]).toMatchObject({ url: `${url}${path}`, profileId: profile.id })
-      await cli('wait', { tab: opened.panes[0].id, selector: '#text' })
-      expect(await cli('eval', { tab: opened.panes[0].id, expression: 'location.pathname' })).toBe(path)
+      await ui(chrome, 'wait', { tab: opened.panes[0].id, selector: '#text' })
+      expect(await ui(chrome, 'eval', { tab: opened.panes[0].id, expression: 'location.pathname' })).toBe(path)
       expect((await cli('state')).navigation[pane.id]).toEqual(history)
-      expect(await cli('eval', { tab: pane.id, expression: 'window.identity' })).toBe(identity)
+      expect(await ui(chrome, 'eval', { tab: pane.id, expression: 'window.identity' })).toBe(identity)
       expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id)).toEqual(selection)
       await expect(controls.getByRole('menu')).toHaveCount(0)
       await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => {
@@ -1132,7 +1135,7 @@ for (let floating of [false, true]) test(`Command-click opens Back and Forward h
       })), `${url}/command-two`)).toBe(true)
     }
     await controls.getByRole('button', { name: 'Forward', exact: true }).click()
-    await expect.poll(() => cli('eval', { tab: pane.id, expression: 'location.pathname' })).toBe('/command-three')
+    await expect.poll(() => ui(chrome, 'eval', { tab: pane.id, expression: 'location.pathname' })).toBe('/command-three')
   } finally {
     await cli('detach-client', { client: client.id })
   }
@@ -1190,13 +1193,13 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
   await expect.poll(async () => (await cli('state')).keyboard.shortcuts['Cmd+J']).toBe('pane-down')
   let session = await cli('new-session', { name: 'native-navigation' })
   let upper = session.windows[0].panes[0]
-  await cli('navigate', { tab: upper.id, url: `${url}/history-one` })
-  await cli('navigate', { tab: upper.id, url: `${url}/history-two` })
-  await cli('navigate', { tab: upper.id, url: `${url}/history-three` })
-  let lower = await cli('split-window', { pane: upper.id, axis: 'vertical', url: `${url}/lower-scroll` })
-  await cli('wait', { tab: lower.id, selector: '#text' })
   let client = await cli('attach-session', { session: session.id })
-  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  let chrome = await rendererForClient(client.id)
+  await ui(chrome, 'navigate', { tab: upper.id, url: `${url}/history-one` })
+  await ui(chrome, 'navigate', { tab: upper.id, url: `${url}/history-two` })
+  await ui(chrome, 'navigate', { tab: upper.id, url: `${url}/history-three` })
+  let lower = await ui(chrome, 'split-window', { pane: upper.id, axis: 'vertical', url: `${url}/lower-scroll` })
+  await ui(chrome, 'wait', { tab: lower.id, selector: '#text' })
   let otherClient: string | undefined
   try {
     await expect(chrome.locator('[data-browser-content]')).toHaveCount(2)
@@ -1208,12 +1211,12 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     }, { button, target: `${url}/${currentPath}` })
     await cli('select-pane', { client: client.id, pane: lower.id })
     await mouse('back', 'history-three')
-    await expect.poll(() => cli('eval', { tab: upper.id, expression: 'location.pathname' })).toBe('/history-two')
-    expect(await cli('eval', { tab: lower.id, expression: 'location.pathname' })).toBe('/lower-scroll')
+    await expect.poll(() => ui(chrome, 'eval', { tab: upper.id, expression: 'location.pathname' })).toBe('/history-two')
+    expect(await ui(chrome, 'eval', { tab: lower.id, expression: 'location.pathname' })).toBe('/lower-scroll')
     await mouse('forward', 'history-two')
-    await expect.poll(() => cli('eval', { tab: upper.id, expression: 'location.pathname' })).toBe('/history-three')
+    await expect.poll(() => ui(chrome, 'eval', { tab: upper.id, expression: 'location.pathname' })).toBe('/history-three')
     let windowsBeforePopup = await cli('list-windows', { session: session.id })
-    await cli('click', { tab: upper.id, selector: '#popup' })
+    await ui(chrome, 'click', { tab: upper.id, selector: '#popup' })
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(windowsBeforePopup.length + 1)
     let popupWindow = (await cli('list-windows', { session: session.id })).find((window: { id: string }) => !windowsBeforePopup.some((existing: { id: string }) => existing.id === window.id))
     await expect.poll(async () => (await cli('list-panes', { window: popupWindow.id }))[0].url).toBe(`${url}/popup`)
@@ -1228,11 +1231,11 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     }
     await expect.poll(focusedUrl).toBe(`${url}/history-three`)
     // Repeated activation must preserve the page's first responder and text caret.
-    await cli('eval', { tab: upper.id, expression: 'document.querySelector("#text").focus()' })
+    await ui(chrome, 'eval', { tab: upper.id, expression: 'document.querySelector("#text").focus()' })
     for (let attempt = 0; attempt < 3; attempt++) {
       await cli('activate-client', { client: client.id })
       expect(await focusedUrl()).toBe(`${url}/history-three`)
-      expect(await cli('eval', { tab: upper.id, expression: 'document.hasFocus() && document.activeElement.id === "text"' })).toBe(true)
+      expect(await ui(chrome, 'eval', { tab: upper.id, expression: 'document.hasFocus() && document.activeElement.id === "text"' })).toBe(true)
     }
     // Hand off the views to another native client, then refocus without a page click.
     let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
@@ -1257,8 +1260,8 @@ test('mouse history buttons target their pane and pane shortcuts keep native key
     await key('j', ['meta'])
     expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(lower.id)
     await key('Down')
-    await expect.poll(() => cli('eval', { tab: lower.id, expression: 'scrollY' })).toBeGreaterThan(0)
-    expect(await cli('eval', { tab: upper.id, expression: 'scrollY' })).toBe(0)
+    await expect.poll(() => ui(chrome, 'eval', { tab: lower.id, expression: 'scrollY' })).toBeGreaterThan(0)
+    expect(await ui(chrome, 'eval', { tab: upper.id, expression: 'scrollY' })).toBe(0)
   } finally {
     if (otherClient) await cli('detach-client', { client: otherClient })
     await cli('detach-client', { client: client.id })
@@ -1915,16 +1918,16 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   let session = await cli('new-session', { name: 'vim-page-keys' })
   let tab = session.windows[0].panes[0].id
   let client = await cli('attach-session', { session: session.id })
-  await cli('navigate', { tab, url: `${url}/vim-page-keys` })
+  let chrome = await rendererForClient(client.id)
+  await ui(chrome, 'navigate', { tab, url: `${url}/vim-page-keys` })
   let page = application.context().pages().find(page => page.url() === `${url}/vim-page-keys`)!
   await page.locator('#inc').click()
-  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let press = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
     await sendNativeKeys(application, [{ keyCode, modifiers }])
   }
-  let scroll = () => cli('eval', { tab, expression: 'scrollY' }) as Promise<number>
+  let scroll = () => ui(chrome, 'eval', { tab, expression: 'scrollY' }) as Promise<number>
   await page.evaluate(() => {
     let wrapper = document.createElement('div')
     wrapper.id = 'page-focus-wrapper'
@@ -1950,20 +1953,20 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await press('g'); await press('g')
   await expect.poll(scroll).toBe(0)
   await press('g', ['shift'])
-  await expect.poll(async () => (await cli('eval', { tab, expression: 'scrollY + innerHeight >= document.documentElement.scrollHeight - 2' }))).toBe(true)
+  await expect.poll(async () => (await ui(chrome, 'eval', { tab, expression: 'scrollY + innerHeight >= document.documentElement.scrollHeight - 2' }))).toBe(true)
   await press('g'); await press('g')
   await expect.poll(scroll).toBe(0)
-  let identity = await cli('eval', { tab, expression: 'window.identity' })
+  let identity = await ui(chrome, 'eval', { tab, expression: 'window.identity' })
   await press('r')
-  await expect.poll(() => cli('eval', { tab, expression: 'window.identity' })).not.toBe(identity)
-  identity = await cli('eval', { tab, expression: 'window.identity' })
+  await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.identity' })).not.toBe(identity)
+  identity = await ui(chrome, 'eval', { tab, expression: 'window.identity' })
   await press('r', ['shift'])
-  await expect.poll(() => cli('eval', { tab, expression: 'window.identity' })).not.toBe(identity)
+  await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.identity' })).not.toBe(identity)
   await press('/')
   await expect(chrome.getByRole('textbox', { name: 'Find in page' })).toBeFocused()
   await chrome.keyboard.press('Escape')
   await cli('focus-page', { client: client.id })
-  let loadedIdentity = await cli('eval', { tab, expression: 'window.identity' })
+  let loadedIdentity = await ui(chrome, 'eval', { tab, expression: 'window.identity' })
   let keys = ['H', 'L', 'j', 'k', 'd', 'u', 'G', 'r', 'R', '/', 'g', 'g']
   let input = page.locator('#text')
   await input.click()
@@ -1971,7 +1974,7 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   await expect(input).toHaveValue(keys.join(''))
   expect(await scroll()).toBe(0)
   expect(page.url()).toBe(`${url}/vim-page-keys`)
-  expect(await cli('eval', { tab, expression: 'window.identity' })).toBe(loadedIdentity)
+  expect(await ui(chrome, 'eval', { tab, expression: 'window.identity' })).toBe(loadedIdentity)
   await expect(chrome.getByRole('textbox', { name: 'Find in page' })).toHaveCount(0)
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -1980,7 +1983,7 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   for (let key of keys) await address.press(key)
   await expect(address).toHaveValue(keys.join(''))
   expect(page.url()).toBe(`${url}/vim-page-keys`)
-  expect(await cli('eval', { tab, expression: 'window.identity' })).toBe(loadedIdentity)
+  expect(await ui(chrome, 'eval', { tab, expression: 'window.identity' })).toBe(loadedIdentity)
   await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
   await cli('detach-client', { client: client.id })
   await fs.writeFile(config, previous)
@@ -1994,9 +1997,9 @@ test('native click mode activates with Option taps and performs each click actio
   let session = await cli('new-session', { name: 'click-mode' })
   let tab = session.windows[0].panes[0].id
   let client = await cli('attach-session', { session: session.id })
-  await cli('navigate', { tab, url: `${url}/click-mode` })
+  let chrome = await rendererForClient(client.id)
+  await ui(chrome, 'navigate', { tab, url: `${url}/click-mode` })
   let page = application.context().pages().find(page => page.url() === `${url}/click-mode`)!
-  let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   await page.evaluate(() => {
     let fixture = document.createElement('div')
     fixture.style.cssText = 'position:fixed;left:420px;top:90px;width:500px;z-index:2'
@@ -2024,17 +2027,17 @@ test('native click mode activates with Option taps and performs each click actio
     await sendNativeKeys(application, [{ keyCode: 'Alt', modifiers: ['alt'] }, { keyCode: 'Alt', modifiers: ['alt'] }])
     await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
     await keys('a', '1', 'Backspace', 'a', 's')
-    await expect.poll(() => cli('eval', { tab, expression: 'window.count' })).toBe(1)
+    await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.count' })).toBe(1)
     await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(0)
 
     await activate(); await keys('r', 'a', 's')
-    await expect.poll(() => cli('eval', { tab, expression: 'window.rightClicks' })).toBe(1)
+    await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.rightClicks' })).toBe(1)
 
     await activate(); await keys('c', 'a', 's')
-    await expect.poll(() => cli('eval', { tab, expression: 'window.commandClicks' })).toBe(1)
+    await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.commandClicks' })).toBe(1)
 
     await activate(); await keys('d', 'a', 's')
-    await expect.poll(() => cli('eval', { tab, expression: 'window.doubleClicks' })).toBe(1)
+    await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.doubleClicks' })).toBe(1)
 
     await page.evaluate(() => { document.body.innerHTML = '<button>Not a link</button><a href="/click-mode-pane-target">Pane target</a>' })
     let sourcePaneId = session.windows[0].panes[0].id, windowId = session.windows[0].id
@@ -2077,7 +2080,7 @@ test('native click mode activates with Option taps and performs each click actio
       shadow.append(button); document.body.append(host)
     })
     await activate(); await keys('a')
-    await expect.poll(() => cli('eval', { tab, expression: 'window.shadowClicks' })).toBe(1)
+    await expect.poll(() => ui(chrome, 'eval', { tab, expression: 'window.shadowClicks' })).toBe(1)
 
     let frameUrl = `${url.replace('127.0.0.1', 'localhost')}/click-frame`
     await page.evaluate(frameUrl => {
@@ -2178,11 +2181,11 @@ test('window management shortcuts and keyboard session selection', async () => {
   let beta = await cli('new-session', { name: 'keyboard-beta' })
   let gamma = await cli('new-session', { name: 'keyboard-gamma' })
   let client = await cli('attach-session', { session: alpha.id })
-  let first = alpha.windows[0]
-  await cli('navigate', { tab: first.panes[0].id, url })
-  let temporary = await cli('new-window', { session: alpha.id, client: client.id, name: 'temporary', url })
-  await cli('wait', { tab: temporary.panes[0].id, selector: '#text' })
   let chrome = await rendererForClient(client.id)
+  let first = alpha.windows[0]
+  await ui(chrome, 'navigate', { tab: first.panes[0].id, url })
+  let temporary = await ui(chrome, 'new-window', { session: alpha.id, client: client.id, name: 'temporary', url })
+  await ui(chrome, 'wait', { tab: temporary.panes[0].id, selector: '#text' })
   let shortcut = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = [], prefix = true) => {
     await cli('activate-client', { client: client.id })
     await cli('focus-page', { client: client.id })
@@ -2201,7 +2204,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   let createdByCmdT = windowsAfterCmdT.find((window: { id: string }) => ![first.id, temporary.id].includes(window.id))
   expect(createdByCmdT).toBeTruthy()
   await expect.poll(async () => (await cli('list-clients')).find((item: { id: string }) => item.id === client.id)?.windowId).toBe(createdByCmdT.id)
-  expect(await cli('eval', { tab: first.panes[0].id, expression: 'document.title' })).toBe('bmux fixture')
+  expect(await ui(chrome, 'eval', { tab: first.panes[0].id, expression: 'document.title' })).toBe('bmux fixture')
   await cli('kill-window', { window: createdByCmdT.id, confirm: true })
   await cli('select-window', { client: client.id, window: temporary.id })
   await shortcut('1')
@@ -2230,7 +2233,7 @@ test('window management shortcuts and keyboard session selection', async () => {
   await cli('select-window', { client: client.id, window: temporary.id })
   await shortcut('&', ['shift'])
   await expect.poll(async () => (await cli('list-windows', { session: alpha.id })).map((window: { id: string }) => window.id)).toEqual([first.id])
-  expect(await cli('eval', { tab: first.panes[0].id, expression: 'document.title' })).toBe('bmux fixture')
+  expect(await ui(chrome, 'eval', { tab: first.panes[0].id, expression: 'document.title' })).toBe('bmux fixture')
   // Closing the last internal window removes its session and selects the next one.
   await shortcut('&', ['shift'])
   await expect.poll(async () => (await cli('list-sessions')).some((session: { id: string }) => session.id === alpha.id)).toBe(false)
@@ -2346,7 +2349,7 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
     await expect(address).toHaveAttribute('data-vim-mode', 'INSERT')
     await address.pressSequentially(`${url}/cached-favicon/pinned`)
     await address.press('Enter')
-    await cli('wait', { pane: second.panes[0].id, selector: '#text' })
+    await ui(chrome, 'wait', { pane: second.panes[0].id, selector: '#text' })
     await expect(tab(second.id).locator('img')).toBeVisible()
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/cached-favicon/pinned`)
     await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
@@ -2481,12 +2484,12 @@ test('permission notice leaves the native page interactive and reopens for new r
   let profile = await cli('profile.create', { name: 'permission-popup', background: true })
   let session = await cli('new-session', { name: 'permission-popup', profile: profile.id })
   let tab = session.windows[0].panes[0]
-  await cli('navigate', { tab: tab.id, url: `${url}/permission-popup` })
-  await cli('wait', { tab: tab.id, selector: '#text' })
-  await cli('eval', { tab: tab.id, expression: 'Notification.requestPermission(); true' })
-  await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
   let client = await cli('attach-session', { session: session.id })
-  let chrome = application.windows().find(window => window.url().endsWith('/renderer/index.html'))!
+  let chrome = await rendererForClient(client.id)
+  await ui(chrome, 'navigate', { tab: tab.id, url: `${url}/permission-popup` })
+  await ui(chrome, 'wait', { tab: tab.id, selector: '#text' })
+  await ui(chrome, 'eval', { tab: tab.id, expression: 'Notification.requestPermission(); true' })
+  await expect.poll(async () => (await cli('permission.list')).length).toBe(1)
   let popup = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: /requests (notifications|geolocation)/ })
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('notifications')
@@ -2513,7 +2516,7 @@ test('permission notice leaves the native page interactive and reopens for new r
   await expect.poll(async () => (await cli('permission.list')).length).toBe(0)
   await activity.getByRole('button', { name: 'Close', exact: true }).click()
   await cli('focus-page', { client: client.id })
-  await cli('eval', { tab: tab.id, expression: 'navigator.geolocation.getCurrentPosition(()=>{},()=>{}); true' })
+  await ui(chrome, 'eval', { tab: tab.id, expression: 'navigator.geolocation.getCurrentPosition(()=>{},()=>{}); true' })
   await expect(popup).toBeVisible()
   await expect(popup).toContainText('geolocation')
   expect(await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/permission-popup`)
@@ -2974,8 +2977,8 @@ for (let loseCapture of [false, true]) test(`fast displayed URL release ${loseCa
   let client = await cli('attach-session', { session: session.id })
   let chrome = await rendererForClient(client.id)
   await cli('activate-client', { client: client.id })
-  await cli('navigate', { pane: pane.id, url: target })
-  await cli('wait', { pane: pane.id, selector: '#text' })
+  await ui(chrome, 'navigate', { pane: pane.id, url: target })
+  await ui(chrome, 'wait', { pane: pane.id, selector: '#text' })
   let displayed = chrome.getByRole('button', { name: 'Address', exact: true })
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   let mouse = async (events: { type: number; x: number; y: number }[]) => {
@@ -3008,7 +3011,7 @@ for (let loseCapture of [false, true]) test(`fast displayed URL release ${loseCa
     await expect(address).toHaveCount(0)
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(target)
     await sendNativeKeys(application, [{ keyCode: 'j' }])
-    await expect.poll(() => cli('eval', { pane: pane.id, expression: 'scrollY' })).toBeGreaterThan(0)
+    await expect.poll(() => ui(chrome, 'eval', { pane: pane.id, expression: 'scrollY' })).toBeGreaterThan(0)
   } finally {
     await mouse([{ type: 2, x: x + 140, y: y + 160 }])
     await cli('detach-client', { client: client.id })
@@ -3064,7 +3067,7 @@ for (let mobile of [false, true]) test(`address suggestions dismiss when clickin
     if (mobile) await chrome.evaluate(args => (window as any).bmux.command({ method: 'profile.device.set', args }), { pane: pane.id, profile: pane.profileId, device: { preset: 'iphone-15-pro', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
     await displayed.click()
     await address.fill(`${url}/dismiss-suggestions`); await address.press('Enter')
-    await cli('wait', { tab: pane.id, selector: '#text' })
+    await ui(chrome, 'wait', { tab: pane.id, selector: '#text' })
     await displayed.click(); await address.fill('dismiss-suggestions')
     await expect(suggestions).toBeVisible()
     await chrome.locator('[data-pane-content]').click({ position: { x: 8, y: 200 } })

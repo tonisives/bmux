@@ -26,7 +26,7 @@ for (let protection of ['cooldown', 'warning', 'lease', 'unused']) test(`externa
     let file = path.join(directory, 'external file.html')
     await fs.writeFile(file, '<!doctype html><title>External file</title><main>External file</main>')
     let startedAt = Date.now() - 11 * 60_000
-    let ledger = protection === 'cooldown' || protection === 'warning' ? { profile_default: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, ...(protection === 'warning' ? { warning: 'account-warning', warningHost: 'one.example.com' } : {}) } } : {}
+    let ledger = protection === 'cooldown' || protection === 'warning' ? { [JSON.stringify(['profile_default', 'one.example.com'])]: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, ...(protection === 'cooldown' ? { limitReachedAt: startedAt + 10 * 60_000 } : {}), ...(protection === 'warning' ? { warning: 'account-warning', warningHost: 'one.example.com' } : {}) } } : {}
     let ledgerFile = path.join(directory, 'automation-safety.json')
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { groups: protection === 'lease' ? { fixture: { profiles: ['profile_default'], hosts: ['one.example.com'], maxConcurrent: 1, hourly: { runs: 1 }, requiredPlugins: { 'one.example.com': 'test' } } } : {} } }))

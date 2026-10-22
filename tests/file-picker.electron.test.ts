@@ -23,6 +23,7 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
   let writePermission = ''
   let pickerError = ''
   let clicks = 0
+  let focused = false
   let server = http.createServer((request, response) => {
     let url = new URL(request.url!, 'http://fixture')
     if (url.pathname === '/selected') {
@@ -32,19 +33,25 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
     }
     if (url.pathname === '/error') pickerError = url.searchParams.get('message') ?? ''
     if (url.pathname === '/clicked') clicks++
+    if (url.pathname === '/focus') focused = url.searchParams.get('ready') === 'true'
     response.setHeader('Content-Type', 'text/html')
     if (url.pathname === '/fixture' && picker === 'input-frame-popup') {
       response.end('<!doctype html><title>Review opener</title><button id="image" style="position:fixed;inset:0" onclick="fetch(\'/clicked\');window.open(\'/popup\')">Open review</button>')
       return
     }
     if ((url.pathname === '/fixture' || url.pathname === '/popup') && picker.startsWith('input-frame')) {
-      response.end('<!doctype html><title>Embedded review upload</title><iframe name="review" src="/frame" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>')
+      response.end('<!doctype html><title>Embedded review upload</title><script>let reportFocus=()=>fetch("/focus?ready="+(document.visibilityState==="visible"&&document.hasFocus()));for(let event of ["focus","blur","visibilitychange"])addEventListener(event,reportFocus);reportFocus();</script><iframe name="review" src="/frame" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>')
       return
     }
     response.end(`<!doctype html><title>Native image upload</title>
       <style>button{position:fixed;inset:0;font:32px sans-serif;background:#e8eef8}</style>
       <button id="image">Image</button><input id="file" type="file" accept="${picker === 'input-frame-media' ? 'image/*,video/*' : 'image/*'}" multiple hidden>
       <script>
+        if (window.top === window) {
+          let reportFocus = () => fetch('/focus?ready=' + (document.visibilityState === 'visible' && document.hasFocus()));
+          for (let event of ['focus', 'blur', 'visibilitychange']) addEventListener(event, reportFocus);
+          reportFocus();
+        }
         let reportError = error => fetch('/error?message=' + encodeURIComponent(error.name + ': ' + error.message));
         let upload = async (file, writePermission = '') => fetch('/selected?' + new URLSearchParams({name: file.name, writePermission}), {method: 'POST', body: await file.arrayBuffer()});
         document.querySelector('#image').onclick = async () => {
@@ -80,6 +87,9 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
       catch (error) { reject(error) }
     })
   })
+  let waitForInput = async (pane: string) => {
+    await expect.poll(async () => (await rpc('state')).lockedAgentPanes, { timeout: 25000 }).not.toContain(pane)
+  }
   // Launch normally: ElectronApplication would attach a second debugger to every page.
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
   let installedApp = path.join(directory, 'bmux.app')
@@ -148,10 +158,13 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
         await expect.poll(async () => (await apple(`tell application "System Events" to tell first application process whose unix id is ${child.pid} to get exists sheet 1 of window 1`)).stdout.trim()).toBe('false')
       }
       await rpc('wait', { tab: paneId, expression: '!document.querySelector("#file").matches(":open")' })
+      await waitForInput(paneId)
       await rpc('focus-page', { client: state.model.clients[0].id })
-      await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
+      await expect.poll(() => focused).toBe(true)
       await fs.writeFile(info.outputPath('background-restored-diagnostics.json'), JSON.stringify((await rpc('diagnostics')).filePickers, null, 2))
     }
+    // Finish agent setup before delivering a real human click.
+    await waitForInput(paneId)
     await apple('delay 0.3')
     await exec('/usr/sbin/screencapture', ['-x', info.outputPath('before-image-click.png')])
     let mouse = `ObjC.import('CoreGraphics'); let process=Application('System Events').processes.whose({unixId:${child.pid}})[0]; let window=process.windows[0]; let p=window.position(),s=window.size(); let point=$.CGPointMake(p[0]+80,p[1]+s[1]-100); [5,1,2].forEach(type=>{$.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,point,0));delay(0.08)});`
@@ -160,8 +173,9 @@ for (let picker of ['input', 'input-update', 'input-interception', 'input-backgr
       await expect.poll(() => rpc('state').then(current => current.model.clients[0].paneId)).not.toBe(paneId)
       paneId = (await rpc('state')).model.clients[0].paneId
       await rpc('wait', { tab: paneId, expression: frameReady })
+      await waitForInput(paneId)
       await rpc('focus-page', { client: state.model.clients[0].id })
-      await rpc('wait', { tab: paneId, expression: 'document.visibilityState === "visible" && document.hasFocus()' })
+      await expect.poll(() => focused).toBe(true)
       await rpc('cdp', { tab: paneId, method: 'Runtime.evaluate', params: { expression: 'document.querySelector("iframe").contentDocument.querySelector("#image").click()', userGesture: true } })
     }
     await expect.poll(() => clicks).toBe(['input-frame-popup', 'input-interception', 'input-background', 'input-switch-race'].includes(picker) ? 2 : 1)
