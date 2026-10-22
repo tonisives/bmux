@@ -110,8 +110,17 @@ Open the **Sessions** popup, then select **Remote sessions** in its title bar. T
 popup remembers the selected tab. Sign-in and remote viewing reuse the current
 bmux window. Selecting a remote session replaces its tab strip and address bar
 with the remote pages and URL. The status bar offers **Take control**, **Release
-control**, and **Disconnect**. Navigation buttons, URL entry, and tab switching
+control**, **Close session**, and **Disconnect**. Navigation buttons, URL entry, and tab switching
 operate on the remote session; switching its tabs keeps your control lease.
+
+The remote list shows session and service names with the host's last activity
+time. Returning to the list highlights and focuses the last opened session,
+including after restarting the app. Use the local Sessions navigation: j/k,
+counts, gg/G, / to search, and x to close. The close button and x ask for yes/no
+confirmation. Control access can close a hosted session from the list without
+opening its video, or from the viewer's status bar. Closing ends that hosted
+session and its control lease; Disconnect keeps it running. Hosts must run a
+version supporting remote session closing and activity metadata.
 
 Small streams are centered in the page area. Larger streams have scrollbars.
 Disconnect leaves the hosted session running and returns to the remaining local

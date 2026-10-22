@@ -88,7 +88,7 @@ void app.whenReady().then(async () => {
     { role: 'windowMenu' },
   ]))
   runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
-  localRemote = createLocalRemote()
+  localRemote = createLocalRemote(dataDirectory)
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('clipboard', (event, text?: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
@@ -108,6 +108,11 @@ void app.whenReady().then(async () => {
   ipcMain.handle('remote-sessions', event => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     return localRemote!.list()
+  })
+  ipcMain.handle('remote-close-session', (event, host: string, session: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
+    return localRemote!.closeSession(host, session)
   })
   ipcMain.handle('remote-open', async (event, host?: string, session?: string) => {
     let clientId = runtime!.sourceClient(event.sender.id)

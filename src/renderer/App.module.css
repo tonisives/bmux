@@ -178,8 +178,8 @@
 .panel .listRow:is([data-active="true"], [aria-pressed="true"], [aria-current="true"]) { background: #344738; color: #e8f4df; font-weight: 600; }
 .panel .listRow:focus-visible { outline: 1px solid #83917b; outline-offset: -1px; }
 .panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
-.remoteSession { display: flex !important; align-items: baseline; justify-content: space-between; gap: 12px; }
-.remoteSession span { color: #8e98a4; font-size: 11px; white-space: nowrap; }
+.remoteService { color: #8e98a4; font-size: 11px; white-space: nowrap; }
+.remoteSession[data-active="true"] { background: #252d34; }
 [data-bookmark-picker] .bookmarkRow { outline: none; }
 [data-bookmark-picker] .bookmarkRow[data-active="true"] { background: #303944; color: #f0f2f5; }
 .profileHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #eceef2; }
@@ -234,6 +234,7 @@
 .sessionConfirm { display: flex; align-items: center; gap: 12px; padding: 7px 0; color: #e6a69c; }
 .sessionConfirm span { flex: 1; overflow-wrap: anywhere; }
 .sessionConfirm button { color: inherit; }
+.sessionRow > .sessionConfirm { grid-column: 1 / -1; }
 .folder > summary { display: flex; align-items: center; gap: 2px; padding: 6px 0; cursor: pointer; }
 .folder > summary > [data-bookmark-folder-title] { flex: 1; min-width: 0; }
 .folder > summary::-webkit-details-marker { display: none; }

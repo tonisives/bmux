@@ -4,6 +4,19 @@ import os from 'node:os'
 import path from 'node:path'
 import { createEnvelopeVerifier, remoteIdentity } from '../src/main/remote-identity'
 
+it('checks POSIX identity permissions and accepts Windows ACL-backed files', () => {
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-identity-mode-'))
+  let platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    let file = path.join(directory, 'client.pem'), identity = remoteIdentity(file)
+    fs.chmodSync(file, 0o644)
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    expect(() => remoteIdentity(file)).toThrow('mode 600')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    expect(remoteIdentity(file).id).toBe(identity.id)
+  } finally { Object.defineProperty(process, 'platform', platform); fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
 it('authenticates the full offer and rejects substitution, replay, and revocation', () => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-signing-'))
   try {
