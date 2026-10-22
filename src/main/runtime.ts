@@ -1,6 +1,6 @@
 import { focusAgent } from './agent-focus'
 import { createAgentRegistry } from './agent-registry'
-import { AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
+import { AGENT_ID_REQUIRED, AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
 import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
@@ -2115,7 +2115,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return automationSafety?.resume(pane.profileId, page)
     }
     if (method === 'automation.acquire') {
-      if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID')
+      if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error(AGENT_ID_REQUIRED)
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
       if (AGENT_KEYS.some(key => args[key] !== undefined)) { updateAgentInfo(pane, args); save(); publish() }
       if (!automation) throw new Error('Automation policy unavailable')
@@ -2144,7 +2144,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
     if (sourceClientId && ['navigate', 'reload', 'hard-reload', 'back', 'forward', 'history.go-to'].includes(method) && typeof args.tab === 'string') automationPointerTabs.delete(args.tab)
-    if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID; configure automation.agents.requireId to disable')
+    if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error(AGENT_ID_REQUIRED)
     if (!sourceClientId && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
       updateAgentInfo(pane, args); save(); publish()
