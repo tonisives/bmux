@@ -63,7 +63,7 @@ test.beforeAll(async () => {
     if (request.url === '/api/hosts') {
       let signedIn = request.headers.cookie?.includes('bmux_session=fixture-token')
       response.writeHead(signedIn ? 200 : 401, { 'Content-Type': 'application/json' })
-      response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', service: 'fixture', permission: 'control', sessions: [{ id: 'fixture-session', name: 'Remote fixture', lastActivityAt: Date.now() - 120000, panes: [{ id: 'fixture-pane', title: 'Fixture page' }] }, { id: 'next-session', name: 'Next fixture', panes: [{ id: 'next-pane', title: 'Next page' }] }] }] : { error: 'Login required' }))
+      response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', service: 'fixture', permission: 'control', sessions: [{ id: 'fixture-session', name: 'Remote fixture', lastActivityAt: Date.now() - 150000, panes: [{ id: 'fixture-pane', title: 'Fixture page' }] }, { id: 'next-session', name: 'Next fixture', panes: [{ id: 'next-pane', title: 'Next page' }] }] }] : { error: 'Login required' }))
       return
     }
     if (request.url === '/api/connect') { response.writeHead(503); response.end(); return }
@@ -355,6 +355,7 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
   await expect(lastRemote).toContainText('Remote fixture')
   await expect(lastRemote).toBeFocused()
   await expect(lastRemote.locator('time')).toHaveText('2m ago')
+  await chrome.screenshot({ path: info.outputPath('remote-session-list.png') })
   await expect(picker.locator('[data-session-mode]')).toHaveText('NORMAL>')
   await chrome.keyboard.press('j')
   await expect(picker.locator('[data-session-row]').nth(1)).toBeFocused()
