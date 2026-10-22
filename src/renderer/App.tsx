@@ -1376,16 +1376,22 @@ let AgentInformation = () => {
     setBusy(actor.paneId)
     try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId }) } finally { setBusy(null) }
   }
+  let toggleCursor = async (actor: AutomationActor) => {
+    setBusy(actor.paneId)
+    try { await run('agent.cursor.set', { pane: actor.paneId, agentId: actor.agentId, hidden: !state.hiddenAgentCursors?.includes(actor.paneId) }) } finally { setBusy(null) }
+  }
   let settings = () => show('anti-bot-settings')
   return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{actors.map(actor => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
     let fields = Object.entries(actor.agentData ?? {})
+    let toggleVisibility = () => { void toggleCursor(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <strong>{actor.agentName ?? actor.agentId ?? 'Unidentified agent'}</strong>
       <dl><dt>Agent ID</dt><dd>{actor.agentId ?? 'Not provided'}</dd><dt>Browsing reason</dt><dd>{actor.agentPurpose ?? 'Not provided'}</dd><dt>Browser pane</dt><dd>{permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId}</dd>
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
         {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session ID', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{value}</dd></Fragment>)}
       </dl>
+      <button type="button" disabled={busy !== null} onClick={toggleVisibility}>{state.hiddenAgentCursors?.includes(actor.paneId) ? 'Show agent cursor' : 'Hide agent cursor'}</button>
       {definition?.focusCommand && <button type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}>Focus agent</button>}
     </section>
   })}</div>

@@ -1,4 +1,5 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
+import { createContext, runInContext } from 'node:vm'
 import { createVirtualMouse } from '../src/main/virtual-mouse'
 
 let randomSequence = (seed = 42) => () => {
@@ -29,15 +30,71 @@ test('shows CLI activity without dispatching mouse input and keeps each pane pos
   let { mouse, send, events, expressions } = fixture()
   await mouse.show('one', send, () => {})
   expect(events).toHaveLength(0)
-  expect(expressions.at(-1)).toContain('translate(500px,400px)')
+  expect(expressions.at(-1)).toContain('"x":500,"y":400')
   await mouse.move('one', { x: 100, y: 200 }, send, () => {})
   await mouse.show('one', send, () => {})
-  expect(expressions.at(-1)).toContain('translate(100px,200px)')
+  expect(expressions.at(-1)).toContain('"x":100,"y":200')
   await mouse.show('two', send, () => {})
-  expect(expressions.at(-1)).toContain('translate(500px,400px)')
+  expect(expressions.at(-1)).toContain('"x":500,"y":400')
   mouse.forget('one')
   await mouse.show('one', send, () => {})
-  expect(expressions.at(-1)).toContain('translate(500px,400px)')
+  expect(expressions.at(-1)).toContain('"x":500,"y":400')
+})
+
+test('hides after inactivity, resumes on activity, and reserves pulses for clicks', async () => {
+  vi.useFakeTimers()
+  try {
+    let elements: any[] = [], pointer: any
+    let element = (tag: string): any => {
+      let node = Object.assign(new EventTarget(), {
+        tag, id: '', style: { cssText: '', setProperty(key: string, value: string) { this[key] = value } } as Record<string, any>,
+        append: () => {}, setAttribute: () => {}, attachShadow: () => ({ append: () => {} }),
+        animate: vi.fn(() => ({ cancel: vi.fn(), play: vi.fn() }))
+      })
+      elements.push(node)
+      return node
+    }
+    let motion = Object.assign(new EventTarget(), { matches: false })
+    class CursorEvent extends Event { detail: unknown; constructor(type: string, options: { detail: unknown }) { super(type); this.detail = options.detail } }
+    let context = createContext({
+      innerWidth: 1000, innerHeight: 800, CustomEvent: CursorEvent, setTimeout, clearTimeout,
+      matchMedia: () => motion,
+      document: { getElementById: () => pointer, createElement: element, createElementNS: (_ns: string, tag: string) => element(tag), documentElement: { append: (node: any) => { pointer = node } } }
+    })
+    let mouse = createVirtualMouse(), send = async (_method: string, params: Record<string, unknown>) => ({ result: { value: runInContext(String(params.expression), context) } })
+    await mouse.show('one', send, () => {})
+    let pulse = elements.find(node => node.tag === 'span'), wedge = elements.find(node => node.tag === 'svg')
+    expect(pointer.style.display).toBe('block')
+    expect(wedge.animate).toHaveBeenCalledTimes(1)
+    expect(pulse.animate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(14000)
+    expect(pointer.style.display).toBe('block')
+    await mouse.show('one', send, () => {})
+    vi.advanceTimersByTime(14000)
+    expect(pointer.style.display).toBe('block')
+    vi.advanceTimersByTime(1000)
+    expect(pointer.style.display).toBe('none')
+    await mouse.show('one', send, () => {})
+    expect(pointer.style.display).toBe('block')
+    await mouse.click('one', send)
+    expect(pulse.animate).toHaveBeenCalledTimes(1)
+    motion.matches = true; motion.dispatchEvent(new Event('change'))
+    expect(wedge.animate.mock.results[0].value.cancel).toHaveBeenCalled()
+    expect(pulse.animate.mock.results[0].value.cancel).toHaveBeenCalled()
+    await mouse.click('one', send)
+    expect(pulse.animate).toHaveBeenCalledTimes(1)
+    await mouse.setHidden('one', true, send)
+    await mouse.show('one', send, () => {})
+    await mouse.click('one', send)
+    expect(pointer.style.display).toBe('none')
+    expect([...mouse.hiddenTabs]).toEqual(['one'])
+    await mouse.setHidden('one', false, send)
+    await mouse.show('one', send, () => {})
+    expect(pointer.style.display).toBe('block')
+    await mouse.setHidden('one', true, send)
+    mouse.forget('one')
+    expect([...mouse.hiddenTabs]).toEqual([])
+  } finally { vi.useRealTimers() }
 })
 
 test('varies direction and speed, lands exactly on the target, and starts from its last position', async () => {

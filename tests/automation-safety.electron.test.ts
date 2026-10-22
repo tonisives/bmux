@@ -608,6 +608,7 @@ test('agent identity is required by default, typed context can focus its termina
     expect((await cli(['dom', '-t', pane, '--agent-id', 'research', '--agent-name', 'Research agent', '--agent-purpose', 'Inspect agent context', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', windowId: '@8', paneId: '%9' })])).ok).toBe(true)
     for (let text of ['Research agent', 'Inspect agent context', 'Terminal session', '$7', 'Terminal window', '@8', 'Terminal pane', '%9']) await expect(dialog).toContainText(text)
     expect(await cli(['rpc', 'agent.focus', JSON.stringify({ pane, agentId: 'research' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
+    expect(await cli(['rpc', 'agent.cursor.set', JSON.stringify({ pane, agentId: 'research', hidden: true })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
     await dialog.getByRole('button', { name: 'Focus agent', exact: true }).click()
     await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['research', '$7', '@8', '%9'])
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
