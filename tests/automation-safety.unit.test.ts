@@ -40,7 +40,8 @@ test('edited session, break, and pacing limits take effect in the running policy
   for (let minutes of [4, 4, 3]) { advance(minutes * 60_000); await policy.before('bot', instagram) }
   await policy.before('bot', instagram)
   expect(sleeps).toEqual([750])
-  advance(9 * 60_000 - 750)
+  for (let minutes of [4, 4]) { advance(minutes * 60_000); await policy.before('bot', instagram) }
+  advance(60_000 - 750)
   expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('retry after 2026-10-01T00:25:00.000Z')
   advance(5 * 60_000)
   await policy.before('bot', instagram)
@@ -158,6 +159,45 @@ test('hitting the session limit publishes the cooldown without extending its dea
   expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('Open the UI alert or Profile > Anti-bot')
   expect(changes()).toBe(previous + 1)
   expect(policy.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
+})
+
+test('idle websites never raise retroactive limits after exclusions expire and a completed break starts a fresh session', async () => {
+  let { policy, settings, advance, restart } = fixture()
+  let youtube = async () => ({ url: 'https://studio.youtube.com/' })
+  let actor = { paneId: '%11', agentId: '%76' }
+  await policy.before('bot', youtube, undefined, true, actor)
+  advance(2 * 60_000)
+  await policy.before('bot', youtube, undefined, true, actor)
+  advance(12 * 60_000)
+  settings.sites = { bot: { 'studio.youtube.com': updateAutomationSiteExclusion(undefined, false, 15, Date.parse('2026-10-01T00:14:00Z')) } }
+  expect(policy.status().profiles[0].retryAfter).toBeNull()
+  let next = restart()
+  await next.before('bot', instagram, undefined, true, { paneId: '%36', agentId: '%99' })
+  advance(15 * 60_000)
+  expect(automationSiteEnabled(settings, 'bot', 'https://studio.youtube.com/', Date.parse('2026-10-01T00:29:00Z'))).toBe(true)
+  let usage = next.status().profiles.find(row => row.siteHost === 'studio.youtube.com')!
+  expect(usage).toMatchObject({ lastUsed: Date.parse('2026-10-01T00:02:00Z'), actors: [{ ...actor, hosts: ['studio.youtube.com'] }], retryAfter: null })
+  await next.before('bot', youtube, undefined, true, actor)
+  expect(next.status().profiles.find(row => row.siteHost === 'studio.youtube.com')).toMatchObject({ startedAt: Date.parse('2026-10-01T00:29:00Z'), retryAfter: null })
+})
+
+test('actual limit attempts persist once and successful long commands can reach the limit', async () => {
+  let { policy, advance, restart, file } = fixture()
+  await policy.before('bot', instagram)
+  advance(10 * 60_000)
+  expect(policy.status().profiles[0].retryAfter).toBeNull()
+  await expect(policy.before('bot', instagram)).rejects.toThrow('session limit')
+  let limited = JSON.parse(fs.readFileSync(file, 'utf8'))
+  advance(19 * 60_000)
+  let next = restart()
+  expect(next.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
+  await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(limited)
+  next.resetSession('bot')
+  expect(next.status().profiles[0].retryAfter).toBeNull()
+  advance(10 * 60_000)
+  next.after('bot', '%1', 'https://www.instagram.com/')
+  expect(next.status().profiles[0].retryAfter).toBe('2026-10-01T00:59:00.000Z')
 })
 
 test('a human session reset persists fresh usage for only that profile and preserves warning pauses', async () => {
