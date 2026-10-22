@@ -572,7 +572,7 @@ test('agent identity is required by default, typed context can focus its termina
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as { port: number }).port}/identity`
     let focusCommand = `node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_WINDOW_ID, process.env.BMUX_AGENT_PANE_ID]))' "${marker}"`
-    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { sessionId: { label: 'Terminal session', type: 'session' }, windowId: { label: 'Terminal window', type: 'window' }, paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand } } } } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { sessionId: { label: 'Terminal session', type: 'session', required: true }, windowId: { label: 'Terminal window', type: 'window', required: true }, paneId: { label: 'Terminal pane', type: 'pane', required: true } }, focusCommand } } } } }))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -635,6 +635,12 @@ test('agent identity is required by default, typed context can focus its termina
     await expect(dialog).toContainText('other-review')
     await expect(dialog).not.toContainText('Research agent')
     await expect(dialog.getByRole('button', { name: 'Focus agent', exact: true })).toHaveCount(0)
+    expect((await cli(['dom', '-t', sibling.id, '--agent-id', 'research'])).ok).toBe(true)
+    for (let text of ['Research agent', 'Inspect agent context', 'Terminal session', '$7', 'Terminal window', '@8', 'Terminal pane', '%9']) await expect(dialog).toContainText(text)
+    await fs.rm(marker)
+    await dialog.getByRole('button', { name: 'Focus agent', exact: true }).click()
+    await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['research', '$7', '@8', '%9'])
+    await chrome.screenshot({ path: path.resolve('artifacts/agent-context-across-panes.png') })
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await paneAgent.click()
     await expect(dialog).toContainText('Research agent')
@@ -642,6 +648,23 @@ test('agent identity is required by default, typed context can focus its termina
     let settings = chrome.getByRole('dialog', { name: 'General anti-bot settings', exact: true })
     let required = settings.getByRole('switch', { name: 'Require agent ID', exact: true })
     await expect(required).toBeChecked()
+    let requiredType = settings.getByRole('switch', { name: 'Require agent type', exact: true })
+    await expect(requiredType).not.toBeChecked()
+    await requiredType.check()
+    await expect.poll(async () => parse(await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')).automation.agents.requireType).toBe(true)
+    for (let args of [
+      ['dom', '-t', pane, '--agent-id', 'unregistered'],
+      ['rpc', 'dom', JSON.stringify({ pane, agentId: 'unregistered' })],
+      ['rpc', 'navigate', JSON.stringify({ pane, url: `${url}?blocked`, agentId: 'unregistered' })],
+      ['automation', 'acquire', '-t', pane, '--url', url, '--agent-id', 'unregistered'],
+      ['new-window', '-t', state.model.clients.find((client: { id: string }) => client.id === state.clientId).sessionId, '--url', url, '--agent-id', 'unregistered'],
+    ]) expect(await cli(args)).toMatchObject({ ok: false, error: expect.stringContaining('Agent type required') })
+    expect(await cli(['dom', '-t', pane, '--agent-id', 'incomplete', '--agent-type', 'terminal', '--agent-data', '{"paneId":"%99"}'])).toMatchObject({ ok: false, error: expect.stringContaining('agentData.sessionId, agentData.windowId') })
+    expect(await cli(['dom', '-t', pane, '--agent-id', 'unregistered', '--agent-type', 'missing'])).toMatchObject({ ok: false, error: expect.stringContaining('Unknown agent type') })
+    await expect(paneAgent).toHaveAttribute('title', 'Research agent (research)')
+    expect((await cli(['dom', '-t', pane, '--agent-id', 'research'])).ok).toBe(true)
+    await requiredType.uncheck()
+    await expect.poll(async () => parse(await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')).automation.agents.requireType).toBe(false)
     expect((await cli(['rpc', 'automation.agents.set', '{"requireId":false}'])).ok).toBe(false)
     await required.uncheck()
     await expect.poll(async () => parse(await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')).automation.agents.requireId).toBe(false)

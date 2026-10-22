@@ -1,8 +1,8 @@
 export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: string; agentType?: string; agentData?: Record<string, string> }
-export type AgentField = { label: string; type?: 'text' | 'session' | 'window' | 'pane' }
+export type AgentField = { label: string; type?: 'text' | 'session' | 'window' | 'pane'; required?: boolean }
 export type AgentDefinition = { fields: Record<string, AgentField>; focusCommand?: string }
-export type AgentSettings = { requireId: boolean; definitions: Record<string, AgentDefinition> }
-export let DEFAULT_AGENTS: AgentSettings = { requireId: true, definitions: {} }
+export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
+export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
 export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData'] as const
 export let validateAgentInfo = (value: AgentInfo) => {
   for (let [key, maximum] of [['agentId', 128], ['agentName', 128], ['agentPurpose', 1000], ['agentType', 128]] as const) {
@@ -17,11 +17,19 @@ export let updateAgentInfo = (pane: AgentInfo, value: AgentInfo) => {
   if (value.agentType !== undefined && value.agentType !== pane.agentType) delete pane.agentData
   Object.assign(pane, agentInfo(value))
 }
+export let validateAgentRequirements = (actor: AgentInfo, settings: AgentSettings) => {
+  if (settings.requireId && !actor.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID; configure automation.agents.requireId to disable')
+  if (settings.requireType && !actor.agentType) throw new Error('Agent type required: pass --agent-type TYPE and --agent-data JSON with this agent ID; configure automation.agents.requireType to disable')
+  let definition = actor.agentType ? settings.definitions[actor.agentType] : undefined
+  if (settings.requireType && !definition) throw new Error(`Unknown agent type: ${actor.agentType}; configure automation.agents.definitions`)
+  let missing = Object.entries(definition?.fields ?? {}).filter(([key, field]) => field.required && !actor.agentData?.[key]).map(([key]) => `agentData.${key}`)
+  if (missing.length) throw new Error(`Agent ${actor.agentType} requires ${missing.join(', ')}; pass --agent-data JSON or set BMUX_AGENT_DATA`)
+}
 export let parseAgentSettings = (value: unknown): AgentSettings => {
   if (value === undefined) return structuredClone(DEFAULT_AGENTS)
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('automation.agents must be a mapping')
   let raw = value as Record<string, unknown>
-  if (Object.keys(raw).some(key => !['requireId', 'definitions'].includes(key)) || raw.requireId !== undefined && typeof raw.requireId !== 'boolean') throw new Error('Invalid automation.agents setting')
+  if (Object.keys(raw).some(key => !['requireId', 'requireType', 'definitions'].includes(key)) || ['requireId', 'requireType'].some(key => raw[key] !== undefined && typeof raw[key] !== 'boolean')) throw new Error('Invalid automation.agents setting')
   let definitions = raw.definitions ?? {}
   if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)) throw new Error('Agent definitions must be a mapping')
   for (let [name, definition] of Object.entries(definitions)) {
@@ -30,9 +38,9 @@ export let parseAgentSettings = (value: unknown): AgentSettings => {
     if (Object.keys(rest).length || !fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).length > 32 || focusCommand !== undefined && (typeof focusCommand !== 'string' || !focusCommand.trim() || focusCommand.length > 16000)) throw new Error('Invalid agent fields or focus command')
     for (let [key, field] of Object.entries(fields)) {
       if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || !field || typeof field !== 'object' || Array.isArray(field)) throw new Error('Invalid agent field')
-      let { label, type, ...rest } = field as Record<string, unknown>
-      if (Object.keys(rest).length || typeof label !== 'string' || !label.trim() || label.length > 128 || type !== undefined && (typeof type !== 'string' || !['text', 'session', 'window', 'pane'].includes(type))) throw new Error('Invalid agent field label or type')
+      let { label, type, required, ...rest } = field as Record<string, unknown>
+      if (Object.keys(rest).length || typeof label !== 'string' || !label.trim() || label.length > 128 || type !== undefined && (typeof type !== 'string' || !['text', 'session', 'window', 'pane'].includes(type)) || required !== undefined && typeof required !== 'boolean') throw new Error('Invalid agent field label, type or requirement')
     }
   }
-  return { requireId: raw.requireId as boolean ?? true, definitions: definitions as AgentSettings['definitions'] }
+  return { requireId: raw.requireId as boolean ?? true, requireType: raw.requireType as boolean ?? false, definitions: definitions as AgentSettings['definitions'] }
 }

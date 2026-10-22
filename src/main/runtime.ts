@@ -1,4 +1,5 @@
 import { focusAgent } from './agent-focus'
+import { createAgentRegistry } from './agent-registry'
 import { AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
 import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
@@ -338,6 +339,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let plugins: ReturnType<typeof createPlugins> | undefined
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
+  let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
@@ -1955,6 +1957,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
 
   let execute = async (command: Command, sourceClientId?: string): Promise<unknown> => {
+    let creation = ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(command.method)
+    if (!sourceClientId && !remoteActor.getStore() && (agentCommands.has(command.method) || command.method === 'automation.acquire' || creation)) {
+      let required = !creation || command.args?.url !== undefined
+      let actor = agentRegistry.resolve(command.args ?? {}, configuration?.automation.agents ?? DEFAULT_AGENTS, required)
+      command = { ...command, args: { ...command.args, ...actor } }
+    }
     let client = model.clients.find(client => client.id === sourceClientId)
     let previousWindow = client?.windowId, previousPane = client?.paneId
     let paneId = command.args?.pane ?? command.args?.tab
@@ -2014,9 +2022,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'automation.agents.set') {
       if (!sourceClientId) throw new Error('Change agent identification in the bmux UI')
-      if (typeof args.requireId !== 'boolean') throw new Error('requireId must be true or false')
-      configuration?.update(['automation', 'agents', 'requireId'], args.requireId)
-      return { requireId: args.requireId }
+      let keys = (['requireId', 'requireType'] as const).filter(key => args[key] !== undefined)
+      if (!keys.length || keys.some(key => typeof args[key] !== 'boolean')) throw new Error('Agent requirements must be true or false')
+      for (let key of keys) configuration?.update(['automation', 'agents', key], args[key])
+      return Object.fromEntries(keys.map(key => [key, args[key]]))
     }
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()

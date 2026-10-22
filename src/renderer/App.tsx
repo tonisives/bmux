@@ -1409,17 +1409,22 @@ let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
   return <button type="button" disabled={!pane} onClick={open}>{profile.name}</button>
 }
 
-let GeneralAntiBotSettings = () => {
+let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requireType'; label: string }) => {
   let { state, run } = useUI()
-  let savedRequired = state.automationAgents?.requireId ?? true
+  let savedRequired = state.automationAgents?.[setting] ?? setting === 'requireId'
   let [required, setRequired] = useState(savedRequired), [busy, setBusy] = useState(false)
   useEffect(() => { setRequired(savedRequired) }, [savedRequired])
   let changeIdentity = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setRequired(next); setBusy(true)
-    try { if (!await run('automation.agents.set', { requireId: next })) setRequired(savedRequired) } finally { setBusy(false) }
+    try { if (!await run('automation.agents.set', { [setting]: next })) setRequired(savedRequired) } finally { setBusy(false) }
   }
-  return <div className={css.agentInformation}><label className={css.settingsRow}><span>Require agent ID</span><input type="checkbox" role="switch" aria-label="Require agent ID" checked={required} disabled={busy} onChange={changeIdentity} /></label><p>Limits apply to each website in a profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
+  return <label className={css.settingsRow}><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={required} disabled={busy} onChange={changeIdentity} /></label>
+}
+
+let GeneralAntiBotSettings = () => {
+  let { state } = useUI()
+  return <div className={css.agentInformation}><AgentRequirementSwitch setting="requireId" label="Require agent ID" /><AgentRequirementSwitch setting="requireType" label="Require agent type" /><p>Limits apply to each website in a profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
 }
 
 let SiteInformation = () => {

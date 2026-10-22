@@ -20,7 +20,7 @@ export BMUX_AGENT_NAME='Research agent'
 export BMUX_AGENT_PURPOSE='Compare browser features'
 ```
 
-Only the ID is required. The name and browsing reason are optional. The agent
+By default, only the ID is required. The name and browsing reason are optional. The agent
 icon in an alert shows the agents that used that website. Each pane toolbar
 shows an **Active agent** icon while commands run in that pane and for 60 seconds
 after its last command, even when there are no alerts. Hover to identify the
@@ -39,15 +39,27 @@ show in the dialog and an optional shell command for **Focus agent**:
 automation:
   agents:
     requireId: true
+    requireType: true
     definitions:
       tmux:
         fields:
-          sessionId: { label: Terminal session, type: session }
-          windowId: { label: Terminal window, type: window }
-          paneId: { label: Terminal pane, type: pane }
+          sessionId: { label: Terminal session, type: session, required: true }
+          windowId: { label: Terminal window, type: window, required: true }
+          paneId: { label: Terminal pane, type: pane, required: true }
           clientTty: { label: Terminal client, type: text }
         focusCommand: /absolute/path/to/bmux/scripts/focus-tmux-agent.sh
 ```
+
+Set **Agent settings > Require agent type** (or `requireType: true`) to require
+a configured type for every browser command. Mark fields `required: true` to
+reject commands missing that type's context. This example requires all three
+terminal IDs. Other applications can define their own required fields.
+
+BMUX remembers context by agent ID, including name and browsing reason. Supply
+complete context on the first command; later commands with the same ID reuse it
+across browser panes. New values replace the registered context. Saved pane
+records restore known agent context when BMUX restarts. An unknown ID must supply
+its own type and required data; it never inherits another agent's context.
 
 Pass the type and its data using `--agent-type` and `--agent-data`, or
 `BMUX_AGENT_TYPE` and `BMUX_AGENT_DATA`. For a tmux agent:

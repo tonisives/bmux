@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { AgentInfo, AgentSettings } from '../shared/agent-info'
+import { validateAgentInfo, validateAgentRequirements } from '../shared/agent-info'
 
 export let focusAgent = async (actor: AgentInfo, settings: AgentSettings) => {
+  validateAgentInfo(actor); validateAgentRequirements(actor, settings)
   let definition = actor.agentType ? settings.definitions[actor.agentType] : undefined
   if (!definition?.focusCommand) throw new Error('Configure a focus command for this agent type in automation.agents.definitions')
   let env: NodeJS.ProcessEnv = { ...process.env }
