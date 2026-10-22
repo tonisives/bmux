@@ -415,6 +415,19 @@ test('social delay starts after an animated click completes', async () => {
   expect(sleeps).toEqual([1900])
 })
 
+test('navigation preflights keep profile pacing without creating website usage', async () => {
+  let { policy, file, sleeps } = fixture()
+  let blank = async () => ({ url: 'about:blank' })
+  await Promise.all([
+    policy.before('bot', blank, 'https://www.instagram.com/', true, { paneId: '%1' }, false),
+    policy.before('bot', blank, 'https://x.com/', true, { paneId: '%2' }, false),
+    policy.before('other', blank, 'https://x.com/', true, { paneId: '%3' }, false),
+  ])
+  expect(sleeps).toEqual([2000])
+  expect(policy.status().profiles).toEqual([])
+  expect(fs.existsSync(file)).toBe(false)
+})
+
 test('a navigation preflight creates no session until navigation succeeds', async () => {
   let { policy, file, advance } = fixture()
   let actor = { paneId: '%1', agentId: 'research' }

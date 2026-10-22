@@ -55,6 +55,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   } catch (error) { ledgerError = (error as NodeJS.ErrnoException).code !== 'ENOENT' }
   let usageKey = (profileId: string, url?: string) => JSON.stringify([profileId, automationWebsiteHost(url)])
   let queues = new Map<string, Promise<void>>()
+  let lastAdmitted = new Map<string, number>()
   let ensureLedger = () => { if (ledgerError) throw safetyError('Automation safety ledger is unreadable; repair it before automating') }
   let persist = () => {
     ensureLedger()
@@ -117,9 +118,10 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       let key = usageKey(profileId, targetUrl ?? page.url)
       let value = usage[key], current = now()
       if (!value || current >= retryAt(profileId, value) || current - value.lastUsed >= automationProfileLimits(options.settings(), profileId).cooldownMinutes * 60_000) value = { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: current, lastUsed: current, ...(value?.warning ? { warning: value.warning, warningHost: value.warningHost } : {}) }
-      let lastUsed = Math.max(0, ...Object.values(usage).filter(item => item.profileId === profileId).map(item => item.lastUsed))
+      let lastUsed = Math.max(lastAdmitted.get(profileId) ?? 0, ...Object.values(usage).filter(item => item.profileId === profileId).map(item => item.lastUsed))
       let delay = pace && lastUsed && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
       if (delay) { await sleep(delay); page = await inspect(); if (!enabledForPage()) return; checkWarning(); assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url) }
+      lastAdmitted.set(profileId, now())
       if (!recordUsage) return
       if (key !== usageKey(profileId, targetUrl ?? page.url)) {
         key = usageKey(profileId, targetUrl ?? page.url)
