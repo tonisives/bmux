@@ -8,7 +8,8 @@ export let remoteIdentity = (file: string) => {
     let keys = generateKeyPairSync('ed25519')
     fs.writeFileSync(file, keys.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600, flag: 'wx' })
   }
-  if (fs.statSync(file).mode & 0o077) throw new Error('Remote identity must have mode 600')
+  // Windows reports synthetic POSIX modes; access follows the user directory's ACL.
+  if (process.platform !== 'win32' && fs.statSync(file).mode & 0o077) throw new Error('Remote identity must have mode 600')
   let privateKey = createPrivateKey(fs.readFileSync(file))
   let publicKey = createPublicKey(privateKey).export({ format: 'jwk' })
   let id = createHash('sha256').update(publicKey.x!).digest('hex')
