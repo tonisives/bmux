@@ -86,6 +86,7 @@ export let writeModel = (directory: string, model: Model, bookmarkFile = path.jo
   if (!sessions.length) sessions = [newSession('main', model.profiles[0].id, false, model)]
   let sessionIds = new Set(sessions.map(session => session.id))
   let clients = model.clients.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)) }))
-  let state: Model = { ...model, sessions, clients, profiles: model.profiles.map(({ bookmarks: _bookmarks, ...profile }) => profile) }
+  let lastFocusedClientId = clients.some(client => client.id === model.lastFocusedClientId) ? model.lastFocusedClientId : undefined
+  let state: Model = { ...model, sessions, clients, lastFocusedClientId, profiles: model.profiles.map(({ bookmarks: _bookmarks, ...profile }) => profile) }
   writeAtomic(path.join(directory, 'state.json'), JSON.stringify(state, null, 2))
 }

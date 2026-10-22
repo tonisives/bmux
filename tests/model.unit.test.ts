@@ -8,6 +8,29 @@ import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/sto
 import { backOpener } from '../src/shared/opener-navigation'
 
 describe('session layouts and persistence', () => {
+  it('persists the last focused client and omits references to unsaved clients', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-client-focus-'))
+    try {
+      let model = initialModel(), session = model.sessions[0], window = session.windows[0]
+      let client = { id: 'client_work', sessionId: session.id, windowId: window.id, paneId: window.panes[0].id, width: 1000, height: 700 }
+      model.clients.push(client)
+      model.lastFocusedClientId = client.id
+      writeModel(directory, model)
+      expect(readModel(directory).lastFocusedClientId).toBe(client.id)
+      for (let hidden of ['private', 'ephemeral'] as const) {
+        session[hidden] = true
+        writeModel(directory, model)
+        expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).not.toContain(client.id)
+        delete session[hidden]
+      }
+      model.clients = []
+      writeModel(directory, model)
+      expect(readModel(directory).lastFocusedClientId).toBeUndefined()
+      delete model.lastFocusedClientId
+      writeModel(directory, model)
+      expect(readModel(directory).lastFocusedClientId).toBeUndefined()
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('persists pinned windows, accepts older state and rejects invalid pin settings', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-pinned-'))
     try {
