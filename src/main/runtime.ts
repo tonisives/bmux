@@ -715,6 +715,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
       let { pane } = paneById(model, tabId)
       automationSafety?.after(pane.profileId, pane.id, live.contents.getURL())
+      await new Promise(resolve => setTimeout(resolve, 1000))
     }
     if (method === 'Page.setInterceptFileChooserDialog') filePickers.interception(tabId, params, sessionId)
     return result

@@ -156,6 +156,9 @@ needed for these defaults:
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
   Mouse movement and input releases are immediate.
+- Every automated click pauses for at least one second after release before the
+  command completes. This also applies when Anti-bot or mouse simulation is off;
+  longer social-site delays still apply.
 - An outlined virtual pointer appears when CLI or plugin browser activity starts,
   including read commands, and stays visible between commands and across automated
   navigation. Before each click it follows a varied curve with small deviations,

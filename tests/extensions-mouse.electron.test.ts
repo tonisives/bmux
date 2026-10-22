@@ -25,7 +25,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
   let server: https.Server | undefined
   let respond: http.RequestListener = (_request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end(`<!doctype html><meta charset="utf-8"><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
+    response.end(`<!doctype html><meta charset="utf-8"><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now(),wall:Date.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
   }
   try {
     await exec('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'fixture.key', '-out', 'fixture.pem', '-days', '1', '-subj', '/CN=x.com'], { cwd: directory })
@@ -122,6 +122,11 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await profile.getByRole('button', { name: 'Close', exact: true }).click()
     await page.evaluate(() => { (window as any).events = [] })
     let pointer = page.locator('#bmux-virtual-mouse')
+    let expectClickPause = async () => {
+      let clickedAt = await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'click').at(-1)?.wall)
+      expect(clickedAt).toBeDefined()
+      expect(Date.now() - clickedAt).toBeGreaterThanOrEqual(1000)
+    }
     await expect(pointer).toHaveCount(0)
     // Read commands expose CLI activity before the first click, without hover events.
     await cli('dom', { pane })
@@ -134,6 +139,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     expect(await page.evaluate(() => (window as any).events)).toHaveLength(0)
     await chapter('Virtual pointer moves between automated link clicks')
     await cli('click', { pane, selector: '#first' })
+    await expectClickPause()
     await expect(page.locator('output')).toHaveText('First link clicked')
     await expect(pointer).toBeVisible()
     expect(await pointer.evaluate(element => getComputedStyle(element).pointerEvents)).toBe('none')
@@ -161,6 +167,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await page.evaluate(() => { (window as any).events = [] })
     let run = await rpc('plugin.run', { action: 'demo/click' })
     await expect.poll(async () => (await rpc('plugin.runs')).find((item: any) => item.id === run.id)?.status, { timeout: 20000 }).toBe('completed')
+    await expectClickPause()
     await expect(page.locator('output')).toHaveText('First link clicked')
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBeGreaterThanOrEqual(20)
     let point = await page.locator('#second').evaluate(element => { let r = element.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
@@ -169,6 +176,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     let hoverMoves = await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)
     expect(hoverMoves).toBeGreaterThanOrEqual(20)
     for (let type of ['mousePressed', 'mouseReleased']) await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type, ...point, button: 'left', clickCount: 1 } })
+    await expectClickPause()
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBe(hoverMoves)
     // The default pointer setting is independent of every Anti-bot exclusion.
     for (let mode of ['profile-off', 'pane-off', 'excluded-site', 'local-address']) {
@@ -185,6 +193,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await expect(pointer).toBeVisible()
       await page.evaluate(() => { (window as any).events = [] })
       await cli('click', { pane, selector: '#first' })
+      await expectClickPause()
       await cli('click', { pane, selector: '#second' })
       await expect(page.locator('output')).toHaveText('Second link clicked')
       expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length), mode).toBeGreaterThanOrEqual(40)
@@ -196,6 +205,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await profile.getByRole('button', { name: 'Close', exact: true }).click()
     await page.evaluate(() => { (window as any).events = [] })
     await cli('click', { pane, selector: '#first' })
+    await expectClickPause()
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBe(0)
     await rpc('navigate', { pane, url: `${url}?movement-off` })
     await expect(page).toHaveURL(`${url}?movement-off`)
