@@ -27,7 +27,7 @@ import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction,
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
 import { createVirtualMouse } from './virtual-mouse'
-import { createAgentInputLock } from './agent-input-lock'
+import { AGENT_INPUT_LOCK_MS, createAgentInputLock, scheduleAgentInputUnlock } from './agent-input-lock'
 import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
@@ -342,14 +342,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let virtualMouse = createVirtualMouse()
-  let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < 20_000) }
+  let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < AGENT_INPUT_LOCK_MS) }
   let refreshAgentInputLock = (paneId: string) => tabs.get(paneId)?.inputLock?.setLocked(agentInputLocked(paneId))
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
-    let unlock = setTimeout(() => { refreshAgentInputLock(actor.paneId); publish() }, 20_000)
-    unlock.unref()
+    scheduleAgentInputUnlock(current.lastUsed, () => { refreshAgentInputLock(actor.paneId); publish() })
     let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
     expire.unref()
   }

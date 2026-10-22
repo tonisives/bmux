@@ -1,6 +1,18 @@
 import { WebContentsView } from 'electron'
 import type { BaseWindow, Rectangle } from 'electron'
 
+export let AGENT_INPUT_LOCK_MS = 20_000
+export let scheduleAgentInputUnlock = (lastUsed: number, unlock: () => void) => {
+  let check = () => {
+    let remaining = lastUsed + AGENT_INPUT_LOCK_MS - Date.now()
+    if (remaining <= 0) { unlock(); return }
+    // A timer can fire before its wall-clock deadline; keep the expiry armed.
+    let timer = setTimeout(check, remaining)
+    timer.unref()
+  }
+  check()
+}
+
 // A separate native view receives human input; CDP still targets the page below.
 export let createAgentInputLock = (page: WebContentsView, placement: () => { window: BaseWindow; bounds: Rectangle }, installKeys: (contents: Electron.WebContents) => void) => {
   let pageContents = page.webContents
