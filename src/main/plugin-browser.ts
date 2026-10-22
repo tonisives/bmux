@@ -30,7 +30,7 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
   if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return evaluate(args.expression) }
   if (method.startsWith('forms.')) {
     validate()
-    return options.execute({ method, args: { ...args, pane: context.paneId, _formsContext: context, _formsSignal: signal } })
+    return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, _formsContext: context, _formsSignal: signal } })
   }
   if (method === 'wait') {
     let timeout = Math.min(60000, Math.max(1, Number(args.timeout) || 15000)), end = Date.now() + timeout
@@ -84,7 +84,7 @@ export let createPluginBrowser = (options: Options) => async (method: string, ar
   }
   if (['navigate', 'back', 'forward', 'reload', 'key', 'screenshot'].includes(method)) {
     validate()
-    return options.execute({ method, args: { ...args, pane: context.paneId, ...(method === 'navigate' ? { waitUntil: 'none' } : {}), _pluginGuard: validate } })
+    return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, ...(method === 'navigate' ? { waitUntil: 'none' } : {}), _pluginGuard: validate } })
   }
   signal.throwIfAborted()
   return options.execute({ method, args: { ...args } })

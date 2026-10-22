@@ -1,4 +1,5 @@
-import { agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
+import { focusAgent } from './agent-focus'
+import { AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
 import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
@@ -336,6 +337,23 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   } : undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
+  let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
+  let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
+  let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
+    let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
+    updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); publish()
+    let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
+    expire.unref()
+  }
+  let automatedNavigations = new Map<string, { paneId: string } & ReturnType<typeof agentInfo>>()
+  let trackAutomatedNavigation = (paneId: string) => { let { pane } = paneById(model, paneId); let actor = { paneId, ...agentInfo(pane) }; automatedNavigations.set(paneId, actor); return actor }
+  let completeAutomatedNavigation = (paneId: string, url: string) => {
+    let actor = automatedNavigations.get(paneId)
+    if (!actor || url === 'about:blank') return
+    automatedNavigations.delete(paneId)
+    try { automationSafety?.complete(paneById(model, paneId).pane.profileId, actor, url); touchAgent(actor) }
+    catch (error) { reportError(error); publish() }
+  }
   let automationSafety: ReturnType<typeof createAutomationSafety> | undefined
   let tabAutomation = new Map<string, string>()
   let documents = new Map<string, number>()
@@ -364,7 +382,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -691,7 +709,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         })
       }
     }
-    let result = await debuggerApi.sendCommand(method, params, sessionId)
+    let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
+    let result
+    try { result = await debuggerApi.sendCommand(method, params, sessionId) } catch (error) { if (navigationActor && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId); throw error }
+    if (navigationActor && result.errorText && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
       let { pane } = paneById(model, tabId)
       automationSafety?.after(pane.profileId, pane.id, live.contents.getURL())
@@ -1020,13 +1041,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       catch { event.preventDefault() }
     })
     contents.on('did-navigate', (_event, url) => {
+      completeAutomatedNavigation(tabId, url)
       lastCountedUrl = url
       if (!automation || !tabAutomation.has(tabId)) return
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
       catch { contents.stop() }
     })
     contents.on('did-navigate-in-page', (_event, url, mainFrame) => {
-      if (!mainFrame || route(url) === route(lastCountedUrl)) return
+      if (!mainFrame) return
+      completeAutomatedNavigation(tabId, url)
+      if (route(url) === route(lastCountedUrl)) return
       lastCountedUrl = url
       if (!automation || !tabAutomation.has(tabId)) return
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation' }) }
@@ -1055,7 +1079,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       findResults[tabId] = { ...current, matches: result.matches, activeMatchOrdinal: result.activeMatchOrdinal, finalUpdate: result.finalUpdate }
       publish()
     })
-    contents.on('render-process-gone', () => { delete findResults[tabId] })
+    contents.on('render-process-gone', () => { delete findResults[tabId]; automatedNavigations.delete(tabId) })
+    contents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => { if (mainFrame && code !== -3) automatedNavigations.delete(tabId) })
+    contents.on('destroyed', () => { automatedNavigations.delete(tabId); activeAgents.delete(tabId) })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame) { invalidate(); if (!inPlace) bookmarkPluginPages?.invalidate(tabId) } })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap() && automationPointerTabs.has(tabId)) showAutomationPointer(tabId) })
@@ -1915,7 +1941,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
     showAutomationPointer(context.paneId, destination)
-    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, { paneId: context.paneId, ...agentInfo(pane), agentId: context.agentId ?? pane.agentId })
+    let actor = { paneId: context.paneId, ...agentInfo(pane) }
+    updateAgentInfo(actor, { agentId: context.agentId ?? pane.agentId })
+    await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, actor, !destination)
+    touchAgent(actor)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
     let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
@@ -1928,7 +1957,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let execute = async (command: Command, sourceClientId?: string): Promise<unknown> => {
     let client = model.clients.find(client => client.id === sourceClientId)
     let previousWindow = client?.windowId, previousPane = client?.paneId
-    let result = await perform(command, sourceClientId)
+    let paneId = command.args?.pane ?? command.args?.tab
+    let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
+    if (activity) { validateAgentInfo(activity); activeAgents.set(activity.paneId, activity); publish() }
+    let result: unknown
+    try { result = await perform(command, sourceClientId) } finally {
+      let current = activity ? activeAgents.get(activity.paneId) : undefined
+      if (current) {
+        current.pending = Math.max(0, current.pending - 1); current.lastUsed = Date.now()
+        let pane = model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === current.paneId)
+        if (pane && pane.agentId === current.agentId) Object.assign(current, agentInfo(pane))
+        touchAgent(current)
+      }
+    }
     if (client && sourceClientId) {
       let selection = ['select-window', 'cycle-window', 'switch-client', 'select-pane', 'cycle-pane', 'select-pane-direction', 'focus-page'].includes(command.method)
       let navigation = ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(command.method) && (command.args?.pane ?? command.args?.tab) === client.paneId
@@ -1939,6 +1980,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     validateAgentInfo(args)
+    if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method)) automatedNavigations.delete(args.tab)
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
     let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
@@ -1964,6 +2006,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return { remote: true }
     }
     checkControl(method, args)
+    if (method === 'agent.focus') {
+      if (!sourceClientId) throw new Error('Focus agents from the bmux UI')
+      let { pane } = paneById(model, required(args, 'pane'))
+      if (args.agentId !== pane.agentId) throw new Error('The agent in this browser pane has changed; reopen Agent information')
+      return focusAgent(pane, configuration?.automation.agents ?? DEFAULT_AGENTS)
+    }
+    if (method === 'automation.agents.set') {
+      if (!sourceClientId) throw new Error('Change agent identification in the bmux UI')
+      if (typeof args.requireId !== 'boolean') throw new Error('requireId must be true or false')
+      configuration?.update(['automation', 'agents', 'requireId'], args.requireId)
+      return { requireId: args.requireId }
+    }
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()
     if (method === 'pane.anti-bot.set') {
@@ -1999,13 +2053,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'automation.reset-all-sessions') {
       if (!sourceClientId) throw new Error('Reset anti-bot sessions in the bmux UI')
-      for (let profile of automationSafety?.status().profiles ?? []) automationSafety?.resetSession(profile.profileId)
+      for (let profileId of new Set((automationSafety?.status().profiles ?? []).map(profile => profile.profileId))) automationSafety?.resetSession(profileId)
       return { reset: true }
     }
     if (method === 'automation.reset-session') {
       if (!sourceClientId) throw new Error('Reset the automation session in the bmux UI alert or Profile > Anti-bot')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
-      return automationSafety?.resetSession(profile.id)
+      return automationSafety?.resetSession(profile.id, typeof args.host === 'string' ? args.host : undefined)
     }
     if (method === 'automation.resume') {
       if (!sourceClientId) throw new Error('Resume automation from the bmux command prompt')
@@ -2017,8 +2071,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return automationSafety?.resume(pane.profileId, page)
     }
     if (method === 'automation.acquire') {
+      if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID')
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
-      if (args.agentId !== undefined || args.agentName !== undefined || args.agentPurpose !== undefined) { updateAgentInfo(pane, args); save(); publish() }
+      if (AGENT_KEYS.some(key => args[key] !== undefined)) { updateAgentInfo(pane, args); save(); publish() }
       if (!automation) throw new Error('Automation policy unavailable')
       let lease = automation.acquire({ profileId: pane.profileId, tabId, url: normalizeUrl(required(args, 'url'), searchAppForSession(session)) })
       tabAutomation.set(tabId, lease.token)
@@ -2045,7 +2100,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
     if (sourceClientId && ['navigate', 'reload', 'hard-reload', 'back', 'forward', 'history.go-to'].includes(method) && typeof args.tab === 'string') automationPointerTabs.delete(args.tab)
-    if (!sourceClientId && (args.agentId !== undefined || args.agentName !== undefined || args.agentPurpose !== undefined) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
+    if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID; configure automation.agents.requireId to disable')
+    if (!sourceClientId && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
       updateAgentInfo(pane, args); save(); publish()
     }
@@ -2069,7 +2125,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!sourceClientId && !remoteActor.getStore() && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let session = method === 'new-window' ? resolve(model.sessions, args.session, 'Session') : paneById(model, args.pane).session
       let profileId = resolve(model.profiles, args.profile ?? (method === 'new-window' ? session.defaultProfileId : paneById(model, args.pane).pane.profileId), 'Profile').id
-      await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)))
+      await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)), true, undefined, false)
     }
     if (method === 'window.audio.toggle' || method === 'session.audio.toggle') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -2347,7 +2403,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!clientId) throw new Error('Specify a client with -c CLIENT')
       let command = parseCommandLine(required(args, 'line'), state(String(clientId)))
       if (command.method === 'navigate') command.args = { ...command.args, waitUntil: 'none' }
-      for (let key of ['agentId', 'agentName', 'agentPurpose'] as const) if (args[key] !== undefined) command.args = { ...command.args, [key]: args[key] }
+      for (let key of AGENT_KEYS) if (args[key] !== undefined) command.args = { ...command.args, [key]: args[key] }
       return execute(command, sourceClientId)
     }
     if (method === 'settings.default-browser') {
@@ -2693,7 +2749,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
       if (args._bookmarkSource) window.panes[0].bookmarkSource = args._bookmarkSource as { profileId: string; bookmarkId: string }
       updateAgentInfo(window.panes[0], args)
-      if (!sourceClientId && args.url) automationSafety?.track(window.panes[0].profileId, { paneId: window.panes[0].id, ...agentInfo(window.panes[0]) }, normalizeUrl(String(args.url), searchAppForSession(session)))
+      if (!sourceClientId && args.url) automatedNavigations.set(window.panes[0].id, { paneId: window.panes[0].id, ...agentInfo(window.panes[0]) })
       if (session.device) window.panes[0].device = session.device
       if (args.url) {
         let tab = window.panes[0]
@@ -2850,7 +2906,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
       let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       if (method === 'new-pane') updateAgentInfo(pane, args)
-      if (method === 'new-pane' && !sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, ...agentInfo(pane) }, pane.url)
+      if (method === 'new-pane' && !sourceClientId && args.url) automatedNavigations.set(pane.id, { paneId: pane.id, ...agentInfo(pane) })
       if (method === 'new-pane' && session.device) pane.device = session.device
       if (method === 'new-pane') window.panes.push(pane)
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
@@ -2871,7 +2927,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       updateAgentInfo(pane, args)
-      if (!sourceClientId && args.url) automationSafety?.track(pane.profileId, { paneId: pane.id, ...agentInfo(pane) }, pane.url)
+      if (!sourceClientId && args.url) automatedNavigations.set(pane.id, { paneId: pane.id, ...agentInfo(pane) })
       if (session.device) pane.device = session.device
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
@@ -3185,6 +3241,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
+      let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
       void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
@@ -3220,9 +3277,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
+          let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
           try { await guardedLoad(live, normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
-          finally { contents.off('did-navigate', response) }
+          finally { contents.off('did-navigate', response); if (actor && automatedNavigations.get(tabId) === actor) automatedNavigations.delete(tabId) }
           if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(paneConnectionId(pane))?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
           return { id: tab.id, url: contents.getURL() }
         }

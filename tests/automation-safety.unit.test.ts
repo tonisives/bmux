@@ -41,7 +41,7 @@ test('edited session, break, and pacing limits take effect in the running policy
   await policy.before('bot', instagram)
   expect(sleeps).toEqual([750])
   advance(9 * 60_000 - 750)
-  expect(() => policy.assertAvailable('bot', undefined, 'https://example.com/')).toThrow('retry after 2026-10-01T00:25:00.000Z')
+  expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('retry after 2026-10-01T00:25:00.000Z')
   advance(5 * 60_000)
   await policy.before('bot', instagram)
   expect(policy.status().profiles[0].retryAfter).toBeNull()
@@ -81,47 +81,43 @@ test('session limits and cooldown survive app restarts and failed retries do not
   expect(next.status().profiles[0].startedAt).toBe(Date.parse('2026-10-01T00:30:00Z'))
 })
 
-test('records affected automation panes and agent IDs, including denied commands, without extending cooldown', async () => {
+test('records only admitted automation panes and agent IDs without extending cooldown', async () => {
   let { policy, advance, restart } = fixture()
   await policy.before('bot', instagram, undefined, true, { paneId: '%1', agentId: '%42' })
   advance(10 * 60_000)
   await expect(policy.before('bot', instagram, undefined, true, { paneId: '%2', agentId: 'research' })).rejects.toThrow('session limit')
   let next = restart()
-  expect(next.status().profiles[0]).toMatchObject({ actors: [{ paneId: '%1', agentId: '%42' }, { paneId: '%2', agentId: 'research' }], retryAfter: '2026-10-01T00:30:00.000Z' })
+  expect(next.status().profiles[0]).toMatchObject({ actors: [{ paneId: '%1', agentId: '%42' }], retryAfter: '2026-10-01T00:30:00.000Z' })
   advance(20 * 60_000)
   await next.before('bot', instagram, undefined, true, { paneId: '%3' })
   expect(next.status().profiles[0].actors).toEqual([{ paneId: '%3', hosts: ['www.instagram.com'] }])
 })
 
-test('records command destinations across navigation and clears sites for a new session', async () => {
+test('website clocks and actors stay separate across navigation, resets and restarts', async () => {
   let { policy, advance, restart } = fixture()
-  let actor = { paneId: '%1', agentId: 'research', agentName: 'Research agent', agentPurpose: 'Compare browsers' }
+  let actor = { paneId: '%1', agentId: 'research', agentType: 'tmux', agentData: { paneId: '%42' } }
   await policy.before('bot', instagram, 'https://example.com/path', true, actor)
-  await policy.before('bot', instagram, 'https://example.com/other', true, actor)
-  expect(policy.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['example.com'] }])
   advance(10 * 60_000)
-  await expect(policy.before('bot', instagram, 'https://x.com/', true, actor)).rejects.toThrow('session limit')
+  await expect(policy.before('bot', instagram, 'https://example.com/other', true, { paneId: '%2' })).rejects.toThrow('session limit')
+  await policy.before('bot', instagram, 'https://x.com/', true, { paneId: '%3' })
   let next = restart()
-  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['example.com', 'x.com'] }])
-  next.resetSession('bot')
-  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: [] }])
-  await next.before('bot', instagram, undefined, true, actor)
-  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['www.instagram.com'] }])
-  advance(30 * 60_000)
-  await next.before('bot', instagram, 'https://youtube.com/', true, actor)
-  expect(next.status().profiles[0].actors).toEqual([{ ...actor, hosts: ['youtube.com'] }])
-  next.track('bot', { paneId: actor.paneId, agentId: 'review' }, 'https://youtube.com/')
-  expect(next.status().profiles[0].actors).toEqual([{ paneId: actor.paneId, agentId: 'review', hosts: ['youtube.com'] }])
+  let rows = next.status().profiles
+  expect(rows.find(row => row.siteHost === 'example.com')).toMatchObject({ actors: [{ ...actor, hosts: ['example.com'] }], retryAfter: '2026-10-01T00:30:00.000Z' })
+  expect(rows.find(row => row.siteHost === 'x.com')).toMatchObject({ actors: [{ paneId: '%3', hosts: ['x.com'] }], retryAfter: null })
+  next.resetSession('bot', 'example.com')
+  expect(next.status().profiles.find(row => row.siteHost === 'example.com')?.actors).toEqual([])
+  expect(next.status().profiles.find(row => row.siteHost === 'x.com')?.actors).toHaveLength(1)
 })
 
-test('new-pane tracking skips local and excluded sites', async () => {
+test('new-pane tracking skips local, excluded and unrelated sites', async () => {
   let { policy, settings } = fixture()
   await policy.before('bot', instagram)
   settings.sites = { bot: { 'x.com': false } }
   policy.track('bot', { paneId: '%1' }, 'http://localhost/')
   policy.track('bot', { paneId: '%2' }, 'https://x.com/')
   policy.track('bot', { paneId: '%3' }, 'https://example.com/')
-  expect(policy.status().profiles[0].actors).toEqual([{ paneId: '%3', hosts: ['example.com'] }])
+  policy.track('bot', { paneId: '%4' }, 'https://www.instagram.com/')
+  expect(policy.status().profiles[0].actors).toEqual([{ paneId: '%4', hosts: ['www.instagram.com'] }])
 })
 
 test('pane toggles persist independently and bypass only the chosen pane', async () => {
@@ -159,7 +155,7 @@ test('hitting the session limit publishes the cooldown without extending its dea
   await policy.before('bot', instagram)
   let previous = changes()
   advance(10 * 60_000)
-  expect(() => policy.assertAvailable('bot', undefined, 'https://example.com/')).toThrow('Open the UI alert or Profile > Anti-bot')
+  expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('Open the UI alert or Profile > Anti-bot')
   expect(changes()).toBe(previous + 1)
   expect(policy.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
 })
@@ -197,11 +193,12 @@ test('corrupt or unwritable ledgers stop automation, while an explicit opt-out s
   await policy.before('bot', async () => { throw new Error('must not inspect') })
 })
 
-test('navigation from a blank pane to social sites counts toward the same session', async () => {
+test('navigation from a blank pane counts only toward its destination website', async () => {
   let { policy, advance } = fixture()
   await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://instagram.com/')
   advance(10 * 60_000)
-  await expect(policy.before('bot', async () => ({ url: 'about:blank' }), 'https://youtube.com/')).rejects.toThrow('session limit')
+  await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://youtube.com/')
+  await expect(policy.before('bot', async () => ({ url: 'about:blank' }), 'https://instagram.com/')).rejects.toThrow('session limit')
 })
 
 test('blank panes and raw CDP navigation cannot avoid session accounting or social pacing', async () => {
@@ -269,6 +266,7 @@ test('site warning opt-outs release a latched pause without disabling profile li
   await expect(next.before('other', async () => ({ url: 'https://unblock.example.com/', warning: 'challenge' }))).rejects.toThrow('Automation paused')
   await expect(next.before('bot', async () => ({ url: 'https://example.com/', warning: 'account-warning' }))).rejects.toThrow('on example.com')
   settings.sites.bot['example.com'] = false
+  await next.before('bot', instagram)
   advance(10 * 60_000)
   await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
   settings.sites.bot['example.com'] = true
@@ -356,8 +354,8 @@ test('excluded websites skip session limits, pacing, and warnings only in their 
   expect(() => next.assertAvailable('bot', undefined, 'https://www.instagram.com/')).not.toThrow()
   await next.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'challenge' }))
   await next.before('bot', async () => ({ url: 'about:blank' }), 'https://www.instagram.com/')
-  await expect(next.before('bot', async () => ({ url: 'https://www.instagram.com/' }), 'https://x.com/')).rejects.toThrow('session limit')
-  await expect(next.before('bot', async () => ({ url: 'https://x.com/' }))).rejects.toThrow('session limit')
+  await next.before('bot', async () => ({ url: 'https://www.instagram.com/' }), 'https://x.com/')
+  await next.before('bot', async () => ({ url: 'https://x.com/' }))
   await expect(next.before('other', instagram)).rejects.toThrow('session limit')
   delete settings.sites.bot['www.instagram.com']
   await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
@@ -388,7 +386,7 @@ test.each(localResources)('local and non-website resources bypass safety without
   expect(policy.status()).toEqual(paused)
   await policy.before('bot', instagram, url ?? 'about:blank')
   expect(sleeps).toEqual([])
-  await expect(policy.before('bot', async () => ({ url: url ?? '' }), 'https://example.com/')).rejects.toThrow('session limit')
+  await expect(policy.before('bot', async () => ({ url: url ?? '' }), 'https://www.instagram.com/')).rejects.toThrow('session limit')
 })
 test('public website exclusions still apply after hostname normalization', () => {
   let { settings } = fixture()
@@ -415,4 +413,42 @@ test('social delay starts after an animated click completes', async () => {
   advance(100)
   await restart().before('bot', instagram)
   expect(sleeps).toEqual([1900])
+})
+
+test('navigation preflights keep profile pacing without creating website usage', async () => {
+  let { policy, file, sleeps } = fixture()
+  let blank = async () => ({ url: 'about:blank' })
+  await Promise.all([
+    policy.before('bot', blank, 'https://www.instagram.com/', true, { paneId: '%1' }, false),
+    policy.before('bot', blank, 'https://x.com/', true, { paneId: '%2' }, false),
+    policy.before('other', blank, 'https://x.com/', true, { paneId: '%3' }, false),
+  ])
+  expect(sleeps).toEqual([2000])
+  expect(policy.status().profiles).toEqual([])
+  expect(fs.existsSync(file)).toBe(false)
+})
+
+test('a navigation preflight creates no session until navigation succeeds', async () => {
+  let { policy, file, advance } = fixture()
+  let actor = { paneId: '%1', agentId: 'research' }
+  await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://example.com/', true, actor, false)
+  expect(policy.status().profiles).toEqual([])
+  expect(fs.existsSync(file)).toBe(false)
+  policy.complete('bot', actor, 'https://example.com/')
+  expect(policy.status().profiles).toMatchObject([{ siteHost: 'example.com', actors: [{ ...actor, hosts: ['example.com'] }] }])
+  advance(10 * 60_000)
+  await expect(policy.before('bot', instagram, 'https://example.com/', true, { paneId: '%2' }, false)).rejects.toThrow('session limit')
+  expect(policy.status().profiles[0].actors).toHaveLength(1)
+})
+
+test('legacy profile clocks restart per website while warning pauses survive', async () => {
+  let { file, restart } = fixture()
+  let startedAt = Date.parse('2026-10-01T00:00:00Z')
+  fs.writeFileSync(file, JSON.stringify({ bot: { startedAt, lastUsed: startedAt, actors: [{ paneId: '%1', hosts: ['example.com'] }, { paneId: '%2', hosts: ['x.com'] }] }, unknown: { startedAt, lastUsed: startedAt } }))
+  let policy = restart()
+  expect(policy.status().profiles).toEqual([])
+  fs.writeFileSync(file, JSON.stringify({ bot: { startedAt, lastUsed: startedAt, warning: 'challenge', warningHost: 'example.com', actors: [{ paneId: '%1', hosts: ['example.com'] }, { paneId: '%2', hosts: ['x.com'] }] } }))
+  expect(restart().status().profiles).toMatchObject([{ profileId: 'bot', siteHost: 'example.com', warning: 'challenge', actors: [{ paneId: '%1' }] }])
+  await policy.before('unknown', instagram)
+  expect(policy.status().profiles.find(row => row.profileId === 'unknown')?.siteHost).toBe('www.instagram.com')
 })

@@ -23,7 +23,7 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
     await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Automation fixture', version: '1', actions: [{ id: 'browse', title: 'Browse', command: ['node', './run.mjs'], capabilities: ['browser.read'] }] }))
     await fs.writeFile(path.join(folder, 'run.mjs'), `import { execFileSync } from 'node:child_process'; let call = (method,args={}) => JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8'})).result; let context = call('context'); call('automation.acquire',{url:context.url}); let page = call('dom'); call('result',{read:page.content.includes('Visible fixture page')});`)
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { autoUpdateFilters: false }, plugins: { test: { enabled: true, hooks: false } }, automation: { groups: { fixture: { profiles: ['profile_default'], hosts: ['127.0.0.1'], maxConcurrent: 1, hourly: { runs: 1 }, requiredPlugins: { '127.0.0.1': 'test' } } } } }))
-    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
@@ -32,7 +32,7 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
     await command('navigate', { tab: pane.id, url })
     await command('wait', { tab: pane.id, selector: 'main' })
     let cli = async (args: string[]) => {
-      let result = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         // Expected denials exit with valid JSON; preserve real process failures.
         if (error.code === 1 && typeof error.stdout === 'string' && error.stdout.trim()) return { stdout: error.stdout }
         throw error

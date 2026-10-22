@@ -16,9 +16,9 @@ test('background panes deliver static frames without a visible window', async ()
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
-  let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
+  let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   try {
-    let command = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_DATA_DIR: directory } })).stdout).result
+    let command = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory } })).stdout).result
     let status = await command('status')
     let pane = status.model.sessions[0].windows[0].panes[0]
     await command('navigate', '-t', pane.id, origin)

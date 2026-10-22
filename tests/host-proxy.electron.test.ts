@@ -19,7 +19,7 @@ test('required home egress fails closed across outages and new profiles', async 
   await fs.writeFile(path.join(directory,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
   let application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REQUIRED_PROXY:`http://127.0.0.1:${proxy.port}`,BMUX_BACKGROUND:'1'}})
   try {
-    let run = async (...args:string[])=>JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory}})).stdout).result
+    let run = async (...args:string[])=>JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_AGENT_ID:'test-agent',BMUX_DATA_DIR:directory}})).stdout).result
     let state = await run('status'), pane = state.model.sessions[0].windows[0].panes[0]
     await run('navigate','-t',pane.id,url)
     expect(requests).toBeGreaterThan(0)

@@ -1,3 +1,5 @@
+import { DEFAULT_AGENTS, parseAgentSettings } from './agent-info'
+import type { AgentInfo, AgentSettings } from './agent-info'
 export type AutomationLimits = { runs?: number; navigations?: number; activeMinutes?: number }
 export type AutomationGroup = {
   profiles: string[]
@@ -11,14 +13,14 @@ export type AutomationGroup = {
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
 export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; simulateMouseMovement?: boolean; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
-export type AutomationActor = { paneId: string; agentId?: string; agentName?: string; agentPurpose?: string; hosts?: string[] }
+export type AutomationActor = AgentInfo & { paneId: string; hosts?: string[] }
 export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
 export type AutomationProfileLimits = Pick<AutomationSafety, AutomationSafetyLimitKey> & { simulateMouseMovement?: boolean }
 export let automationProfileLimits = (settings: AutomationSafety, profileId: string): AutomationProfileLimits => ({ maxSessionMinutes: settings.maxSessionMinutes, cooldownMinutes: settings.cooldownMinutes, socialDelayMs: settings.socialDelayMs, simulateMouseMovement: settings.simulateMouseMovement ?? true, ...settings.profileLimits?.[profileId] })
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
-export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
-export type AutomationSettings = { safety: AutomationSafety; groups: Record<string, AutomationGroup> }
-export let DEFAULT_AUTOMATION: AutomationSettings = { safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, profiles: {} }, groups: {} }
+export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; siteHost?: string; startedAt: number; lastUsed: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; retryAfter: string | null }[] }
+export type AutomationSettings = { agents: AgentSettings; safety: AutomationSafety; groups: Record<string, AutomationGroup> }
+export let DEFAULT_AUTOMATION: AutomationSettings = { agents: DEFAULT_AGENTS, safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 2000, profiles: {} }, groups: {} }
 export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string, paneId?: string) => (paneId ? settings.panes?.[paneId] : undefined) ?? settings.profiles[profileId] ?? settings.enabled
 export let automationSiteExclusion = (rule: AutomationSiteRule | undefined): AutomationSiteExclusion | undefined => typeof rule === 'boolean' ? { enabled: !rule, durationMinutes: null, expiresAt: null } : rule
 export let automationExclusionActive = (rule: AutomationSiteExclusion, now = Date.now()) => rule.enabled && (rule.expiresAt === null || rule.expiresAt > now)
@@ -85,7 +87,7 @@ export let updateAutomationSafetyLimit = (settings: AutomationSafety, key: unkno
 export let parseAutomationSettings = (value: unknown): AutomationSettings => {
   if (value === undefined) return structuredClone(DEFAULT_AUTOMATION)
   let raw = mapping(value, 'automation')
-  if (Object.keys(raw).some(key => !['groups', 'safety'].includes(key))) throw new Error('Unknown automation setting')
+  if (Object.keys(raw).some(key => !['groups', 'safety', 'agents'].includes(key))) throw new Error('Unknown automation setting')
   let safety = { ...DEFAULT_AUTOMATION.safety }, safetyRaw = mapping(raw.safety ?? {}, 'automation.safety')
   for (let [key, value] of Object.entries(safetyRaw)) {
     if (key === 'simulateMouseMovement') { if (typeof value !== 'boolean') throw new Error('simulateMouseMovement must be true or false'); safety.simulateMouseMovement = value; continue }
@@ -124,7 +126,7 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
     if (!['maxSessionMinutes', 'cooldownMinutes', 'socialDelayMs'].includes(key) || !Number.isInteger(value) || Number(value) < 1 || Number(value) > maximum) throw new Error(`Invalid automation.safety.${key}`)
     safety[key as 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'] = Number(value)
   }
-  let groups = mapping(raw.groups ?? {}, 'automation.groups'), result: AutomationSettings = { safety, groups: {} }
+  let groups = mapping(raw.groups ?? {}, 'automation.groups'), result: AutomationSettings = { agents: parseAgentSettings(raw.agents), safety, groups: {} }
   let assigned = new Set<string>()
   for (let [id, entry] of Object.entries(groups)) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) throw new Error('Invalid automation group name')

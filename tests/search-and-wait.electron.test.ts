@@ -17,7 +17,7 @@ let exec = promisify(execFile)
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let cli = async (...args: string[]) => {
-  let result = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') }, timeout: 20000 }).catch(error => ({ stdout: error.stdout }))
+  let result = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') }, timeout: 20000 }).catch(error => ({ stdout: error.stdout }))
   let response = JSON.parse(result.stdout)
   if (!response.ok) throw new Error(response.error)
   return response.result
@@ -101,7 +101,7 @@ test.beforeAll(async () => {
     profile_default: { 'x-ideas': { values: { q: 'startup min_faves:1 min_replies:1' }, hidden: [] } },
     [model.profiles[1].id]: { parameterized: { values: { q: 'saved bot query' }, hidden: [] } },
   } }))
-  application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_REMOTE_URL: url, BMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_REMOTE_URL: url, BMUX_BACKGROUND: '0' } })
   await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!

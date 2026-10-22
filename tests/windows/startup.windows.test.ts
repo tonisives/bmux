@@ -44,7 +44,7 @@ let stopped = async () => {
 
 test.beforeEach(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux Windows 测试 '))
-  env = Object.fromEntries(Object.entries({ ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' }).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+  env = Object.fromEntries(Object.entries({ ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' }).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
   delete env.ELECTRON_RUN_AS_NODE; delete env.BMUX_APP; delete env.BROWMUX_APP
   await fs.writeFile(env.BMUX_CONFIG!, stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, plugins: { test: { enabled: true }, 'bmux.forms': { enabled: true } } }))
   await fs.access(cliPath)

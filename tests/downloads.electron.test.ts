@@ -12,7 +12,7 @@ import { initialModel } from '../src/main/model'
 let application: ElectronApplication, chrome: Page, directory: string, url: string, server: http.Server
 let model = initialModel(), pane = model.sessions[0].windows[0].panes[0]
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
-let cli = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 })).stdout)
+let cli = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 })).stdout)
 let downloads = () => rpc('downloads') as Promise<any[]>
 let open = async () => {
   await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
@@ -39,7 +39,7 @@ test.beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
   await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
-  application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(({ app }, directory) => app.setPath('downloads', directory), directory)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
   chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!

@@ -12,7 +12,7 @@ let exec = promisify(execFile)
 let root = process.cwd()
 let data = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-package-'))
 let appPath = path.resolve(process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? path.resolve(process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app'))
-let env = { ...process.env, BMUX_APP: appPath, BMUX_DATA_DIR: data, BMUX_CONFIG: path.join(data, 'config.yaml'), BMUX_TRACE_CLIENT_STARTUP: '1' }
+let env = { ...process.env, BMUX_AGENT_ID: 'package-smoke', BMUX_APP: appPath, BMUX_DATA_DIR: data, BMUX_CONFIG: path.join(data, 'config.yaml'), BMUX_TRACE_CLIENT_STARTUP: '1' }
 let pid
 let request = method => new Promise((resolve, reject) => {
   let connection = net.createConnection(controlSocketPath(data)), response = ''

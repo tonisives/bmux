@@ -27,7 +27,7 @@ let pendingPages = new Set<http.ServerResponse>()
 let deferredLinkRequests = new Map<string, { count: number; referrer?: string }>()
 let cli = async (method: string, args: Record<string, unknown> = {}) => {
   console.log(`CLI ${method} ${args.tab ?? args.client ?? ''}`)
-  let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
+  let result = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'rpc', method, JSON.stringify(args)], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 90000, maxBuffer: 16 * 1024 * 1024 }).catch(error => { throw new Error(`${method}: ${error.stdout || error.stderr || error.message}`) })
   let response = JSON.parse(result.stdout)
   if (!response.ok) throw new Error(response.error)
   return response.result
@@ -70,7 +70,7 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
 }
 let launch = async () => {
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
-  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
+  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await observeNativeFocus(application)
@@ -137,7 +137,7 @@ test('memory diagnostics map background pages without changing selection or page
   await cli('wait', { pane: bot.id, selector: '#text' })
   let before = await cli('state')
   let focused = await application.evaluate(({ BrowserWindow, webContents }) => ({ window: BrowserWindow.getFocusedWindow()?.id ?? null, contents: webContents.getFocusedWebContents()?.id ?? null }))
-  let output = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'memory', '--history'], { env: { ...process.env, BMUX_DATA_DIR: directory } })
+  let output = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'memory', '--history'], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory } })
   let report = JSON.parse(output.stdout).result
   let current = report.current
   expect(report.metric).toBe('working-set-bytes')
@@ -1304,7 +1304,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   let client = await cli('attach-session', { session: session.id })
   await cli('select-window', { client: client.id, window: sourceWindow.id })
   await closeTestApplication(application)
-  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
   expect((await cli('list-clients'))[0].windowId).toBe(sourceWindow.id)
@@ -1327,7 +1327,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await closeTestApplication(application)
   await fs.writeFile(path.join(directory, 'navigation-crash.json'), JSON.stringify({ version: 2, paneId: crashed.id, tabId: crashed.id, url: 'https://chromewebstore.google.com/detail/example' }))
   await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
-  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  application = await electron.launch({ args: [root], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
   await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
   expect((await cli('list-panes', { window: session.windows[0].id })).map((pane: { id: string }) => pane.id)).toEqual([retained.id])
@@ -3897,7 +3897,7 @@ test('restored inactive pages wake when addressed by an agent', async () => {
   let inactive = inactiveWindow.panes[0]
   let protectedWindow = await cli('new-window', { session: session.id })
   let protectedPane = protectedWindow.panes[0]
-  let kept = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'pane', 'keep-alive', '-t', protectedPane.id, '--enabled'], { env: { ...process.env, BMUX_DATA_DIR: directory } })
+  let kept = await exec(process.execPath, [path.join(root, 'bin/bmux.mjs'), 'pane', 'keep-alive', '-t', protectedPane.id, '--enabled'], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory } })
   expect(JSON.parse(kept.stdout).result).toEqual({ pane: protectedPane.id, enabled: true })
   let bot = await cli('split-window', { pane: pane.id, profile: 'bot', url: `${url}/bot-restore` })
   await cli('wait', { pane: inactive.id, selector: '#text' })

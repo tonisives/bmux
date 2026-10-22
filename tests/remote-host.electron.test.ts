@@ -87,7 +87,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       })
     }, { timeout: 10000 })
     let command = async (...args:string[]) => {
-      try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
+      try { return JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_AGENT_ID:'test-agent',BMUX_DATA_DIR:directory},timeout:20000})).stdout).result }
       catch (error) {
         let output = (error as { stdout?: string }).stdout
         throw new Error(`${args[0]}: ${output ? JSON.parse(output).error : String(error)}`)

@@ -20,15 +20,15 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as any).port}/fixture`
     let startedAt = Date.now() - (action === 'expiry' ? 30 * 60_000 - 15_000 : 11 * 60_000)
-    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { startedAt, lastUsed: startedAt + 1000 }, profile_other: { startedAt, lastUsed: startedAt + 1000 } }))
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000 }, profile_other: { profileId: 'profile_other', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000 } }))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
-    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let cli = async (args: string[]) => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
         throw error
       })
@@ -43,8 +43,7 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached for default' })
     await expect(alert).toBeVisible()
-    // Legacy usage has no site attribution; human navigation must not invent it.
-    await expect(alert.getByRole('combobox')).toHaveCount(0)
+    await expect(alert.getByRole('combobox')).toHaveCount(1)
     expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
     await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for one.example.com', exact: true })).toBeVisible()
     let timer = alert.getByRole('timer')
@@ -66,6 +65,7 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
     let site = alert.locator('label'), message = alert.getByText('Automation session limit reached for default.', { exact: true })
     let general = chrome.getByRole('group', { name: 'General anti-bot settings', exact: true })
     await expect(general.getByRole('button', { name: 'Reset all anti bot sessions', exact: true })).toBeVisible()
+    expect(await general.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(await alert.evaluate(element => getComputedStyle(element).backgroundColor))
     expect((await general.boundingBox())!.y).toBeGreaterThanOrEqual(row!.y + row!.height)
     let orderedControls = [timer, site, message, alert.getByRole('button', { name: 'Dismiss notification' })]
     let controlBounds = await Promise.all(orderedControls.map(control => control.boundingBox()))
@@ -96,27 +96,24 @@ for (let action of ['alert', 'settings', 'expiry']) test(`session-limit alert su
       await expect.poll(() => application!.context().pages().some(page => page.url() === otherUrl)).toBe(true)
       await expect(alert).toHaveCount(1)
       await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true })).toHaveCount(0)
-      expect((await cli(['dom', '-t', otherPane.id])).ok).toBe(false)
-      await expect(alert).toHaveCount(2)
+      expect((await cli(['dom', '-t', otherPane.id])).ok).toBe(true)
+      await expect(alert).toHaveCount(1)
       let firstRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for one.example.com', exact: true }) })
-      let secondRow = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true }) })
       await expect(firstRow).toBeVisible()
-      await expect(secondRow).toBeVisible()
-      await expect(firstRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(1)
-      await expect(secondRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(0)
-      let firstBounds = await firstRow.boundingBox(), secondBounds = await secondRow.boundingBox()
-      expect(Math.abs(firstBounds!.x - secondBounds!.x)).toBeLessThanOrEqual(1)
-      expect(secondBounds!.y).toBeGreaterThanOrEqual(firstBounds!.y + firstBounds!.height)
-      await fs.mkdir(path.resolve('artifacts'), { recursive: true })
-      await chrome.screenshot({ path: path.resolve('artifacts/session-limit-stack.png') })
-      // A later manual navigation in an actor pane must not relabel its history.
+      await expect(firstRow.getByRole('button', { name: /^Go to pane / })).toHaveCount(0)
+      await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for two.example.com', exact: true })).toHaveCount(0)
+      let usages = (await cli(['automation', 'safety'])).result.profiles
+      expect(usages.find((usage: { siteHost: string }) => usage.siteHost === 'two.example.com')).toMatchObject({ retryAfter: null, actors: [{ paneId: otherPane.id }] })
+      // Denied commands never attributed this pane to the expired session.
       let manualUrl = url.replace('one.example.com', 'three.example.com')
       await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: manualUrl })
       await expect.poll(() => application!.context().pages().some(page => page.url() === manualUrl)).toBe(true)
       await expect(application.context().pages().find(page => page.url() === manualUrl)!.getByRole('main')).toHaveText('Visible session limit fixture')
-      await expect(firstRow).toBeVisible()
-      await expect(alert).toHaveCount(2)
+      await expect(firstRow).toHaveCount(0)
+      await expect(alert).toHaveCount(0)
       await expect(alert.getByRole('combobox', { name: 'Disable anti-bot for three.example.com', exact: true })).toHaveCount(0)
+      await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url })
+      await expect(firstRow).toBeVisible()
       await general.getByRole('button', { name: 'Reset all anti bot sessions' }).click()
     }
     else {
@@ -170,16 +167,15 @@ test('automation and permission notices identify agent panes while personal brow
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as any).port}/fixture`
     let startedAt = Date.now() - 11 * 60_000
-    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { startedAt, lastUsed: startedAt + 1000 } }))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
-    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let personal = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let cli = async (args: string[]) => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
         throw error
       })
@@ -191,8 +187,17 @@ test('automation and permission notices identify agent panes while personal brow
     expect(first).toMatchObject({ agentId: '%45', agentName: 'Research agent', agentPurpose: 'Review sources for the launch article' })
     for (let pane of [first, second]) {
       await command('navigate', { pane: pane.id, url: `${url}?agent=${pane.id}` })
-      expect((await cli(['dom', '-t', pane.id])).ok).toBe(false)
+      expect((await cli(['dom', '-t', pane.id, '--agent-id', pane.agentId])).ok).toBe(true)
     }
+    await closeTestApplication(application)
+    application = undefined
+    let ledgerFile = path.join(directory, 'automation-safety.json')
+    let ledger = JSON.parse(await fs.readFile(ledgerFile, 'utf8'))
+    for (let usage of Object.values(ledger) as { startedAt: number; lastUsed: number }[]) { usage.startedAt = startedAt; usage.lastUsed = startedAt + 1000 }
+    await fs.writeFile(ledgerFile, JSON.stringify(ledger))
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.pressSequentially(url); await address.press('Enter')
@@ -252,12 +257,12 @@ test('automation and permission notices identify agent panes while personal brow
     await expect(antiBot).toContainText('Agent %45')
     let toggle = antiBot.getByRole('switch', { name: 'Enable Anti-bot for this pane', exact: true })
     await toggle.uncheck()
-    await expect.poll(async () => (await cli(['dom', '-t', first.id])).ok).toBe(true)
-    expect((await cli(['dom', '-t', second.id])).ok).toBe(false)
+    await expect.poll(async () => (await cli(['dom', '-t', first.id, '--agent-id', '%45'])).ok).toBe(true)
+    expect((await cli(['dom', '-t', second.id, '--agent-id', '%46'])).ok).toBe(false)
     await expect(alert).not.toContainText('(%45)')
     expect((await cli(['rpc', 'pane.anti-bot.set', JSON.stringify({ pane: second.id, enabled: false })])).ok).toBe(false)
     await toggle.check()
-    await expect.poll(async () => (await cli(['dom', '-t', first.id])).ok).toBe(false)
+    await expect.poll(async () => (await cli(['dom', '-t', first.id, '--agent-id', '%45'])).ok).toBe(false)
     await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
     await alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true }).locator('span').click()
     await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(second.id)
@@ -298,7 +303,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
       'expired.example.com': { enabled: true, durationMinutes: 15, expiresAt: Date.now() - 1000 },
     } } } } }))
     let launch = async () => {
-      application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+      application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
       await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
       return application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     }
@@ -307,7 +312,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state()), pane = state.model.sessions[0].windows[0].panes[0]
     let cli = async (args: string[]) => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
         throw error
       })
@@ -511,18 +516,18 @@ test('files and local sites bypass paused website automation and never show anti
     let file = path.join(directory, 'review.html')
     await fs.writeFile(file, '<!doctype html><title>Local review</title><main>Local review</main><h1>Verify that you are human</h1>')
     let startedAt = Date.now() - 11 * 60_000
-    let ledger = { profile_default: { startedAt, lastUsed: startedAt + 1000, warning: 'account-warning', warningHost: 'one.example.com' } }
+    let ledger = { profile_default: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, warning: 'account-warning', warningHost: 'one.example.com' } }
     let ledgerFile = path.join(directory, 'automation-safety.json')
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
-    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let cli = async (args: string[]) => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
         throw error
       })
@@ -545,7 +550,7 @@ test('files and local sites bypass paused website automation and never show anti
       await expect(chrome.getByRole('region', { name: 'Paused automation' })).toHaveCount(0)
       await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('button', { name: 'Close', exact: true }).click()
     }
-    let after = JSON.parse(await fs.readFile(ledgerFile, 'utf8')).profile_default
+    let after = Object.values(JSON.parse(await fs.readFile(ledgerFile, 'utf8'))).find((value: any) => value.profileId === 'profile_default') as typeof ledger.profile_default
     expect(after.startedAt).toBe(ledger.profile_default.startedAt)
     expect(after.lastUsed).toBe(ledger.profile_default.lastUsed)
     expect(after.warningHost).toBe('one.example.com')
@@ -555,5 +560,71 @@ test('files and local sites bypass paused website automation and never show anti
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('agent identity is required by default, typed context can focus its terminal, and the requirement can be disabled', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-identity-'))
+  let marker = path.join(directory, 'focused.json')
+  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Agent identity</title><main>Agent context fixture</main>') })
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    let url = `http://one.example.com:${(server.address() as { port: number }).port}/identity`
+    let focusCommand = `node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_WINDOW_ID, process.env.BMUX_AGENT_PANE_ID]))' "${marker}"`
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { sessionId: { label: 'Terminal session', type: 'session' }, windowId: { label: 'Terminal window', type: 'window' }, paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand } } } } }))
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let state = await chrome.evaluate(() => (window as any).bmux.state())
+    let pane = state.model.clients.find((client: { id: string }) => client.id === state.clientId).paneId
+    let cli = async (args: string[]) => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: undefined, BMUX_AGENT_NAME: undefined, BMUX_AGENT_PURPOSE: undefined, BMUX_AGENT_TYPE: undefined, BMUX_AGENT_DATA: undefined }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
+      return JSON.parse(result.stdout)
+    }
+    let failedUrl = 'http://two.example.com:1/unreachable'
+    expect((await cli(['navigate', '-t', pane, failedUrl, '--agent-id', 'research'])).ok).toBe(false)
+    expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
+    let failedCdp = await cli(['cdp', '-t', pane, 'Page.navigate', JSON.stringify({ url: failedUrl }), '--agent-id', 'research'])
+    expect(failedCdp.result.errorText).toContain('ERR_UNSAFE_PORT')
+    expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.press('ControlOrMeta+A'); await address.press('Backspace')
+    await expect(address).toHaveValue('')
+    await address.pressSequentially(url)
+    await expect(address).toHaveValue(url)
+    await address.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
+    await expect(application.context().pages().find(page => page.url() === url)!.getByRole('main')).toHaveText('Agent context fixture')
+    expect(await cli(['dom', '-t', pane])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
+    expect(await cli(['rpc', 'dom', JSON.stringify({ pane })])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect((await cli(['dom', '-t', pane, '--agent-id', 'plain-agent'])).ok).toBe(true)
+    await expect(chrome.getByLabel('Notifications').getByRole('status')).toHaveCount(0)
+    await chrome.getByRole('button', { name: 'Active agents', exact: true }).click()
+    let dialog = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
+    await expect(dialog).toContainText('plain-agent')
+    expect((await cli(['dom', '-t', pane, '--agent-id', 'research', '--agent-name', 'Research agent', '--agent-purpose', 'Inspect agent context', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', windowId: '@8', paneId: '%9' })])).ok).toBe(true)
+    for (let text of ['Research agent', 'Inspect agent context', 'Terminal session', '$7', 'Terminal window', '@8', 'Terminal pane', '%9']) await expect(dialog).toContainText(text)
+    expect(await cli(['rpc', 'agent.focus', JSON.stringify({ pane, agentId: 'research' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
+    await dialog.getByRole('button', { name: 'Focus agent', exact: true }).click()
+    await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['research', '$7', '@8', '%9'])
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await chrome.screenshot({ path: path.resolve('artifacts/agent-typed-context.png') })
+    await dialog.getByRole('button', { name: 'Agent settings', exact: true }).click()
+    let settings = chrome.getByRole('dialog', { name: 'General anti-bot settings', exact: true })
+    let required = settings.getByRole('switch', { name: 'Require agent ID', exact: true })
+    await expect(required).toBeChecked()
+    expect((await cli(['rpc', 'automation.agents.set', '{"requireId":false}'])).ok).toBe(false)
+    await required.uncheck()
+    await expect.poll(async () => parse(await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')).automation.agents.requireId).toBe(false)
+    expect((await cli(['dom', '-t', pane])).ok).toBe(true)
+    await required.check()
+    await expect.poll(async () => (await cli(['dom', '-t', pane])).error).toContain('Agent ID required')
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

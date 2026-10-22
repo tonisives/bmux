@@ -9,26 +9,72 @@ Use `bmux` for bmux pages. The existing c-cdp Chrome instance is separate.
 
 ## Start a bot session
 
-Identify each agent with its tmux pane ID. Set this once in the agent's shell,
-or pass `--agent-id "$TMUX_PANE"` to individual commands:
+Browser commands require an agent ID by default, including raw RPC calls and
+commands that open a URL in a new pane. Use any stable identifier for the agent;
+it can come from a terminal, an editor, or another application. Set it in each
+command shell, or pass `--agent-id ID`:
 
 ```sh
 export BMUX_AGENT_ID="$TMUX_PANE"
+export BMUX_AGENT_NAME='Research agent'
+export BMUX_AGENT_PURPOSE='Compare browser features'
 ```
 
-Optionally provide a name and browsing reason with `--agent-name` and
-`--agent-purpose`, or set `BMUX_AGENT_NAME` and `BMUX_AGENT_PURPOSE` alongside
-`BMUX_AGENT_ID`. For example:
+Only the ID is required. The name and browsing reason are optional. The agent
+icon in an alert shows the agents that used that website. The status bar also
+shows an **Active agents** icon while commands run and for 60 seconds after the
+last command, even when there are no alerts.
+
+To disable the ID requirement, open the agent dialog's **Agent settings** and
+turn off **Require agent ID**, or set `automation.agents.requireId: false` in
+`config.yaml`. The setting reloads live.
+
+### Agent types and focus commands
+
+Define one or more agent types in `config.yaml`. Each type declares fields to
+show in the dialog and an optional shell command for **Focus agent**:
+
+```yaml
+automation:
+  agents:
+    requireId: true
+    definitions:
+      tmux:
+        fields:
+          sessionId: { label: Terminal session, type: session }
+          windowId: { label: Terminal window, type: window }
+          paneId: { label: Terminal pane, type: pane }
+          clientTty: { label: Terminal client, type: text }
+        focusCommand: /absolute/path/to/bmux/scripts/focus-tmux-agent.sh
+```
+
+Pass the type and its data using `--agent-type` and `--agent-data`, or
+`BMUX_AGENT_TYPE` and `BMUX_AGENT_DATA`. For a tmux agent:
 
 ```sh
-bmux dom -t '%3' --agent-id "$TMUX_PANE" --agent-name 'Research agent' --agent-purpose 'Compare browser features'
+export BMUX_AGENT_ID="$TMUX_PANE"
+export BMUX_AGENT_TYPE=tmux
+export BMUX_AGENT_DATA="$(tmux display-message -p -t "$TMUX_PANE" '{"sessionId":"#{session_id}","windowId":"#{window_id}","paneId":"#{pane_id}","clientTty":"#{client_tty}"}')"
+bmux dom -t '%3'
 ```
 
-The agent icon in an automation alert opens these details for the agents that
-used that website, including the selected pane. Missing details show **Not provided**.
+These terminal IDs are separate from BMUX session, window and pane IDs. Refresh
+the data when the agent moves. Other applications can supply their own type and
+field values. Undeclared fields are shown by name; `sessionId`, `windowId`, and
+`paneId` get default labels.
 
-The identifier stays attached to panes created or used by the agent and appears
-in automation pause notices. Outside tmux, use a stable name of your own.
+Focus commands run when the user clicks **Focus agent**. BMUX passes data as
+literal environment values: `BMUX_AGENT_ID`, `BMUX_AGENT_TYPE`, and
+`BMUX_AGENT_DATA`; fields typed `session`, `window`, and `pane` become
+`BMUX_AGENT_SESSION_ID`, `BMUX_AGENT_WINDOW_ID`, and `BMUX_AGENT_PANE_ID`.
+Text fields use `BMUX_AGENT_FIELD_` plus their upper snake case name, such as
+`BMUX_AGENT_FIELD_CLIENT_TTY`. Quote these variables in shell commands.
+
+The supplied focus script selects the tmux client, window and pane directly.
+On macOS it brings Alacritty forward through Hammerspoon's `hs` CLI. An optional
+`terminalWindowId` text field focuses that exact native terminal window.
+The command has a ten-second timeout. Configure commands locally; bots provide
+context data through their calls.
 
 ```sh
 bmux new-session -s agents --profile bot
@@ -103,7 +149,9 @@ default. Changes are saved and take effect immediately.
 The CLI and plugin browser API share the guard; site-specific plugins are not
 needed for these defaults:
 
-- At most 10 minutes per automation session, followed by a 20-minute break.
+- At most 10 minutes per website hostname in a profile, followed by a 20-minute
+  break for that website. Other hostnames keep their own timers. Panes using the
+  same website and profile share its timer.
 - At least 2 seconds between actions on social sites, shared across a profile's
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
@@ -118,7 +166,7 @@ needed for these defaults:
   stop further automation. Detection runs before each browser operation.
 
 Human browser controls remain available. Session usage and warning pauses survive
-restarts. A pause applies to the profile across websites. Resolve the warning on
+restarts. Account warning pauses apply to the profile across websites. Session limits apply only to their recorded website. Resolve the warning on
 the affected website manually, then use **Resume automation** in the Anti-bot
 tab. The notice names the blocking website and provides links to affected
 automation panes, including their agent identifiers. The **General anti-bot** row below the alerts holds the shared controls. Its gear
@@ -128,9 +176,10 @@ automation time or waits for a cooldown, including in the same profile.
 Permission requests use the same notice bar with the requesting pane and
 **Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request
 leaves it pending; dismissed requests remain available in **Activity**.
-Session alerts name only websites accessed or attempted by automation in that
-session, even if a pane later navigates elsewhere manually. Older usage without
-recorded websites shows one profile alert without a website dropdown.
+Session alerts name websites used by admitted automation commands and committed
+navigations, even if a pane later navigates elsewhere manually. Denied commands
+do not add panes or websites. Old profile-wide timers start fresh per website; existing account warning pauses
+are preserved.
 The alert's **Disable anti-bot** dropdown shows the recorded website hostname and offers
 **For 15 minutes**, **For 1 hour**, and **Until removed**. Its exclusion appears
 in this profile's **Excluded websites** list. Add a hostname or URL there to turn off
@@ -155,7 +204,7 @@ bypass a cooldown.
 Reaching the session limit shows a UI alert with the retry time. Wait for that
 time, or choose **Reset all anti bot sessions** in the general row to restart
 timers and end cooldowns across every profile. **Reset session** in a profile's
-**Anti-bot** tab resets that profile only. Both keep account warnings and site exclusions. The CLI cannot reset a session.
+**Anti-bot** tab resets the selected website in that profile. Both keep account warnings and site exclusions. The CLI cannot reset a session.
 Dismissal hides the current alert without resetting the session.
 
 ```sh
