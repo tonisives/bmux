@@ -28,6 +28,8 @@ import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
 import { createVirtualMouse } from './virtual-mouse'
 import { readsPage, withAgentReading } from './agent-reading'
+import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
+import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
 import { AGENT_INPUT_LOCK_MS, createAgentInputLock, scheduleAgentInputUnlock } from './agent-input-lock'
 import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
@@ -343,6 +345,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let virtualMouse = createVirtualMouse()
+  let agentActions = createAgentActions()
   let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < AGENT_INPUT_LOCK_MS) }
   let refreshAgentInputLock = (paneId: string) => tabs.get(paneId)?.inputLock?.setLocked(agentInputLocked(paneId))
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
@@ -692,6 +695,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return profile
   }
   let automationPointerTabs = new Set<string>()
+  let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => agentActions.run(pane, () => {
+    let live = tabs.get(pane), target = automationTargetUrl(method, args)
+    return [live && !live.contents.isDestroyed() ? live.contents.getURL() : tabById(model, pane).tab.url, ...(target ? [target] : [])]
+  }, operation, agentActionInput(method, args, owner))
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
     let live = tabs.get(tabId), document = documents.get(tabId)
     if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return read()
@@ -735,6 +742,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (params.type === 'mousePressed') await virtualMouse.click(tabId, (method, params) => debuggerApi.sendCommand(method, params, sessionId))
       }
     }
+    if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseWheel') return smoothAgentScroll((method, params) => debuggerApi.sendCommand(method, params, sessionId), params)
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
     try { result = await debuggerApi.sendCommand(method, params, sessionId) } catch (error) { if (navigationActor && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId); throw error }
@@ -742,7 +750,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
       let { pane } = paneById(model, tabId)
       automationSafety?.after(pane.profileId, pane.id, live.contents.getURL())
-      await virtualMouse.pauseAfterClick()
     }
     if (method === 'Page.setInterceptFileChooserDialog') filePickers.interception(tabId, params, sessionId)
     return result
@@ -2006,7 +2013,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let result: unknown
     try {
       let read = () => perform(command, sourceClientId)
-      result = !sourceClientId && !remoteActor.getStore() && typeof paneId === 'string' && readsPage(command.method, command.args) ? await readAutomationPage(paneId, read) : await read()
+      let automationPane = !sourceClientId && !remoteActor.getStore() && typeof paneId === 'string' ? paneId : undefined
+      let operation = () => automationPane && readsPage(command.method, command.args) ? readAutomationPage(automationPane, read) : read()
+      result = automationPane && agentAction(command.method, command.args) ? await runAgentAction(automationPane, command.method, command.args ?? {}, operation) : await operation()
     } finally {
       let current = activity ? activeAgents.get(activity.paneId) : undefined
       if (current) {
@@ -2490,7 +2499,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       configuration.update(key.split('.'), args.value)
       return { key, value: args.value }
     }
-    if (method === 'scroll') { let tabId = required(args, 'tab'); await ensureLiveTab(tabId); scrollTab(tabId, required(args, 'action')); return { pane: tabId } }
+    if (method === 'scroll') {
+      let tabId = required(args, 'tab'); await ensureLiveTab(tabId)
+      if (sourceClientId || remoteActor.getStore()) scrollTab(tabId, required(args, 'action'))
+      else {
+        let metrics = await cdp(tabId, 'Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true }, undefined, true)
+        let { width, height, y, heightFull } = metrics.result.value
+        await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseWheel', ...agentScrollParams(required(args, 'action'), width, height, y, heightFull) }, undefined, false, true)
+      }
+      return { pane: tabId }
+    }
     if (method === 'settings.open') { if (!configuration) throw new Error('Configuration is not ready'); let error = await shell.openPath(configuration.path); if (error) throw new Error(error); return { path: configuration.path } }
     if (method === 'focus-ui') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -3455,7 +3473,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, read: readAutomationPage, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     bookmarkPluginPages = createBookmarkPluginPages({ definitions: () => plugins?.bookmarks() ?? [], attachments: tabId => {
       let source = tabById(model, tabId).pane.bookmarkSource
       return source ? bookmarkPlugins[source.profileId]?.[source.bookmarkId] ?? [] : []

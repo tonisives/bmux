@@ -199,9 +199,17 @@ needed for these defaults:
   panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
   Mouse movement and input releases are immediate.
-- Every automated click pauses for a random 0.8–1.2 seconds after release before the
-  command completes. This also applies when Anti-bot or mouse simulation is off;
-  longer social-site delays still apply.
+- Page actions share a domain lock across all panes and profiles, plus a lock for
+  each pane. Clicks, scrolls, typing, keys, navigation, and scripts finish with a
+  random 0.8–1.2 second pause before the next action can run. `www` and bare
+  hostnames share the domain lock. Unrelated domains in different panes proceed
+  independently. This also applies with Anti-bot or mouse simulation off; longer
+  social-site delays still apply. DOM reads, waits, and screenshots do not take
+  the action lock. Raw mouse and keyboard presses retain it until release;
+  releases reach the page immediately.
+- Agent scroll commands and CDP wheel events move the page smoothly and finish
+  scrolling before the action pause starts. Reduced motion uses immediate
+  scrolling. Modified wheel events keep their normal zoom or shortcut behavior.
 - Reading page content through CLI or plugins gives the page a subtle blue pulse
   during the read and for 2.4 seconds afterward. Reduced motion uses a steady
   highlight. Read commands do not show or refresh the agent cursor.

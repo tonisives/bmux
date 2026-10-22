@@ -105,11 +105,10 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     }
     validate()
   }
-  let pauseAfterClick = () => sleep(800 + random() * 400)
   let setHidden = async (tab: string, hidden: boolean, send: Send) => {
     if (hidden) hiddenTabs.add(tab); else hiddenTabs.delete(tab)
     if (hidden) await update(tab, send)
   }
-  return { show, move, pauseAfterClick, click: (tab: string, send: Send) => update(tab, send, { click: true }), setHidden, hiddenTabs,
+  return { show, move, click: (tab: string, send: Send) => update(tab, send, { click: true }), setHidden, hiddenTabs,
     forget: (tab: string) => { positions.delete(tab); hiddenTabs.delete(tab) } }
 }

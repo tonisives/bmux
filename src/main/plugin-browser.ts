@@ -1,5 +1,6 @@
 import type { PluginContext } from '../shared/plugins'
 import { readsPage } from './agent-reading'
+import { agentAction } from './agent-actions'
 
 type Options = {
   context: (target: PluginContext) => PluginContext
@@ -7,89 +8,95 @@ type Options = {
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
   before?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<void>
   read?: <T>(pane: string, operation: () => Promise<T>) => Promise<T>
+  action?: <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner?: string) => Promise<T>
 }
 // Object handles belong to one execution context. A navigation cannot redirect a
 // delayed credential fill or evaluation into the replacement document.
-export let createPluginBrowser = (options: Options) => async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => {
-  let validate = () => {
-    signal.throwIfAborted()
-    let current = options.context(context)
-    if (!context.paneId || !context.documentId || current.documentId !== context.documentId || current.url !== context.url) throw new Error('Document changed')
-  }
-  let evaluate = async (expression: string) => {
-    validate()
-    let reference = await options.cdp(context.paneId!, 'Runtime.evaluate', { expression: 'globalThis', returnByValue: false })
-    let objectId = reference.result.objectId
-    try {
+export let createPluginBrowser = (options: Options) => {
+  let execute = async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => {
+    let validate = () => {
+      signal.throwIfAborted()
+      let current = options.context(context)
+      if (!context.paneId || !context.documentId || current.documentId !== context.documentId || current.url !== context.url) throw new Error('Document changed')
+    }
+    let evaluate = async (expression: string) => {
       validate()
-      let response = await options.cdp(context.paneId!, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(source) { return (0, eval)(source) }', arguments: [{ value: expression }], returnByValue: true, awaitPromise: true, timeout: 15000 })
-      if (response.exceptionDetails) throw new Error('Page script failed')
-      return response.result.value ?? null
-    } finally { if (objectId) void options.cdp(context.paneId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
+      let reference = await options.cdp(context.paneId!, 'Runtime.evaluate', { expression: 'globalThis', returnByValue: false })
+      let objectId = reference.result.objectId
+      try {
+        validate()
+        let response = await options.cdp(context.paneId!, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(source) { return (0, eval)(source) }', arguments: [{ value: expression }], returnByValue: true, awaitPromise: true, timeout: 15000 })
+        if (response.exceptionDetails) throw new Error('Page script failed')
+        return response.result.value ?? null
+      } finally { if (objectId) void options.cdp(context.paneId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
+    }
+    let read = <T>(operation: () => Promise<T>) => options.read && context.paneId ? options.read(context.paneId, operation) : operation()
+    if (['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp'].includes(method)) { validate(); await options.before?.(context, method, args); validate() }
+    if (method === 'dom') return read(async () => ({ pane: context.paneId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }))
+    if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return read(() => evaluate(args.expression as string)) }
+    if (method.startsWith('forms.')) {
+      validate()
+      return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, _formsContext: context, _formsSignal: signal } })
+    }
+    if (method === 'wait') {
+      let timeout = Math.min(60000, Math.max(1, Number(args.timeout) || 15000)), end = Date.now() + timeout
+      if (typeof args.selector !== 'string' && typeof args.expression !== 'string') throw new Error('Wait requires selector or expression')
+      let expression = typeof args.selector === 'string' ? `!!document.querySelector(${JSON.stringify(args.selector)})` : String(args.expression)
+      while (Date.now() < end) { if (await evaluate(expression)) return { matched: true }; await new Promise<void>(resolve => setTimeout(resolve, 100)) }
+      throw new Error('Wait timed out')
+    }
+    if (method === 'click') {
+      if (typeof args.selector !== 'string') throw new Error('Selector required')
+      let point = await evaluate(`(() => {
+        let node = document.querySelector(${JSON.stringify(args.selector)});
+        if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled) throw new Error('Visible element required');
+        node.scrollIntoView({block:'center'});
+        let rect = node.getBoundingClientRect();
+        return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
+      })()`)
+      validate()
+      await options.cdp(context.paneId!, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+      validate()
+      await options.cdp(context.paneId!, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+      return { filled: 1 }
+    }
+    if (method === 'fill' || method === 'type') {
+      if (method === 'fill' && (typeof args.origin !== 'string' || args.origin !== new URL(context.url!).origin)) throw new Error('Fill requires the original origin')
+      let fields = method === 'fill' ? args.fields : [{ selector: args.selector, value: args.text }]
+      if (!Array.isArray(fields) || !fields.length || fields.length > 50) throw new Error('Fields required')
+      for (let field of fields) if (!field || typeof field.selector !== 'string' || typeof field.value !== 'string') throw new Error('Invalid field')
+      await evaluate(`(() => {
+        let fields = ${JSON.stringify(fields)}, mode = ${JSON.stringify(method)};
+        let nodes = fields.map(field => document.querySelector(field.selector));
+        if (nodes.some((node, index) => fields[index].expectedType && node?.type !== fields[index].expectedType)) throw new Error('Form field type changed');
+        if (nodes.some((node, index) => fields[index].requireEmpty && node?.value)) throw new Error('Field already contains a value');
+        if (nodes.some((node, index) => fields[index].loginPassword && (node?.type !== 'password' || node.autocomplete.split(/\\s+/).includes('new-password')))) throw new Error('Login password field changed');
+        if (nodes.some(node => !node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled || node.readOnly || (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || node.type === 'hidden'))) throw new Error('Visible editable fields required');
+        nodes.forEach((node, index) => {
+          let setter = Object.getOwnPropertyDescriptor(node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set;
+          let value = fields[index].value;
+          if (mode === 'type') value = node.value.slice(0, node.selectionStart ?? node.value.length) + value + node.value.slice(node.selectionEnd ?? node.value.length);
+          setter.call(node, value);
+          node.dispatchEvent(new Event('input', { bubbles: true })); node.dispatchEvent(new Event('change', { bubbles: true }));
+        }); return true;
+      })()`)
+      return { filled: fields.length }
+    }
+    if (method === 'cdp') {
+      validate()
+      // Raw CDP is a trusted advanced capability. Exclude browser/target routing.
+      if (typeof args.method !== 'string' || !/^(DOM|Runtime|Page|Input|Network|CSS|Accessibility|Emulation)\./.test(args.method) || args.sessionId !== undefined) throw new Error('Only tab-scoped CDP is supported')
+      let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>)
+      return readsPage(method, args) ? read(command) : command()
+    }
+    if (['navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot'].includes(method)) {
+      validate()
+      return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, ...(method === 'navigate' ? { waitUntil: 'none' } : {}), _pluginGuard: validate } })
+    }
+    signal.throwIfAborted()
+    return options.execute({ method, args: { ...args } })
   }
-  let read = <T>(operation: () => Promise<T>) => options.read && context.paneId ? options.read(context.paneId, operation) : operation()
-  if (['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp'].includes(method)) { validate(); await options.before?.(context, method, args); validate() }
-  if (method === 'dom') return read(async () => ({ pane: context.paneId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }))
-  if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return read(() => evaluate(args.expression as string)) }
-  if (method.startsWith('forms.')) {
-    validate()
-    return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, _formsContext: context, _formsSignal: signal } })
-  }
-  if (method === 'wait') {
-    let timeout = Math.min(60000, Math.max(1, Number(args.timeout) || 15000)), end = Date.now() + timeout
-    if (typeof args.selector !== 'string' && typeof args.expression !== 'string') throw new Error('Wait requires selector or expression')
-    let expression = typeof args.selector === 'string' ? `!!document.querySelector(${JSON.stringify(args.selector)})` : String(args.expression)
-    while (Date.now() < end) { if (await evaluate(expression)) return { matched: true }; await new Promise<void>(resolve => setTimeout(resolve, 100)) }
-    throw new Error('Wait timed out')
-  }
-  if (method === 'click') {
-    if (typeof args.selector !== 'string') throw new Error('Selector required')
-    let point = await evaluate(`(() => {
-      let node = document.querySelector(${JSON.stringify(args.selector)});
-      if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled) throw new Error('Visible element required');
-      node.scrollIntoView({block:'center'});
-      let rect = node.getBoundingClientRect();
-      return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
-    })()`)
-    validate()
-    await options.cdp(context.paneId!, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
-    validate()
-    await options.cdp(context.paneId!, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
-    return { filled: 1 }
-  }
-  if (method === 'fill' || method === 'type') {
-    if (method === 'fill' && (typeof args.origin !== 'string' || args.origin !== new URL(context.url!).origin)) throw new Error('Fill requires the original origin')
-    let fields = method === 'fill' ? args.fields : [{ selector: args.selector, value: args.text }]
-    if (!Array.isArray(fields) || !fields.length || fields.length > 50) throw new Error('Fields required')
-    for (let field of fields) if (!field || typeof field.selector !== 'string' || typeof field.value !== 'string') throw new Error('Invalid field')
-    await evaluate(`(() => {
-      let fields = ${JSON.stringify(fields)}, mode = ${JSON.stringify(method)};
-      let nodes = fields.map(field => document.querySelector(field.selector));
-      if (nodes.some((node, index) => fields[index].expectedType && node?.type !== fields[index].expectedType)) throw new Error('Form field type changed');
-      if (nodes.some((node, index) => fields[index].requireEmpty && node?.value)) throw new Error('Field already contains a value');
-      if (nodes.some((node, index) => fields[index].loginPassword && (node?.type !== 'password' || node.autocomplete.split(/\\s+/).includes('new-password')))) throw new Error('Login password field changed');
-      if (nodes.some(node => !node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible' || node.disabled || node.readOnly || (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || node.type === 'hidden'))) throw new Error('Visible editable fields required');
-      nodes.forEach((node, index) => {
-        let setter = Object.getOwnPropertyDescriptor(node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set;
-        let value = fields[index].value;
-        if (mode === 'type') value = node.value.slice(0, node.selectionStart ?? node.value.length) + value + node.value.slice(node.selectionEnd ?? node.value.length);
-        setter.call(node, value);
-        node.dispatchEvent(new Event('input', { bubbles: true })); node.dispatchEvent(new Event('change', { bubbles: true }));
-      }); return true;
-    })()`)
-    return { filled: fields.length }
-  }
-  if (method === 'cdp') {
-    validate()
-    // Raw CDP is a trusted advanced capability. Exclude browser/target routing.
-    if (typeof args.method !== 'string' || !/^(DOM|Runtime|Page|Input|Network|CSS|Accessibility|Emulation)\./.test(args.method) || args.sessionId !== undefined) throw new Error('Only tab-scoped CDP is supported')
-    let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>)
-    return readsPage(method, args) ? read(command) : command()
-  }
-  if (['navigate', 'back', 'forward', 'reload', 'key', 'screenshot'].includes(method)) {
-    validate()
-    return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, ...(method === 'navigate' ? { waitUntil: 'none' } : {}), _pluginGuard: validate } })
-  }
-  signal.throwIfAborted()
-  return options.execute({ method, args: { ...args } })
+  return (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => options.action && context.paneId && agentAction(method, args)
+    ? options.action(context.paneId, method, args, () => execute(method, args, context, signal), context.agentId)
+    : execute(method, args, context, signal)
 }

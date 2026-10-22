@@ -30,7 +30,7 @@ let record = (value: unknown): Record<string, unknown> => {
 let shortText = (value: unknown, limit = 4096) => { if (typeof value !== 'string' || value.length > limit) throw new Error('Invalid text'); return value }
 let methods: Record<string, PluginAction['capabilities'][number]> = {
   'forms.list': 'browser.forms', 'forms.save': 'browser.forms', 'forms.fill': 'browser.forms', 'forms.delete': 'browser.forms',
-  dom: 'browser.read', screenshot: 'browser.read', wait: 'browser.read', eval: 'browser.write', fill: 'browser.write', click: 'browser.write', type: 'browser.write', key: 'browser.write', navigate: 'browser.write', back: 'browser.write', forward: 'browser.write', reload: 'browser.write', cdp: 'browser.cdp',
+  dom: 'browser.read', screenshot: 'browser.read', wait: 'browser.read', eval: 'browser.write', fill: 'browser.write', click: 'browser.write', scroll: 'browser.write', type: 'browser.write', key: 'browser.write', navigate: 'browser.write', back: 'browser.write', forward: 'browser.write', reload: 'browser.write', cdp: 'browser.cdp',
   'profile.list': 'browser.manage', 'list-sessions': 'browser.manage', 'list-windows': 'browser.manage', 'list-panes': 'browser.manage', 'new-window': 'browser.manage', 'split-window': 'browser.manage', 'select-pane': 'browser.manage', 'select-window': 'browser.manage', 'activate-client': 'browser.manage',
 }
 export let createPlugins = (options: Options) => {
