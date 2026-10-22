@@ -1,6 +1,6 @@
 import { focusAgent } from './agent-focus'
 import { createAgentRegistry } from './agent-registry'
-import { AGENT_ID_REQUIRED, AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo } from '../shared/agent-info'
+import { AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo, validateAgentRequirements } from '../shared/agent-info'
 import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
 import { renumberWindows } from '../shared/window-number'
@@ -19,7 +19,7 @@ import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
-import { selectedPane } from '../shared/command-target'
+import { resolvePaneTarget, selectedPane } from '../shared/command-target'
 import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
@@ -1136,7 +1136,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys)
+    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys, () => {
+      let owner = [...clients.values()].find(owner => owner.window === live.parent)
+      if (!owner) return
+      owner.chrome.webContents.focus()
+      owner.chrome.webContents.send('focus-control', 'agent-info', tabId)
+    })
     refreshAgentInputLock(tabId)
     let recordActivity = () => {
       if (live.disposed || internalBootstrap() || automatedContents.has(contents.id)) return
@@ -2007,6 +2012,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let actor = agentRegistry.resolve(command.args ?? {}, configuration?.automation.agents ?? DEFAULT_AGENTS, required)
       command = { ...command, args: { ...command.args, ...actor } }
     }
+    if (agentCommands.has(command.method) || command.method === 'automation.acquire' || command.method === 'browser.set') {
+      let args = command.args ?? {}, target = args.pane ?? args.tab ?? args.window
+      if (target !== undefined) {
+        let { pane } = resolvePaneTarget({ model, clientId: sourceClientId ?? String(args.client ?? focusedClientId ?? '') }, target)
+        command = { ...command, args: { ...args, pane: pane.id, tab: pane.id } }
+      }
+    }
     let client = model.clients.find(client => client.id === sourceClientId)
     let previousWindow = client?.windowId, previousPane = client?.paneId
     let paneId = command.args?.pane ?? command.args?.tab
@@ -2147,7 +2159,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return automationSafety?.resume(pane.profileId, page)
     }
     if (method === 'automation.acquire') {
-      if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error(AGENT_ID_REQUIRED)
+      if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
       let paneId = required(args, 'pane'), { pane, session } = paneById(model, paneId), tabId = pane.id
       if (AGENT_KEYS.some(key => args[key] !== undefined)) { updateAgentInfo(pane, args); save(); publish() }
       if (!automation) throw new Error('Automation policy unavailable')
@@ -2176,7 +2188,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
     if (sourceClientId && ['navigate', 'reload', 'hard-reload', 'back', 'forward', 'history.go-to'].includes(method) && typeof args.tab === 'string') automationPointerTabs.delete(args.tab)
-    if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? true) && !args.agentId) throw new Error(AGENT_ID_REQUIRED)
+    if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? true) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
     if (!sourceClientId && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
       updateAgentInfo(pane, args); save(); publish()

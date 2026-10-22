@@ -47,7 +47,7 @@ export type Bounds = { scrollX?: number; scrollY?: number; paneBounds?: { x: num
 export type RemoteSessionListing = { authenticated: boolean; hosts: { id: string; service: string; permission: 'watch' | 'control'; sessions: { id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }[] }[] }
 export type Bridge = {
   clipboard: (text?: string) => Promise<string>
-  controls: (listener: (control: string) => void) => () => void
+  controls: (listener: (control: string, paneId?: string) => void) => () => void
   linkPreview: (listener: (url: string) => void) => () => void
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>

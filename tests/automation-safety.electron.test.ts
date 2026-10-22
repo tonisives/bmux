@@ -584,6 +584,7 @@ test('files and local sites bypass paused website automation and never show anti
 test('agent identity is required by default, typed context can focus its terminal, and the requirement can be disabled', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-identity-'))
   let marker = path.join(directory, 'focused.json')
+  let expectedIdentity = '{"agentId":"<id>","agentType":"terminal","agentData":{"sessionId":"<session>","windowId":"<window>","paneId":"<pane>"}}'
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Agent identity</title><main>Agent context fixture</main>') })
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
@@ -615,9 +616,9 @@ test('agent identity is required by default, typed context can focus its termina
     await address.press('Enter')
     await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
     await expect(application.context().pages().find(page => page.url() === url)!.getByRole('main')).toHaveText('Agent context fixture')
-    expect(await cli(['dom', '-t', pane])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect(await cli(['dom', '-t', pane])).toMatchObject({ ok: false, error: `Agent ID required. Expected JSON: ${expectedIdentity}` })
     expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])
-    expect(await cli(['rpc', 'dom', JSON.stringify({ pane })])).toMatchObject({ ok: false, error: expect.stringContaining('Agent ID required') })
+    expect(await cli(['rpc', 'dom', JSON.stringify({ pane })])).toMatchObject({ ok: false, error: `Agent ID required. Expected JSON: ${expectedIdentity}` })
     expect((await cli(['dom', '-t', pane, '--agent-id', 'plain-agent'])).ok).toBe(true)
     await expect(chrome.getByLabel('Notifications').getByRole('status')).toHaveCount(0)
     let sibling = await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane, client: state.clientId, url: `${url}?sibling` })
@@ -641,6 +642,11 @@ test('agent identity is required by default, typed context can focus its termina
     expect((await cli(['dom', '-t', pane, '--agent-id', 'research', '--agent-name', 'Research agent', '--agent-purpose', 'Inspect agent context', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', windowId: '@8', paneId: '%9' })])).ok).toBe(true)
     for (let text of ['Research agent', 'Inspect agent context', 'Terminal session', '$7', 'Terminal window', '@8', 'Terminal pane', '%9']) await expect(dialog).toContainText(text)
     await expect(dialog).not.toContainText('plain-agent')
+    let targetSession = state.model.sessions.find((session: any) => session.windows.some((window: any) => window.panes.some((item: any) => item.id === pane)))
+    let targetWindow = targetSession.windows.find((window: any) => window.panes.some((item: any) => item.id === pane))
+    let windowTarget = `${targetSession.name}:${targetWindow.number ?? targetSession.windows.indexOf(targetWindow) + 1}`
+    for (let target of [pane, `${windowTarget}.0`]) expect(await cli(['eval', '-t', target, '--agent-id', 'research', 'location.href'])).toMatchObject({ ok: true, result: url })
+    expect(await cli(['eval', '-t', windowTarget, '--agent-id', 'other-review', 'location.href'])).toMatchObject({ ok: true, result: `${url}?sibling` })
     await expect(paneAgent).toHaveAttribute('title', 'Agent controlling · page input locked · Research agent (research)')
     await expect(chrome.locator(`[data-pane-id="${sibling.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     expect(await cli(['rpc', 'agent.focus', JSON.stringify({ pane, agentId: 'research' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
@@ -681,7 +687,7 @@ test('agent identity is required by default, typed context can focus its termina
       ['rpc', 'navigate', JSON.stringify({ pane, url: `${url}?blocked`, agentId: 'unregistered' })],
       ['automation', 'acquire', '-t', pane, '--url', url, '--agent-id', 'unregistered'],
       ['new-window', '-t', state.model.clients.find((client: { id: string }) => client.id === state.clientId).sessionId, '--url', url, '--agent-id', 'unregistered'],
-    ]) expect(await cli(args)).toMatchObject({ ok: false, error: expect.stringContaining('Agent type required') })
+    ]) expect(await cli(args)).toMatchObject({ ok: false, error: `Agent type required. Expected JSON: ${expectedIdentity}` })
     expect(await cli(['dom', '-t', pane, '--agent-id', 'incomplete', '--agent-type', 'terminal', '--agent-data', '{"paneId":"%99"}'])).toMatchObject({ ok: false, error: expect.stringContaining('agentData.sessionId, agentData.windowId') })
     expect(await cli(['dom', '-t', pane, '--agent-id', 'unregistered', '--agent-type', 'missing'])).toMatchObject({ ok: false, error: expect.stringContaining('Unknown agent type') })
     await expect(paneAgent).toHaveAttribute('title', 'Agent controlling · page input locked · Research agent (research)')
