@@ -2,10 +2,11 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { createPortal } from 'react-dom'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import type { Bookmark } from '../shared/types'
+import { pickerRemovalFocus } from './picker-removal-focus'
 import css from './BookmarkActions.module.css'
 
 type Target = { bookmark: Bookmark; profileId: string }
-type Menu = Target & { x: number; y: number; origin: HTMLElement }
+type Menu = Target & { x: number; y: number; origin: HTMLElement; deleting?: boolean }
 type Actions = { editing: string | null; rename: (target: Target) => void; finish: () => void; menu: (event: MouseEvent<HTMLElement>, target: Target) => void; menuKeys: (event: KeyboardEvent<HTMLElement>, target: Target) => void; run: (method: string, args: Record<string, unknown>) => Promise<unknown>; focusSearch: () => void }
 export let useBookmarkActions = () => useContext(Context)!
 
@@ -20,10 +21,11 @@ export let BookmarkActions = ({ children, run, focusSearch }: { children: ReactN
     setPopup({ ...target, x: event.clientX, y: event.clientY, origin })
   }
   let menuKeys = (event: KeyboardEvent<HTMLElement>, target: Target) => {
-    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+    if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey || (event.target as HTMLElement).closest('input, [data-picker-action]')) return
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10') && event.key !== 'x') return
     event.preventDefault(); event.stopPropagation()
     let origin = event.target as HTMLElement, bounds = origin.getBoundingClientRect()
-    setPopup({ ...target, x: bounds.left, y: bounds.bottom, origin })
+    setPopup({ ...target, x: bounds.left, y: bounds.bottom, origin, deleting: event.key === 'x' })
   }
   let close = (restore = false) => { setPopup(null); if (restore) popup?.origin.focus({ preventScroll: true }) }
   return <Context.Provider value={{ editing, rename, finish, menu, menuKeys, run, focusSearch }}><div className={css.list} data-bookmark-list data-menu-open={!!popup}>{children}</div>{popup && <BookmarkMenu popup={popup} close={close} />}</Context.Provider>
@@ -38,8 +40,8 @@ export let BookmarkTitle = ({ bookmark, profileId }: Target) => {
 let Context = createContext<Actions | null>(null)
 let targetKey = ({ bookmark, profileId }: Target) => JSON.stringify([profileId, bookmark.id])
 let BookmarkMenu = ({ popup, close }: { popup: Menu; close: (restore?: boolean) => void }) => {
-  let { run, rename, focusSearch } = useBookmarkActions()
-  let [confirming, setConfirming] = useState(false)
+  let { run, rename } = useBookmarkActions()
+  let [confirming, setConfirming] = useState(popup.deleting === true)
   let title = popup.bookmark.title || popup.bookmark.url || 'Untitled folder'
   let question = `Delete ${popup.bookmark.children ? 'folder' : 'bookmark'} "${title}"?`
   let ref = useRef<HTMLDivElement>(null)
@@ -63,11 +65,15 @@ let BookmarkMenu = ({ popup, close }: { popup: Menu; close: (restore?: boolean) 
   let ask = () => setConfirming(true)
   let cancel = () => close(true)
   let remove = async () => {
-    close(); focusSearch()
-    await run('bookmark.remove', { profile: popup.profileId, bookmark: popup.bookmark.id })
+    let row = popup.origin.closest<HTMLElement>('[data-bookmark-id]')
+    let restore = pickerRemovalFocus(row, row?.tagName === 'SUMMARY' ? row.parentElement : row)
+    close()
+    let result = await run('bookmark.remove', { profile: popup.profileId, bookmark: popup.bookmark.id })
+    if (result === undefined) popup.origin.focus({ preventScroll: true }); else restore()
   }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     event.stopPropagation()
+    if (confirming && !event.ctrlKey && !event.metaKey && !event.altKey && ['y', 'n'].includes(event.key)) { event.preventDefault(); if (event.key === 'y') void remove(); else cancel(); return }
     if (event.key === 'Escape' || (!confirming && event.key === 'Tab')) { event.preventDefault(); close(true); return }
     if (!['ArrowUp', 'ArrowDown', 'Home', 'End', ...(confirming ? ['Tab'] : [])].includes(event.key)) return
     event.preventDefault()
