@@ -21,9 +21,10 @@ export BMUX_AGENT_PURPOSE='Compare browser features'
 ```
 
 Only the ID is required. The name and browsing reason are optional. The agent
-icon in an alert shows the agents that used that website. The status bar also
-shows an **Active agents** icon while commands run and for 60 seconds after the
-last command, even when there are no alerts.
+icon in an alert shows the agents that used that website. Each pane toolbar
+shows an **Active agent** icon while commands run in that pane and for 60 seconds
+after its last command, even when there are no alerts. Hover to identify the
+agent, or click to inspect its live context and focus its terminal.
 
 To disable the ID requirement, open the agent dialog's **Agent settings** and
 turn off **Require agent ID**, or set `automation.agents.requireId: false` in

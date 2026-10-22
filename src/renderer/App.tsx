@@ -47,6 +47,7 @@ import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings'
+type AgentDetails = { paneId: string } | { actors: AutomationActor[] }
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
@@ -54,7 +55,7 @@ type Notification = { id: string; text: string; cooldown?: { retryAfter: string;
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { agentDetails: AutomationActor[] | null; setAgentDetails: (actors: AutomationActor[] | null) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -62,7 +63,7 @@ export let App = () => {
   let [control, setControl] = useState<Control | null>(null), [initialPlugin, setInitialPlugin] = useState<BuiltinTool | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
-  let [message, setMessage] = useState(''), [agentDetails, setAgentDetails] = useState<AutomationActor[] | null>([])
+  let [message, setMessage] = useState(''), [agentDetails, setAgentDetails] = useState<AgentDetails>({ actors: [] })
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
@@ -366,10 +367,19 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
 
 let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
 
-let NotificationAgentButton = ({ agents, label = 'Agent information', live = false }: { agents: AutomationActor[]; label?: string; live?: boolean }) => {
+let AgentButton = ({ agents, paneId }: { agents: AutomationActor[]; paneId?: string }) => {
   let { show, setAgentDetails } = useUI()
-  let open = () => { setAgentDetails(live ? null : agents); show('agent-info') }
-  return <button type="button" aria-label={label} title={label} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
+  let open = () => { setAgentDetails(paneId ? { paneId } : { actors: agents }); show('agent-info') }
+  let actor = agents[0]
+  let label = paneId ? 'Active agent' : 'Agent information'
+  let title = paneId ? `${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
+  return <button type="button" className={paneId ? `${css.navigationButton} ${css.adblockButton}` : undefined} aria-label={label} title={title} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
+}
+
+let PaneAgentButton = ({ paneId }: { paneId: string }) => {
+  let { state } = useUI()
+  let actor = state.activeAgents?.find(actor => actor.paneId === paneId)
+  return actor ? <AgentButton agents={[actor]} paneId={paneId} /> : null
 }
 
 let Notifications = ({ notices }: { notices: Notification[] }) => {
@@ -387,7 +397,7 @@ let Notifications = ({ notices }: { notices: Notification[] }) => {
       {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
-      {!!notice.agents?.length && <NotificationAgentButton agents={notice.agents} />}
+      {!!notice.agents?.length && <AgentButton agents={notice.agents} />}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
     </div>)}
@@ -536,7 +546,6 @@ let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteVie
 let LocalStatus = () => {
   let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
   let { client, session, profile } = selection(state)
-  let agents = state.activeAgents ?? []
   let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
   let help = () => show('help')
@@ -585,7 +594,6 @@ let LocalStatus = () => {
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
-    {!!agents.length && <NotificationAgentButton agents={agents} label="Active agents" live />}
     <button onClick={commands} aria-label="Command prompt" aria-expanded={control === 'command'}>:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -1108,6 +1116,7 @@ let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView })
       <button className={css.navigationButton} aria-label="Refresh" title="Refresh" disabled={!remote.controlling} onClick={reload}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
     </div>
     <div className={css.urlBar}>{control === 'address' ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={editFromClick} onKeyDown={editFromKeyboard} onMouseDown={selectAddress} onPointerDown={beginSelection} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} />}</div>
+    <PaneAgentButton paneId={paneId} />
   </div>
 }
 let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {
@@ -1177,7 +1186,7 @@ let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {
   let proxyRouteLabel = profile && paneProxy?.proxy ? `Proxy for ${profile.name}${proxyFailure ? ', unavailable' : ''}` : ''
   let proxyRouteTitle = proxyFailure ? `Proxy unavailable · ${proxyFailure.error}` : proxyTest ? `Proxy verified · Exit IP: ${proxyTest.ip}` : paneProxy?.proxy ? `${paneProxy.proxy.protocol}://${paneProxy.proxy.host}:${paneProxy.proxy.port}` : ''
   let clickState = state.clickMode?.showInput && state.clickModeState?.paneId === tab?.id ? state.clickModeState : undefined
-  if (clickState && !editing) return <div className={css.addressBar} role="group" aria-label="Pane address"><ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} /></div>
+  if (clickState && !editing) return <div className={css.addressBar} role="group" aria-label="Pane address"><ClickModeActions action={clickState.action} input={clickState.input} backgroundColor={state.clickMode!.backgroundColor} textColor={state.clickMode!.textColor} />{paneId && <PaneAgentButton paneId={paneId} />}</div>
   return <div className={css.addressBar} role="group" aria-label="Pane address">
     {tab && <div className={css.navigationControls}>
       <NavigationButton direction="back" tabId={tab.id} enabled={backEnabled} hasHistory={backHasPage} open={() => setHistoryPopup({ tabId: tab.id, direction: 'back' })} />
@@ -1192,6 +1201,7 @@ let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {
       {editing ? <AddressPrompt key={tab?.id ?? 'empty'} takeSelection={takeAddressSelection} /> : <input onClick={editFromClick} onPointerDown={beginSelection} onMouseDown={selectAddress} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} onKeyDown={editFromKeyboard} aria-label="Address" className={css.location} title={url} value={url && url !== 'about:blank' ? url : 'Cmd+L to open a URL'} role="button" readOnly />}
       {paneId && <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>}
     </div>
+    {paneId && <PaneAgentButton paneId={paneId} />}
     {profile && <div ref={profilePicker} className={css.profileRouteControls}>{!session?.private && <button type="button" className={css.profileRoute} onClick={togglePaneProfile} aria-label={blank ? `Choose pane profile: ${profile.name}` : profileRouteLabel} title={blank ? `Choose pane profile: ${profile.name}` : profileRouteTitle}><ProfileAvatar id={profile.id} name={profile.name} />{customProfile && pane?.device && <ProfileDeviceIcon />}</button>}<button type="button" className={css.profileRoute} onClick={openExtensions} aria-label="Extensions" title="Extensions"><ExtensionsIcon /></button>{paneProxy?.proxy && <button type="button" className={css.profileRoute} onClick={openProxy} aria-label={proxyRouteLabel} title={proxyRouteTitle} data-proxy-failed={!!proxyFailure || undefined}><ProfileConnectionIcon proxy verified={!!proxyTest} /></button>}{blank && profilePickerOpen && <label className={css.paneProfilePicker}>Pane profile<select aria-label="Pane profile" value={profile.id} onChange={choosePaneProfile} autoFocus>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" onClick={openProfile}>Profile settings</button></label>}</div>}
     {tab && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} data-plugin-pane={tab.id} data-plugin-button="adblock" data-enabled={blocking?.adblock ?? false} aria-label="Ad blocking" aria-haspopup="dialog" aria-expanded={control === 'adblock-popup' && client?.paneId === tab.id} title={`Ad blocking ${blocking?.adblock ? 'on' : 'off'}`} disabled={!blocking} onClick={openAdblock}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.5v4c0 3-2 5-5 7-3-2-5-4-5-7v-4Z" />{blocking?.adblock ? <path d="m5.5 8 1.5 1.5 3.5-3.5" /> : <path d="m5.5 5.5 5 5" />}</svg></button>}
     {tab && state.showDarkModeButton && <button type="button" className={`${css.navigationButton} ${css.adblockButton}`} data-plugin-pane={tab.id} data-plugin-button="dark-mode" data-enabled={!!blocking && blocking.darkMode !== 'off'} aria-label="Dark mode" aria-haspopup="dialog" aria-expanded={control === 'dark-mode-popup' && client?.paneId === tab.id} title={`Dark mode ${blocking?.darkMode ?? 'off'}`} disabled={!blocking} onClick={openDarkMode}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2a5.8 5.8 0 1 0 7 7.5Z" /></svg></button>}
@@ -1370,14 +1380,14 @@ let Panel = ({ type }: { type: Control }) => {
 }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
-  let actors = agentDetails ?? state.activeAgents ?? []
+  let actors = 'paneId' in agentDetails ? (state.activeAgents ?? []).filter(actor => actor.paneId === agentDetails.paneId) : agentDetails.actors
   let [busy, setBusy] = useState<string | null>(null)
   let focus = async (actor: AutomationActor) => {
     setBusy(actor.paneId)
     try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId }) } finally { setBusy(null) }
   }
   let settings = () => show('anti-bot-settings')
-  return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{actors.map(actor => {
+  return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{!actors.length && <p>No active agent in this pane.</p>}{actors.map(actor => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
     let fields = Object.entries(actor.agentData ?? {})
     return <section key={`${actor.paneId}:${actor.agentId}`}>
