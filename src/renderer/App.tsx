@@ -54,7 +54,7 @@ type Notification = { id: string; text: string; cooldown?: { retryAfter: string;
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { agentDetails: AutomationActor[]; setAgentDetails: (actors: AutomationActor[]) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { agentDetails: AutomationActor[] | null; setAgentDetails: (actors: AutomationActor[] | null) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -62,7 +62,7 @@ export let App = () => {
   let [control, setControl] = useState<Control | null>(null), [initialPlugin, setInitialPlugin] = useState<BuiltinTool | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
-  let [message, setMessage] = useState(''), [agentDetails, setAgentDetails] = useState<AutomationActor[]>([])
+  let [message, setMessage] = useState(''), [agentDetails, setAgentDetails] = useState<AutomationActor[] | null>([])
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
@@ -366,9 +366,9 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
 
 let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
 
-let NotificationAgentButton = ({ agents, label = 'Agent information' }: { agents: AutomationActor[]; label?: string }) => {
+let NotificationAgentButton = ({ agents, label = 'Agent information', live = false }: { agents: AutomationActor[]; label?: string; live?: boolean }) => {
   let { show, setAgentDetails } = useUI()
-  let open = () => { setAgentDetails(agents); show('agent-info') }
+  let open = () => { setAgentDetails(live ? null : agents); show('agent-info') }
   return <button type="button" aria-label={label} title={label} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
 }
 
@@ -582,7 +582,7 @@ let LocalStatus = () => {
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
     {unhandledDownloads.length > 0 && <button onClick={downloads} aria-label="Downloads" title={downloadTitle} className={css.downloadButton}><DownloadStatusIcon progressing={progressingDownloads.length > 0} progress={downloadProgress} />{progressingDownloads.length > 1 && <span className={css.downloadCount}>{progressingDownloads.length}</span>}</button>}
-    {!!agents.length && <NotificationAgentButton agents={agents} label="Active agents" />}
+    {!!agents.length && <NotificationAgentButton agents={agents} label="Active agents" live />}
     <button onClick={commands} aria-label="Command prompt" aria-expanded={control === 'command'}>:</button><button onClick={help} aria-label="Help" title="Ctrl+B then ?">?</button>
   </>
 }
@@ -1367,13 +1367,14 @@ let Panel = ({ type }: { type: Control }) => {
 }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
+  let actors = agentDetails ?? state.activeAgents ?? []
   let [busy, setBusy] = useState<string | null>(null)
   let focus = async (actor: AutomationActor) => {
     setBusy(actor.paneId)
     try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId }) } finally { setBusy(null) }
   }
   let settings = () => show('anti-bot-settings')
-  return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{agentDetails.map(actor => {
+  return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{actors.map(actor => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
     let fields = Object.entries(actor.agentData ?? {})
     return <section key={`${actor.paneId}:${actor.agentId}`}>
