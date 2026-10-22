@@ -13,7 +13,7 @@ export let agentActionInput = (method: string, args: Record<string, unknown>, ow
   let params = (args.params ?? {}) as Record<string, unknown>, type = String(params.type)
   if (args.method === 'Input.dispatchMouseEvent') {
     if (type === 'mousePressed' || type === 'mouseReleased') return { owner, type: type === 'mousePressed' ? 'down' : 'up', key: `mouse:${params.button ?? 'left'}` }
-    if (type === 'mouseMoved') return { owner, type: 'continue' }
+    if (type === 'mouseMoved' || type === 'mouseWheel') return { owner, type: 'continue' }
   }
   if (args.method === 'Input.dispatchKeyEvent') {
     if (['rawKeyDown', 'keyDown', 'keyUp'].includes(type)) return { owner, type: type === 'keyUp' ? 'up' : 'down', key: `key:${params.code ?? params.key ?? params.windowsVirtualKeyCode}` }

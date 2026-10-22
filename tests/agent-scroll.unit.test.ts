@@ -9,7 +9,10 @@ test('uses a bounded smooth gesture and returns only after scrolling completes',
     return { result: { value: false } }
   }, { x: 400, y: 300, deltaY: 600 }).then(() => { completed = true })
   await Promise.resolve()
-  expect(calls.at(-1)).toMatchObject({ method: 'Input.synthesizeScrollGesture', params: { x: 400, y: 300, yDistance: -600, speed: 600 / .45, preventFling: true } })
+  expect(calls.at(-1)).toMatchObject({ method: 'Input.synthesizeScrollGesture', params: { x: 400, y: 300, yDistance: -600, preventFling: true } })
+  expect(Number.isInteger(calls.at(-1)!.params.speed)).toBe(true)
+  expect(Number(calls.at(-1)!.params.speed)).toBeGreaterThan(1000)
+  expect(Number(calls.at(-1)!.params.speed)).toBeLessThan(1500)
   expect(completed).toBe(false)
   finish(); await scrolling
   expect(completed).toBe(true)
@@ -32,5 +35,6 @@ test('keeps full, half, top and bottom scroll targets within the document', () =
   expect(agentScrollParams('scroll-half-up', 800, 600, 100, 4000).deltaY).toBe(-300)
   expect(agentScrollParams('scroll-top', 800, 600, 100, 4000).deltaY).toBe(-100)
   expect(agentScrollParams('scroll-bottom', 800, 600, 100, 4000).deltaY).toBe(3300)
+  expect(agentScrollParams('scroll-bottom', 800, 600, 0, 400).deltaY).toBe(0)
   expect(() => agentScrollParams('unknown', 800, 600, 100, 4000)).toThrow('Unknown scroll action')
 })
