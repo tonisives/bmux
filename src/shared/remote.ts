@@ -26,6 +26,8 @@ export let createControlLeases = (now = Date.now) => {
 }
 
 export type RemoteView = {
+  hostId: string
+  sessionId: string
   name: string
   service: string
   canControl: boolean
@@ -36,5 +38,5 @@ export type RemoteView = {
   panes: { id: string; title: string; url: string }[]
   error?: string
 }
-export type RemoteViewUpdate = Omit<RemoteView, 'service' | 'canControl'>
+export type RemoteViewUpdate = Omit<RemoteView, 'hostId' | 'sessionId' | 'service' | 'canControl'>
 export type RemoteViewAction = { type: 'acquire' | 'release' } | { type: 'switch'; pane: string } | { type: 'command'; method: string; args: Record<string, unknown> }

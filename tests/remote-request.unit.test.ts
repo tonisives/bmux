@@ -1,0 +1,37 @@
+import { afterEach, beforeEach, expect, it } from 'vitest'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
+import { WebSocketServer } from 'ws'
+import { createEnvelopeVerifier, remoteIdentity } from '../src/main/remote-identity'
+import { requestRemoteSessionClose } from '../src/main/remote-request'
+
+let directory: string, server: WebSocketServer
+beforeEach(async () => {
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-request-'))
+  server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+  await new Promise<void>(resolve => server.once('listening', resolve))
+})
+afterEach(async () => {
+  for (let client of server.clients) client.terminate()
+  await new Promise<void>(resolve => server.close(() => resolve()))
+  await fs.rm(directory, { recursive: true, force: true })
+})
+
+let close = (reply: 'session-closed' | 'error' | 'forged') => {
+  let host = remoteIdentity(path.join(directory, 'host.pem'))
+  let key: JsonWebKey
+  server.on('connection', socket => socket.on('message', raw => {
+    let message = JSON.parse(raw.toString())
+    let verify = createEnvelopeVerifier('host', 'generation', () => ({ [message.envelope.from]: key as { kty: string; crv: string; x: string } }))
+    let payload = verify(message.envelope)
+    expect(payload).toMatchObject({ type: 'close-session', session: 'session' })
+    let response = host.seal(message.envelope.from, 'generation', { type: reply === 'error' ? 'error' : 'session-closed', request: payload.request, error: 'Watch only access' })
+    if (reply === 'forged') response.signature = 'invalid'
+    socket.send(JSON.stringify({ type: 'signal', from: 'host', envelope: response }))
+  }))
+  return requestRemoteSessionClose(`http://127.0.0.1:${(server.address() as { port: number }).port}`, { id: 'host', generation: 'generation', key: host.publicKey }, 'session', remoteIdentity(path.join(directory, 'viewer.pem')), async publicKey => { key = publicKey; return { ticket: 'fixture' } })
+}
+it('sends a signed close request and waits for the authenticated host acknowledgement', async () => { await expect(close('session-closed')).resolves.toBeUndefined() })
+it('returns a host rejection to the caller', async () => { await expect(close('error')).rejects.toThrow('Watch only access') })
+it('rejects a forged close acknowledgement', async () => { await expect(close('forged')).rejects.toThrow('Invalid remote response') })

@@ -513,6 +513,8 @@ let Status = () => {
 }
 let RemoteStatus = ({ remote, paneId }: { remote: RemoteView; paneId: string }) => {
   let { show, run } = useUI()
+  let closing = useRemoteSessionClosing(remote.hostId, remote.sessionId)
+  useEffect(() => { rememberRemoteSession(remote.hostId, remote.sessionId) }, [remote.hostId, remote.sessionId])
   let sessions = () => show('sessions')
   let control = () => { void run('remote.action', { pane: paneId, action: remote.controlling ? 'release' : 'acquire' }) }
   let disconnect = () => { void run('kill-pane', { pane: paneId, confirm: true }) }
@@ -522,6 +524,7 @@ let RemoteStatus = ({ remote, paneId }: { remote: RemoteView; paneId: string }) 
     <span className={css.drag} />
     <span className={css.remoteConnection} role="status" title={remote.error || remote.service}>{remote.error || (!remote.connected ? 'Connecting' : remote.controlling ? 'Controlling' : 'Watching')}</span>
     {remote.canControl && <button onClick={control} disabled={!remote.connected}>{remote.controlling ? 'Release control' : remote.occupied ? 'Take over' : 'Take control'}</button>}
+    {remote.canControl && (closing.confirming ? <RemoteSessionConfirmation name={remote.name} closing={closing} /> : <button ref={closing.row} onClick={closing.ask}>Close session</button>)}
     <button onClick={disconnect}>Disconnect</button>
   </>
 }
@@ -1865,7 +1868,13 @@ let RemoteSessionPicker = () => {
   let { dismiss, onMessage } = useUI()
   let [remote, setRemote] = useState<RemoteSessionListing>()
   let [openingSignIn, setOpeningSignIn] = useState(false)
-  let { ref, keys, input, query, change } = usePickerNavigation()
+  let [recent, setRecent] = useState(() => localStorage.getItem('remote-session-sort-recent') === 'true')
+  let toggleSort = () => { setRecent(!recent); localStorage.setItem('remote-session-sort-recent', String(!recent)) }
+  let { ref, input, query, change, sessionKeys, focusMode, mode, count } = useSessionNavigation(toggleSort)
+  let [lastActive, setLastActive] = useState(() => localStorage.getItem('remote-session-last-active'))
+  let [now, setNow] = useState(Date.now)
+  let restored = useRef(false)
+  let refresh = () => bridge.remoteSessions().then(setRemote)
   useEffect(() => {
     let active = true
     let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
@@ -1873,24 +1882,68 @@ let RemoteSessionPicker = () => {
     let timer = setInterval(refresh, 2000)
     return () => { active = false; clearInterval(timer) }
   }, [])
-  let sessions = remote?.hosts.flatMap(host => host.sessions.filter(session => fuzzyMatch(query, `${session.name} ${host.service}`)).map(session => ({ host, session }))) ?? []
-  let openRemote = (host?: string, session?: string) => { void bridge.openRemote(host, session).then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
+  useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  useLayoutEffect(() => {
+    if (!remote || restored.current) return
+    restored.current = true
+    let row = ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]')
+    if (row && document.activeElement === input.current) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest' }) }
+  }, [remote])
+  let sessions = remote?.hosts.flatMap(host => host.sessions.filter(session => fuzzyMatch(query, `${session.name} ${host.service} ${session.panes.map(pane => pane.title).join(' ')}`)).map(session => ({ host, session }))) ?? []
+  let visited = (host: string, session: { id: string; lastActivityAt?: number }) => session.lastActivityAt || Number(localStorage.getItem(`remote-session-visited:${host}:${session.id}`)) || undefined
+  if (recent) sessions.sort((a, b) => (visited(b.host.id, b.session) ?? 0) - (visited(a.host.id, a.session) ?? 0))
+  let openRemote = (host: string, session: string) => { void bridge.openRemote(host, session).then(() => { rememberRemoteSession(host, session); setLastActive(`${host}:${session}`); dismiss() }).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let signIn = () => {
     if (openingSignIn) return
     setOpeningSignIn(true)
     void bridge.openRemote().then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))).finally(() => setOpeningSignIn(false))
   }
-  return <div ref={ref} onKeyDown={keys} role="group" aria-label="Choose remote session">
-    <SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} />
-    {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} onSelect={openRemote} />)}
+  let remoteKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && event.target === input.current && !query && !sessions.length) { event.preventDefault(); event.stopPropagation(); dismiss(); return }
+    sessionKeys(event)
+  }
+  return <div ref={ref} className={css.sessionPicker} onKeyDown={remoteKeys} onFocusCapture={focusMode} role="group" aria-label="Choose remote session">
+    <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
+    <div className={css.sessionList} data-session-list>
+    {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={lastActive === `${host.id}:${session.id}`} visitedAt={visited(host.id, session)} now={now} onSelect={openRemote} onClosed={refresh} />)}
     {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
     {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
+    </div>
   </div>
 }
-let RemoteSessionRow = ({ host, service, session, name, onSelect }: { host: string; service: string; session: string; name: string; onSelect: (host: string, session: string) => void }) => {
+let rememberRemoteSession = (host: string, session: string) => {
+  localStorage.setItem('remote-session-last-active', `${host}:${session}`)
+  localStorage.setItem(`remote-session-visited:${host}:${session}`, String(Date.now()))
+}
+let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => Promise<unknown>) => {
+  let { onMessage } = useUI()
+  let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
+  let row = useRef<HTMLButtonElement>(null), confirmButton = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
+  let ask = () => setConfirming(true)
+  let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
+  let close = async () => {
+    if (busy) return
+    setBusy(true)
+    let target = confirmButton.current?.closest('[data-session-target]')
+    let next = target?.nextElementSibling?.querySelector<HTMLButtonElement>('[data-session-row]') ?? target?.previousElementSibling?.querySelector<HTMLButtonElement>('[data-session-row]')
+    try { await bridge.closeRemoteSession(host, session); await onClosed?.(); cancel(); requestAnimationFrame(() => next?.focus()) }
+    catch (error) { onMessage(error instanceof Error ? error.message : String(error)); cancel() }
+    finally { setBusy(false) }
+  }
+  let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
+  return { confirming, busy, row, confirmButton, ask, cancel, close, confirmKeys }
+}
+let RemoteSessionConfirmation = ({ name, closing }: { name: string; closing: ReturnType<typeof useRemoteSessionClosing> }) => <div className={css.sessionConfirm} onKeyDown={closing.confirmKeys} role="alertdialog" aria-label={`Close remote session ${name}?`}><span>Close remote session "{name}"?</span><button ref={closing.confirmButton} data-picker-action onClick={closing.close} disabled={closing.busy}>yes</button><button data-picker-action onClick={closing.cancel} disabled={closing.busy}>no</button></div>
+let RemoteSessionRow = ({ host, service, session, name, active, canClose, visitedAt, now, onSelect, onClosed }: { host: string; service: string; session: string; name: string; active: boolean; canClose: boolean; visitedAt?: number; now: number; onSelect: (host: string, session: string) => void; onClosed: () => Promise<unknown> }) => {
   let select = () => onSelect(host, session)
-  return <button className={`${css.listRow} ${css.remoteSession}`} data-session-row onClick={select} title={`${name} on ${service}`}>{name}<span>{service} · remote</span></button>
+  let closing = useRemoteSessionClosing(host, session, onClosed)
+  return <div className={css.sessionRow} data-session-target>
+    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} /> : <><button ref={closing.row} className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={select} title={`${name} on ${service}${active ? ' · Last active' : ''}`}><SessionNumber /><span className={css.sessionWindowName}>{name}</span><span className={css.remoteService}>{service} · remote</span>{visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}</button>
+    {canClose && <button className={css.sessionClose} data-picker-action onClick={closing.ask} aria-label={`Close remote session ${name}`}>x</button>}
+    </>}
+  </div>
 }
 let SessionNumber = () => <span className={css.sessionNumber} data-session-number aria-hidden="true" />
 let SessionAudio = ({ window, sessionId }: { window?: InternalWindow; sessionId?: string }) => {

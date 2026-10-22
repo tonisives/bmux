@@ -3441,6 +3441,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
   }
   let remote = {
+    closeSession: async (sessionId: string) => {
+      let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
+      if (!session) throw new Error('Remote session unavailable')
+      controls.release(session.id)
+      return await execute({ method: 'kill-session', args: { session: session.id, confirm: true } }) as { closed?: string; cancelled?: string }
+    },
     state: () => { clearRemoteSizes(); return { sessions: model.sessions, viewports: Object.fromEntries([...tabs.keys()].map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])) } },
     capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents }),
     acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },

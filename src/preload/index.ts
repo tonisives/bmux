@@ -16,6 +16,7 @@ let bridge: Bridge = {
   state: () => ipcRenderer.invoke('state'),
   command: command => ipcRenderer.invoke('command', command),
   remoteSessions: () => ipcRenderer.invoke('remote-sessions'),
+  closeRemoteSession: (host: string, session: string) => ipcRenderer.invoke('remote-close-session', host, session),
   openRemote: (host, session) => ipcRenderer.invoke('remote-open', host, session),
   bounds: bounds => ipcRenderer.send('bounds', bounds),
   subscribe: listener => {

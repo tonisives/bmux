@@ -4,12 +4,16 @@ import type { WebContents } from 'electron'
 import type { RemotePage } from './runtime'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { requestRemoteSessionClose } from './remote-request'
+import { remoteIdentity } from './remote-identity'
 
-export type LocalRemoteSession = { id: string; name: string; panes: { id: string; title: string }[] }
+export type LocalRemoteSession = { id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
 export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
 export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHost[] }
 
-export let createLocalRemote = () => {
+export let createLocalRemote = (directory: string) => {
+  let identity = remoteIdentity(path.join(directory, 'remote-desktop.pem'))
+  let closing = Promise.resolve()
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
   let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; token: string; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
@@ -61,13 +65,26 @@ export let createLocalRemote = () => {
     await show({
       key: `${hostId}:${sessionId}`,
       title: host.sessions.find(item => item.id === sessionId)!.name,
-      view: { name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, panes: [] },
+      view: { hostId, sessionId, name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, panes: [] },
       attach: (contents, close, update) => {
         viewers.set(contents, { host, session: sessionId, token, close, update })
         contents.once('destroyed', () => viewers.delete(contents))
       },
     })
   }
+  let closeSession = (hostId: string, sessionId: string) => {
+    let result = closing.then(async () => {
+      let listing = await list()
+      let host = listing.hosts.find(host => host.id === hostId && host.sessions.some(session => session.id === sessionId))
+      if (!host || !activeToken) throw new Error('Remote session unavailable')
+      if (host.permission !== 'control') throw new Error('Watch only access')
+      let token = activeToken
+      await requestRemoteSessionClose(origin, host, sessionId, identity, key => connect(key, token))
+      for (let [contents, viewer] of viewers) if (viewer.host.id === hostId && viewer.session === sessionId && !contents.isDestroyed()) await viewer.close()
+    })
+    closing = result.catch(() => undefined)
+    return result
+  }
   let close = () => { for (let contents of viewers.keys()) if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); viewers.clear() }
-  return { origin, list, open, close, useProfiles, preferProfile }
+  return { origin, list, open, close, closeSession, useProfiles, preferProfile }
 }

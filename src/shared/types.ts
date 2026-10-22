@@ -44,7 +44,7 @@ export type DialogPrompt = { id: string; message: string; detail?: string; butto
 export type PublicState = { automationAgents?: AgentSettings; activeAgents?: (AgentInfo & { paneId: string; lastUsed: number })[]; remoteViews?: Record<string, RemoteView>; remoteSizes?: Record<string, { width: number; height: number }>; bookmarkPlugins?: BookmarkPluginSettings; bookmarkPluginErrors?: Record<string, string>; dialogPrompt?: DialogPrompt; dismissedPermissions?: string[]; automationSafety?: AutomationSafetyState; remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; searchApps?: SearchApps; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showTabCloseButtons?: boolean; showDarkModeButton?: boolean; vimEditing?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; audio: Record<string, { playing: boolean; muted: boolean }>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
 export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { scrollX?: number; scrollY?: number; paneBounds?: { x: number; y: number; width: number; height: number }; paneId: string; x: number; y: number; width: number; height: number }
-export type RemoteSessionListing = { authenticated: boolean; hosts: { id: string; service: string; sessions: { id: string; name: string; panes: { id: string; title: string }[] }[] }[] }
+export type RemoteSessionListing = { authenticated: boolean; hosts: { id: string; service: string; permission: 'watch' | 'control'; sessions: { id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }[] }[] }
 export type Bridge = {
   clipboard: (text?: string) => Promise<string>
   controls: (listener: (control: string) => void) => () => void
@@ -52,6 +52,7 @@ export type Bridge = {
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>
   remoteSessions: () => Promise<RemoteSessionListing>
+  closeRemoteSession: (host: string, session: string) => Promise<void>
   openRemote: (host?: string, session?: string) => Promise<void>
   bounds: (bounds: Bounds[]) => void
   subscribe: (listener: (state: PublicState) => void) => () => void

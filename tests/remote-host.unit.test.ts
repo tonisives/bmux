@@ -42,7 +42,7 @@ let setup = (request?: string) => {
     signalOffer()
     return pending
   })
-  let runtime = { model: { sessions: [{ id: 'session', name: 'main', windows: [{ panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn() } }
+  let runtime = { model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
@@ -50,8 +50,29 @@ let setup = (request?: string) => {
   let deliver = (payload: unknown) => socket.emit('message', JSON.stringify({ type: 'signal', from: viewer.id, envelope: viewer.seal(host!.status().hostId, host!.status().generation, payload) }))
   let offers = () => socket.sent.filter(message => message.type === 'signal').map(message => JSON.parse(message.envelope!.payload))
   deliver({ type: 'open', session: 'session', pane: 'pane', request })
-  return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer, signalCandidate }
+  return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer, signalCandidate, runtime, viewer, socket }
 }
+
+it('closes an advertised session for control access without opening a video stream', async () => {
+  let { deliver, offers, runtime, socket } = setup()
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
+  expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ sessions: [{ id: 'session', name: 'main', lastActivityAt: 123456 }] })
+  deliver({ type: 'close-session', session: 'session', request: 'close-one' })
+  await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'session-closed', request: 'close-one' }), { interval: 1 })
+  expect(runtime.remote.closeSession).toHaveBeenCalledWith('session')
+})
+
+it('rejects closing for watch access and reports a canceled host close', async () => {
+  let { deliver, offers, runtime, viewer, socket } = setup()
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'watch' }))
+  deliver({ type: 'close-session', session: 'session', request: 'watch-close' })
+  expect(runtime.remote.closeSession).not.toHaveBeenCalled()
+  expect(offers()).toContainEqual({ type: 'error', request: 'watch-close', error: 'Watch only access' })
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control' }))
+  runtime.remote.closeSession.mockResolvedValueOnce({ cancelled: 'session' })
+  deliver({ type: 'close-session', session: 'session', request: 'canceled-close' })
+  await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'error', request: 'canceled-close', error: 'Session closing canceled' }), { interval: 1 })
+})
 
 it('registers an opening stream before publishing its offer so a fast answer reaches it', async () => {
   let { peer, resolveCapture, capture, deliver, offers, offer } = setup()
