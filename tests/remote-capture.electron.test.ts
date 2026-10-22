@@ -40,7 +40,8 @@ test('background panes deliver static frames without a visible window', async ()
       await contents.loadURL(url)
     }, origin)
     await expect.poll(() => application.evaluate(() => (globalThis as typeof globalThis & { captureFrames: number }).captureFrames), { timeout: 15000 }).toBeGreaterThan(5)
-    expect(await application.evaluate(() => (globalThis as typeof globalThis & { captureColors: Set<number> }).captureColors.size)).toBeGreaterThan(1)
+    // Frame callbacks can outpace the fixture's 100 ms color changes.
+    await expect.poll(() => application.evaluate(() => (globalThis as typeof globalThis & { captureColors: Set<number> }).captureColors.size), { timeout: 15000 }).toBeGreaterThan(1)
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
     await application.context().pages().find(page => page.url() === origin + '/')!.evaluate(() => (window as any).stopFrames())
     await application.evaluate(async ({ webContents }, { url, iceServers, relayOnly }) => {
