@@ -56,7 +56,7 @@ let setup = (request?: string) => {
 it('closes an advertised session for control access without opening a video stream', async () => {
   let { deliver, offers, runtime, socket } = setup()
   socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
-  expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ sessions: [{ id: 'session', name: 'main', lastActivityAt: 123456 }] })
+  expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ sessions: [{ id: 'session', name: 'main', lastActivityAt: 123456, canClose: true }] })
   deliver({ type: 'close-session', session: 'session', request: 'close-one' })
   await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'session-closed', request: 'close-one' }), { interval: 1 })
   expect(runtime.remote.closeSession).toHaveBeenCalledWith('session')
@@ -113,4 +113,11 @@ it('buffers candidates until registration and routes only the current connection
   deliver({ type: 'candidate', candidate, request, connection: offer.connection })
   expect(peer.answer).toHaveBeenCalledWith(answer)
   expect(peer.candidate).toHaveBeenCalledWith(candidate)
+})
+
+it('advertises agent use newer than a window visit', () => {
+  let { socket, runtime } = setup()
+  Object.assign(runtime.model.sessions[0], { lastActivityAt: 234567 })
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
+  expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ sessions: [{ lastActivityAt: 234567, canClose: true }] })
 })

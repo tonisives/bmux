@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { requestRemoteSessionClose } from './remote-request'
 import { remoteIdentity } from './remote-identity'
 
-export type LocalRemoteSession = { id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
+export type LocalRemoteSession = { canClose?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
 export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
 export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHost[] }
 
@@ -79,7 +79,7 @@ export let createLocalRemote = (directory: string) => {
       if (!host || !activeToken) throw new Error('Remote session unavailable')
       if (host.permission !== 'control') throw new Error('Watch only access')
       let token = activeToken
-      await requestRemoteSessionClose(origin, host, sessionId, identity, key => connect(key, token))
+      await requestRemoteSessionClose(origin, { ...host, canClose: host.sessions.find(session => session.id === sessionId)?.canClose }, sessionId, identity, key => connect(key, token))
       for (let [contents, viewer] of viewers) if (viewer.host.id === hostId && viewer.session === sessionId && !contents.isDestroyed()) await viewer.close()
     })
     closing = result.catch(() => undefined)

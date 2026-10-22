@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { activityAge, activityLabel, windowVisitTime } from '../src/shared/pane-activity'
+import { activityAge, activityLabel, windowVisitTime, sessionActivityTime } from '../src/shared/pane-activity'
 import { newPane } from '../src/main/model'
 
 test('pane activity distinguishes missing, recent, old and future timestamps', () => {
@@ -28,4 +28,14 @@ test('visit age changes at one hour and one day, including future timestamps', (
   expect(activityAge(now - 3600000, now)).toBe('today')
   expect(activityAge(now - 86399999, now)).toBe('today')
   expect(activityAge(now - 86400000, now)).toBe('old')
+})
+
+test('session use includes agent activity, pane interaction, and window visits', () => {
+  let pane = newPane('profile_default')
+  expect(sessionActivityTime({ windows: [] })).toBeUndefined()
+  expect(sessionActivityTime({ lastActivityAt: 1000, windows: [] })).toBe(1000)
+  let window = { id: 'window', name: 'main', layout: null, lastVisitedAt: 1500, panes: [pane] }
+  pane.lastActivityAt = 2000
+  expect(sessionActivityTime({ lastActivityAt: 1000, windows: [window] })).toBe(2000)
+  expect(sessionActivityTime({ lastActivityAt: 3000, windows: [window] })).toBe(3000)
 })

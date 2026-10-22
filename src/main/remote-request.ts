@@ -4,8 +4,9 @@ import { createEnvelopeVerifier } from './remote-identity'
 import type { remoteIdentity } from './remote-identity'
 import type { RemoteEnvelope } from '../shared/remote'
 
-type Host = { id: string; generation: string; key: JsonWebKey }
+type Host = { canClose?: boolean; id: string; generation: string; key: JsonWebKey }
 export let requestRemoteSessionClose = async (origin: string, host: Host, session: string, identity: ReturnType<typeof remoteIdentity>, connect: (key: JsonWebKey) => Promise<{ ticket: string }>) => {
+  if (!host.canClose) throw new Error('Update this remote host to close sessions')
   let request = randomUUID()
   let { ticket } = await connect(identity.publicKey)
   let url = new URL('/connect', origin)

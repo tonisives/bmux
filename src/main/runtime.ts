@@ -345,7 +345,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < 20_000) }
   let refreshAgentInputLock = (paneId: string) => tabs.get(paneId)?.inputLock?.setLocked(agentInputLocked(paneId))
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
+  let recordSessionActivity = (paneId: string) => {
+    let session = model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === paneId)))
+    if (!session || Date.now() - (session.lastActivityAt ?? 0) < 1000) return
+    session.lastActivityAt = Date.now()
+    save()
+  }
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
+    recordSessionActivity(actor.paneId)
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
     let unlock = setTimeout(() => { refreshAgentInputLock(actor.paneId); publish() }, 20_000)
@@ -1996,6 +2003,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let navigation = ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(command.method) && (command.args?.pane ?? command.args?.tab) === client.paneId
       if (selection || navigation || previousWindow !== client.windowId || previousPane !== client.paneId) recordWindowVisit(sourceClientId)
     }
+    if (remoteActor.getStore() && typeof paneId === 'string' && agentCommands.has(command.method)) recordSessionActivity(paneId)
     return result
   }
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
@@ -3517,12 +3525,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           await cdp(pane, 'Input.dispatchKeyEvent', { type: event.type, key: domKey, code: key.length === 1 ? `Key${key.toUpperCase()}` : domKey, modifiers, windowsVirtualKeyCode: codes[key] ?? key.toUpperCase().charCodeAt(0), ...(event.type === 'char' ? { text: key } : {}) })
         }
       })
+      if (['mouseDown', 'mouseWheel', 'keyDown', 'char'].includes(event.type)) recordSessionActivity(pane)
     },
     text: async (owner: string, generation: number, pane: string, text: string) => {
       let live = await ensureLiveTab(pane)
       controls.assert(paneById(model, pane).session.id, owner, generation)
       if (typeof text !== 'string' || text.length > 16384) throw new Error('Invalid text')
       await live.contents.insertText(text)
+      recordSessionActivity(pane)
     },
     resize: async (owner: string, generation: number, pane: string, width: number, height: number) => {
       let live = await ensureLiveTab(pane)

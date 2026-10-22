@@ -1914,8 +1914,8 @@ let RemoteSessionPicker = () => {
     if (row && document.activeElement === input.current) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest' }) }
   }, [remote])
   let sessions = remote?.hosts.flatMap(host => host.sessions.filter(session => fuzzyMatch(query, `${session.name} ${host.service} ${session.panes.map(pane => pane.title).join(' ')}`)).map(session => ({ host, session }))) ?? []
-  let visited = (host: string, session: { id: string; lastActivityAt?: number }) => session.lastActivityAt || Number(localStorage.getItem(`remote-session-visited:${host}:${session.id}`)) || undefined
-  if (recent) sessions.sort((a, b) => (visited(b.host.id, b.session) ?? 0) - (visited(a.host.id, a.session) ?? 0))
+  let visited = (session: { lastActivityAt?: number }) => session.lastActivityAt
+  if (recent) sessions.sort((a, b) => (visited(b.session) ?? 0) - (visited(a.session) ?? 0))
   let openRemote = (host: string, session: string) => { void bridge.openRemote(host, session).then(() => { rememberRemoteSession(host, session); setLastActive(`${host}:${session}`); dismiss() }).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let signIn = () => {
     if (openingSignIn) return
@@ -1929,7 +1929,7 @@ let RemoteSessionPicker = () => {
   return <div ref={ref} data-picker className={css.sessionPicker} onKeyDown={remoteKeys} onFocusCapture={focusMode} role="group" aria-label="Choose remote session">
     <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list>
-    {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={lastActive === `${host.id}:${session.id}`} visitedAt={visited(host.id, session)} now={now} onSelect={openRemote} onClosed={refresh} />)}
+    {sessions.map(({ host, session }) => <RemoteSessionRow key={`${host.id}:${session.id}`} host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={lastActive === `${host.id}:${session.id}`} visitedAt={visited(session)} now={now} onSelect={openRemote} onClosed={refresh} />)}
     {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
     {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
@@ -1938,7 +1938,6 @@ let RemoteSessionPicker = () => {
 }
 let rememberRemoteSession = (host: string, session: string) => {
   localStorage.setItem('remote-session-last-active', `${host}:${session}`)
-  localStorage.setItem(`remote-session-visited:${host}:${session}`, String(Date.now()))
 }
 let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => Promise<unknown>) => {
   let { onMessage } = useUI()
@@ -1952,7 +1951,7 @@ let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => P
     if (busy) return
     setBusy(true)
     try { await bridge.closeRemoteSession(host, session); await onClosed?.(); setConfirming(false); restore.current() }
-    catch (error) { onMessage(error instanceof Error ? error.message : String(error)); cancel() }
+    catch (error) { onMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); cancel() }
     finally { setBusy(false) }
   }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
@@ -1963,7 +1962,7 @@ let RemoteSessionRow = ({ host, service, session, name, active, canClose, visite
   let select = () => onSelect(host, session)
   let closing = useRemoteSessionClosing(host, session, onClosed)
   return <div className={css.sessionRow} data-session-target>
-    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} /> : <><button ref={closing.row} className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={select} title={`${name} on ${service}${active ? ' · Last active' : ''}`}><SessionNumber /><span className={css.sessionWindowName}>{name}</span><span className={css.remoteService}>{service} · remote</span>{visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}</button>
+    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} /> : <><button ref={closing.row} className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={select} title={`${name} on ${service}${active ? ' · Last active' : ''}`}><SessionNumber /><span className={css.sessionWindowName}>{name}</span><span className={css.remoteService}>{service} · remote</span>{visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last used ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}</button>
     {canClose && <button className={css.sessionClose} data-picker-action onClick={closing.ask} aria-label={`Close remote session ${name}`}>x</button>}
     </>}
   </div>

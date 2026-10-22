@@ -20,7 +20,7 @@ export let newWindow = (name: string, profileId: string, automaticName = false, 
   let pane = newPane(profileId, 'about:blank', model)
   return { id: id('win'), name, automaticName, panes: [pane], layout: { kind: 'pane', paneId: pane.id } }
 }
-export let newSession = (name: string, profileId: string, privateSession = false, model?: Model): WorkspaceSession => ({ id: id('session'), name, defaultProfileId: profileId, ...(privateSession ? { private: true } : {}), windows: [{ ...newWindow('main', profileId, true, model), number: 1 }] })
+export let newSession = (name: string, profileId: string, privateSession = false, model?: Model): WorkspaceSession => ({ lastActivityAt: Date.now(), id: id('session'), name, defaultProfileId: profileId, ...(privateSession ? { private: true } : {}), windows: [{ ...newWindow('main', profileId, true, model), number: 1 }] })
 export let initialModel = (): Model => {
   let profiles: Profile[] = [{ id: 'profile_default', name: 'default', background: false }, { id: 'profile_bot', name: 'bot', background: true }]
   let model: Model = { version: 2, profiles, sessions: [], clients: [], layouts: [] }
