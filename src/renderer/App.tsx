@@ -1944,7 +1944,7 @@ let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => P
   let row = useRef<HTMLButtonElement>(null), confirmButton = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
   let restore = useRef<() => void>(() => {})
-  let ask = () => { restore.current = pickerRemovalFocus(row.current); setConfirming(true) }
+  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-target]')); setConfirming(true) }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => {
     if (busy) return
@@ -1997,8 +1997,8 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
     setBusy(false); setConfirming(false)
     if (!result?.closed) cancel(); else restore.current()
   }
-  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></div>
+  let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  return <div className={css.sessionRow} data-session-target>{confirming ? confirmation : <><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></>}</div>
 }
 let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
   let { state, run, dismiss } = useUI()
@@ -2011,17 +2011,17 @@ let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
   let select = async () => { if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
   let restore = useRef<() => void>(() => {})
-  let ask = () => { restore.current = pickerRemovalFocus(row.current); setConfirming(true) }
+  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-target]')); setConfirming(true) }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => { if (busy) return; setBusy(true); let result = await run('kill-window', { window: window.id, confirm: true }) as { closed?: string } | undefined; setBusy(false); setConfirming(false); if (!result?.closed) cancel(); else restore.current() }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
-  if (confirming) return <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target>
+  let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
+  return <div className={css.sessionRow} data-session-target>{confirming ? confirmation : <>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
       <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button><SessionAudio window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
-  </div>
+  </>}</div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
 let DevicePresetSelect = ({ value, onChange }: { value: DevicePreset; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select aria-label="Device" value={value} onChange={onChange}><option value="pixel-8">Pixel 8</option><option value="galaxy-s24">Galaxy S24</option><option value="iphone-15-pro">iPhone 15 Pro</option><option value="iphone-15-pro-max">iPhone 15 Pro Max</option><option value="custom">Custom</option></select>
