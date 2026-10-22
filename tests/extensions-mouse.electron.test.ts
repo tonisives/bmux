@@ -248,6 +248,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     }
     // Reads linger briefly and never create or renew an inactive pointer.
     await page.clock.install()
+    await page.clock.pauseAt(new Date(Date.now() + 1000))
     await cli('dom', { pane })
     await expect(reading).toBeVisible()
     await expect(pointer).toBeHidden()
