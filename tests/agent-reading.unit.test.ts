@@ -14,7 +14,7 @@ let fixture = () => {
   let context = createContext({ setTimeout, clearTimeout, CustomEvent: ReadingEvent, matchMedia: () => motion,
     document: { getElementById: () => overlay, createElement: element, documentElement: { append: (node: any) => { overlay = node } } } })
   let send = async (_method: string, params: Record<string, unknown>) => runInContext(String(params.expression), context)
-  return { send, motion, overlay: () => overlay, shade: () => shade }
+  return { send, motion, overlay: () => overlay, shade: () => shade, navigate: () => { overlay = undefined } }
 }
 
 test('recognizes content reads without treating clicks, screenshots, waits, or navigation as reads', () => {
@@ -69,4 +69,29 @@ test('respects reduced motion and clears feedback after a failed read', async ()
 test('a pending or rejected visual update does not delay or fail the read', async () => {
   expect(await withAgentReading(() => new Promise(() => {}), async () => 'content')).toBe('content')
   expect(await withAgentReading(async () => { throw new Error('Document changed') }, async () => 'content')).toBe('content')
+})
+
+test('a read can finish across same-page navigation without ending a replacement document read', async () => {
+  vi.useFakeTimers()
+  try {
+    let { send, overlay, navigate } = fixture(), finish!: () => void, current = true
+    let first = withAgentReading(send, () => new Promise<void>(resolve => { finish = resolve }), () => current)
+    await vi.advanceTimersByTimeAsync(0)
+    current = false
+    finish(); await first
+    await vi.advanceTimersByTimeAsync(2400)
+    expect(overlay().style.display).toBe('none')
+    let oldRead = withAgentReading(send, () => new Promise<void>(resolve => { finish = resolve }))
+    await vi.advanceTimersByTimeAsync(0)
+    navigate()
+    let finishNew!: () => void
+    let newRead = withAgentReading(send, () => new Promise<void>(resolve => { finishNew = resolve }))
+    await vi.advanceTimersByTimeAsync(0)
+    finish(); await oldRead
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(overlay().style.display).toBe('block')
+    finishNew(); await newRead
+    await vi.advanceTimersByTimeAsync(2400)
+    expect(overlay().style.display).toBe('none')
+  } finally { vi.useRealTimers() }
 })

@@ -696,11 +696,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let live = tabs.get(tabId), document = documents.get(tabId)
     if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return read()
     return withAgentReading(async (method, params) => {
-      if (live.contents.isDestroyed() || documents.get(tabId) !== document) return
+      if (live.contents.isDestroyed() || live.contents.isCrashed()) return
       let debuggerApi = live.contents.debugger
       if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
       return debuggerApi.sendCommand(method, params)
-    }, read)
+    }, read, () => documents.get(tabId) === document)
   }
   let showAutomationPointer = (tabId: string) => {
     let live = tabs.get(tabId), { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
