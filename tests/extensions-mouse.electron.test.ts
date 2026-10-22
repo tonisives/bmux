@@ -25,7 +25,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
   let server: https.Server | undefined
   let respond: http.RequestListener = (_request, response) => {
     response.setHeader('Content-Type', 'text/html')
-    response.end(`<!doctype html><meta charset="utf-8"><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now(),wall:Date.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
+    response.end(`<!doctype html><meta charset="utf-8"><title>Mouse movement demo</title><style>body{background:#171b20;color:#e1e5e9;font:20px system-ui;padding:60px}h1{font-size:32px}nav{display:flex;gap:180px;margin:100px 0}a{color:#bdcdb0;background:#29312a;padding:24px;text-decoration:none}output{color:#b6c6a8}</style><h1>Extensions and virtual mouse</h1><p>Local fixture · automated link clicks</p><nav><a id="first" href="#first">First link</a><a id="second" href="#second">Second link</a></nav><output>No clicks yet</output><input aria-label="Human input" style="margin-left:40px;width:160px"><script>window.events=[];for(let type of ['mousemove','click'])document.addEventListener(type,event=>{window.events.push({type,x:event.clientX,y:event.clientY,trusted:event.isTrusted,at:performance.now(),wall:Date.now()});if(type==='click'){event.preventDefault();document.querySelector('output').textContent=event.target.textContent+' clicked'}})</script>`)
   }
   try {
     await exec('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'fixture.key', '-out', 'fixture.pem', '-days', '1', '-subj', '/CN=x.com'], { cwd: directory })
@@ -201,14 +201,43 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await expect(page.locator('output')).toHaveText('Second link clicked')
       expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length), mode).toBeGreaterThanOrEqual(40)
     }
+    // Native guest input hits the shield while agent CDP input still reaches the page.
+    await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).lockedAgentPanes).toContain(pane)
+    let shield = application.context().pages().find(item => item.url().startsWith('data:text/html,') && item.url().includes('Agent%20input%20lock'))!
+    await expect(shield.getByRole('status')).toHaveText('Agent controlling · input locked')
+    let nativeClick = async () => {
+      let point = await page.locator('input').evaluate(element => { let r = element.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
+      let location = await application!.evaluate(({ BaseWindow }, { url, point }) => {
+        let window = BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some((view: any) => view.webContents?.getURL() === url))!
+        let page = window.contentView.children.find((view: any) => view.webContents?.getURL() === url)!
+        let origin = window.getContentBounds(), bounds = page.getBounds()
+        return { x: origin.x + bounds.x + point.x, y: origin.y + bounds.y + point.y }
+      }, { url: page.url(), point })
+      await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); [5,1,2].forEach(type => { $.CGEventPost(0,$.CGEventCreateMouseEvent(null,type,$.CGPointMake(${location.x},${location.y}),0)); delay(.08) }); [true,false].forEach(down => { $.CGEventPost(0,$.CGEventCreateKeyboardEvent(null,0,down)); delay(.08) });`])
+    }
+    if (process.platform === 'darwin') {
+      await page.evaluate(() => { (window as any).events = [] })
+      await nativeClick()
+      await expect(page.locator('input')).toHaveValue('')
+      expect(await page.evaluate(() => (window as any).events)).toHaveLength(0)
+      await exec('/usr/sbin/screencapture', ['-x', 'artifacts/agent-input-locked.png'])
+      // Wait for the main-process inactivity timeout, independently of the page clock.
+      await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).lockedAgentPanes, { timeout: 25000 }).not.toContain(pane)
+      await expect(pointer).toBeHidden()
+      await nativeClick()
+      await expect(page.locator('input')).toHaveValue('a')
+      expect(await page.evaluate(() => (window as any).events.some((event: any) => event.type === 'click'))).toBe(true)
+      let parked = await application.evaluate(({ screen }) => { let { x, y } = screen.getPrimaryDisplay().workArea; return { x, y } })
+      await movePointer(parked)
+    }
     // Agent inactivity hides the cursor; a fresh command resets the full timeout.
     await page.clock.install()
     await cli('dom', { pane })
     await expect(pointer).toBeVisible()
-    await page.clock.fastForward(14000)
+    await page.clock.fastForward(19000)
     await expect(pointer).toBeVisible()
     await cli('dom', { pane })
-    await page.clock.fastForward(14000)
+    await page.clock.fastForward(19000)
     await expect(pointer).toBeVisible()
     await page.clock.fastForward(1001)
     await expect(pointer).toBeHidden()
@@ -219,6 +248,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     let agent = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
     await agent.getByRole('button', { name: 'Hide agent cursor', exact: true }).click()
     await expect(pointer).toBeHidden()
+    await expect(agent.getByRole('status')).toHaveText('Agent controlling. Page input unlocks after 20 seconds of inactivity.')
     await cli('click', { pane, selector: '#first' })
     await expect(page.locator('output')).toHaveText('First link clicked')
     await expect(pointer).toBeHidden()
