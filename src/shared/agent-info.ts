@@ -5,6 +5,7 @@ export type AgentDefinition = { fields: Record<string, AgentField>; focusCommand
 export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
 export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
 export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData', 'agentOrigin'] as const
+export let AGENT_ID_REQUIRED = 'Agent ID required: --agent-id ID or BMUX_AGENT_ID. Typed context: --agent-type TYPE --agent-data JSON (env: BMUX_AGENT_TYPE, BMUX_AGENT_DATA).'
 export let validateAgentInfo = (value: AgentInfo) => {
   for (let [key, maximum] of [['agentId', 128], ['agentName', 128], ['agentPurpose', 1000], ['agentType', 128]] as const) {
     let text = value[key]
@@ -21,7 +22,7 @@ export let updateAgentInfo = (pane: AgentInfo, value: AgentInfo) => {
   Object.assign(pane, agentInfo(value))
 }
 export let validateAgentRequirements = (actor: AgentInfo, settings: AgentSettings) => {
-  if (settings.requireId && !actor.agentId) throw new Error('Agent ID required: pass --agent-id ID or set BMUX_AGENT_ID; configure automation.agents.requireId to disable')
+  if (settings.requireId && !actor.agentId) throw new Error(AGENT_ID_REQUIRED)
   if (settings.requireType && !actor.agentType) throw new Error('Agent type required: pass --agent-type TYPE and --agent-data JSON with this agent ID; configure automation.agents.requireType to disable')
   let definition = actor.agentType ? settings.definitions[actor.agentType] : undefined
   if (settings.requireType && !definition) throw new Error(`Unknown agent type: ${actor.agentType}; configure automation.agents.definitions`)

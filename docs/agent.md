@@ -71,6 +71,22 @@ bmux agent context
 bmux dom -t '%3'
 ```
 
+`--agent-data` / `BMUX_AGENT_DATA` contains only the type's field values; the
+agent ID and type are separate. Raw RPC accepts all three in its JSON arguments:
+
+```json
+{
+  "pane": "%3",
+  "agentId": "research-task-42",
+  "agentType": "tmux",
+  "agentData": { "sessionId": "$1", "windowId": "@2", "paneId": "%42" }
+}
+```
+
+Use the calling terminal's IDs from `bmux agent context` for tmux context.
+Wrappers that invoke the CLI, such as `gscctl`, inherit the `BMUX_AGENT_*`
+environment variables from their shell.
+
 The CLI uses the calling process's tmux pane. Shared-daemon Codex commands use
 their injected thread ID and a unique exact terminal session name and directory;
 the selected tmux pane and inherited `TMUX_PANE` are not used as identity. It
