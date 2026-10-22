@@ -7,21 +7,32 @@ let pointerScript = `(() => {
   let pointer = document.createElement('div');
   pointer.id = id;
   pointer.setAttribute('aria-hidden', 'true');
-  pointer.style.cssText = 'all:initial!important;position:fixed!important;left:0!important;top:0!important;width:22px!important;height:30px!important;pointer-events:none!important;z-index:2147483647!important;display:none!important;';
+  pointer.style.cssText = 'all:initial!important;position:fixed!important;left:0!important;top:0!important;width:24px!important;height:27px!important;pointer-events:none!important;z-index:2147483647!important;display:none!important;';
   let shadow = pointer.attachShadow({mode:'closed'});
+  let pulse = document.createElement('span');
+  pulse.style.cssText = 'position:absolute;left:0;top:0;width:27px;height:27px;border-radius:50%;background:#9cc7ff1f;box-shadow:0 0 0 1px #9cc7ff24;transform:translate(-50%,-50%);pointer-events:none;';
+  let animation = pulse.animate([
+    {transform:'translate(-50%,-50%) scale(.8)',opacity:.55},
+    {transform:'translate(-50%,-50%) scale(1.15)',opacity:1},
+    {transform:'translate(-50%,-50%) scale(.8)',opacity:.55}
+  ], {duration:1900,iterations:Infinity,easing:'ease-in-out'});
+  let reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let updateMotion = () => reducedMotion.matches ? animation.cancel() : animation.play();
+  reducedMotion.addEventListener('change', updateMotion);
+  updateMotion();
   let svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 22 30');
-  svg.setAttribute('width', '22');
-  svg.setAttribute('height', '30');
-  svg.style.cssText = 'display:block;overflow:visible;filter:drop-shadow(0 1px 1px rgb(0 0 0 / .3));';
+  svg.setAttribute('viewBox', '0 0 32 36');
+  svg.setAttribute('width', '24');
+  svg.setAttribute('height', '27');
+  svg.style.cssText = 'display:block;position:absolute;left:-2px;top:-2px;overflow:visible;filter:drop-shadow(0 1px 1px #0008);';
   let arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  arrow.setAttribute('d', 'M2 1.5C1.8 1.34 1.5 1.48 1.5 1.75V23C1.5 23.45 2.05 23.66 2.36 23.35L7.2 18.45L11.15 27.05C11.32 27.42 11.75 27.58 12.12 27.41L15.02 26.05C15.4 25.88 15.55 25.44 15.38 25.07L11.4 16.5H18.9C19.36 16.5 19.56 15.93 19.2 15.64Z');
-  arrow.setAttribute('fill', '#202124');
-  arrow.setAttribute('stroke', '#f8fafc');
-  arrow.setAttribute('stroke-width', '1.25');
+  arrow.setAttribute('d', 'M4 3.6Q2.2 2.3 2.6 4.5L7.6 27Q8 28.8 9.3 27.4L25 12.7Q26.5 11.4 24.5 10.8Z');
+  arrow.setAttribute('fill', '#f7f9fc');
+  arrow.setAttribute('stroke', '#252b35');
+  arrow.setAttribute('stroke-width', '1.4');
   arrow.setAttribute('stroke-linejoin', 'round');
   svg.append(arrow);
-  shadow.append(svg);
+  shadow.append(pulse, svg);
   document.documentElement.append(pointer);
 })()`
 
