@@ -5,6 +5,7 @@ import { agentAction } from './agent-actions'
 type Options = {
   context: (target: PluginContext) => PluginContext
   cdp: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
+  scriptCdp?: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
   before?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<void>
   read?: <T>(pane: string, operation: () => Promise<T>) => Promise<T>
@@ -19,13 +20,13 @@ export let createPluginBrowser = (options: Options) => {
       let current = options.context(context)
       if (!context.paneId || !context.documentId || current.documentId !== context.documentId || current.url !== context.url) throw new Error('Document changed')
     }
-    let evaluate = async (expression: string) => {
+    let evaluate = async (expression: string, script = false) => {
       validate()
       let reference = await options.cdp(context.paneId!, 'Runtime.evaluate', { expression: 'globalThis', returnByValue: false })
       let objectId = reference.result.objectId
       try {
         validate()
-        let response = await options.cdp(context.paneId!, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(source) { return (0, eval)(source) }', arguments: [{ value: expression }], returnByValue: true, awaitPromise: true, timeout: 15000 })
+        let response = await (script && options.scriptCdp || options.cdp)(context.paneId!, 'Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(source) { return (0, eval)(source) }', arguments: [{ value: expression }], returnByValue: true, awaitPromise: true, timeout: 15000 })
         if (response.exceptionDetails) throw new Error('Page script failed')
         return response.result.value ?? null
       } finally { if (objectId) void options.cdp(context.paneId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
@@ -33,7 +34,7 @@ export let createPluginBrowser = (options: Options) => {
     let read = <T>(operation: () => Promise<T>) => options.read && context.paneId ? options.read(context.paneId, operation) : operation()
     if (['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp'].includes(method)) { validate(); await options.before?.(context, method, args); validate() }
     if (method === 'dom') return read(async () => ({ pane: context.paneId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }))
-    if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return read(() => evaluate(args.expression as string)) }
+    if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return read(() => evaluate(args.expression as string, true)) }
     if (method.startsWith('forms.')) {
       validate()
       return options.execute({ method, args: { ...args, agentId: context.agentId, pane: context.paneId, _formsContext: context, _formsSignal: signal } })
@@ -86,7 +87,7 @@ export let createPluginBrowser = (options: Options) => {
       validate()
       // Raw CDP is a trusted advanced capability. Exclude browser/target routing.
       if (typeof args.method !== 'string' || !/^(DOM|Runtime|Page|Input|Network|CSS|Accessibility|Emulation)\./.test(args.method) || args.sessionId !== undefined) throw new Error('Only tab-scoped CDP is supported')
-      let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>)
+      let command = () => (options.scriptCdp ?? options.cdp)(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>)
       return readsPage(method, args) ? read(command) : command()
     }
     if (['navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot'].includes(method)) {

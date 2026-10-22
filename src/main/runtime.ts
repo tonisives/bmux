@@ -726,7 +726,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       })
     })().catch(() => undefined)
   }
-  let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false) => {
+  let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false, scriptClicks = false) => {
     let live = await ensureLiveTab(tabId)
     if (!readOnly && !['Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) checkControl('cdp', { tab: tabId })
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
@@ -751,7 +751,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let result
     let send = () => debuggerApi.sendCommand(method, params, sessionId)
     let script = send
-    if (automatedMouse && ['Runtime.evaluate', 'Runtime.callFunctionOn'].includes(method)) {
+    if (scriptClicks && ['Runtime.evaluate', 'Runtime.callFunctionOn'].includes(method)) {
       let { pane } = paneById(model, tabId), limits = automationProfileLimits(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, pane.profileId), document = documents.get(tabId)
       if (limits.simulateMouseMovement !== false) script = () => withAgentScriptClicks(method, params, (method, params) => debuggerApi.sendCommand(method, params, sessionId), paused => {
         let listener = (_event: Electron.Event, method: string, params: any, incoming = '') => { if (method === 'Debugger.paused' && incoming === (sessionId ?? '')) paused(params) }
@@ -3412,7 +3412,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
         if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
         if (method === 'eval') {
-          let result = await cdp(tabId, 'Runtime.evaluate', { expression: required(args, 'expression'), awaitPromise: true, returnByValue: true, timeout: 15000 }, undefined, false, true)
+          let result = await cdp(tabId, 'Runtime.evaluate', { expression: required(args, 'expression'), awaitPromise: true, returnByValue: true, timeout: 15000 }, undefined, false, true, true)
           if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
           return result.result.value ?? null
         }
@@ -3420,7 +3420,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true }, undefined, true)
           return { pane: tabId, url: contents.getURL(), content: result.result.value }
         }
-        if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined, false, true)
+        if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined, false, true, true)
         if (method === 'screenshot') {
           let target = path.resolve(required(args, 'output'))
           let params: Record<string, unknown> = { format: 'png', fromSurface: true, captureBeyondViewport: args.fullPage !== false }
@@ -3512,7 +3512,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
+    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), scriptCdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true, true), execute, before: (context, method, args) => guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method)) }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
     bookmarkPluginPages = createBookmarkPluginPages({ definitions: () => plugins?.bookmarks() ?? [], attachments: tabId => {
       let source = tabById(model, tabId).pane.bookmarkSource
       return source ? bookmarkPlugins[source.profileId]?.[source.bookmarkId] ?? [] : []
