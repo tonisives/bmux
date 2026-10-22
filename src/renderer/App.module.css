@@ -442,10 +442,9 @@
 .antiBotLimitFields input { width: 100%; max-width: 120px; }
 .antiBotLimitFields small { display: block; color: #8e98a4; font-size: 11px; }
 
-.sessionsPanel { width: min(960px, 94vw); }
-.sessionsPanel:has(.sessionPicker) { display: flex; flex-direction: column; height: 96%; max-height: 96%; overflow: hidden; }
-.sessionsPanel:has(.sessionPicker) > header { flex-shrink: 0; }
-.sessionsPanel:has(.sessionPicker) .panelBody { display: flex; flex: 1; min-height: 0; }
+.sessionsPanel { width: min(960px, 94vw); display: flex; flex-direction: column; height: 96%; max-height: 96%; overflow: hidden; }
+.sessionsPanel > header { flex-shrink: 0; }
+.sessionsPanel .panelBody { display: flex; flex: 1; min-height: 0; }
 .sessionPicker { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .sessionSearch { display: flex; align-items: center; flex-shrink: 0; border-bottom: 1px solid #343b45; }
 .sessionSearch:focus-within { border-bottom-color: #627766; }
