@@ -115,6 +115,7 @@ test('Google navigation automatic hooks can be enabled in Extensions and select 
     let config = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
     return (await import('yaml')).parse(config).plugins['bmux.google-search']
   }).toEqual({ enabled: true, hooks: true })
+  await settings.getByRole('button', { name: 'Back to plugins' }).click()
   await settings.getByRole('button', { name: 'Close', exact: true }).click()
   await chrome.getByRole('button', { name: 'Address', exact: true }).click()
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })

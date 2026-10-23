@@ -5,6 +5,8 @@ import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
 import { VimCursor } from './VimCursor'
 import { usePanelStack } from './usePanelStack'
+import { PanelBackContext, PanelHeader } from './PanelHeader'
+import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, windowVisitTime } from '../shared/pane-activity'
 import { paneAgents } from '../shared/pane-agents'
@@ -49,6 +51,7 @@ import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings'
+type PanelLocation = { control: Control | null; initialPlugin: BuiltinTool | null; bookmarkDestination: BookmarkDestination | null; agentDetails: AgentDetails }
 type AgentDetails = { paneId: string } | { actors: AutomationActor[] }
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
@@ -57,7 +60,7 @@ type Notification = { id: string; text: string; cooldown?: { retryAfter: string;
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { settingsTarget: 'build' | null; setSettingsTarget: (target: 'build' | null) => void; agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { panelBack: PanelBack | null; settingsTarget: 'build' | null; setSettingsTarget: (target: 'build' | null) => void; agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -69,23 +72,23 @@ export let App = () => {
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
+  let { panelBack, location, setPanelHistory } = usePanelHistory({ control, initialPlugin, bookmarkDestination, agentDetails }, parent => {
+    setControl(parent.control); setInitialPlugin(parent.initialPlugin); setBookmarkDestination(parent.bookmarkDestination); setAgentDetails(parent.agentDetails); setMessage('')
+  })
   let [settingsTarget, setSettingsTarget] = useState<'build' | null>(null)
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
-  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
-    if (previous.current && previous.current !== target) { setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
+    if (previous.current && previous.current !== target) { setPanelHistory([]); setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
     if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
       setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
     knownPanes.current = new Set(paneIds)
-    if (next.dialogPrompt) { setControl(null); setHistoryPopup(null) }
-    else if (next.pluginPrompt) setControl('plugin-dialog')
-    else setControl(current => current === 'plugin-dialog' ? null : current)
+    if (next.dialogPrompt) { setPanelHistory([]); setControl(null); setHistoryPopup(null) }
     previous.current = target; setState(next)
   }, [])
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
@@ -93,6 +96,7 @@ export let App = () => {
     catch (error) { setMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); return undefined }
   }, [])
   let show = useCallback(async (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => {
+    let parent = location.current
     setInitialPlugin(plugin ?? null); setHistoryPopup(null)
     if (paneId) {
       let current = await bridge.state()
@@ -103,11 +107,15 @@ export let App = () => {
       accept(current)
     }
     if (control === 'address') { void run('focus-ui', { pane: paneId }); setAddressFocusVersion(version => version + 1) }
+    setPanelHistory(history => isPanel(parent.control) && isPanel(control) && parent.control !== control ? [...history, parent] : [])
     setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
-    if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
-    setControl(null); setHistoryPopup(null); setMessage('')
+    if (state?.pluginPrompt) {
+      void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
+      return
+    }
+    setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('')
   }, [state?.pluginPrompt])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
@@ -122,20 +130,8 @@ export let App = () => {
   let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
-  useEffect(() => {
-    if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
-    previousDialogPrompt.current = !!state.dialogPrompt
-    previousControl.current = control
-    previousHistoryPopup.current = !!historyPopup
-    let cancelled = false
-    // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
-      if (!cancelled && !control && !state.dialogPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
-    })
-    return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, run])
-  useControlDismiss(control, dismiss, !!state?.dialogPrompt)
+  useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, run)
+  useControlDismiss(control, state?.pluginPrompt ? dismiss : panelBack?.run ?? dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
@@ -149,14 +145,47 @@ export let App = () => {
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, run).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
-  let context = { settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
+  let context = { panelBack, settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
-    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
+    <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <BrowserStatus />
     {notices.length > 0 && <Notifications notices={notices} />}
-    {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
+    {panel && panel !== 'profiles' && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}
+    {state.pluginPrompt && <Panel key={state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
+}
+
+let isPanel = (control: Control | null) => !!control && !['address', 'command', 'find', 'rename-window', 'rename-session', 'move-window', 'select-window', 'close-pane', 'close-window'].includes(control)
+
+let usePanelHistory = (current: PanelLocation, restore: (parent: PanelLocation) => void) => {
+  let [history, setPanelHistory] = useState<PanelLocation[]>([])
+  let location = useRef(current), restoreLocation = useRef(restore)
+  location.current = current; restoreLocation.current = restore
+  let back = useCallback(() => {
+    let parent = history.at(-1)
+    if (!parent) return
+    setPanelHistory(history => history.slice(0, -1)); restoreLocation.current(parent)
+  }, [history])
+  let panelBack = useMemo(() => history.length ? { label: 'Back', run: back } : null, [history.length, back])
+  return { panelBack, location, setPanelHistory }
+}
+
+let useOverlayFocus = (state: PublicState | null, control: Control | null, panel: Control | null, historyPopup: HistoryPopup | null, addressSuggestionsVisible: boolean, run: UIContext['run']) => {
+  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false), previousPluginPrompt = useRef(false)
+  useEffect(() => {
+    if (!state?.clientId) return
+    let restoreFocus = previousDialogPrompt.current || previousPluginPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    previousDialogPrompt.current = !!state.dialogPrompt; previousPluginPrompt.current = !!state.pluginPrompt
+    previousControl.current = control
+    previousHistoryPopup.current = !!historyPopup
+    let cancelled = false
+    // Child layout effects publish the selected page's bounds before it receives focus.
+    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!state.pluginPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
+      if (!cancelled && !control && !state.dialogPrompt && !state.pluginPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
+    })
+    return () => { cancelled = true }
+  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, state?.pluginPrompt?.id, run])
 }
 
 let BrowserStatus = () => {
@@ -1314,11 +1343,11 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   </div></section>
 }
 
-let PluginQuickSettings = ({ feature }: { feature: 'adblock' | 'dark-mode' }) => {
+let PluginQuickSettings = ({ feature, back, hidden }: { back: PanelBack | null; hidden: boolean; feature: 'adblock' | 'dark-mode' }) => {
   let { state, run, show, dismiss } = useUI()
   let { tab, pane } = selection(state)
   let current = tab && state.browserTools?.tabs[tab.id]
-  let [scope, setScope] = useState(feature === 'adblock' ? 'pane' : 'profile')
+  let [scope, setScope] = useSettingsState(`${feature}:scope`, feature === 'adblock' ? 'pane' : 'profile')
   let popup = useRef<HTMLDivElement>(null)
   let setting: 'adblock' | 'darkMode' = feature === 'adblock' ? 'adblock' : 'darkMode'
   let value = scope === 'profile' ? current?.profileDefaults[setting] : scope === 'site' ? current?.siteDefaults?.[setting] ?? current?.[setting] : current?.[setting]
@@ -1328,7 +1357,7 @@ let PluginQuickSettings = ({ feature }: { feature: 'adblock' | 'dark-mode' }) =>
   let toggle = () => { if (tab) void run('browser.set', { tab: tab.id, setting, scope, value: feature === 'adblock' ? !enabled : enabled ? 'off' : 'dark' }) }
   let reset = () => { if (tab) void run('browser.set', { tab: tab.id, setting, scope, value: 'inherit' }) }
   let settings = () => show('plugins', undefined, undefined, feature)
-  let outside = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
+  let outside = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) (back?.run ?? dismiss)() }
   useLayoutEffect(() => {
     let position = () => {
       if (!tab || !popup.current) return
@@ -1344,8 +1373,8 @@ let PluginQuickSettings = ({ feature }: { feature: 'adblock' | 'dark-mode' }) =>
     window.addEventListener('resize', position)
     return () => window.removeEventListener('resize', position)
   }, [tab?.id, feature])
-  return <div className={css.overlay} onClick={outside}><div ref={popup} className={css.pluginPopup} role="dialog" aria-modal="true" aria-label={feature === 'adblock' ? 'Ad blocking' : 'Dark mode'}>
-    <header><strong>{feature === 'adblock' ? 'Ad blocking' : 'Dark mode'}</strong><CloseButton label="Close" onClick={dismiss} /></header>
+  return <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={outside}><div ref={popup} className={css.pluginPopup} role="dialog" aria-modal="true" aria-label={feature === 'adblock' ? 'Ad blocking' : 'Dark mode'}>
+    <PanelHeader back={back} dismiss={dismiss}><strong>{feature === 'adblock' ? 'Ad blocking' : 'Dark mode'}</strong></PanelHeader>
     <label>Apply to<select aria-label="Apply to" value={scope} onChange={changeScope}>{feature === 'adblock' && <option value="pane">This pane</option>}<option value="site">This site</option><option value="profile">This profile</option></select></label>
     <button type="button" role="switch" aria-label="Enabled" aria-checked={enabled} onClick={toggle} disabled={unavailable} autoFocus>Enabled: {enabled ? 'on' : 'off'}</button>
     <button type="button" onClick={reset} disabled={unavailable}>Use inherited setting</button>
@@ -1354,14 +1383,22 @@ let PluginQuickSettings = ({ feature }: { feature: 'adblock' | 'dark-mode' }) =>
   </div></div>
 }
 
-let Panel = ({ type }: { type: Control }) => {
-  let { state, dismiss } = useUI()
-  let ref = useRef<HTMLDivElement>(null)
+let Panel = ({ type, hidden = false }: { type: Control; hidden?: boolean }) => {
+  let { state, dismiss, panelBack, control } = useUI()
+  let [detailBack, setDetailBack] = useState<PanelBack | null>(null)
+  let navigation = type === 'plugin-dialog' ? isPanel(control) ? { label: 'Back', run: dismiss } : null : detailBack ?? panelBack
+  let leave = navigation?.run ?? dismiss
+  let ref = useRef<HTMLDivElement>(null), lastFocused = useRef<HTMLElement | null>(null), wasHidden = useRef(false)
+  let rememberFocus = (event: FocusEvent<HTMLDivElement>) => { lastFocused.current = event.target }
+  useEffect(() => {
+    if (wasHidden.current && !hidden) lastFocused.current?.focus()
+    wasHidden.current = hidden
+  }, [hidden])
   let [sessionTab, setSessionTab] = useState(() => localStorage.getItem('session-picker-tab') === 'remote' ? 'remote' : 'local')
   let chooseLocalSessions = () => { setSessionTab('local'); localStorage.setItem('session-picker-tab', 'local') }
   let chooseRemoteSessions = () => { setSessionTab('remote'); localStorage.setItem('session-picker-tab', 'remote') }
-  useEffect(() => { if (!['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type])
-  if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
+  useEffect(() => { if (!hidden && !['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type, hidden])
+  if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings hidden={hidden} back={panelBack} feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
   let cycleTabs = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     let tabs = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
@@ -1373,12 +1410,15 @@ let Panel = ({ type }: { type: Control }) => {
   }
   let sessionPicker = type === 'sessions'
   let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'General anti-bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
-  let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs}>
-    <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
+  let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
+  }
+  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
+    <PanelHeader back={navigation} dismiss={dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Sessions</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote sessions</button>
-    </div> : <strong>{title}</strong>}<CloseButton label="Close" onClick={dismiss} /></header>
+    </div> : <strong>{title}</strong>}</PanelHeader>
     <div className={css.panelBody}>
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
@@ -1398,6 +1438,7 @@ let Panel = ({ type }: { type: Control }) => {
       {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
+  return <PanelBackContext.Provider value={setDetailBack}>{content}</PanelBackContext.Provider>
 }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
@@ -1428,19 +1469,11 @@ let AgentInformation = () => {
         <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>
       </div>
     </section>
-  })}<div className={css.agentActions}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Agent settings</button></div></div>
+  })}<div className={`${css.agentActions} ${css.agentSettings}`}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Agent settings</button></div></div>
 }
 
 let FocusAgentIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg>
 let AgentCursorIcon = ({ hidden }: { hidden?: boolean }) => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 2 1 11 3-3 2 4 2-1-2-4h4Z" />{hidden && <path d="m2 14 12-12" />}</svg>
-
-let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
-  let { state, show, settingsMemory } = useUI()
-  let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
-  let pane = panes.find(pane => pane.id === selection(state).pane?.id && pane.profileId === profile.id) ?? panes.find(pane => pane.profileId === profile.id)
-  let open = () => { settingsMemory.set(`profile:${profile.id}:tab`, { initial: undefined, value: 'anti-bot' }); show('profiles', pane?.id) }
-  return <button type="button" disabled={!pane} onClick={open}>{profile.name}</button>
-}
 
 let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requireType'; label: string }) => {
   let { state, run } = useUI()
@@ -1457,7 +1490,19 @@ let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requ
 
 let GeneralAntiBotSettings = () => {
   let { state } = useUI()
-  return <div className={css.agentInformation}><AgentRequirementSwitch setting="requireId" label="Require agent ID" /><AgentRequirementSwitch setting="requireType" label="Require agent type" /><p>Limits apply to each website in a profile.</p>{state.model.profiles.map(profile => <AntiBotProfileButton key={profile.id} profile={profile} />)}</div>
+  let stack = usePanelStack(null, 'Back to general anti-bot settings')
+  let profile = state.model.profiles.find(profile => profile.id === stack.selected)
+  let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
+  let pane = profile && (panes.find(pane => pane.id === selection(state).pane?.id && pane.profileId === profile.id) ?? panes.find(pane => pane.profileId === profile.id))
+  if (profile) return <section aria-label={`${profile.name} anti-bot settings`}><h2>{profile.name}</h2><ProfileAntiBotSettings key={profile.id} profile={profile} pane={pane || undefined} /></section>
+  return <div className={css.agentInformation}>
+    <AgentRequirementSwitch setting="requireId" label="Require agent ID" />
+    <AgentRequirementSwitch setting="requireType" label="Require agent type" />
+    <section ref={stack.list} aria-label="Profile limits" tabIndex={-1}>
+      <h2>Profile limits</h2><p>Choose a profile to edit its limits. Each website has its own session timer.</p>
+      {state.model.profiles.map(profile => <button key={profile.id} type="button" className={css.listRow} data-details={profile.id} onClick={stack.open}>{profile.name}</button>)}
+    </section>
+  </div>
 }
 
 let SiteInformation = () => {
@@ -1506,7 +1551,7 @@ let ExtensionManager = () => {
   let { state, run, dismiss } = useUI()
   let { profile, session } = selection(state)
   let [listing, setListing] = useState<ExtensionList | null>(null)
-  let { selected: selectedPath, setSelected: setSelectedPath, list: listRef, backButton: detailsBack, open: showDetails, back, keys } = usePanelStack()
+  let { selected: selectedPath, setSelected: setSelectedPath, list: listRef, open: showDetails, keys } = usePanelStack(null, 'Back to extensions')
   let [busy, setBusy] = useState(false)
   let [notice, setNotice] = useState('')
   let extensionKey = session?.private ? session.id : profile?.id
@@ -1542,7 +1587,6 @@ let ExtensionManager = () => {
   }
   let selected = listing?.extensions.find(extension => extension.path === selectedPath)
   let details = selected && <section aria-label="Extension details" className={css.extensionDetails}>
-    <button ref={detailsBack} onClick={back}>Back to extensions</button>
     <h2>{selected.name}</h2>
     {selected.description && <p>{selected.description}</p>}
     <dl className={css.extensionMetadata}>
@@ -1598,8 +1642,8 @@ let BUILTIN_TOOLS = [
 
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
 let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
-  let { state, run, initialPlugin } = useUI()
-  let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null)
+  let { state, run, initialPlugin, panelBack } = useUI()
+  let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null, 'Back to plugins', !compact && initialPlugin ? panelBack : null)
   let [query, setQuery] = useState(''), [changing, setChanging] = useState<string[]>([])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let reload = () => { void run('plugin.reload') }
@@ -1617,7 +1661,6 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     <PluginConfiguration compact={compact} matches={matches} />
   </>
   let details = (builtin || plugin) && <section aria-label="Plugin details" className={css.extensionDetails}>
-    <button ref={stack.backButton} onClick={stack.back}>Back to plugins</button>
     <h2>{builtin?.name ?? plugin?.name}</h2>
     {builtin ? <><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /></>}
   </section>
@@ -1644,9 +1687,9 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
 }
 
 let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: boolean; matches?: Set<string>; pluginId?: string }) => {
-  let { state, run, dismiss } = useUI()
+  let { state, run } = useUI()
   let [query, setQuery] = useState('')
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let toggleHooks = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.hooks', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
@@ -2246,7 +2289,7 @@ let ProxyHostPicker = ({ protocol, entries, onChoose, onClose }: { protocol: Plu
   let changeQuery = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let chooseProvider = (event: ChangeEvent<HTMLSelectElement>) => setProviderKey(event.target.value)
   return <dialog ref={dialog} className={css.proxyHostPicker} aria-label="Proxy providers" onKeyDown={handleKey} onCancel={onClose}>
-    <header><strong>Choose a {protocol.toUpperCase()} host</strong><button type="button" onClick={onClose}>Close providers</button></header>
+    <PanelHeader back={{ label: 'Back to proxy settings', run: onClose }} dismiss={onClose}><strong>Choose a {protocol.toUpperCase()} host</strong></PanelHeader>
     <label>Provider<select aria-label="Host provider" value={providerKey} onChange={chooseProvider}><option value="">Choose provider</option>{available.map(entry => <option key={entry.key} value={entry.key}>{entry.provider.title}</option>)}</select></label>
     {!available.length && <p>No providers available for this protocol.</p>}
     {selected && <><input aria-label="Search proxy locations" placeholder="Search country, city or host" value={query} onChange={changeQuery} />
@@ -2420,8 +2463,10 @@ let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; hos
   return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{status && <small>{status}</small>}</span>{temporary && <button type="button" onClick={keep} disabled={busy} aria-label={`Keep ${host} excluded`}>Keep excluded</button>}<button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button></div>
 }
 
-let ProfileExcludedWebsites = () => {
-  let { state, run } = useUI(), { profile, pane } = selection(state)
+type AntiBotProfileProps = { profile: Profile; pane?: ReturnType<typeof selection>['pane'] }
+
+let ProfileExcludedWebsites = ({ profile, pane }: AntiBotProfileProps) => {
+  let { state, run } = useUI()
   let [website, setWebsite] = useSettingsState(`profile:${profile?.id}:excluded-website`, () => automationWebsiteHost(pane?.url) ?? '', false), [busy, setBusy] = useState(false)
   if (!profile) return null
   let exclusions = Object.entries(state.automationSafety?.limits.sites?.[profile.id] ?? {}).flatMap(([host, entry]) => {
@@ -2444,8 +2489,8 @@ let ProfileExcludedWebsites = () => {
   </ProfileSection>
 }
 
-let AutomationLimitInput = ({ setting, label, description, value, scale = 1, maximum }: { setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
-  let { state, run } = useUI(), { profile } = selection(state), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
+let AutomationLimitInput = ({ profileId, setting, label, description, value, scale = 1, maximum }: { profileId: string; setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
+  let { run } = useUI(), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
   useEffect(() => { setText(String(value / scale)) }, [value, scale])
   let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let save = async (event: FocusEvent<HTMLInputElement>) => {
@@ -2453,7 +2498,7 @@ let AutomationLimitInput = ({ setting, label, description, value, scale = 1, max
     let next = Math.round(Number(text) * scale)
     if (next === value) return
     setBusy(true)
-    try { await run('automation.safety.set', { profile: profile!.id, key: setting, value: next }) } finally { setBusy(false) }
+    try { await run('automation.safety.set', { profile: profileId, key: setting, value: next }) } finally { setBusy(false) }
   }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return
@@ -2462,9 +2507,8 @@ let AutomationLimitInput = ({ setting, label, description, value, scale = 1, max
   return <label><span>{label}<small>{description}</small></span><input className={css.pluginInput} aria-label={label} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} required /></label>
 }
 
-let AutomationLimitsEditor = () => {
+let AutomationLimitsEditor = ({ profile }: { profile: Profile }) => {
   let { state, run } = useUI()
-  let { profile } = selection(state)
   let [busy, setBusy] = useState(false)
   if (!profile) return null
   let toggleMouse = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -2473,15 +2517,14 @@ let AutomationLimitsEditor = () => {
   }
   let limits = automationProfileLimits(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id)
   return <ProfileSection title="Limits"><div className={css.antiBotLimitFields}>
-    <AutomationLimitInput setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
-    <AutomationLimitInput setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
-    <AutomationLimitInput setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
+    <AutomationLimitInput profileId={profile.id} setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
+    <AutomationLimitInput profileId={profile.id} setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
+    <AutomationLimitInput profileId={profile.id} setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
   </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
 }
 
-let ProfileAntiBotSettings = () => {
+let ProfileAntiBotSettings = ({ profile, pane }: AntiBotProfileProps) => {
   let { state, run } = useUI()
-  let { profile, pane } = selection(state)
   let [busy, setBusy] = useState(false)
   let safety = state.automationSafety, limits = safety?.limits ?? DEFAULT_AUTOMATION.safety
   let savedEnabled = profile ? automationSafetyEnabled(limits, profile.id) : true
@@ -2528,8 +2571,8 @@ let ProfileAntiBotSettings = () => {
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
     </ProfileSection>
-    <AutomationLimitsEditor key={`limits:${profile.id}`} />
-    <ProfileExcludedWebsites key={`exclusions:${profile.id}`} />
+    <AutomationLimitsEditor key={`limits:${profile.id}`} profile={profile} />
+    <ProfileExcludedWebsites key={`exclusions:${profile.id}`} profile={profile} pane={pane} />
   </div>
 }
 
@@ -2672,7 +2715,7 @@ let ProfileInfo = () => {
     {tab === 'pane' && <ProfilePaneSettings key={pane?.id} />}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
-    {tab === 'anti-bot' && <ProfileAntiBotSettings />}
+    {tab === 'anti-bot' && <ProfileAntiBotSettings profile={profile} pane={pane} />}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }
