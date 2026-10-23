@@ -46,6 +46,14 @@ test('four panes show independent agent cursors and five-second command labels',
     await expect.poll(() => application!.context().pages().filter(page => urls.includes(page.url())).length).toBe(4)
     let pages = urls.map(url => application!.context().pages().find(page => page.url() === url)!)
     for (let page of pages) await expect(page.locator('button')).toBeVisible()
+    for (let page of pages) await page.evaluate(() => {
+      let attach = Element.prototype.attachShadow
+      Element.prototype.attachShadow = function (options) {
+        let root = attach.call(this, options)
+        if (this.id === 'bmux-virtual-mouse') (window as any).cursorShadow = root
+        return root
+      }
+    })
     let nativeViews = () => application!.evaluate(({ BaseWindow }, urls) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).filter((view: any) => view.getVisible() && urls.includes(view.webContents?.getURL())).map((view: any) => ({ url: view.webContents.getURL(), bounds: view.getBounds() })), urls)
     await expect.poll(async () => { let views = await nativeViews(); return views.length === 4 && views.every(view => view.bounds.width >= 200 && view.bounds.height >= 170) }).toBe(true)
     let selectedBefore = await selection(), pointerBefore = await application.evaluate(({ screen }) => screen.getCursorScreenPoint())
@@ -72,6 +80,33 @@ test('four panes show independent agent cursors and five-second command labels',
     for (let page of pages) await expect(page.locator('#bmux-virtual-mouse')).toBeVisible()
     // Command feedback belongs to bmux's overlay, outside the site's DOM.
     for (let page of pages) await expect(page.locator('#agent-commands')).toHaveCount(0)
+    let page = pages[3], target = await page.evaluate(() => ({ x: innerWidth - 60, y: innerHeight - 70 }))
+    let clicking = cli('click', { pane: panes[3], ...target })
+    try {
+      await page.waitForFunction(() => {
+        let root = (window as any).cursorShadow
+        return getComputedStyle(root.querySelector('svg')).opacity === '1' && root.querySelector('polyline').getAttribute('points')?.split(' ').length > 6 && root.querySelector('svg:last-child').getAnimations().length === 0
+      }, undefined, { polling: 16 })
+      expect(await page.evaluate(() => (window as any).cursorShadow.querySelector('svg:last-child').getAnimations().length)).toBe(0)
+      await exec('/usr/sbin/screencapture', ['-x', testInfo.outputPath('pink-cursor-trail.png')])
+      await page.waitForFunction(() => (window as any).cursorShadow.querySelector('span').getAnimations().some((animation: Animation) => animation.playState === 'running'), undefined, { polling: 16 })
+      let halo = await page.evaluate(() => {
+        let pulse = (window as any).cursorShadow.querySelector('span'), animation = pulse.getAnimations()[0]
+        animation.pause(); animation.currentTime = 450
+        return { width: pulse.getBoundingClientRect().width, opacity: Number(getComputedStyle(pulse).opacity) }
+      })
+      expect(halo.width).toBeGreaterThan(60); expect(halo.opacity).toBeGreaterThan(.4)
+      await exec('/usr/sbin/screencapture', ['-x', testInfo.outputPath('pink-cursor-click-halo.png')])
+    } finally { await clicking }
+    await page.evaluate(() => {
+      let root = (window as any).cursorShadow
+      root.querySelector('span').getAnimations().forEach((animation: Animation) => animation.cancel())
+      let rotation = root.querySelector('svg:last-child').getAnimations()[0]
+      rotation.pause(); rotation.currentTime = 1800
+    })
+    await exec('/usr/sbin/screencapture', ['-x', testInfo.outputPath('pink-cursor-idle.png')])
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect.poll(() => page.evaluate(() => (window as any).cursorShadow.getAnimations().length)).toBe(0)
   } finally {
     await closeTestApplication(application)
     server.closeAllConnections()

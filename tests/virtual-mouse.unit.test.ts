@@ -44,14 +44,14 @@ test('shows wheel targets independently in four panes without dispatching hover 
   expect(events).toEqual([])
 })
 
-test('hides after inactivity, resumes on activity, and reserves pulses for clicks', async () => {
+test('shows click halos, fades bounded movement trails, rotates only while idle, and honors reduced motion', async () => {
   vi.useFakeTimers()
   try {
     let elements: any[] = [], pointer: any
     let element = (tag: string): any => {
       let node = Object.assign(new EventTarget(), {
         tag, id: '', style: { cssText: '', setProperty(key: string, value: string) { this[key] = value } } as Record<string, any>,
-        append: () => {}, setAttribute: () => {}, attachShadow: () => ({ append: () => {} }),
+        attributes: {} as Record<string, string>, append: () => {}, setAttribute(key: string, value: string) { this.attributes[key] = value }, attachShadow: () => ({ append: () => {} }),
         animate: vi.fn(() => ({ cancel: vi.fn(), play: vi.fn() }))
       })
       elements.push(node)
@@ -64,7 +64,7 @@ test('hides after inactivity, resumes on activity, and reserves pulses for click
       matchMedia: () => motion,
       document: { getElementById: () => pointer, createElement: element, createElementNS: (_ns: string, tag: string) => element(tag), documentElement: { append: (node: any) => { pointer = node } } }
     })
-    let mouse = createVirtualMouse(), send = async (_method: string, params: Record<string, unknown>) => ({ result: { value: runInContext(String(params.expression), context) } })
+    let mouse = createVirtualMouse(async () => {}), send = async (method: string, params: Record<string, unknown>) => ({ result: { value: method === 'Runtime.evaluate' ? runInContext(String(params.expression), context) : undefined } })
     await mouse.show('one', send, () => {})
     let pulse = elements.find(node => node.tag === 'span'), wedge = elements.find(node => node.tag === 'svg')
     expect(pointer.style.display).toBe('block')
@@ -81,9 +81,23 @@ test('hides after inactivity, resumes on activity, and reserves pulses for click
     expect(pointer.style.display).toBe('block')
     await mouse.click('one', send)
     expect(pulse.animate).toHaveBeenCalledTimes(1)
+    let rotations = wedge.animate.mock.results[0].value.play.mock.calls.length
+    await mouse.move('one', { x: 200, y: 300 }, send, () => {})
+    let lines = elements.filter(node => node.tag === 'polyline'), trail = elements.filter(node => node.tag === 'svg')[1]
+    expect(lines).toHaveLength(2)
+    expect(lines[0].attributes.points.split(' ')).toHaveLength(16)
+    expect(trail.style.opacity).toBe('1')
+    expect(wedge.animate.mock.results[0].value.play).toHaveBeenCalledTimes(rotations)
+    // The halo stays at the clicked point as the arrow moves away.
+    expect(pulse.style.left).toBe('300px'); expect(pulse.style.top).toBe('100px')
+    vi.advanceTimersByTime(100)
+    expect(wedge.animate.mock.results[0].value.play).toHaveBeenCalledTimes(rotations + 1)
+    expect(trail.animate).toHaveBeenCalledTimes(1)
     motion.matches = true; motion.dispatchEvent(new Event('change'))
     expect(wedge.animate.mock.results[0].value.cancel).toHaveBeenCalled()
     expect(pulse.animate.mock.results[0].value.cancel).toHaveBeenCalled()
+    expect(trail.animate.mock.results[0].value.cancel).toHaveBeenCalled()
+    expect(trail.style.opacity).toBe('0')
     await mouse.click('one', send)
     expect(pulse.animate).toHaveBeenCalledTimes(1)
     await mouse.setHidden('one', true, send)

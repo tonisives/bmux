@@ -218,9 +218,10 @@ needed for these defaults:
 - Each pane shows recent agent commands at the bottom for five seconds. Labels
   summarize the operation, such as `scroll down 500 px` or `click (120, 80)`;
   typed text and script contents stay out of the overlay.
-- A white wedge cursor appears on pointer actions, scrolling, and automated navigation.
+- A pink wedge cursor appears on pointer actions, scrolling, and automated navigation.
   Every pane keeps its own cursor, including background panes.
-  It rotates gently while idle and pulses blue on clicks. It hides after 20
+  It tilts while idle, leaves a brief pink trail while moving, and shows a large
+  pink halo on clicks. It hides after 20
   seconds without pointer or navigation activity. **Hide agent cursor** in Agent
   information keeps it hidden for that pane until **Show agent cursor** is chosen.
   Agent activity locks human mouse and keyboard input to that page; a lock badge
