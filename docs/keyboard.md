@@ -73,6 +73,8 @@ Common direct shortcuts:
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
 
+Window tabs show a colored age since the last visit: `jn` for under a minute, then `13m`, `2h`, or `3d`. Ages update while idle: green under an hour, amber under a day, and red from one day onward. Hover the age for the full visit time. Pinned windows keep their compact icon.
+
 Right-click a status bar tab and choose **Pin Window** to keep it on the left as an icon. Choose **Unpin Window** to restore its label after the pinned windows. Pins persist with the session, and window movement stays within the pinned or regular group. The shortcut action is `toggle-window-pin`.
 
 On macOS, swipe horizontally with two fingers over a page to go back or forward.

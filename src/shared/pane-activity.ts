@@ -11,6 +11,16 @@ export let activityAge = (when: number, now = Date.now()) => {
   return 'old'
 }
 
+export let compactActivityLabel = (when: number | undefined, now = Date.now()) => {
+  if (!when) return ''
+  let age = Math.max(0, now - when) / 1000
+  if (age < 60) return 'jn'
+  for (let [seconds, suffix] of [[86400, 'd'], [3600, 'h'], [60, 'm']] as const) {
+    if (age >= seconds) return `${Math.floor(age / seconds)}${suffix}`
+  }
+  return 'jn'
+}
+
 export let activityLabel = (when: number | undefined, now = Date.now()) => {
   if (!when) return ''
   let age = Math.max(0, now - when) / 1000
