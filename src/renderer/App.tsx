@@ -1681,9 +1681,9 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
 }
 
 let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: boolean; matches?: Set<string>; pluginId?: string }) => {
-  let { state, run, dismiss } = useUI()
+  let { state, run } = useUI()
   let [query, setQuery] = useState('')
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { dismiss(); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let toggleHooks = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.hooks', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
