@@ -357,6 +357,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     save()
   }
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>) => {
+    let pane = model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === actor.paneId)
+    if (pane) { pane.lastUsedBy = 'agent'; save() }
     recordSessionActivity(actor.paneId)
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
@@ -1158,7 +1160,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!client || clients.get(client.id)?.window !== live.parent || !live.parent?.isFocused() || !visiblePaneIds(client).includes(tabId)) return
       recordWindowVisit(client.id)
       let now = Date.now()
-      if (now - (tab.lastActivityAt ?? 0) < 1000) return
+      if (tab.lastUsedBy === 'human' && now - (tab.lastActivityAt ?? 0) < 1000) return
+      tab.lastUsedBy = 'human'
       tab.lastActivityAt = now
       save()
     }
@@ -2033,7 +2036,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let previousWindow = client?.windowId, previousPane = client?.paneId
     let paneId = command.args?.pane ?? command.args?.tab
     let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
-    if (activity) { validateAgentInfo(activity); activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
+    if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
     let result: unknown
     try {
       let read = () => perform(command, sourceClientId)
@@ -2060,7 +2063,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     validateAgentInfo(args)
-    if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method)) automatedNavigations.delete(args.tab)
+    if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to'].includes(method)) {
+      automatedNavigations.delete(args.tab)
+      paneById(model, args.tab).pane.lastUsedBy = 'human'
+      save()
+    }
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
     let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
