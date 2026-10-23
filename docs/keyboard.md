@@ -179,7 +179,7 @@ keyboard:
     ")": next-session
 ```
 
-Set `showBuildId: true` to show the running build’s commit and ISO 8601 UTC build time at the bottom left. It reloads live and defaults to off.
+Set `showBuildId: true` to show a compact version and UTC build date (`v0.1.10 · 261023.0652`) at the right of the status bar. Click it to open General settings with the version, commit, and full ISO 8601 build timestamp. It reloads live and defaults to off.
 
 Set `showTabCloseButtons: true` when you want close buttons on the internal-window labels.
 

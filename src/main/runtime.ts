@@ -1,4 +1,4 @@
-import { buildInfo, buildIdInset } from '../shared/build-info'
+import { buildInfo } from '../shared/build-info'
 import { focusAgent } from './agent-focus'
 import { createAgentRegistry } from './agent-registry'
 import { AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo, validateAgentRequirements } from '../shared/agent-info'
@@ -1589,7 +1589,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     ]
   }
   let floatRect = (client: Client, placement: NonNullable<InternalWindow['floating']>[number]) => {
-    let rect = clampFloat(placement, client.width, client.height - 28 - buildIdInset(configuration?.showBuildId, configuration?.statusBar))
+    let rect = clampFloat(placement, client.width, client.height - 28)
     return { ...rect, y: rect.y + (configuration?.statusBar === 'bottom' ? 0 : 28) }
   }
   let floatBounds = (client: Client, paneId: string): Bounds | undefined => {
@@ -2276,8 +2276,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!placement || client.zoomedPaneId) throw new Error('Pane is not floating')
       let values = { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height) }
       if (!Object.values(values).every(Number.isFinite)) throw new Error('Invalid floating bounds')
-      Object.assign(placement, clampFloat({ ...placement, ...values }, client.width, client.height - 28 - buildIdInset(configuration?.showBuildId, configuration?.statusBar)))
-      if (args.commit === true) rememberPlacement(window, placement, client.width, client.height - 28 - buildIdInset(configuration?.showBuildId, configuration?.statusBar))
+      Object.assign(placement, clampFloat({ ...placement, ...values }, client.width, client.height - 28))
+      if (args.commit === true) rememberPlacement(window, placement, client.width, client.height - 28)
       await scheduleVisuals()
       if (args.commit === true) save()
       return placement
