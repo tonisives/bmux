@@ -1,0 +1,20 @@
+.account { display: flex; flex-direction: column; gap: 20px; font: inherit; color: inherit; min-width: 0; }
+.account p { margin: 0; line-height: 1.5; }
+.account h3, .account h4 { margin: 0; font-size: inherit; }
+.section { display: flex; flex-direction: column; gap: 12px; padding-block: 16px; border-top: 1px solid #8884; }
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.account button, .account input, .account select, .account textarea { color: inherit; font: inherit; border: 1px solid #8886; border-radius: 4px; background: transparent; padding: 7px 10px; }
+.account button { cursor: pointer; width: fit-content; }
+.account button:hover { background: #8882; }
+.account button:disabled { opacity: .5; cursor: default; }
+.account input, .account select, .account textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.account a { color: inherit; text-decoration: underline; }
+.account code { overflow-wrap: anywhere; }
+.form { display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid #8885; border-radius: 4px; }
+.form label { display: flex; flex-direction: column; gap: 6px; }
+.form .checkbox { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.checkbox input { width: auto; flex: 0 0 auto; margin-top: 4px; }
+.box { display: flex; flex-direction: column; gap: 10px; padding-block: 16px; border-top: 1px solid #8884; }
+.views, .computer { display: flex; flex-direction: column; gap: 10px; }
+.error { color: #e87474; }

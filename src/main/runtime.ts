@@ -1,4 +1,6 @@
 import { arrangePanes, maximizePane } from './pane-layout'
+import { createAttentionRequests } from './remote-attention'
+import { createHash } from 'node:crypto'
 import type { PaneLayout } from './pane-layout'
 import { buildInfo } from '../shared/build-info'
 import { focusAgent } from './agent-focus'
@@ -130,6 +132,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let model: Model = readModel(dataDirectory, bookmarkFile)
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
   let controls = createControlLeases()
+  let attention = createAttentionRequests(path.join(dataDirectory,'remote-attention.json'))
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
   let remoteSizes = new Map<string, { width: number; height: number; lease: number; previous: Electron.Rectangle }>()
@@ -2019,11 +2022,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
     if (!context.profileId || !context.paneId) return
+    attention.assert(context.paneId)
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
     let actor = { paneId: context.paneId, ...agentInfo(pane) }
     updateAgentInfo(actor, { agentId: context.agentId ?? pane.agentId })
     await automationSafety?.before(context.profileId, () => inspectAutomationPage(context.paneId!, recover), destination, pace, actor, !destination)
+    attention.assert(context.paneId)
     touchAgent(actor)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
@@ -2109,6 +2114,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return { remote: true }
     }
     checkControl(method, args)
+    if (!sourceClientId && !remoteActor.getStore() && typeof args.tab === 'string' && ['navigate','back','forward','reload','hard-reload','stop','eval','click','type','key','cdp','forms.fill','plugin.run','kill-pane','kill-window','kill-session'].includes(method)) attention.assert(args.tab)
+    if (method === 'remote.attention') {
+      if (!sourceClientId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
+      let { pane, session } = paneById(model, required(args,'pane'))
+      if (session.ephemeral) throw new Error('Use a persistent session for remote help')
+      updateAgentInfo(pane,args)
+      let result = attention.request(pane.id,session.id,required(args,'episode'))
+      save(); publish(); return result
+    }
     if (method === 'agent.cursor.set') {
       if (!sourceClientId) throw new Error('Change agent cursor visibility in the bmux UI')
       let { pane } = paneById(model, required(args, 'pane'))
@@ -2189,7 +2203,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (client.paneId !== pane.id) throw new Error('Select the affected pane before resuming automation')
       let page = await inspectAutomationPage(tabId)
       if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
-      return automationSafety?.resume(pane.profileId, page)
+      let result = automationSafety?.resume(pane.profileId, page)
+      attention.resolve(pane.id); publish(); return result
     }
     if (method === 'automation.acquire') {
       if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
@@ -3419,6 +3434,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return serializeTab(tabId, async () => {
       checkControl(method, args)
       let { tab, pane, session } = tabById(model, tabId)
+      if (!sourceClientId && !remoteActor.getStore() && !controlObservation.has(method)) attention.assert(pane.id)
       let destination = automationTargetUrl(method, args)
       if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(pane.profileId, tabId, destination ? normalizeUrl(destination, searchAppForSession(session)) : tab.url)
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
@@ -3613,13 +3629,28 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return previewCache.flush()
   }
   let remote = {
+    attentions: () => [
+      ...attention.active(),
+      ...(automationSafety?.status().profiles ?? []).flatMap(profile => profile.warning ? (profile.actors ?? []).filter(actor => actor.hosts?.includes(profile.warningHost!) && walkPanes(model).some(item => item.pane.id === actor.paneId)).slice(-1).map(actor => ({ pane: actor.paneId, session: paneById(model,actor.paneId).session.id, episode: `warning-${createHash('sha256').update(JSON.stringify([profile.profileId,profile.warningHost,profile.warning,profile.warningAt ?? profile.startedAt])).digest('hex')}`, reason: profile.warning! })) : []),
+    ],
+    resume: async (owner: string, generation: number, pane: string, episode?: string) => {
+      let target = paneById(model,pane)
+      controls.assert(target.session.id,owner,generation)
+      if (episode && !remote.attentions().some(item => item.pane === pane && item.episode === episode)) throw new Error('The help request changed. Refresh before resuming.')
+      let page = await inspectAutomationPage(pane)
+      if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
+      controls.assert(target.session.id,owner,generation)
+      if (episode && !remote.attentions().some(item => item.pane === pane && item.episode === episode)) throw new Error('The help request changed. Refresh before resuming.')
+      automationSafety?.resume(target.pane.profileId,page)
+      attention.resolve(pane,episode); publish(); return { resumed:true }
+    },
     closeSession: async (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) throw new Error('Remote session unavailable')
       controls.release(session.id)
       return await execute({ method: 'kill-session', args: { session: session.id, confirm: true } }) as { closed?: string; cancelled?: string }
     },
-    state: () => { clearRemoteSizes(); return { sessions: model.sessions, viewports: Object.fromEntries([...tabs.keys()].map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])) } },
+    state: () => { clearRemoteSizes(); return { sessions: model.sessions, viewports: Object.fromEntries([...tabs.keys()].map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents }),
     acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },
     renew: controls.renew,

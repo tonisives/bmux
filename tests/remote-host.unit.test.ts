@@ -5,14 +5,14 @@ import path from 'node:path'
 import { remoteIdentity } from '../src/main/remote-identity'
 import { startRemoteHost } from '../src/main/remote-host'
 
-let sockets = vi.hoisted(() => [] as { emit: (event: string, data: string) => void; sent: { type: string; envelope?: { payload: string } }[] }[])
+let sockets = vi.hoisted(() => [] as { emit: (event: string, data: string) => void; sent: { type: string; envelope?: { payload: string }; request?: string; connection?: string }[] }[])
 vi.mock('ws', async () => {
   let { EventEmitter } = await import('node:events')
   class Socket extends EventEmitter {
     static OPEN = 1
     readyState = 1
     bufferedAmount = 0
-    sent: { type: string; envelope?: { payload: string } }[] = []
+    sent: { type: string; envelope?: { payload: string }; request?: string; connection?: string }[] = []
     constructor() { super(); sockets.push(this) }
     send(data: string) { this.sent.push(JSON.parse(data)) }
     close() { this.readyState = 3 }
@@ -29,7 +29,7 @@ beforeEach(async () => {
 })
 afterEach(async () => { host?.close(); host = undefined; await fs.rm(directory, { recursive: true, force: true }) })
 
-let setup = (request?: string) => {
+let setup = (request?: string, streamPermits = false) => {
   let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn() }
   let resolveCapture!: (value: typeof peer) => void
   let pending = new Promise<typeof peer>(resolve => { resolveCapture = resolve })
@@ -42,16 +42,42 @@ let setup = (request?: string) => {
     signalOffer()
     return pending
   })
-  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
+  if (streamPermits) socket.emit('message',JSON.stringify({type:'ready',iceServers:[],streamPermits:true}))
   socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control' }))
   let deliver = (payload: unknown) => socket.emit('message', JSON.stringify({ type: 'signal', from: viewer.id, envelope: viewer.seal(host!.status().hostId, host!.status().generation, payload) }))
   let offers = () => socket.sent.filter(message => message.type === 'signal').map(message => JSON.parse(message.envelope!.payload))
   deliver({ type: 'open', session: 'session', pane: 'pane', request })
   return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer, signalCandidate, runtime, viewer, socket }
 }
+
+it('requires a central permit before capture and closes the stream when its permit is revoked', async () => {
+  let { socket, capture, resolveCapture, peer, offers } = setup('managed',true)
+  expect(capture).not.toHaveBeenCalled()
+  let acquire = socket.sent.find(message => message.type === 'stream-acquire')!
+  socket.emit('message',JSON.stringify({type:'stream-permit',request:acquire.request,expires:Date.now()+20000}))
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce(),{interval:1})
+  resolveCapture(peer)
+  await vi.waitFor(() => expect(socket.sent.some(message => message.type === 'stream-renew')).toBe(true),{interval:1})
+  let renew = socket.sent.find(message => message.type === 'stream-renew')!
+  expect(offers()).toEqual([])
+  socket.emit('message',JSON.stringify({type:'stream-permit',request:renew.request,expires:Date.now()+20000}))
+  await vi.waitFor(() => expect(offers()).toHaveLength(1),{interval:1})
+  socket.emit('message',JSON.stringify({type:'stream-revoked',connection:acquire.connection}))
+  expect(peer.close).toHaveBeenCalledOnce()
+  expect(socket.sent.some(message => message.type === 'stream-release' && message.connection === acquire.connection)).toBe(true)
+})
+
+it('reports an occupied account without starting video capture', async () => {
+  let { socket, capture, offers } = setup('managed',true)
+  let acquire = socket.sent.find(message => message.type === 'stream-acquire')!
+  socket.emit('message',JSON.stringify({type:'stream-permit',request:acquire.request,error:'Both live views are in use. Disconnect a view in Account settings.'}))
+  await vi.waitFor(() => expect(offers()).toContainEqual({type:'error',error:'Both live views are in use. Disconnect a view in Account settings.'}),{interval:1})
+  expect(capture).not.toHaveBeenCalled()
+})
 
 it('closes an advertised session for control access without opening a video stream', async () => {
   let { deliver, offers, runtime, socket } = setup()

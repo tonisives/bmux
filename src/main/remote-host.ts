@@ -29,11 +29,32 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let verify = createEnvelopeVerifier(hostId, generation, () => Object.fromEntries([...authorized].map(([id, value]) => [id, value.key])))
   let socket: WebSocket | undefined, stopped = false, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
   let opening = new Map<string, symbol>()
-  let streams = new Map<string, { peer: Stream; pane: string; request?: string; connection: string }>(), iceServers: RTCIceServer[] = []
+  let streams = new Map<string, { peer: Stream; pane: string; request?: string; connection: string; expires?: number; expiry?: ReturnType<typeof setTimeout>; renewing?: boolean }>(), iceServers: RTCIceServer[] = []
+  let streamPermits = false
+  let attention = new Map<string, { target: { pane: string; session: string; episode: string; reason: string }; resolved: boolean; acknowledged: boolean }>()
+  let reportAttention = () => {
+    let active = runtime.remote.attentions()
+    for (let target of active) if (!attention.has(target.episode)) attention.set(target.episode,{ target, resolved:false, acknowledged:false })
+    for (let item of attention.values()) {
+      if (!item.resolved && !active.some(target => target.episode === item.target.episode)) { item.resolved = true; item.acknowledged = false }
+      if (!item.acknowledged) send({ type:item.resolved ? 'attention-resolved' : 'attention', ...item.target })
+    }
+  }
+  let permits = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   let jobs = new Map<string, { at: number; result?: string }>()
   let day = new Date().toISOString().slice(0, 10)
   let sequence = 0, started = 0, succeeded = 0, failed = 0, browserMs = 0, lastUsage = Date.now()
   let send = (value: unknown) => { if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 262144) socket.send(JSON.stringify(value)) }
+  let permit = (id: string, connection: string, pane: string, renew = false) => {
+    if (!streamPermits) return Promise.resolve()
+    let request = randomUUID()
+    return new Promise<void>((resolve, reject) => {
+      let timer = setTimeout(() => { permits.delete(request); reject(new Error('Stream permit unavailable')) }, 5000)
+      permits.set(request, { resolve, reject, timer })
+      send({ type: renew ? 'stream-renew' : 'stream-acquire', request, viewer: id, connection, pane })
+    })
+  }
+  let releasePermit = (connection: string) => { if (streamPermits) send({ type: 'stream-release', connection }) }
   let lastSessions = ''
   let advertise = () => {
     let definitions = runtime.state().automationAgents?.definitions ?? {}
@@ -48,7 +69,8 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let serialized = JSON.stringify(sessions)
     if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
   }
-  let disconnect = (id: string, release = true) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); stream?.peer.close(); if (release) runtime.remote.disconnect(id) }
+  let disconnect = (id: string, release = true) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); if (stream) { clearTimeout(stream.expiry); releasePermit(stream.connection); stream.peer.close() } if (release) runtime.remote.disconnect(id) }
+  let extendPermit = (id: string) => { let stream = streams.get(id); if (!stream || !streamPermits) return; clearTimeout(stream.expiry); stream.expires = Date.now() + 18000; stream.expiry = setTimeout(() => disconnect(id), 18000) }
   let signal = (to: string, payload: unknown) => send({ type: 'signal', to, envelope: identity.seal(to, generation, payload) })
   let state = (id: string) => { let stream = streams.get(id); stream?.peer.send(JSON.stringify({ type: 'state', ...runtime.remote.state(), pane: stream.pane })) }
   let open = async (id: string, pane?: string, request?: string, switching = false) => {
@@ -66,7 +88,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let candidates: RTCIceCandidateInit[] = []
     let publishOffer = (sdp: RTCSessionDescriptionInit) => signal(id, { type: 'offer', sdp, ...(request ? { request, connection, trickle: true } : {}) })
     let incoming = Promise.resolve()
-    try { peer = await runtime.remote.capture(selected, {
+    try {
+      if (streamPermits) await permit(id, connection, selected)
+      if (opening.get(id) !== attempt || !allowed(id) || stopped) { releasePermit(connection); return }
+      peer = await runtime.remote.capture(selected, {
       iceServers,
       signal: sdp => {
         // Capture can produce an offer before its promise returns the stream.
@@ -91,6 +116,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           if (message.type === 'acquire') result = runtime.remote.acquire(String(message.session), id, message.takeover === true)
           else if (message.type === 'renew') result = runtime.remote.renew(String(message.session), id, Number(message.generation))
           else if (message.type === 'release') { runtime.remote.release(String(message.session), id); result = { released: true } }
+          else if (message.type === 'resume') { result = await runtime.remote.resume(id,Number(message.generation),selected,typeof message.episode === 'string' ? message.episode : undefined); reportAttention() }
           else if (message.type === 'command') result = await runtime.remote.command(id, Number(message.generation), message.command)
           else if (message.type === 'text') await runtime.remote.text(id, Number(message.generation), selected, message.text)
           else if (message.type === 'resize') result = await runtime.remote.resize(id, Number(message.generation), selected, message.width, message.height)
@@ -108,12 +134,14 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           state(id)
         }).catch(error => streams.get(id)?.peer.send(JSON.stringify({ type: 'error', error: error instanceof Error && ['CONTROL_HELD','CONTROL_EXPIRED','Watch only access'].includes(error.message) ? error.message : 'Remote operation failed' })))
       },
-      closed: () => { if (streams.get(id)?.peer === peer) { streams.delete(id); runtime.remote.disconnect(id) } },
+      closed: () => { if (streams.get(id)?.peer === peer) disconnect(id) },
     })
-    } catch (error) { if (opening.get(id) === attempt) opening.delete(id); throw error }
-    if (opening.get(id) !== attempt || !allowed(id) || stopped || socket?.readyState !== WebSocket.OPEN) { peer.close(); return }
+    } catch (error) { releasePermit(connection); if (opening.get(id) === attempt) opening.delete(id); throw error }
+    try { if (streamPermits) await permit(id,connection,selected,true) } catch (error) { peer.close(); releasePermit(connection); if (opening.get(id) === attempt) opening.delete(id); throw error }
+    if (opening.get(id) !== attempt || !allowed(id) || stopped || socket?.readyState !== WebSocket.OPEN) { releasePermit(connection); peer.close(); return }
     opening.delete(id)
     streams.set(id, { peer, pane: selected, request, connection })
+    extendPermit(id)
     if (offer) publishOffer(offer)
     for (let candidate of candidates) signal(id, { type: 'candidate', candidate, request, connection })
   }
@@ -122,13 +150,18 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let current = config(), url = new URL('/connect', current.url)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('host', hostId); url.searchParams.set('generation', generation)
+    url.searchParams.set('protocol', '2')
     url.searchParams.set('key', Buffer.from(JSON.stringify(identity.publicKey)).toString('base64url'))
     socket = new WebSocket(url, { headers: { Authorization: `Bearer ${current.token}` }, maxPayload: 262144, handshakeTimeout: 10000 })
     socket.on('error', () => undefined)
     socket.on('message', raw => {
       void (async () => {
         let message = JSON.parse(raw.toString())
-        if (message.type === 'ready') { iceServers = message.iceServers; backoff = 1000; lastSessions = ''; advertise(); return }
+        if (message.type === 'ready') { iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
+        if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && !item.resolved) item.acknowledged = true; return }
+        if (message.type === 'attention-resolved') { if (attention.get(message.episode)?.resolved) attention.delete(message.episode); return }
+        if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(new Error(String(message.error))); else pending.resolve() } return }
+        if (message.type === 'stream-revoked') { for (let [id, stream] of streams) if (stream.connection === message.connection) disconnect(id); return }
         if (message.type === 'authorized') {
           if (message.permission !== 'watch' && message.permission !== 'control') return
           if (authorized.get(message.id)?.permission === 'control' && message.permission === 'watch') runtime.remote.disconnect(message.id)
@@ -165,6 +198,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       })().catch(() => undefined)
     })
     socket.on('close', () => {
+      for (let pending of permits.values()) { clearTimeout(pending.timer); pending.reject(new Error('Relay disconnected')) } permits.clear()
       opening.clear()
       for (let id of streams.keys()) disconnect(id)
       if (!stopped) { retry = setTimeout(() => { try { connect() } catch { close() } }, backoff); backoff = Math.min(backoff * 2, 30000) }
@@ -184,7 +218,15 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let timer = setInterval(() => {
     usage()
     advertise()
-    try { for (let id of streams.keys()) { if (!allowed(id)) disconnect(id); else state(id) } } catch { for (let id of streams.keys()) disconnect(id) }
+    reportAttention()
+    try { for (let [id, stream] of streams) {
+      if (!allowed(id)) { disconnect(id); continue }
+      state(id)
+      if (streamPermits && !stream.renewing) {
+        stream.renewing = true
+        void permit(id,stream.connection,stream.pane,true).then(() => { if (streams.get(id) === stream) extendPermit(id) }).catch(() => { if (streams.get(id) === stream) disconnect(id) }).finally(() => { stream.renewing = false })
+      }
+    } } catch { for (let id of streams.keys()) disconnect(id) }
   }, 5000)
   let close = () => { opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
   connect()

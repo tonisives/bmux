@@ -1,6 +1,7 @@
 import type { RemoteView } from '../shared/remote'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
+import { RemoteAccount } from './RemoteAccount'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
 import { VimCursor } from './VimCursor'
@@ -2043,6 +2044,12 @@ let SessionDragHandle = ({ id, name }: { id: string; name: string }) => {
   return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={start} onDragEnd={order.end} onKeyDown={keys} aria-label={`Drag session ${name} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>
 }
 let RemoteSessionPicker = () => {
+  let [accountView, setAccountView] = useState<'account' | 'boxes' | null>(null)
+  let connectRelay = () => setAccountView('account'), addBox = () => setAccountView('boxes'), backToSessions = () => setAccountView(null)
+  if (accountView) return <div className={css.settingsContent}><button onClick={backToSessions}>Back to sessions</button><DesktopRemoteAccount rent={accountView === 'boxes'} /></div>
+  return <><RemoteSessionLibrary /><div className={css.settingsFooter}><button onClick={connectRelay}>Connect relay</button><button onClick={addBox}>Add box</button></div></>
+}
+let RemoteSessionLibrary = () => {
   let { dismiss, onMessage } = useUI()
   let [remote, setRemote] = useState<RemoteSessionListing>()
   let [openingSignIn, setOpeningSignIn] = useState(false)
@@ -2142,6 +2149,8 @@ let RemoteSessionPicker = () => {
   </div>
   return <div className={css.sessionWorkspace}>{picker}<RemoteSessionPreview host={preview?.host} session={preview?.session} /></div>
 }
+let accountSignIn = () => { void bridge.openRemote() }
+let DesktopRemoteAccount = ({ rent = false }: { rent?: boolean }) => <RemoteAccount api={bridge.remoteAccount} visit={bridge.openRemoteBilling} signIn={accountSignIn} rent={rent} local />
 let RemoteServiceHeading = ({ service, expanded, count, toggle }: { service: string; expanded: boolean; count: number; toggle: () => void }) => <button type="button" data-picker-action data-service-toggle className={css.remoteGroup} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} remote service ${service}`} onClick={toggle}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{service}<span className={css.remoteService}>{count}</span></button>
 let RemoteOrderHandle = ({ id, name, start, end, move }: { id: string; name: string; start: (id: string) => void; end: () => void; move: (direction: number) => void }) => {
   let drag = (event: DragEvent<HTMLButtonElement>) => { event.stopPropagation(); start(id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }
@@ -3440,10 +3449,11 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   </>
 }
 
-type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard'
+type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard' | 'account'
 type SettingsSearchItem = { tab: SettingsTab; label: string; section?: string; keywords?: string; target: string }
-let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }]
+let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'account', label: 'Account' }]
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
+  { tab: 'account', label: 'Relay, boxes and billing', section: 'Remote account', keywords: 'rent server subscription payment connect computer live views streams', target: '[data-setting-id="remote-account"]' },
   { tab: 'general', label: 'About bmux', section: 'Build information', keywords: 'version build commit date timestamp', target: '[data-setting-id="build-info"]' },
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
@@ -3531,6 +3541,7 @@ let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, curr
     {tab.id === 'appearance' && <AppearanceSettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'memory' && <MemorySettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={currentPrefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} matches={matches} />}
+    {tab.id === 'account' && <DesktopRemoteAccount />}
   </section>)}{!results.length && <p role="status">No matching settings.</p>}</div>
 }
 let SettingsContent = () => {
@@ -3587,6 +3598,7 @@ let SettingsContent = () => {
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
       {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}
       {tab === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} />}
+      {tab === 'account' && <DesktopRemoteAccount />}
       </>}
     </section>
     {state.configError && <p className={css.error}>{state.configError}</p>}

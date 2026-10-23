@@ -61,6 +61,7 @@ Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Automation: automation status | automation safety | automation acquire -t PANE --url URL | automation release
+            remote attention -t PANE --episode STABLE_ID (pause for human help and notify your remote devices)
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
             Browser commands require --agent-id ID or BMUX_AGENT_ID by default.
             Add --agent-name NAME, --agent-purpose REASON, --agent-type TYPE and --agent-data JSON for agent details.

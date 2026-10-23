@@ -431,6 +431,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
     await new Promise<void>(resolve=>{fixture.close(()=>resolve());fixture.closeAllConnections()})
+    await pool.query('DELETE FROM bmux_stream_leases WHERE host=$1',[service]); await pool.query('DELETE FROM bmux_attention WHERE service=$1',[service]); await pool.query('DELETE FROM bmux_host_presence WHERE host=$1',[service])
     await pool.query('DELETE FROM bmux_usage WHERE service=$1',[service]); await pool.query('DELETE FROM bmux_services WHERE id=$1',[service]); await pool.query('DELETE FROM bmux_devices WHERE owner=$1',[owner]); await pool.query('DELETE FROM bmux_logins WHERE owner=$1',[owner]); await pool.end()
     await fs.rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100})
   }

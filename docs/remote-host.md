@@ -4,6 +4,69 @@ bmux uses the same Electron engine for desktop and unattended hosting. Linux
 hosts run under a private Xvfb display. This release does not provide a separate
 Chromium headless-shell engine or claim a smaller browser bundle.
 
+## Managed relay and rented boxes
+
+Open **Sessions > Remote sessions > Connect relay**, or **Settings > Account**.
+Sign in and activate relay for **$10 USD per account per month**. Connect the
+running computer from the Account view; its sessions keep running throughout.
+You can also manage the same account at <https://remote.bmux.cc/?view=account>.
+
+Relay includes two simultaneous live pane views across the account, including
+direct connections and TURN connections. Two viewers watching the same pane use
+both views. Saved sessions and background jobs use no live-view allowance. If a
+view is occupied, disconnect it from Account settings without closing its page
+or stopping its job. Shared viewers use the host owner's allowance.
+
+Choose **Add box** for a persistent Linux machine with 4 GB or 8 GB RAM. The
+catalog lists available shared x86 machines by region. Each monthly USD price
+includes the provider's server and required IPv4 cost plus a 20% service fee,
+rounded up to a cent. Tax is added at checkout. The accepted price stays fixed
+for that subscription; a later exchange-rate or catalog change does not change
+its renewal price.
+
+Each box has its own subscription, separate from relay. Canceling relay keeps
+boxes running and billed. Cancel a box at period end to keep access until then;
+the box and its files are deleted afterward. **Delete now** deletes the machine
+and its files immediately and cancels that box subscription. It gives no
+prorated refund. Failed setup is refunded automatically. Failed renewal has a
+10-day payment recovery period before the affected service ends.
+
+Boxes include bmux, Node, Python, Git, and optional SSH public-key access. Put
+files in `/home/bmux/workspace`. Install your own agent tools and credentials;
+agent usage, managed backups, and resizing are not included. Keep your own copy
+of important files. The pilot permits up to three boxes per account.
+
+Outgoing traffic is checked every five minutes. A warning is sent at 75% of the
+provider's monthly allowance; networking pauses at 90% and returns for the next
+provider traffic month. A burst between checks can pass these thresholds.
+
+Session capacity depends on the pages, scripts, and CPU family. Published RAM
+sizes describe the machine; they are not a promised number of sessions.
+
+## Ask a human for help
+
+An agent can pause a persistent pane and request attention explicitly:
+
+```sh
+bmux remote attention -t PANE_ID --episode scrape-login-2026-10-24
+```
+
+Reuse the same episode ID when retrying the same request. The pause survives a
+host restart and blocks further agent mutations on that pane. Observation stays
+available. Existing challenge, account-warning, and rate-limit detection also
+reports attention when an active agent encounters them.
+
+An authenticated companion app can register for a notification containing only
+an opaque attention ID. It retrieves the target after sign-in, opens watch mode,
+and lets the human take control. Complete the login or CAPTCHA, explicitly
+resume the episode, then release control. Resume rechecks the current page and
+control lease; it does not automatically restart the worker's application code.
+The worker should retry its paused operation after the human releases control.
+
+Managed relay requires host protocol 2 so live-view permits are renewed and
+expire centrally. Self-hosted connection services keep billing enforcement off
+unless `BMUX_MANAGED_BILLING=true` is configured.
+
 ## Run a host
 
 Build the OCI image with `docker build --target host -t bmux-host .` and run:

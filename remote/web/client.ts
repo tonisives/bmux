@@ -5,7 +5,7 @@ import { prepareIceAnswer } from '../../src/shared/remote-ice'
 import type { RemoteHost } from '../../src/shared/remote-sessions'
 export type Host = RemoteHost & { generation: string; key: JsonWebKey }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string }[] }[] }
-export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }> }
+export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }>; attention?: { pane: string; session: string; episode: string; reason: string }[] }
 let bytes = (text: string) => new TextEncoder().encode(text)
 let base64 = (data: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(data)))
 let decode = (text: string) => Uint8Array.from(atob(text), char => char.charCodeAt(0))

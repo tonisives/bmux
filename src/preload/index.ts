@@ -19,6 +19,8 @@ let bridge: Bridge = {
   remoteSessionPreviews: (host: string, session: string) => ipcRenderer.invoke('remote-session-previews', host, session),
   closeRemoteSession: (host: string, session: string) => ipcRenderer.invoke('remote-close-session', host, session),
   openRemote: (host, session) => ipcRenderer.invoke('remote-open', host, session),
+  remoteAccount: (path, body) => ipcRenderer.invoke('remote-account', path, body),
+  openRemoteBilling: url => ipcRenderer.invoke('remote-billing-open', url),
   bounds: bounds => ipcRenderer.send('bounds', bounds),
   subscribe: listener => {
     let handler = (_event: Electron.IpcRendererEvent, state: PublicState) => listener(state)

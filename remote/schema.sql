@@ -23,6 +23,67 @@ CREATE TABLE IF NOT EXISTS bmux_logins (
   owner text NOT NULL,
   expires timestamptz NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bmux_accounts (
+  owner text PRIMARY KEY,
+  email text NOT NULL,
+  name text NOT NULL DEFAULT '',
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS bmux_entitlements (
+  owner text PRIMARY KEY,
+  expires timestamptz NOT NULL,
+  max_streams integer NOT NULL CHECK (max_streams BETWEEN 1 AND 100),
+  source text NOT NULL DEFAULT 'stripe'
+);
+CREATE TABLE IF NOT EXISTS bmux_host_presence (
+  host text PRIMARY KEY,
+  service text NOT NULL REFERENCES bmux_services(id),
+  generation text NOT NULL,
+  connected boolean NOT NULL DEFAULT true,
+  seen timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS bmux_stream_leases (
+  connection text PRIMARY KEY,
+  owner text NOT NULL,
+  host text NOT NULL,
+  generation text NOT NULL,
+  viewer text NOT NULL,
+  pane text NOT NULL,
+  expires timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bmux_stream_leases_owner ON bmux_stream_leases(owner,expires);
+CREATE TABLE IF NOT EXISTS bmux_attention (
+  id uuid PRIMARY KEY,
+  owner text NOT NULL,
+  service text NOT NULL REFERENCES bmux_services(id),
+  host text NOT NULL,
+  generation text NOT NULL,
+  session text NOT NULL,
+  pane text NOT NULL,
+  episode text NOT NULL,
+  reason text NOT NULL CHECK (reason IN ('help','challenge','account-warning','rate-limit')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz,
+  UNIQUE(service,host,generation,episode)
+);
+CREATE TABLE IF NOT EXISTS bmux_push_devices (
+  owner text NOT NULL,
+  device text NOT NULL,
+  token text NOT NULL UNIQUE,
+  enabled boolean NOT NULL DEFAULT true,
+  PRIMARY KEY(owner,device)
+);
+CREATE TABLE IF NOT EXISTS bmux_push_outbox (
+  attention_id uuid NOT NULL REFERENCES bmux_attention(id),
+  owner text NOT NULL,
+  device text NOT NULL,
+  attempts integer NOT NULL DEFAULT 0,
+  receipt_id text,
+  token_hash text,
+  sent_at timestamptz,
+  next_check_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY(attention_id,owner,device)
+);
 CREATE TABLE IF NOT EXISTS bmux_usage (
   service text NOT NULL REFERENCES bmux_services(id),
   host text NOT NULL,

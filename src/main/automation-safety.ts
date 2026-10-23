@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { AutomationActor, AutomationSafety, AutomationSafetyState, AutomationWarning } from '../shared/automation'
 import { automationProfileLimits, automationSafetyEnabled, automationSiteEnabled, automationWarningEnabled, automationWebsiteHost, isSocialUrl } from '../shared/automation'
 
-type Usage = { profileId: string; siteHost: string; startedAt: number; lastUsed: number; limitReachedAt?: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string }
+type Usage = { profileId: string; siteHost: string; startedAt: number; lastUsed: number; limitReachedAt?: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; warningAt?: number }
 type Page = { url: string; warning?: AutomationWarning }
 let warnings = ['account-warning', 'challenge', 'rate-limit']
 let safetyError = (message: string) => Object.assign(new Error(message), { code: 'AUTOMATION_SAFETY' })
@@ -118,7 +118,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
           let host = automationWebsiteHost(page.url)
           if (!page.warning || !host || !automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId)) return
           let key = usageKey(profileId, page.url), value = usage[key] ?? { profileId, siteHost: host, startedAt: now(), lastUsed: now() }
-          usage[key] = { ...value, warning: page.warning, warningHost: host, ...(actor ? { actors: actorsFor(value, actor, page.url) } : {}) }
+          usage[key] = { ...value, warning: page.warning, warningHost: host, warningAt: value.warning === page.warning ? value.warningAt ?? value.startedAt : now(), ...(actor ? { actors: actorsFor(value, actor, page.url) } : {}) }
           persist()
         }
         checkWarning()
@@ -167,7 +167,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let value = Object.values(usage).find(value => value.profileId === profileId && value.siteHost.replace(/^www\./, '') === new URL(page.url).hostname.replace(/^www\./, ''))
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning)
     if (!value && warning) throw safetyError(`Open ${warning.warningHost} and resolve its warning before resuming automation`)
-    if (value) { delete value.warning; delete value.warningHost; persist() }
+    if (value) { delete value.warning; delete value.warningHost; delete value.warningAt; persist() }
     return { resumed: true }
   }
   let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.values(usage).map(value => ({ ...value, retryAfter: reachedLimit(value) && now() < retryAt(value.profileId, value) ? new Date(retryAt(value.profileId, value)).toISOString() : null })) })

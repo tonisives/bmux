@@ -12,6 +12,7 @@ import { startRemoteHost } from './remote-host'
 import { createLocalRemote } from './remote-client'
 import { installUpdateMenu } from './update-menu'
 import { socketAgent } from './socket-agent'
+import { randomUUID } from 'node:crypto'
 
 let defaultDataDirectory = runtimeDataDirectory(process.platform, os.homedir(), {})
 let legacyDataDirectory = process.platform === 'darwin' && [path.join(os.homedir(), 'Library', 'Application Support', 'Browmux'), path.join(os.homedir(), 'Library', 'Application Support', 'Bmux')].find(directory => fs.existsSync(directory))
@@ -29,6 +30,8 @@ let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 let remoteHost: ReturnType<typeof startRemoteHost> | undefined
 let localRemote: ReturnType<typeof createLocalRemote> | undefined
+let enrollmentFile = path.join(dataDirectory, 'remote-enrollment.json')
+let enrolling = false
 
 let updateMenu: ReturnType<typeof installUpdateMenu>
 
@@ -115,6 +118,45 @@ void app.whenReady().then(async () => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     return localRemote!.list()
   })
+  ipcMain.handle('remote-account', async (event, endpoint: string, body?: unknown) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (typeof endpoint !== 'string') throw new Error('Invalid account endpoint')
+    if (endpoint === '/local/state') return { enabled: !!remoteHost, ...remoteHost?.status() }
+    if (endpoint === '/local/connect' || endpoint === '/local/disconnect') {
+      if (enrolling) throw new Error('Connection update in progress')
+      enrolling = true
+      try {
+        if (endpoint === '/local/connect') {
+          if (remoteHost) return remoteHost.status()
+          let name = os.hostname().toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0,40).replace(/^-+|-+$/g,'') || 'computer'
+          let service = `${name}-${randomUUID().slice(0,8)}`
+          let created = await localRemote!.account('/api/services', { service }) as { service: string; key: string }
+          let saved = false
+          try {
+            fs.writeFileSync(enrollmentFile, JSON.stringify({ url: localRemote!.origin, token: created.key, service }), { mode: 0o600, flag: 'wx' })
+            saved = true
+            remoteHost = startRemoteHost(runtime!, dataDirectory, enrollmentFile)
+          } catch (error) { await localRemote!.account('/api/services/revoke', { service }); if (saved) fs.unlinkSync(enrollmentFile); throw error }
+        } else {
+          if (process.env.BMUX_REMOTE_CONFIG) throw new Error('This host uses a remote configuration file. Manage its enrollment there.')
+          if (fs.existsSync(enrollmentFile)) {
+            let { service } = JSON.parse(fs.readFileSync(enrollmentFile,'utf8')) as { service: string }
+            await localRemote!.account('/api/services/revoke', { service })
+            remoteHost?.close(); remoteHost = undefined; fs.unlinkSync(enrollmentFile)
+          }
+        }
+        return { enabled: !!remoteHost, ...remoteHost?.status() }
+      } finally { enrolling = false }
+    }
+    return localRemote!.account(endpoint,body)
+  })
+  ipcMain.handle('remote-billing-open', (event, value: string) => {
+    let clientId = runtime!.sourceClient(event.sender.id)
+    if (!clientId || typeof value !== 'string') throw new Error('Untrusted renderer')
+    let url = new URL(value)
+    if (url.protocol !== 'https:' || !['checkout.stripe.com','billing.stripe.com'].includes(url.hostname) || url.username || url.password) throw new Error('Invalid billing URL')
+    return runtime!.openRemotePage(clientId, { key: 'billing', title: 'Billing', url: url.href })
+  })
   ipcMain.handle('remote-session-previews', (event, host: string, session: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
@@ -143,7 +185,8 @@ void app.whenReady().then(async () => {
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
   updateMenu = installUpdateMenu({ showMessageDialog: options => runtime!.showMessageDialog(options), enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
-  if (process.env.BMUX_REMOTE_CONFIG) remoteHost = startRemoteHost(runtime, dataDirectory, process.env.BMUX_REMOTE_CONFIG)
+  let remoteConfig = process.env.BMUX_REMOTE_CONFIG ?? (fs.existsSync(enrollmentFile) ? enrollmentFile : undefined)
+  if (remoteConfig) remoteHost = startRemoteHost(runtime, dataDirectory, remoteConfig)
   readyForLinks = true
   pendingLinks.splice(0).forEach(link => receiveLink(link.url, link.allowFile))
   if (pendingActivation) activateExistingClient()
