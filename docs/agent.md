@@ -215,7 +215,11 @@ needed for these defaults:
 - Reading page content through CLI or plugins gives the page a subtle blue pulse
   during the read and for 2.4 seconds afterward. Reduced motion uses a steady
   highlight. Read commands do not show or refresh the agent cursor.
-- A white wedge cursor appears on pointer actions and automated navigation.
+- Each pane shows recent agent commands at the bottom for five seconds. Labels
+  summarize the operation, such as `scroll down 500 px` or `click (120, 80)`;
+  typed text and script contents stay out of the overlay.
+- A white wedge cursor appears on pointer actions, scrolling, and automated navigation.
+  Every pane keeps its own cursor, including background panes.
   It rotates gently while idle and pulses blue on clicks. It hides after 20
   seconds without pointer or navigation activity. **Hide agent cursor** in Agent
   information keeps it hidden for that pane until **Show agent cursor** is chosen.

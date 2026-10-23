@@ -65,8 +65,9 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     let previous = positions.get(tab) ?? { x: width / 2, y: height / 2 }
     return { point: { x: Math.max(0, Math.min(width - 1, previous.x)), y: Math.max(0, Math.min(height - 1, previous.y)) }, width, height }
   }
-  let show = async (tab: string, send: Send, validate: () => void) => {
-    let { point } = await startPoint(tab, send, validate)
+  let show = async (tab: string, send: Send, validate: () => void, target?: Point) => {
+    let { point, width, height } = await startPoint(tab, send, validate)
+    if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) point = { x: Math.max(0, Math.min(width - 1, target.x)), y: Math.max(0, Math.min(height - 1, target.y)) }
     await send('Runtime.evaluate', { expression: pointerScript })
     validate()
     await update(tab, send, point)

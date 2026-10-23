@@ -32,6 +32,18 @@ test('shows CLI activity without dispatching mouse input and keeps each pane pos
   expect(expressions.at(-1)).toContain('"x":500,"y":400')
 })
 
+test('shows wheel targets independently in four panes without dispatching hover input', async () => {
+  let { mouse, send, events, expressions } = fixture()
+  for (let index = 0; index < 4; index++) await mouse.show(`pane-${index}`, send, () => {}, { x: 100 + index * 50, y: 200 + index * 50 })
+  for (let index = 0; index < 4; index++) {
+    await mouse.show(`pane-${index}`, send, () => {})
+    expect(expressions.at(-1)).toContain(`"x":${100 + index * 50},"y":${200 + index * 50}`)
+  }
+  await mouse.show('pane-0', send, () => {}, { x: -10, y: 900 })
+  expect(expressions.at(-1)).toContain('"x":0,"y":799')
+  expect(events).toEqual([])
+})
+
 test('hides after inactivity, resumes on activity, and reserves pulses for clicks', async () => {
   vi.useFakeTimers()
   try {

@@ -53,7 +53,7 @@ test('agent scrolls animate and share an action lock across panes and profiles o
     expect(positions.at(-1)!.y).toBeCloseTo(await first.evaluate(() => Math.round(innerHeight / 2)), -1)
     let clickedAt = await second.evaluate(() => (window as any).clicks[0] as number)
     expect(clickedAt - positions.at(-1)!.at).toBeGreaterThanOrEqual(800)
-    await expect(first.locator('#bmux-virtual-mouse')).toHaveCount(0)
+    await expect(first.locator('#bmux-virtual-mouse')).toBeVisible()
     let before = await first.evaluate(() => scrollY)
     await first.evaluate(() => { (window as any).positions = [] })
     let point = await first.evaluate(() => ({ x: innerWidth / 2, y: innerHeight / 2 }))
