@@ -74,13 +74,18 @@ void app.whenReady().then(async () => {
   })
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
-  app.on('before-quit', () => {
+  let quitting = false, flushing: Promise<void> | undefined
+  app.on('before-quit', event => {
+    if (quitting) return
+    event.preventDefault()
+    if (flushing) return
     updateMenu?.close()
     remoteHost?.close()
     localRemote?.close()
-    runtime?.shutdown()
+    flushing = runtime?.shutdown() ?? Promise.resolve()
     server?.close()
     removeSocket(socketPath)
+    void flushing.finally(() => { quitting = true; app.quit() })
   })
   if (background) app.dock?.hide()
   Menu.setApplicationMenu(Menu.buildFromTemplate([

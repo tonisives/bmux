@@ -10,18 +10,18 @@ import { copyConnectionCookies } from './connection-cookies'
 import { createFilePickers } from './file-pickers'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
-import { app, BaseWindow, BrowserWindow, View, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net } from 'electron'
+import { app, BaseWindow, BrowserWindow, View, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net, nativeImage } from 'electron'
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
+import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, WorkspaceSession } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { parseCommandLine } from '../shared/command-line'
 import { resolvePaneTarget, selectedPane } from '../shared/command-target'
-import { checkSessionTransfer, insertionIndex, moveWindow, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
+import { checkSessionTransfer, insertionIndex, moveWindow, reorderSession, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
 import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
@@ -81,6 +81,7 @@ import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
 import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
+import { createPreviewCache } from './preview-cache'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
@@ -211,6 +212,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let filePickers = createFilePickers(() => { void scheduleVisuals() })
   let memoryTimer: ReturnType<typeof setInterval> | undefined
   let idleUnloadTimer: ReturnType<typeof setInterval> | undefined
+  let previewTimer: ReturnType<typeof setInterval> | undefined
   let memory = createMemoryDiagnostics(previous => {
     let owners = memoryOwners(webContents.getAllWebContents())
     let tabDetails = walkPanes(model).map(({ session, window, pane }) => {
@@ -274,7 +276,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     requestPermissions: async () => false,
   }))
   let security: Record<string, SiteSecurity> = {}
-  let snapshots: Record<string, Snapshot> = {}
+  let previewCache = createPreviewCache(dataDirectory)
+  let snapshots = previewCache.snapshots
+  let previewOwners = () => walkPanes(model).map(({ session, window, pane }) => ({ paneId: pane.id, windowId: window.id, profileId: pane.profileId, persistent: !session.private && !session.ephemeral }))
   let crashes: Record<string, string> = {}
   let loading: Record<string, boolean> = {}
   let audio: PublicState['audio'] = {}
@@ -1184,7 +1188,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       void scheduleVisuals()
     }
     contents.on('did-start-loading', () => { loading[tabId] = true; publish() })
-    contents.on('did-stop-loading', () => { delete loading[tabId]; live.pendingUrl = undefined; publish() })
+    contents.on('did-stop-loading', () => { delete loading[tabId]; live.pendingUrl = undefined; publish(); setTimeout(() => requestPreview(tabId, live), 250).unref() })
     contents.on('page-favicon-updated', (_event, urls) => {
       let iconUrl = urls.find(url => /^https?:\/\//i.test(url) || /^data:image\//i.test(url))
       if (!iconUrl) return
@@ -1556,7 +1560,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     remotePages.delete(tabId)
     for (let [requestId, request] of permissions) if (request.paneId === tabId) { request.reply(false); permissions.delete(requestId) }
     delete security[tabId]
-    delete snapshots[tabId]
     delete crashes[tabId]
     delete loading[tabId]
     delete audio[tabId]
@@ -1649,15 +1652,25 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let requestPreview = (tabId: string, live: LiveTab) => {
     // Preview work must never hold up detaching or attaching native views.
-    if (loading[tabId] || tabQueues.has(tabId) || snapshotPending.has(tabId)) return
+    if (shuttingDown || !isLiveTabOpen(live) || tabs.get(tabId) !== live || loading[tabId] || tabQueues.has(tabId) || snapshotPending.has(tabId) || snapshotPending.size >= 4) return
+    if (!/^(https?:|file:)/.test(live.contents.getURL())) return
     snapshotPending.add(tabId)
     let url = live.contents.getURL()
+    let capture = () => {
+      let debuggerApi = live.contents.debugger
+      if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+      return debuggerApi.sendCommand('Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false })
+    }
     void Promise.race([
-      cdp(tabId, 'Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false }),
+      Promise.resolve().then(capture),
       sleep(3000).then(() => { throw new Error('Preview capture timed out') }),
     ]).then(result => {
-      if (result.data && tabs.get(tabId) === live && !live.contents.isDestroyed() && live.contents.getURL() === url) {
-        snapshots[tabId] = { image: `data:image/jpeg;base64,${result.data}`, capturedAt: Date.now() }; publish()
+      if (result.data && !shuttingDown && tabs.get(tabId) === live && isLiveTabOpen(live) && live.contents.getURL() === url) {
+        let image = nativeImage.createFromBuffer(Buffer.from(result.data, 'base64'))
+        if (image.isEmpty()) return
+        let size = image.getSize(), scale = Math.min(1, 960 / size.width, 720 / size.height)
+        if (scale < 1) image = image.resize({ width: Math.round(size.width * scale), height: Math.round(size.height * scale) })
+        previewCache.set(tabId, { image: `data:image/jpeg;base64,${image.toJPEG(65).toString('base64')}`, capturedAt: Date.now() }); publish()
       }
     }).catch(() => undefined).finally(() => snapshotPending.delete(tabId))
   }
@@ -1680,6 +1693,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let reconcile = () => {
     if (shuttingDown) return
+    previewCache.reconcile(previewOwners())
     let liveIds = new Set(walkPanes(model).map(({ pane }) => pane.id))
     for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
     for (let tabId of Object.keys(favicons)) if (!liveIds.has(tabId)) delete favicons[tabId]
@@ -2706,7 +2720,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (args.newPanes === true) session.device = device
       else delete session.device
       if (!changed) { save(); return pane }
-      delete snapshots[pane.id]
+      previewCache.remove(pane.id)
       disposeTab(pane.id)
       save(); await scheduleVisuals()
       let live = tabs.get(pane.id)
@@ -2721,7 +2735,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (pane.profileId !== required(args, 'profile')) throw new Error('Pane profile changed')
       delete pane.device
       delete session.device
-      delete snapshots[pane.id]
+      previewCache.remove(pane.id)
       disposeTab(pane.id)
       save(); await scheduleVisuals()
       let live = tabs.get(pane.id)
@@ -2775,6 +2789,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let profile = resolve(model.profiles, args.profile, 'Profile')
       model.newSessionProfileId = profile.id
       save(); return profile
+    }
+    if (method === 'session.move') {
+      let session = reorderSession(model, args.session, args.target, args.position)
+      save(); return session
+    }
+    if (method === 'session.reorder') {
+      let session = resolve(model.sessions, args.session, 'Session')
+      if (args.direction !== 'up' && args.direction !== 'down') throw new Error('Session direction must be up or down')
+      let target = model.sessions[model.sessions.indexOf(session) + (args.direction === 'up' ? -1 : 1)]
+      if (target) reorderSession(model, session.id, target.id, args.direction === 'up' ? 'before' : 'after')
+      save(); return session
     }
     if (method === 'pane.profile.set') {
       let { pane } = paneById(model, args.pane)
@@ -3353,7 +3378,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let navigation = Symbol()
       live.pendingNavigation = navigation
       live.pendingUrl = url
-      delete crashes[tabId]; delete snapshots[tabId]; security[tabId] = initialSecurity(url, true); loading[tabId] = true
+      delete crashes[tabId]; security[tabId] = initialSecurity(url, true); loading[tabId] = true
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
@@ -3484,6 +3509,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let start = async (background: boolean) => {
     await settingsReady
+    await previewCache.restore(previewOwners())
     await fs.rm(privateStorageRoot, { recursive: true, force: true })
     configuration = createConfig(configPath(dataDirectory), refreshSettings, legacyPrefix)
     for (let { session, pane } of walkPanes(model)) {
@@ -3523,6 +3549,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let recordMemory = () => { try { memory.record() } catch (error) { reportError(error) } }
     recordMemory()
     memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)
+    previewTimer = setInterval(() => {
+      for (let [paneId, live] of tabs) if (!snapshots[paneId] || live.parent.isVisible() && Date.now() - snapshots[paneId].capturedAt >= 15000) requestPreview(paneId, live)
+    }, 15000)
+    previewTimer.unref()
     memoryTimer.unref()
     let idleTimer = setInterval(() => { void checkIdleTabs() }, MEMORY_INTERVAL_MS)
     idleTimer.unref()
@@ -3537,11 +3567,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     await app.dock?.show(); selected.window.show(); await focusWindow(selected.window)
   }
   let shutdown = () => {
-    if (shuttingDown) return
+    if (shuttingDown) return previewCache.flush()
     shuttingDown = true
     proxyRecovery.close()
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
+    clearInterval(previewTimer)
     app.off('login', proxyLogin)
     void proxyRelays.closeAll()
     clickMode.cancel()
@@ -3559,6 +3590,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     writeModel(dataDirectory, model, bookmarkFile)
     for (let tabId of tabs.keys()) disposeTab(tabId)
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
+    return previewCache.flush()
   }
   let remote = {
     closeSession: async (sessionId: string) => {

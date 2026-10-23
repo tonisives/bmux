@@ -22,6 +22,16 @@ export let insertionIndex = (session: WorkspaceSession, position: unknown, befor
   return index + (after ? 1 : 0)
 }
 
+export let reorderSession = (model: Model, sessionId: unknown, targetId: unknown, position: unknown) => {
+  let session = resolve(model.sessions, sessionId, 'Session'), target = resolve(model.sessions, targetId, 'Session')
+  if (position !== 'before' && position !== 'after') throw new Error('Session position must be before or after')
+  let source = model.sessions.indexOf(session), destination = model.sessions.indexOf(target) + (position === 'after' ? 1 : 0)
+  if (source < destination) destination--
+  model.sessions.splice(source, 1)
+  model.sessions.splice(destination, 0, session)
+  return session
+}
+
 export let moveWindow = (model: Model, args: Record<string, unknown>) => {
   let client = args.client ? resolve(model.clients, args.client, 'Client') : undefined
   let window = resolve(model.sessions.flatMap(session => session.windows), args.window ?? client?.windowId, 'Window')

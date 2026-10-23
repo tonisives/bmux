@@ -49,7 +49,7 @@ import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'
 type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings'
-type AgentDetails = { paneId: string } | { actors: AutomationActor[] }
+type AgentDetails = { paneId: string } | { actors: AutomationActor[] } | { windowId: string } | { sessionId: string }
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
@@ -63,6 +63,7 @@ export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
   let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
   let [control, setControl] = useState<Control | null>(null), [initialPlugin, setInitialPlugin] = useState<BuiltinTool | null>(null)
+  let [secondaryControl, setSecondaryControl] = useState<Control | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
   let [message, setMessage] = useState(''), [agentDetails, setAgentDetails] = useState<AgentDetails>({ actors: [] })
@@ -72,18 +73,17 @@ export let App = () => {
   let [settingsTarget, setSettingsTarget] = useState<'build' | null>(null)
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
-  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
   let accept = useCallback((next: PublicState) => {
     let { client, tab, window } = selection(next)
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
-    if (previous.current && previous.current !== target) { setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
+    if (previous.current && previous.current !== target) { setControl(current => current === 'sessions' && removedWindow ? current : null); setSecondaryControl(null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
     if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
       setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
     knownPanes.current = new Set(paneIds)
-    if (next.dialogPrompt) { setControl(null); setHistoryPopup(null) }
+    if (next.dialogPrompt) { setControl(null); setSecondaryControl(null); setHistoryPopup(null) }
     else if (next.pluginPrompt) setControl('plugin-dialog')
     else setControl(current => current === 'plugin-dialog' ? null : current)
     previous.current = target; setState(next)
@@ -92,7 +92,7 @@ export let App = () => {
     try { return await bridge.command({ method, args }) }
     catch (error) { setMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); return undefined }
   }, [])
-  let show = useCallback(async (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => {
+  let show = useCallback(async (next: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => {
     setInitialPlugin(plugin ?? null); setHistoryPopup(null)
     if (paneId) {
       let current = await bridge.state()
@@ -102,13 +102,16 @@ export let App = () => {
       }
       accept(current)
     }
-    if (control === 'address') { void run('focus-ui', { pane: paneId }); setAddressFocusVersion(version => version + 1) }
-    setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
-  }, [accept, run])
+    if (next === 'address') { void run('focus-ui', { pane: paneId }); setAddressFocusVersion(version => version + 1) }
+    setBookmarkDestination(next === 'bookmark' ? destination ?? null : null); setMessage('')
+    if (control === 'sessions' && (secondaryControl || next === 'agent-info')) setSecondaryControl(next)
+    else { setSecondaryControl(null); setControl(next) }
+  }, [accept, run, control, secondaryControl])
   let dismiss = useCallback(() => {
+    if (secondaryControl) { setSecondaryControl(null); return }
     if (state?.pluginPrompt) void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
     setControl(null); setHistoryPopup(null); setMessage('')
-  }, [state?.pluginPrompt])
+  }, [state?.pluginPrompt, secondaryControl])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
@@ -122,19 +125,7 @@ export let App = () => {
   let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
-  useEffect(() => {
-    if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
-    previousDialogPrompt.current = !!state.dialogPrompt
-    previousControl.current = control
-    previousHistoryPopup.current = !!historyPopup
-    let cancelled = false
-    // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
-      if (!cancelled && !control && !state.dialogPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
-    })
-    return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, run])
+  useNativeOverlay(state, control, panel, historyPopup, addressSuggestionsVisible, run)
   useControlDismiss(control, dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
@@ -154,9 +145,27 @@ export let App = () => {
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <BrowserStatus />
     {notices.length > 0 && <Notifications notices={notices} />}
-    {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
+    {panel && panel !== 'profiles' && <Panel key={panel} type={panel} inactive={!!secondaryControl} />}
+    {secondaryControl && <SecondaryPanel type={secondaryControl} />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
+}
+
+let useNativeOverlay = (state: PublicState | null, control: Control | null, panel: Control | null, historyPopup: HistoryPopup | null, addressSuggestionsVisible: boolean, run: UIContext['run']) => {
+  let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
+  useEffect(() => {
+    if (!state?.clientId) return
+    let restoreFocus = previousDialogPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    previousDialogPrompt.current = !!state.dialogPrompt
+    previousControl.current = control
+    previousHistoryPopup.current = !!historyPopup
+    let cancelled = false
+    // Child layout effects publish the selected page's bounds before it receives focus.
+    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
+      if (!cancelled && !control && !state.dialogPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
+    })
+    return () => { cancelled = true }
+  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, run])
 }
 
 let BrowserStatus = () => {
@@ -1354,7 +1363,22 @@ let PluginQuickSettings = ({ feature }: { feature: 'adblock' | 'dark-mode' }) =>
   </div></div>
 }
 
-let Panel = ({ type }: { type: Control }) => {
+let SecondaryPanel = ({ type }: { type: Control }) => {
+  let { dismiss } = useUI()
+  let opener = useRef(document.activeElement as HTMLElement | null)
+  let ref = useRef<HTMLDivElement>(null)
+  useEffect(() => () => { opener.current?.focus({ preventScroll: true }) }, [])
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    if (event.key === 'Escape') { event.preventDefault(); dismiss() }
+    if (event.key !== 'Tab') return
+    let buttons = [...(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]') ?? [])].filter(element => element.getClientRects().length)
+    let index = buttons.indexOf(document.activeElement as HTMLElement)
+    if (buttons.length && (event.shiftKey ? index <= 0 : index === buttons.length - 1)) { event.preventDefault(); buttons[event.shiftKey ? buttons.length - 1 : 0].focus() }
+  }
+  return <div ref={ref} onKeyDown={keys}><Panel type={type} /></div>
+}
+let Panel = ({ type, inactive = false }: { type: Control; inactive?: boolean }) => {
   let { state, dismiss } = useUI()
   let ref = useRef<HTMLDivElement>(null)
   let [sessionTab, setSessionTab] = useState(() => localStorage.getItem('session-picker-tab') === 'remote' ? 'remote' : 'local')
@@ -1374,7 +1398,7 @@ let Panel = ({ type }: { type: Control }) => {
   let sessionPicker = type === 'sessions'
   let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'General anti-bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) dismiss() }
-  return <div className={css.overlay} onClick={dismissBackground}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs}>
+  return <div className={css.overlay} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs}>
     <header>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Sessions</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote sessions</button>
@@ -1401,7 +1425,8 @@ let Panel = ({ type }: { type: Control }) => {
 }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
-  let actors = 'paneId' in agentDetails ? (state.activeAgents ?? []).filter(actor => actor.paneId === agentDetails.paneId) : agentDetails.actors
+  let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
+  let actors = 'paneId' in agentDetails ? (state.activeAgents ?? []).filter(actor => actor.paneId === agentDetails.paneId) : 'actors' in agentDetails ? agentDetails.actors : paneAgents(panes, state.activeAgents)
   let [busy, setBusy] = useState<string | null>(null)
   let focus = async (actor: AutomationActor) => {
     setBusy(actor.paneId)
@@ -1824,6 +1849,8 @@ let useSessionNavigation = (toggleSort: () => void) => {
   }
   return { ref, input, query, change, sessionKeys, focusMode, mode, count }
 }
+type SessionDrop = { id: string; position: 'before' | 'after' }
+let SessionOrderContext = createContext<{ enabled: boolean; start: (id: string) => void; end: () => void; over: (event: DragEvent<HTMLElement>, id: string) => void; drop: (event: DragEvent<HTMLElement>, id: string) => void; target: SessionDrop | null } | null>(null)
 let SessionPicker = () => {
   let { state, run } = useUI()
   let [previewId, setPreviewId] = useState<string | undefined>(() => selection(state).client?.windowId)
@@ -1831,8 +1858,13 @@ let SessionPicker = () => {
   let [creatingProfile, setCreatingProfile] = useState(false)
   let [newProfileName, setNewProfileName] = useState('')
   let [recent, setRecent] = useState(() => localStorage.getItem('session-sort-recent') === 'true')
+  let [reordering, setReordering] = useState(false)
+  let dragSource = useRef<string | null>(null)
+  let [dropTarget, setDropTarget] = useState<SessionDrop | null>(null)
+  let endDrag = () => { dragSource.current = null; setDropTarget(null) }
+  let toggleReordering = () => { endDrag(); setReordering(!reordering); setRecent(false); localStorage.setItem('session-sort-recent', 'false') }
   let focusWindow = useRef<string | undefined>(undefined)
-  let toggleSort = () => { focusWindow.current = (document.activeElement as HTMLElement)?.dataset.windowRow ?? selection(state).client?.windowId; setRecent(!recent); localStorage.setItem('session-sort-recent', String(!recent)) }
+  let toggleSort = () => { endDrag(); setReordering(false); focusWindow.current = (document.activeElement as HTMLElement)?.dataset.windowRow ?? selection(state).client?.windowId; setRecent(!recent); localStorage.setItem('session-sort-recent', String(!recent)) }
   let { ref, input, query, change, sessionKeys, focusMode, mode, count } = useSessionNavigation(toggleSort)
   useLayoutEffect(() => {
     if (!ref.current?.contains(document.activeElement)) ref.current?.querySelector<HTMLButtonElement>(`[data-window-row="${focusWindow.current}"]`)?.focus({ preventScroll: true })
@@ -1844,6 +1876,19 @@ let SessionPicker = () => {
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let backFirst = !!backSession && !!query.trim() && (!!fuzzyMatch(query, 'back') || query.trim().toLowerCase() === 'go back')
   let sessions = searchSessions(state.model.sessions, query)
+  if (reordering) sessions.sort((a, b) => state.model.sessions.indexOf(a.session) - state.model.sessions.indexOf(b.session))
+  let dragPosition = (event: DragEvent<HTMLElement>): SessionDrop['position'] => event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2 ? 'before' : 'after'
+  let dragOver = (event: DragEvent<HTMLElement>, id: string) => {
+    if (!reordering || !dragSource.current || dragSource.current === id) return
+    event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'move'
+    setDropTarget({ id, position: dragPosition(event) })
+  }
+  let drop = (event: DragEvent<HTMLElement>, id: string) => {
+    if (!reordering || !dragSource.current || dragSource.current === id) return
+    event.preventDefault(); event.stopPropagation()
+    void run('session.move', { session: dragSource.current, target: id, position: dragPosition(event) })
+    endDrag()
+  }
   let windows = recent ? searchRecentWindows(state.model.sessions, query, client) : []
   let previewWindow = state.model.sessions.flatMap(session => session.windows).find(window => window.id === previewId)
   let previewRow = (target: Element) => {
@@ -1881,7 +1926,7 @@ let SessionPicker = () => {
     setBusy(false)
   }
   let picker = <div ref={ref} data-picker className={css.sessionPicker} onKeyDown={sessionKeys} onFocusCapture={previewFocus} onMouseOver={previewHover} role="group" aria-label="Choose session">
-    <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
+    <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search sessions" value={query} onChange={change} /><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder sessions" title="Reorder sessions" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list data-session-recent={recent || undefined}>
     {(backFirst || (!recent && !query.trim())) && backRow}
     {recent ? windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />) : sessions.map(result => <SessionTree key={result.session.id} result={result} now={now} query={query} />)}
@@ -1894,7 +1939,8 @@ let SessionPicker = () => {
     <button className={`${css.listRow} ${css.newSession} ${css.sessionLabelRow}`} onClick={createPrivate} disabled={busy} aria-label="new private session"><SessionNumber /><span className={css.sessionLabelText}>new private session</span><PrivateIcon /></button>
     </div>
   </div>
-  return <div className={css.sessionWorkspace}>{picker}<SessionPreview window={previewWindow} /></div>
+  let order = { enabled: reordering, start: (id: string) => { dragSource.current = id }, end: endDrag, over: dragOver, drop, target: dropTarget }
+  return <SessionOrderContext.Provider value={order}><div className={css.sessionWorkspace}>{picker}<SessionPreview window={previewWindow} /></div></SessionOrderContext.Provider>
 }
 let SessionPreview = ({ window }: { window?: InternalWindow }) => <aside className={css.sessionPreview} aria-label="Session preview" data-preview-window={window?.id}>
   <div className={css.sessionPreviewTitle} title={window?.name}>{window?.name}</div>
@@ -1912,6 +1958,7 @@ let NewSessionProfile = ({ onCreate }: { onCreate: () => void }) => {
   return <div className={css.sessionProfilePreference}><select id="new-session-profile" aria-label="Profile for new regular sessions" value={state.model.newSessionProfileId ?? 'profile_default'} onChange={change} onKeyDown={keys}>{state.model.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><button type="button" data-picker-action onClick={onCreate} aria-label="New profile" title="New profile">+</button></div>
 }
 let SessionTree = ({ result: { session, windows, matched }, now, query }: { result: ReturnType<typeof searchSessions>[number]; now: number; query: string }) => {
+  let order = useContext(SessionOrderContext)!
   let [expanded, setExpanded] = useState(true)
   let ref = useRef<HTMLDivElement>(null)
   useEffect(() => setExpanded(true), [query])
@@ -1927,15 +1974,31 @@ let SessionTree = ({ result: { session, windows, matched }, now, query }: { resu
     event.preventDefault()
     changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
   }
+  let dragOver = (event: DragEvent<HTMLDivElement>) => order.over(event, session.id)
+  let drop = (event: DragEvent<HTMLDivElement>) => order.drop(event, session.id)
+  let chevron = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
   return <div ref={ref} data-session-tree={session.id} onKeyDown={treeKeys} onContextMenu={toggleMouse}>
+    <div className={css.sessionTreeHeading} data-session-heading={session.id} data-drop-position={order.target?.id === session.id ? order.target.position : undefined} onDragOver={dragOver} onDrop={drop}>
+    {order.enabled && <SessionDragHandle id={session.id} name={session.name} />}
     <div className={css.sessionTreeHeader}>
       {matched ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
-      <button className={css.sessionToggle} data-picker-action data-session-toggle onClick={toggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} windows in ${session.name}`} aria-expanded={expanded}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+      <button className={css.sessionToggle} data-picker-action data-session-toggle onClick={toggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} windows in ${session.name}`} aria-expanded={expanded}>{chevron}</button>
+    </div>
     </div>
     {expanded && <div className={css.sessionWindows} data-session-windows role="group" aria-label={`Windows in ${session.name}`}>
       {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
     </div>}
   </div>
+}
+let SessionDragHandle = ({ id, name }: { id: string; name: string }) => {
+  let { run } = useUI(), order = useContext(SessionOrderContext)!
+  let start = (event: DragEvent<HTMLButtonElement>) => { event.stopPropagation(); order.start(id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }
+  let keys = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
+    event.preventDefault(); event.stopPropagation()
+    void run('session.reorder', { session: id, direction: event.key === 'ArrowUp' ? 'up' : 'down' })
+  }
+  return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={start} onDragEnd={order.end} onKeyDown={keys} aria-label={`Drag session ${name} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>
 }
 let RemoteSessionPicker = () => {
   let { dismiss, onMessage } = useUI()
@@ -2028,7 +2091,7 @@ let SessionAgent = ({ window, sessionId }: { window?: InternalWindow; sessionId?
   let active = actors.some(actor => actor.active)
   let label = `${active ? 'Active agent' : 'Last agent'} in ${window?.name ?? session?.name}`
   let title = `${label}: ${actors.map(actor => actor.agentName ?? actor.agentId).join(', ')}`
-  let open = () => { setAgentDetails({ actors }); show('agent-info') }
+  let open = () => { setAgentDetails(window ? { windowId: window.id } : { sessionId: sessionId! }); show('agent-info') }
   return <button type="button" className={css.sessionAgent} data-picker-action data-agent-active={active} aria-label={label} title={title} onClick={open}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></svg></button>
 }
 let SessionAudio = ({ window, sessionId }: { window?: InternalWindow; sessionId?: string }) => {
