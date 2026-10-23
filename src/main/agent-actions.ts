@@ -24,8 +24,8 @@ export let agentActionInput = (method: string, args: Record<string, unknown>, ow
 
 export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random) => {
   let scope = new AsyncLocalStorage<string>(), tails = new Map<string, Promise<void>>(), inputs = new Map<string, Lease>()
-  let keysFor = (pane: string, urls: string[]) => [...new Set([`pane:${pane}`, ...urls.flatMap(value => {
-    try { let url = new URL(value); return /^https?:$/.test(url.protocol) ? [`domain:${url.hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '')}`] : [] } catch { return [] }
+  let keysFor = (pane: string, profileId: string, urls: string[]) => [...new Set([`pane:${pane}`, ...urls.flatMap(value => {
+    try { let url = new URL(value); return /^https?:$/.test(url.protocol) ? [`domain:${JSON.stringify([profileId, url.hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '')])}`] : [] } catch { return [] }
   })])].sort()
   let acquire = async (keys: string[]) => {
     let previous = Promise.all(keys.map(key => tails.get(key) ?? Promise.resolve()))
@@ -41,7 +41,7 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     inputs.delete(pane); clearTimeout(lease.timer)
     await lease.release()
   }
-  let run = async <T>(pane: string, urls: () => string[], operation: () => Promise<T>, input?: Input): Promise<T> => {
+  let run = async <T>(pane: string, profileId: string, urls: () => string[], operation: () => Promise<T>, input?: Input): Promise<T> => {
     if (scope.getStore() === pane) return operation()
     let held = inputs.get(pane)
     if (held && input?.owner === held.owner) {
@@ -59,9 +59,9 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     }
     let release!: () => void
     while (true) {
-      let keys = keysFor(pane, urls())
+      let keys = keysFor(pane, profileId, urls())
       release = await acquire(keys)
-      try { if (JSON.stringify(keys) === JSON.stringify(keysFor(pane, urls()))) break } catch (error) { release(); throw error }
+      try { if (JSON.stringify(keys) === JSON.stringify(keysFor(pane, profileId, urls()))) break } catch (error) { release(); throw error }
       release()
     }
     let retained = false

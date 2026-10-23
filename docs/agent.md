@@ -203,12 +203,12 @@ needed for these defaults:
   Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
   Mouse movement and input releases are immediate.
-- Page actions share a domain lock across all panes and profiles, plus a lock for
-  each pane. Clicks, scrolls, typing, keys, navigation, and scripts finish with a
+- Page actions share a domain lock across panes in the same profile, plus a lock
+  for each pane. Clicks, scrolls, typing, keys, navigation, and scripts finish with a
   random 0.8–1.2 second pause before the next action can run. `www` and bare
   hostnames share the domain lock. Unrelated domains in different panes proceed
-  independently. This also applies with Anti-bot or mouse simulation off; longer
-  social-site delays still apply. DOM reads, waits, and screenshots do not take
+  independently, as do separate profiles. This also applies with Anti-bot or mouse
+  simulation off; longer social-site delays still apply. DOM reads, waits, and screenshots do not take
   the action lock. Raw mouse and keyboard presses retain it until release;
   releases reach the page immediately.
 - Agent scroll commands and CDP wheel events move the page smoothly and finish

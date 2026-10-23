@@ -702,7 +702,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return profile
   }
   let automationPointerTabs = new Set<string>()
-  let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => agentActions.run(pane, () => {
+  let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => agentActions.run(pane, paneById(model, pane).pane.profileId, () => {
     let live = tabs.get(pane), { tab, session } = tabById(model, pane), target = automationTargetUrl(method, args)
     let current = live && !live.contents.isDestroyed() ? live.contents.getURL() : ''
     if (!current || current === 'about:blank' && tab.url !== 'about:blank') current = live?.pendingUrl ?? tab.url

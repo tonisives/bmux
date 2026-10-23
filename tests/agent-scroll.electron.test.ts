@@ -10,7 +10,7 @@ import { stringify } from 'yaml'
 
 let exec = promisify(execFile)
 
-test('agent scrolls animate and share an action lock across panes and profiles on the same domain', async () => {
+test('agent scrolls animate and share a domain lock within each profile', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-scroll-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((_request, response) => {
@@ -38,7 +38,7 @@ test('agent scrolls animate and share an action lock across panes and profiles o
     let first = application.context().pages().find(page => page.url() === `${url}/first`)!
     let profile = await rpc('profile.create', { name: 'Other agent' })
     let otherUrl = `${url.replace('example.com', 'www.example.com')}/second`
-    let other = await rpc('split-window', { pane, profile: profile.id, url: otherUrl })
+    let other = await rpc('split-window', { pane, url: otherUrl })
     await expect.poll(() => application!.context().pages().some(page => page.url() === otherUrl)).toBe(true)
     let second = application.context().pages().find(page => page.url() === otherUrl)!
     await expect(first.locator('h1')).toBeVisible(); await expect(second.locator('button')).toBeVisible()
@@ -53,6 +53,21 @@ test('agent scrolls animate and share an action lock across panes and profiles o
     expect(positions.at(-1)!.y).toBeCloseTo(await first.evaluate(() => Math.round(innerHeight / 2)), -1)
     let clickedAt = await second.evaluate(() => (window as any).clicks[0] as number)
     expect(clickedAt - positions.at(-1)!.at).toBeGreaterThanOrEqual(800)
+    let independentUrl = `${url}/independent`
+    let independent = await rpc('split-window', { pane, profile: profile.id, url: independentUrl })
+    await expect.poll(() => application!.context().pages().some(page => page.url() === independentUrl)).toBe(true)
+    let third = application.context().pages().find(page => page.url() === independentUrl)!
+    await expect(third.locator('h1')).toBeVisible()
+    // Hold one profile's domain lock while another profile completes an action.
+    let input = { pane, method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: 'Shift', code: 'ShiftLeft' } }
+    await cli('cdp', input)
+    let queued = cli('eval', { pane: other.id, expression: 'window.actionRan = true' })
+    try {
+      await cli('eval', { pane: independent.id, expression: 'window.actionRan = true' })
+      expect(await third.evaluate(() => (window as any).actionRan)).toBe(true)
+      expect(await second.evaluate(() => (window as any).actionRan)).toBeUndefined()
+    } finally { await cli('cdp', { ...input, params: { ...input.params, type: 'keyUp' } }); await queued }
+    expect(await second.evaluate(() => (window as any).actionRan)).toBe(true)
     await expect(first.locator('#bmux-virtual-mouse')).toBeVisible()
     let before = await first.evaluate(() => scrollY)
     await first.evaluate(() => { (window as any).positions = [] })
