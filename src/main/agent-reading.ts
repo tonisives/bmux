@@ -58,8 +58,7 @@ let readingScript = `(() => {
     });
   };
   motion.addEventListener('change',updateMotion);
-  overlay.addEventListener('bmux-agent-reading',event => {
-    let {id,active} = event.detail;
+  overlay[Symbol.for('bmux-agent-reading')] = ({id,active}) => {
     if (active) {
       clearTimeout(timer);
       pending.add(id);
@@ -70,13 +69,13 @@ let readingScript = `(() => {
       if (!pending.delete(id)) return;
       if (!pending.size) timer = setTimeout(() => { overlay.style.setProperty('display','none','important'); updateMotion(); },2400);
     }
-  });
+  };
 })()`
 
 // Visual feedback runs beside the command; page loading must never hold up a read.
 export let withAgentReading = async <T>(send: Send, read: () => Promise<T>, current = () => true): Promise<T> => {
   let id = randomUUID()
-  let update = (active: boolean) => active && !current() ? Promise.resolve() : send('Runtime.evaluate', { expression: `document.getElementById('bmux-agent-reading')?.dispatchEvent(new CustomEvent('bmux-agent-reading',{detail:${JSON.stringify({ id, active })}}))` })
+  let update = (active: boolean) => active && !current() ? Promise.resolve() : send('Runtime.evaluate', { expression: `document.getElementById('bmux-agent-reading')?.[Symbol.for('bmux-agent-reading')](${JSON.stringify({ id, active })})` })
   let started = send('Runtime.evaluate', { expression: readingScript }).then(() => update(true)).catch(() => undefined)
   try { return await read() }
   finally { void started.then(() => update(false)).catch(() => undefined) }

@@ -35,8 +35,7 @@ let pointerScript = `(() => {
   let hide = () => { visible = false; pointer.style.setProperty('display','none','important'); updateMotion(); };
   reducedMotion.addEventListener('change', updateMotion);
   updateMotion();
-  pointer.addEventListener('bmux-agent-cursor', event => {
-    let {x,y,hidden,click} = event.detail;
+  pointer[Symbol.for('bmux-agent-cursor')] = ({x,y,hidden,click}) => {
     clearTimeout(idleTimer);
     if (hidden) { hide(); return; }
     if (x !== undefined) pointer.style.setProperty('transform','translate('+x+'px,'+y+'px)','important');
@@ -48,14 +47,14 @@ let pointerScript = `(() => {
       clickAnimation = pulse.animate([{transform:'translate(-50%,-50%) scale(.5)',opacity:1},{transform:'translate(-50%,-50%) scale(1.8)',opacity:0}], {duration:650,easing:'ease-out'});
     }
     idleTimer = setTimeout(hide,20000);
-  });
+  };
 })()`
 
 export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random, now = () => performance.now()) => {
   let positions = new Map<string, Point>()
   let hiddenTabs = new Set<string>()
   let update = async (tab: string, send: Send, detail: Record<string, unknown> = {}) => {
-    await send('Runtime.evaluate', { expression: `document.getElementById('bmux-virtual-mouse')?.dispatchEvent(new CustomEvent('bmux-agent-cursor',{detail:${JSON.stringify({ ...detail, hidden: hiddenTabs.has(tab) })}}))` })
+    await send('Runtime.evaluate', { expression: `document.getElementById('bmux-virtual-mouse')?.[Symbol.for('bmux-agent-cursor')](${JSON.stringify({ ...detail, hidden: hiddenTabs.has(tab) })})` })
   }
   let startPoint = async (tab: string, send: Send, validate: () => void) => {
     validate()
