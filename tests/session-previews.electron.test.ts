@@ -47,6 +47,10 @@ test('session previews persist across restarts and are deleted when unloaded win
       await expect.poll(async () => !!(await state()).snapshots[pane]).toBe(true)
       await expect.poll(async () => !!await saved(pane)).toBe(true)
     }
+    let blank = await rpc('split-window', { pane: sibling.id, axis: 'vertical', before: true })
+    let layout = (await state()).model.sessions.flatMap((session: any) => session.windows).find((window: any) => window.id === cached.id).layout
+    await rpc('resize-pane', { window: cached.id, split: layout.id, ratio: .35 })
+    await rpc('resize-pane', { window: cached.id, split: layout.second.id, ratio: .65 })
     let privateSession = await rpc('new-session', { name: 'Private preview', private: true })
     let privatePane = privateSession.windows[0].panes[0].id
     await rpc('navigate', { pane: privatePane, url: `${url}/private` })
@@ -65,10 +69,34 @@ test('session previews persist across restarts and are deleted when unloaded win
     let panel = chrome!.getByRole('dialog', { name: 'Sessions', exact: true })
     await panel.locator(`[data-window-row="${cached.id}"]`).focus()
     await expect(panel.locator(`[data-preview-pane="${paneId}"] img`)).toHaveAttribute('src', snapshot.image)
+    let left = panel.locator(`[data-preview-pane="${paneId}"]`), top = panel.locator(`[data-preview-pane="${blank.id}"]`), bottom = panel.locator(`[data-preview-pane="${sibling.id}"]`)
+    await expect(top).toBeVisible()
+    await expect(top.locator('img')).toHaveCount(0)
+    let checkLayout = async (ratio: number) => {
+      await expect.poll(async () => {
+        let a = (await left.boundingBox())!, b = (await top.boundingBox())!, c = (await bottom.boundingBox())!
+        return Math.abs(a.y - b.y) < 1 && b.x > a.x + a.width && Math.abs(b.x - c.x) < 1
+          && c.y > b.y + b.height && Math.abs(a.y + a.height - c.y - c.height) < 1
+          && Math.abs(a.width / (a.width + b.width) - .35) < .01
+          && Math.abs(b.height / (b.height + c.height) - ratio) < .01
+      }).toBe(true)
+    }
+    await checkLayout(.65)
     await panel.screenshot({ path: test.info().outputPath('sessions-restored-previews.png') })
+    await rpc('resize-pane', { window: cached.id, split: layout.second.id, ratio: .25 })
+    await checkLayout(.25)
+    let native = await application!.evaluate(({ BaseWindow }) => {
+      let window = BaseWindow.getFocusedWindow()!
+      return { id: window.id, bounds: window.getBounds() }
+    })
+    await application!.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setBounds({ x: 90, y: 90, width: 640, height: 850 }), native.id)
+    await expect.poll(() => chrome!.evaluate(() => innerWidth)).toBe(640)
+    await checkLayout(.25)
+    await panel.screenshot({ path: test.info().outputPath('sessions-restored-previews-narrow.png') })
+    await application!.evaluate(({ BaseWindow }, native) => BaseWindow.fromId(native.id)!.setBounds(native.bounds), native)
     await panel.getByRole('button', { name: 'Close window Saved background', exact: true }).click()
     await panel.getByRole('alertdialog', { name: 'Close window Saved background?', exact: true }).getByRole('button', { name: 'yes', exact: true }).click()
-    for (let pane of [paneId, sibling.id]) {
+    for (let pane of [paneId, sibling.id, blank.id]) {
       await expect.poll(async () => (await state()).snapshots[pane]).toBeUndefined()
       await expect.poll(() => saved(pane)).toBeUndefined()
     }

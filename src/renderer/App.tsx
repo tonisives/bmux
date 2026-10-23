@@ -1980,11 +1980,16 @@ let SessionPicker = () => {
 }
 let SessionPreview = ({ window }: { window?: InternalWindow }) => <aside className={css.sessionPreview} aria-label="Session preview" data-preview-window={window?.id}>
   <div className={css.sessionPreviewTitle} title={window?.name}>{window?.name}</div>
-  <div className={css.sessionPreviewPages}>{window?.panes.map(pane => <SessionPreviewPage key={pane.id} paneId={pane.id} title={pane.title || pane.url} />)}</div>
+  <div className={css.sessionPreviewPages}>{window?.layout && <SessionPreviewLayout node={window.layout} window={window} />}{window?.floating?.map(item => <SessionPreviewPage key={item.paneId} paneId={item.paneId} window={window} />)}</div>
 </aside>
-let SessionPreviewPage = ({ paneId, title }: { paneId: string; title: string }) => {
+let SessionPreviewLayout = ({ node, window }: { node: Layout; window: InternalWindow }) => {
+  if (node.kind === 'pane') return <SessionPreviewPage paneId={node.paneId} window={window} />
+  let tracks = `minmax(0, ${node.ratio}fr) minmax(0, ${1 - node.ratio}fr)`
+  return <div className={css.sessionPreviewSplit} style={node.axis === 'horizontal' ? { gridTemplateColumns: tracks } : { gridTemplateRows: tracks }}><SessionPreviewLayout node={node.first} window={window} /><SessionPreviewLayout node={node.second} window={window} /></div>
+}
+let SessionPreviewPage = ({ paneId, window }: { paneId: string; window: InternalWindow }) => {
   let { state } = useUI()
-  let snapshot = state.snapshots[paneId]
+  let snapshot = state.snapshots[paneId], pane = window.panes.find(pane => pane.id === paneId), title = pane?.title || pane?.url
   return <div className={css.sessionPreviewPage} data-preview-pane={paneId} title={title}>{snapshot && <img src={snapshot.image} alt={`Preview of ${title}`} />}</div>
 }
 let NewSessionProfile = ({ onCreate }: { onCreate: () => void }) => {
