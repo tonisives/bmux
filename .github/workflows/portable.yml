@@ -50,6 +50,21 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
       - run: docker build --target host -t bmux-host:local .
+      - run: docker build --target service -t bmux-remote:local .
+      - name: Start the packaged connection service
+        run: |
+          docker run --rm \
+            -e DATABASE_URL=postgres://fixture@127.0.0.1:1/fixture \
+            -e BMUX_PUBLIC_ORIGIN=http://127.0.0.1:8788 \
+            -e BMUX_GOOGLE_CLIENT_ID=fixture \
+            -e BMUX_TURN_SECRET=fixture \
+            -e BMUX_TURN_URLS=turn:127.0.0.1:3478 \
+            bmux-remote:local node --input-type=module -e '
+              await import("./remote/server.mjs")
+              let response = await fetch("http://127.0.0.1:8788/health")
+              if (response.status !== 503) throw new Error("Expected database-wait readiness")
+              process.kill(process.pid, "SIGTERM")
+            '
       - run: docker build --target packaged -t bmux-package:local .
       - run: |
           docker create --name package bmux-package:local

@@ -29,7 +29,7 @@ FROM build AS packaged
 RUN pnpm exec electron-builder --linux --dir --publish never && node scripts/stage-linux.mjs
 
 FROM build AS service-build
-RUN pnpm exec esbuild remote/server.ts --platform=node --format=esm --outfile=remote/server.mjs && pnpm prune --prod
+RUN pnpm exec esbuild remote/server.ts --bundle --packages=external --platform=node --format=esm --outfile=remote/server.mjs && pnpm prune --prod
 FROM node:22-bookworm-slim AS service
 WORKDIR /opt/bmux
 COPY --from=service-build /opt/bmux/node_modules ./node_modules
