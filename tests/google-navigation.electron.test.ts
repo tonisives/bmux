@@ -196,6 +196,7 @@ test('Google navigation leaves a newly created search tab ready for human input'
   await keys('Down')
   await expect(page.locator('#result-0')).toBeFocused()
   await page.getByRole('textbox', { name: 'Search' }).focus()
-  await keys('a')
+  await expect(page.getByRole('textbox', { name: 'Search' })).toBeFocused()
+  await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()!.sendInputEvent({ type: 'char', keyCode: 'a' }))
   await expect(page.getByRole('textbox', { name: 'Search' })).toHaveValue('a')
 })
