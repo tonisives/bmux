@@ -153,6 +153,9 @@ bmux list-panes -t <window-id>
 bmux split-window -t <pane-id> -h --profile bot
 bmux new-window -t project-a -n monitoring
 bmux select-window -c <client-id> -t <window-id>
+bmux select-layout -t <window-id> tiled
+bmux select-layout -t <window-id> even-horizontal
+bmux maximize-pane -t <pane-id> height
 bmux save-layout -t <window-id> -n development
 bmux restore-layout -t <window-id> -n development --confirm
 ```
@@ -206,3 +209,8 @@ To make bmux your default browser, open Settings with `Cmd+,` in the installed
 app and choose **Make bmux the default browser**. Confirm the macOS prompt if
 shown. You can also select bmux in System Settings > Desktop & Dock > Default
 web browser. Links from other apps open in a new internal window in the active bmux session.
+
+Pane layouts use the configured prefix followed by `=` for a balanced grid, `_`
+for 95% height, `|` for 95% width, `Alt+1` for equal columns, or `Alt+2` for equal
+rows. Layouts preserve pane order and floating panes. Prefix bindings accept
+literal characters and key combinations such as `Alt+1`.

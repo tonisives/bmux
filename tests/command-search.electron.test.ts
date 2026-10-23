@@ -1482,3 +1482,54 @@ for (let preset of ['iphone-15-pro-max', 'pixel-8']) test(`mobile safe areas ${p
   await expect.poll(async () => (await inspect()).icons).toBe(4)
   await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
 })
+
+test('pane layout shortcuts arrange grids, columns and rows and expand one axis', async () => {
+  let original = await state(), clientId = original.clientId
+  let previous = original.model.clients.find((client: { id: string }) => client.id === clientId)!
+  let session = await rpc('new-session', { name: 'pane-layout-shortcuts', profile: original.model.profiles[0].id })
+  let first = session.windows[0].panes[0]
+  let second = await rpc('split-window', { pane: first.id, url: `${url}/layout-second` })
+  await rpc('split-window', { pane: second.id, url: `${url}/layout-third`, axis: 'vertical' })
+  await rpc('split-window', { pane: first.id, url: `${url}/layout-fourth` })
+  let floating = await rpc('new-pane', { window: session.windows[0].id, url: `${url}/layout-floating` })
+  await rpc('switch-client', { client: clientId, session: session.id })
+  await rpc('select-window', { client: clientId, window: session.windows[0].id })
+  await rpc('select-pane', { client: clientId, pane: first.id })
+  let currentWindow = async () => (await state()).model.sessions.find((item: { id: string }) => item.id === session.id)!.windows[0]
+  let before = await currentWindow(), paneIds = before.panes.map((pane: { id: string }) => pane.id).filter((id: string) => id !== floating.id)
+  let boxes = () => Promise.all(paneIds.map((id: string) => chrome.locator(`[data-pane-id="${id}"]`).boundingBox()))
+  let press = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
+    await activate(); await rpc('focus-page', { client: clientId })
+    await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode, modifiers }])
+  }
+  try {
+    let address = chrome.locator(`[data-pane-id="${first.id}"]`).getByRole('button', { name: 'Address', exact: true })
+    await address.click()
+    let input = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await input.fill(`${url}/layout-first`); await input.press('Enter')
+    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/layout-first`)).toBe(true)
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(5)
+    await press('1', ['alt'])
+    await expect.poll(async () => { let panes = await boxes(); return panes.every(pane => pane && Math.abs(pane.y - panes[0]!.y) < 2 && Math.abs(pane.width - panes[0]!.width) < 2) }).toBe(true)
+    await press('|', ['shift'])
+    await expect.poll(async () => { let panes = await boxes(); return panes[0]!.width / panes.reduce((sum, pane) => sum + pane!.width, 0) }).toBeGreaterThan(.93)
+    await press('2', ['alt'])
+    await expect.poll(async () => { let panes = await boxes(); return panes.every(pane => pane && Math.abs(pane.x - panes[0]!.x) < 2 && Math.abs(pane.height - panes[0]!.height) < 2) }).toBe(true)
+    await press('_', ['shift'])
+    await expect.poll(async () => { let panes = await boxes(); return panes[0]!.height / panes.reduce((sum, pane) => sum + pane!.height, 0) }).toBeGreaterThan(.93)
+    await rpc('toggle-pane-zoom', { client: clientId })
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(1)
+    await press('=')
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(5)
+    await expect.poll(async () => { let panes = await boxes(); return new Set(panes.map(pane => Math.round(pane!.y))).size }).toBe(2)
+    let after = await currentWindow()
+    expect(after.panes.map((pane: { id: string }) => pane.id)).toEqual(before.panes.map((pane: { id: string }) => pane.id))
+    expect(after.floating).toEqual(before.floating)
+    expect((await state()).model.clients.find((client: { id: string }) => client.id === clientId).paneId).toBe(first.id)
+    let page = application.context().pages().find(page => page.url() === `${url}/layout-first`)!
+    await expect(page.locator('h1')).toBeVisible()
+  } finally {
+    await rpc('switch-client', { client: clientId, session: previous.sessionId })
+    await rpc('select-window', { client: clientId, window: previous.windowId })
+  }
+})

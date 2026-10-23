@@ -207,6 +207,8 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'rotate-window') return { method: name, args: { ...current, window: windowTarget(), direction: options.up ? -1 : 1, keepZoom: options.keepZoom } }
   if (['split-window', 'select-pane', 'kill-pane', 'new-pane'].includes(name)) return { method: name, args: { ...current, pane: resolvePaneTarget(state, target).pane.id, ...options } }
   if (['move-pane', 'join-pane'].includes(name)) return { method: name, args: { ...current, pane: target ?? pane?.id, window: client.windowId, ...options } }
+  if (name === 'select-layout' || name.startsWith('layout-')) return { method: 'select-layout', args: { ...current, window: windowTarget(), layout: name === 'select-layout' ? positional[0] : name.slice(7) } }
+  if (name === 'maximize-pane' || name === 'maximize-pane-width' || name === 'maximize-pane-height') return { method: 'maximize-pane', args: { ...current, pane: resolvePaneTarget(state, target).pane.id, dimension: name === 'maximize-pane' ? positional[0] : name.slice(14) } }
   if (name === 'resize-pane') return { method: name, args: { ...current, ...(options.split ? { window: target ?? client.windowId } : { pane: target ?? pane?.id }), ...options } }
   if (name === 'next-window' || name === 'previous-window') return { method: 'cycle-window', args: { ...current, direction: name === 'next-window' ? 1 : -1 } }
   if (name === 'next-session' || name === 'previous-session') {

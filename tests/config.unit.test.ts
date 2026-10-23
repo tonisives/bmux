@@ -239,3 +239,15 @@ it('build ID is opt-in and accepts only a boolean', () => {
   expect(parseConfig('keyboard: {}\nshowBuildId: true').showBuildId).toBe(true)
   expect(() => parseConfig('keyboard: {}\nshowBuildId: yes')).toThrow('showBuildId must be true or false')
 })
+
+it('supports modified prefix bindings without losing literal punctuation or shifted letters', async () => {
+  let { prefixAction } = await import('../src/shared/keyboard')
+  let keyboard = parseConfig('keyboard:\n  prefixBindings:\n    alt+1: layout-even-vertical\n    Alt+2: null\n    E: renumber-windows\n').keyboard
+  expect(prefixAction(keyboard.prefixBindings, { key: '¡', code: 'Digit1', alt: true })).toBe('layout-even-vertical')
+  expect(prefixAction(keyboard.prefixBindings, { key: '1', code: 'Digit1' })).toBe('select-window-1')
+  expect(prefixAction(keyboard.prefixBindings, { key: '2', code: 'Digit2', alt: true })).toBeUndefined()
+  expect(prefixAction(keyboard.prefixBindings, { key: '_', code: 'Minus', shift: true })).toBe('maximize-pane-height')
+  expect(prefixAction(keyboard.prefixBindings, { key: '|', code: 'Backslash', shift: true })).toBe('maximize-pane-width')
+  expect(prefixAction(keyboard.prefixBindings, { key: 'E', shift: true })).toBe('renumber-windows')
+  expect(prefixAction(keyboard.prefixBindings, { key: '=', control: true })).toBeUndefined()
+})

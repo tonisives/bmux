@@ -105,7 +105,10 @@ export let parseConfig = (text: string): Settings => {
         let canonical = JSON.stringify(parseBinding(key))
         for (let prior of Object.keys(result.shortcuts)) if (JSON.stringify(parseBinding(prior)) === canonical) delete result.shortcuts[prior]
       }
-      else if (key.length !== 1) throw new Error('Prefix bindings must be single characters')
+      else if (key.length !== 1) {
+        let canonical = JSON.stringify(parseBinding(key))
+        for (let prior of Object.keys(result.prefixBindings)) if (prior.length > 1 && JSON.stringify(parseBinding(prior)) === canonical) delete result.prefixBindings[prior]
+      }
       if (action === null) { delete result[field][key]; continue }
       let object = field === 'shortcuts' && typeof action === 'object' && !Array.isArray(action) ? action as Record<string, unknown> : undefined
       if (object && (Object.keys(object).some(key => !['action', 'when'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid shortcut context for ${key}`)

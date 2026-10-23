@@ -38,7 +38,9 @@ Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
           breakp [-c CLIENT] [-s PANE] [-t SESSION:INDEX] [-n NAME] [-d] [-W]
           swapp [-c CLIENT] [-s PANE] [-t PANE] [-U|-D] [-d] [-Z]
           rotatew [-c CLIENT] [-t WINDOW] [-U|-D] [-Z]
-Layouts:  save-layout -t WINDOW -n NAME | list-layouts
+Layouts:  select-layout -t WINDOW tiled|even-horizontal|even-vertical
+          maximize-pane -t PANE width|height
+          save-layout -t WINDOW -n NAME | list-layouts
           restore-layout -t WINDOW -n NAME --confirm
 Browser:  navigate -t PANE URL | dom -t PANE [--html] | eval -t PANE EXPRESSION [--file FILE]
           PANE accepts a global ID (%29), SESSION:WINDOW (gp:6), or SESSION:WINDOW.PANE (gp:6.0).
@@ -147,9 +149,11 @@ let parseCommand = () => {
   if (['extension.open', 'extension.options', 'extension.enable', 'extension.disable', 'extension.remove'].includes(method)) args.id = positional[0]
   let targetKeys = {
     'rename-session': 'session', 'kill-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
-    'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
+    'select-layout': 'window', 'maximize-pane': 'pane', 'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
     'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
+  if (method === 'select-layout') args.layout = positional[0]
+  if (method === 'maximize-pane') args.dimension = positional[0]
   if (method === 'resize-pane' && !args.split && (args.width !== undefined || args.height !== undefined)) targetKeys[method] = 'pane'
   if (args.target !== undefined) { args[targetKeys[method] ?? 'pane'] = args.target; delete args.target }
   if (method === 'move-window') args.position ??= positional[0]

@@ -22,9 +22,9 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
     'Cmd+Shift+D': 'toggle-dark', 'Cmd+,': 'settings', 'CmdOrCtrl+.': 'toggle-window-pin', F1: 'help', Escape: 'stop',
   },
   sequences: {},
-  prefixBindings: { '1': 'select-window-1', '2': 'select-window-2', '3': 'select-window-3', '4': 'select-window-4', '5': 'select-window-5', '6': 'select-window-6', '7': 'select-window-7', '8': 'select-window-8', '9': 'select-window-9', "'": 'select-window', ':': 'command', '?': 'help', c: 'new-window', n: 'next-window', p: 'previous-window', '%': 'split-right', '"': 'split-down', '!': 'break-pane', E: 'renumber-windows', '.': 'move-window', o: 'next-pane', z: 'toggle-pane-zoom', s: 'sessions', d: 'detach', ',': 'rename-window', r: 'rename-window', x: 'close-pane', '&': 'close-window', '$': 'rename-session', '(': 'previous-session', ')': 'next-session' },
+  prefixBindings: { '=': 'layout-tiled', _: 'maximize-pane-height', '|': 'maximize-pane-width', 'Alt+1': 'layout-even-horizontal', 'Alt+2': 'layout-even-vertical', '1': 'select-window-1', '2': 'select-window-2', '3': 'select-window-3', '4': 'select-window-4', '5': 'select-window-5', '6': 'select-window-6', '7': 'select-window-7', '8': 'select-window-8', '9': 'select-window-9', "'": 'select-window', ':': 'command', '?': 'help', c: 'new-window', n: 'next-window', p: 'previous-window', '%': 'split-right', '"': 'split-down', '!': 'break-pane', E: 'renumber-windows', '.': 'move-window', o: 'next-pane', z: 'toggle-pane-zoom', s: 'sessions', d: 'detach', ',': 'rename-window', r: 'rename-window', x: 'close-pane', '&': 'close-window', '$': 'rename-session', '(': 'previous-session', ')': 'next-session' },
 }
-export let KEY_ACTIONS = new Set(['vim-editor', 'plugins', 'toggle-dark', 'toggle-adblock', 'click-mode', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-private-session', 'new-window', 'reopen-closed', 'reopen-closed-tab', 'close-pane', 'close-window', 'close-pane-or-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'select-window', 'toggle-window-pin', 'renumber-windows', 'move-window', 'move-window-left', 'move-window-right', 'move-window-first', 'move-window-last', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'break-pane', 'detach', 'back', 'forward', 'scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom', 'zoom-in', 'zoom-out', 'zoom-reset'])
+export let KEY_ACTIONS = new Set(['layout-tiled', 'layout-even-horizontal', 'layout-even-vertical', 'maximize-pane-height', 'maximize-pane-width', 'vim-editor', 'plugins', 'toggle-dark', 'toggle-adblock', 'click-mode', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'reload', 'hard-reload', 'stop', 'new-client', 'new-private-session', 'new-window', 'reopen-closed', 'reopen-closed-tab', 'close-pane', 'close-window', 'close-pane-or-window', 'rename-window', 'rename-session', 'previous-session', 'next-session', 'next-window', 'previous-window', 'select-window', 'toggle-window-pin', 'renumber-windows', 'move-window', 'move-window-left', 'move-window-right', 'move-window-first', 'move-window-last', ...Array.from({ length: 9 }, (_, index) => `select-window-${index + 1}`), 'next-pane', 'pane-left', 'pane-down', 'pane-up', 'pane-right', 'toggle-pane-zoom', 'split-right', 'split-down', 'break-pane', 'detach', 'back', 'forward', 'scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom', 'zoom-in', 'zoom-out', 'zoom-reset'])
 type KeyInput = { key: string; code?: string; meta?: boolean; control?: boolean; alt?: boolean; shift?: boolean }
 let named: Record<string, string> = { esc: 'escape', return: 'enter', plus: '=', space: ' ', leftshift: 'shiftleft', rightshift: 'shiftright' }
 export let parseBinding = (binding: string, platform = process.platform) => {
@@ -46,9 +46,14 @@ export let isModifierKeyBinding = (binding: string, platform = process.platform)
 export let matchesBinding = (binding: string, input: KeyInput, platform = process.platform) => {
   let expected = parseBinding(binding, platform)
   let physical: Record<string, string> = { BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '-', Comma: ',', Period: '.', ShiftLeft: 'shiftleft', ShiftRight: 'shiftright' }
-  let key = physical[input.code ?? ''] ?? input.key.toLowerCase().replace(/^arrow/, '')
+  let key = physical[input.code ?? ''] ?? (/^Digit[0-9]$/.test(input.code ?? '') ? input.code!.slice(-1) : input.key.toLowerCase().replace(/^arrow/, ''))
   let shift = ['shiftleft', 'shiftright'].includes(key) ? false : !!input.shift
   return expected.key === key && expected.meta === !!input.meta && expected.control === !!input.control && expected.alt === !!input.alt && expected.shift === shift
+}
+
+export let prefixAction = (bindings: Record<string, string>, input: KeyInput) => {
+  let modified = Object.entries(bindings).find(([key]) => key.length > 1 && matchesBinding(key, input))
+  return modified?.[1] ?? (!input.meta && !input.control && !input.alt ? bindings[input.key] : undefined)
 }
 
 // Keep older config files working without exposing superseded tab actions.

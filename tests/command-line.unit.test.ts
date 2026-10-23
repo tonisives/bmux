@@ -223,3 +223,12 @@ it('defaults dark mode to the profile while retaining explicit site overrides', 
   expect(parseCommandLine('dark off --scope site', current)).toMatchObject({ args: { setting: 'darkMode', value: 'off', scope: 'site' } })
   expect(parseCommandLine('adblock off', current)).toMatchObject({ args: { setting: 'adblock', value: false, scope: 'site' } })
 })
+
+it('routes pane layouts and axis expansion to the current or explicit target', () => {
+  let current = state(), window = current.model.sessions[0].windows[0], pane = window.panes[0]
+  expect(parseCommandLine('select-layout tiled', current)).toEqual({ method: 'select-layout', args: { client: 'client', window: window.id, layout: 'tiled' } })
+  expect(parseCommandLine('layout-even-horizontal', current).args?.layout).toBe('even-horizontal')
+  expect(parseCommandLine('layout-even-vertical', current).args?.layout).toBe('even-vertical')
+  expect(parseCommandLine('maximize-pane-height', current)).toEqual({ method: 'maximize-pane', args: { client: 'client', pane: pane.id, dimension: 'height' } })
+  expect(parseCommandLine(`maximize-pane width -t ${pane.id}`, current).args).toMatchObject({ pane: pane.id, dimension: 'width' })
+})

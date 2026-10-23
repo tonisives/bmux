@@ -74,6 +74,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'split-window -h', usage: 'split-window -h [--profile PROFILE]', description: 'Split the pane side by side', action: 'split-right' },
   { command: 'split-window -v', usage: 'split-window -v [--profile PROFILE]', description: 'Split the pane above and below', action: 'split-down' },
   { command: 'next-pane', description: 'Select the next pane', action: 'next-pane' },
+  ...['tiled', 'even-horizontal', 'even-vertical'].map(layout => ({ command: `select-layout ${layout}`, description: ({ tiled: 'Arrange panes in a balanced grid', 'even-horizontal': 'Arrange panes in equal columns', 'even-vertical': 'Arrange panes in equal rows' })[layout]!, action: `layout-${layout}` })),
+  ...['width', 'height'].map(dimension => ({ command: `maximize-pane ${dimension}`, description: `Expand the selected pane’s ${dimension}`, action: `maximize-pane-${dimension}` })),
   { command: 'toggle-pane-zoom', description: 'Expand or restore the selected pane', action: 'toggle-pane-zoom' },
   ...['left', 'down', 'up', 'right'].map(direction => ({ command: `pane-${direction}`, description: `Select the pane to the ${direction}`, action: `pane-${direction}` })),
   { command: 'select-pane -t ', usage: 'select-pane -t PANE_ID', description: 'Select a pane by ID', complete: true },

@@ -1,3 +1,5 @@
+import { arrangePanes, maximizePane } from './pane-layout'
+import type { PaneLayout } from './pane-layout'
 import { buildInfo } from '../shared/build-info'
 import { focusAgent } from './agent-focus'
 import { createAgentRegistry } from './agent-registry'
@@ -24,7 +26,7 @@ import { resolvePaneTarget, selectedPane } from '../shared/command-target'
 import { checkSessionTransfer, insertionIndex, moveWindow, reorderSession, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
-import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
+import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, prefixAction, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
 import { createVirtualMouse } from './virtual-mouse'
@@ -940,7 +942,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (matchesBinding(keyboard.prefix, input)) { event.preventDefault(); dispatchShortcut('prefix'); return }
       if (Date.now() < prefixUntil) {
         prefixUntil = 0
-        let action = keyboard.prefixBindings[input.key]
+        let action = prefixAction(keyboard.prefixBindings, input)
         if (action) dispatchShortcut(action)
         event.preventDefault(); return
       }
@@ -3024,6 +3026,24 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (args.movePointer === true && client.paneId !== previousPaneId) pointerTarget = { clientId: client.id, paneId: client.paneId, expires: Date.now() + 1000, origin: screen.getCursorScreenPoint() }
       }
       save(); void scheduleVisuals(); return client
+    }
+    if (method === 'select-layout' || method === 'maximize-pane') {
+      let parent = args.pane ? paneById(model, args.pane) : undefined
+      let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      if (method === 'select-layout') {
+        if (!['tiled', 'even-horizontal', 'even-vertical'].includes(String(args.layout))) throw new Error('Use tiled, even-horizontal, or even-vertical')
+        window.layout = arrangePanes(window.layout, args.layout as PaneLayout)
+      } else {
+        if (!['width', 'height'].includes(String(args.dimension))) throw new Error('Use width or height')
+        let placement = window.floating?.find(item => item.paneId === args.pane)
+        if (placement) {
+          let client = resolve(model.clients, args.client, 'Client')
+          if (args.dimension === 'width') { placement.width = client.width * .95; placement.x = Math.max(0, Math.min(placement.x, client.width - placement.width)) }
+          else { let height = client.height - 28; placement.height = height * .95; placement.y = Math.max(0, Math.min(placement.y, height - placement.height)) }
+        } else window.layout = maximizePane(window.layout, String(args.pane), args.dimension === 'width' ? 'horizontal' : 'vertical')
+      }
+      for (let client of model.clients) if (client.windowId === window.id) client.zoomedPaneId = null
+      changed(); await visualQueue; return window.layout
     }
     if (method === 'toggle-pane-zoom') {
       let client = resolve(model.clients, args.client, 'Client')
