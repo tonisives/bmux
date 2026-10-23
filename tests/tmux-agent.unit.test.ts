@@ -7,11 +7,11 @@ import { findAgentPane, resolveTmuxAgent, identifyTmuxAgent, focusTmuxPane } fro
 import type { AgentPane } from '../bin/tmux-agent.mjs'
 
 let thread = { id: 'publishing-thread', name: 'Publishing videos', cwd: '/fixtures/movies' }
-let publishing: AgentPane = { sessionId: '$5', windowId: '@52', paneId: '%70', panePid: '64428', command: 'codex', title: '[ ! ] Action Required | Publishing videos | movies', cwd: '/fixtures/movies', clientTty: '/dev/ttys000' }
+let publishing: AgentPane = { sessionId: '$5', sessionName: 'publishing', windowId: '@52', paneId: '%70', panePid: '64428', command: 'codex', title: '[ ! ] Action Required | Publishing videos | movies', cwd: '/fixtures/movies', clientTty: '/dev/ttys000' }
 let hacking: AgentPane = { ...publishing, windowId: '@59', paneId: '%76', panePid: '54617', title: 'Verify WordPress instance | deployments', cwd: '/fixtures/k3s' }
 let panes = [publishing, hacking]
-let list = () => panes.map(pane => [pane.sessionId, pane.windowId, pane.paneId, pane.panePid, pane.command, pane.title, pane.cwd, pane.clientTty].join('\t')).join('\n')
-let context = { agentId: thread.id, agentType: 'tmux', agentData: { sessionId: '$5', windowId: '@52', paneId: '%70', clientTty: '/dev/ttys000' }, agentOrigin: { type: 'tmux' as const, paneId: '%70', panePid: '64428', socketPath: '/tmp/agent-tmux', threadId: thread.id } }
+let list = () => panes.map(pane => [pane.sessionId, pane.windowId, pane.paneId, pane.panePid, pane.command, pane.title, pane.cwd, pane.clientTty, pane.sessionName].join('\t')).join('\n')
+let context = { agentId: thread.id, agentType: 'tmux', agentData: { sessionId: '$5', windowId: '@52', paneId: '%70', clientTty: '/dev/ttys000', sessionName: 'publishing' }, agentOrigin: { type: 'tmux' as const, paneId: '%70', panePid: '64428', socketPath: '/tmp/agent-tmux', threadId: thread.id } }
 
 test('shared-daemon agents resolve their thread terminal instead of the selected or inherited tmux pane', async () => {
   let calls: [string, string[]][] = []
@@ -20,6 +20,9 @@ test('shared-daemon agents resolve their thread terminal instead of the selected
   expect(actual).toEqual(context)
   expect(calls).toHaveLength(1)
   expect(calls[0][1].slice(0, 4)).toEqual(['-S', '/tmp/agent-tmux', 'list-panes', '-a'])
+  expect(calls[0][1].at(-1)).toContain('#{session_name}')
+  let renamed = await resolveTmuxAgent({ env, execute: async () => list().replaceAll('\tpublishing', '\trenamed'), threadForId: async () => thread })
+  expect(renamed.agentData).toEqual({ ...context.agentData, sessionName: 'renamed' })
   expect(findAgentPane(panes, [{ pid: 999, parent: 54617 }], 999)).toEqual(hacking)
   expect(() => findAgentPane(panes, [], 999)).toThrow('ancestry')
   expect(() => findAgentPane([publishing, { ...publishing, paneId: '%71' }], [], 999, thread)).toThrow('unique')

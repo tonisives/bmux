@@ -32,6 +32,19 @@ export let createPluginBrowser = (options: Options) => {
       } finally { if (objectId) void options.cdp(context.paneId!, 'Runtime.releaseObject', { objectId }).catch(() => undefined) }
     }
     let read = <T>(operation: () => Promise<T>) => options.read && context.paneId ? options.read(context.paneId, operation) : operation()
+    if (method === 'script.install') {
+      // Installing a keyboard helper should leave human input available.
+      if (typeof args.source !== 'string' || !args.source.length || args.source.length > 262144 || typeof args.worldName !== 'string' || !args.worldName.trim() || args.worldName.length > 128) throw new Error('Script source and isolated world name required')
+      validate()
+      let { frameTree } = await options.cdp(context.paneId!, 'Page.getFrameTree')
+      validate()
+      let { executionContextId } = await options.cdp(context.paneId!, 'Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: args.worldName })
+      validate()
+      let response = await options.cdp(context.paneId!, 'Runtime.evaluate', { expression: args.source, contextId: executionContextId })
+      validate()
+      if (response.exceptionDetails) throw new Error('Could not install page script')
+      return { installed: true }
+    }
     if (['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp'].includes(method)) { validate(); await options.before?.(context, method, args); validate() }
     if (method === 'dom') return read(async () => ({ pane: context.paneId, url: context.url, content: await evaluate(args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""') }))
     if (method === 'eval') { if (typeof args.expression !== 'string') throw new Error('Expression required'); return read(() => evaluate(args.expression as string, true)) }

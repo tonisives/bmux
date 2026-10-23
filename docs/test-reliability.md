@@ -1,5 +1,19 @@
 # Focused test verification
 
+## Google search helper input locks
+
+Loading a Google search with the result navigation hooks enabled registered its
+keyboard helper as agent control and locked human input for twenty seconds. The
+existing fixture waited for that lock to expire, hiding the problem. Requiring
+an empty lock list immediately after installation reproduced the failure in Tart.
+
+The helper now uses document-bound `script.install`, which installs in an isolated
+world like a userscript without recording agent activity. Ordinary plugin CDP
+operations retain their activity guards. The Google fixtures require immediate
+native arrow-key input after loading, interrupted installation, and new-tab
+creation, and verify typing in the new search page. Unit cases cover document
+changes between installation steps and the required CDP capability.
+
 ## Remote viewer layout with extensions
 
 The October 22 remote-view screenshot showed the stream at the window origin,

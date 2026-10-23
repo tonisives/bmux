@@ -111,6 +111,15 @@ test('executes real scripts with pinned context and only explicit output', async
   expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, agentId: 'plugin:test' }, expect.any(AbortSignal))
   expect(JSON.stringify(plugins.runs())).not.toContain('PRIVATE')
 })
+test('page helper installation requires the explicit CDP capability', async () => {
+  let script = hostScript + `host('script.install', { source: 'window.helper = true', worldName: 'test-helper' });`
+  let denied = fixture(script)
+  expect((await done(denied.plugins, denied.plugins.run('test/run', denied.context).id)).status).toBe('failed')
+  expect(denied.browser).not.toHaveBeenCalled()
+  let allowed = fixture(script, { capabilities: ['browser.cdp'] })
+  expect((await done(allowed.plugins, allowed.plugins.run('test/run', allowed.context).id)).status).toBe('completed')
+  expect(allowed.browser).toHaveBeenCalledWith('script.install', expect.objectContaining({ source: 'window.helper = true', worldName: 'test-helper' }), expect.objectContaining(allowed.context), expect.any(AbortSignal))
+})
 test('rejects missing capabilities, forged invocation tokens and cross-pane requests', async () => {
   let script = hostScript + `let denied = 0; for (let [method,args] of [['eval',{expression:'1'}],['dom',{pane:'other'}],['bitwarden.fill',{}]]) { try { host(method,args) } catch { denied++ } } process.env.BMUX_PLUGIN_TOKEN = 'forged'; try { host('context') } catch { denied++ } process.exit(denied === 4 ? 0 : 1);`
   let { plugins, context, browser } = fixture(script)

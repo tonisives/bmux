@@ -85,6 +85,12 @@
 .agentInformation dt { color: #9ca3ad; }
 .agentInformation button { margin: 12px 8px 0 0; padding: 6px 10px; border: 1px solid #505a66; }
 .agentInformation dd { margin: 0; overflow-wrap: anywhere; }
+.agentActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel .agentAction { display: inline-flex; align-items: center; gap: 7px; margin: 0; padding: 6px 10px; border: 1px solid #505a66; background: #303944; color: #eceef2; }
+.panel .agentAction:hover:not(:disabled) { background: #414d5c; border-color: #7d8998; }
+.panel .agentAction:focus-visible { outline: 2px solid #a7b69c; outline-offset: 2px; }
+.panel .agentAction:disabled { opacity: .5; cursor: default; }
+.agentAction svg { width: 14px; height: 14px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .prompt { display: flex; align-items: center; gap: 10px; width: 100%; }
 .prompt label { color: #c2ceb9; }
 .prompt input { padding: 0; outline: none; border: 0; border-radius: 0; background: transparent; flex: 1; color: #eceef2; }

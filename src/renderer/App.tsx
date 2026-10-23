@@ -1393,22 +1393,27 @@ let AgentInformation = () => {
     try { await run('agent.cursor.set', { pane: actor.paneId, agentId: actor.agentId, hidden: !state.hiddenAgentCursors?.includes(actor.paneId) }) } finally { setBusy(null) }
   }
   let settings = () => show('anti-bot-settings')
-  return <div className={css.agentInformation}><button type="button" onClick={settings}>Agent settings</button>{!actors.length && <p>No active agent in this pane.</p>}{actors.map(actor => {
+  return <div className={css.agentInformation}>{!actors.length && <p>No active agent in this pane.</p>}{actors.map(actor => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
-    let fields = Object.entries(actor.agentData ?? {})
+    let sessionField = Object.keys(actor.agentData ?? {}).find(key => definition?.fields[key]?.type === 'session' || key === 'sessionId')
+    let fields = Object.entries(actor.agentData ?? {}).filter(([key]) => key !== 'sessionName' || !sessionField)
+    let hidden = state.hiddenAgentCursors?.includes(actor.paneId)
     let toggleVisibility = () => { void toggleCursor(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
-      <strong>{actor.agentName ?? actor.agentId ?? 'Unidentified agent'}</strong>
-      {state.lockedAgentPanes?.includes(actor.paneId) && <p role="status">Agent controlling. Page input unlocks after 20 seconds of inactivity.</p>}
-      <dl><dt>Agent ID</dt><dd>{actor.agentId ?? 'Not provided'}</dd><dt>Browsing reason</dt><dd>{actor.agentPurpose ?? 'Not provided'}</dd><dt>Browser pane</dt><dd>{permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId}</dd>
+      <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
-        {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session ID', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{value}</dd></Fragment>)}
+        {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
       </dl>
-      <button type="button" disabled={busy !== null} onClick={toggleVisibility}>{state.hiddenAgentCursors?.includes(actor.paneId) ? 'Show agent cursor' : 'Hide agent cursor'}</button>
-      {definition?.focusCommand && <button type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}>Focus agent</button>}
+      <div className={css.agentActions}>
+        {definition?.focusCommand && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}><FocusAgentIcon />Focus agent</button>}
+        <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>
+      </div>
     </section>
-  })}</div>
+  })}<div className={css.agentActions}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Agent settings</button></div></div>
 }
+
+let FocusAgentIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg>
+let AgentCursorIcon = ({ hidden }: { hidden?: boolean }) => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 2 1 11 3-3 2 4 2-1-2-4h4Z" />{hidden && <path d="m2 14 12-12" />}</svg>
 
 let AntiBotProfileButton = ({ profile }: { profile: Profile }) => {
   let { state, show, settingsMemory } = useUI()

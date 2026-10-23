@@ -47,11 +47,11 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
       database.close()
       let commands = path.join(directory, 'commands')
       await fs.mkdir(commands)
-      let panes = `$5\t@52\t%70\t64428\tcodex\tPublishing videos | movies\t${directory}\t/dev/ttys000\n$5\t@59\t%76\t54617\tcodex\tHacking | deployments\t/k3s\t/dev/ttys000\n`
+      let panes = `$5\t@52\t%70\t64428\tcodex\tPublishing videos | movies\t${directory}\t/dev/ttys000\tpublishing\n$5\t@59\t%76\t54617\tcodex\tHacking | deployments\t/k3s\t/dev/ttys000\tpublishing\n`
       await fs.writeFile(path.join(commands, 'tmux'), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(panes)})\n`, { mode: 0o755 })
       let env = { TMUX: '/tmp/fixture-tmux,123,5', TMUX_PANE: '%76', CODEX_THREAD_ID: 'publishing-thread', CODEX_HOME: directory, PATH: `${commands}${path.delimiter}${process.env.PATH}` }
       let actual = await invoke(['dom', '-t', '%31'], undefined, env)
-      expect(actual).toMatchObject({ method: 'dom', args: { pane: '%31', agentId: 'publishing-thread', agentType: 'tmux', agentData: { sessionId: '$5', windowId: '@52', paneId: '%70' }, agentOrigin: { paneId: '%70', panePid: '64428', threadId: 'publishing-thread' } } })
+      expect(actual).toMatchObject({ method: 'dom', args: { pane: '%31', agentId: 'publishing-thread', agentType: 'tmux', agentData: { sessionId: '$5', sessionName: 'publishing', windowId: '@52', paneId: '%70' }, agentOrigin: { paneId: '%70', panePid: '64428', threadId: 'publishing-thread' } } })
       let context = await invoke(['agent', 'context'], undefined, env)
       expect(context.agentData.paneId).toBe('%70')
       await expect(invoke(['dom', '-t', '%31', '--agent-type', 'tmux', '--agent-data', '{"paneId":"%76"}'], undefined, env)).rejects.toThrow('paneId is %70, but supplied %76')

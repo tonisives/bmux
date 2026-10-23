@@ -171,6 +171,7 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 | `click`, `type`, `fill` | `browser.write` | Main-document selectors. Click calls the element's DOM click method; type inserts `text` into an input/textarea selection. Fill replaces values using `fields: [{selector, value}]` and requires the current `origin`. Visible editable fields only. Input/change events are dispatched. |
 | `key`, `navigate`, `back`, `forward`, `reload` | `browser.write` | Existing browser arguments without a target override. Navigation starts immediately. |
 | `cdp` | `browser.cdp` | `method` and `params`; page-scoped DOM, Runtime, Page, Input, Network, CSS, Accessibility, Emulation domains. No target/session routing. Raw CDP is an advanced trusted capability; use `fill` for document-bound credentials. |
+| `script.install` | `browser.cdp` | `source` and `worldName`; installs a page interaction helper in an isolated world in the original document. Like userscripts, installation leaves human input available and does not report agent activity. |
 | `ui` | `ui` | `kind`, `title`, optional `required`. Kinds: `text`, `password`, `confirm`, `pick`. Pickers take `items: [{id,label,description?}]` and return the selected ID. Confirm returns a boolean; text/password return strings. |
 
 Site automation actions can call `automation.acquire` with a matching HTTPS
@@ -308,7 +309,8 @@ plugins:
 Reload an open Google search after enabling it. Up/Down selects the previous or
 next result and scrolls its headline into view; Enter opens the selected link.
 Navigation is also installed after Google changes the search URL without a full
-page load, including URL updates that interrupt the initial installation.
+page load, including URL updates that interrupt the initial installation. Loading
+the keyboard helper leaves the page ready for immediate typing and navigation.
 Escape clears the selection. Search fields, editing, modified keys, and click
 mode retain their normal behavior. The plugin runs in an isolated page world
 without page access to browser or Node APIs. Disabling prevents installation on

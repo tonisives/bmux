@@ -124,8 +124,9 @@ test('Google navigation automatic hooks can be enabled in Extensions and select 
   page = application.context().pages().find(page => page.url() === url)!
   await expect(page.locator('#result-0')).toBeVisible()
   await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.status === 'completed'))).toBe(true)
-  // The hook is an agent command; native input resumes after its inactivity lock.
-  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).lockedAgentPanes), { timeout: 25000 }).toEqual([])
+  let state = await chrome.evaluate(() => (window as any).bmux.state())
+  expect(state.lockedAgentPanes).toEqual([])
+  expect(state.activeAgents).toEqual([])
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(page.url())
   await keys('Down')
   await expect(page.locator('#result-0')).toBeFocused()
@@ -167,11 +168,35 @@ test('Google navigation recovers when an in-page URL change cancels installation
   }
   await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.actionId === 'navigation' && run.status === 'cancelled'))).toBe(true)
   await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).pluginRuns?.some((run: any) => run.pluginId === 'bmux.google-search' && run.actionId === 'navigation-change' && run.status === 'completed'))).toBe(true)
-  // The hook is an agent command; native input resumes after its inactivity lock.
-  await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).lockedAgentPanes), { timeout: 25000 }).toEqual([])
+  let state = await chrome.evaluate(() => (window as any).bmux.state())
+  expect(state.lockedAgentPanes).toEqual([])
+  expect(state.activeAgents).toEqual([])
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(page.url())
   await keys('Down')
   await expect(page.locator('#result-0')).toBeFocused()
   await keys('Down')
   await expect(page.locator('#result-1')).toBeFocused()
+})
+
+test('Google navigation leaves a newly created search tab ready for human input', async () => {
+  await application.context().route('https://www.google.com/search**', route => route.fulfill({ contentType: 'text/html', body: fixture }))
+  await chrome.evaluate(() => (window as any).bmux.command({ method: 'plugin.hooks', args: { id: 'bmux.google-search', enabled: true } }))
+  await chrome.getByRole('button', { name: 'New tab', exact: true }).click()
+  let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(address).toBeFocused()
+  let url = 'https://www.google.com/search?q=new-tab'
+  await address.pressSequentially(url); await address.press('Enter')
+  await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
+  page = application.context().pages().find(page => page.url() === url)!
+  await expect.poll(() => isolated('typeof globalThis.__bmuxGoogleNavigation', 'bmux:google-search')).toBe('function')
+  let state = await chrome.evaluate(() => (window as any).bmux.state())
+  expect(state.lockedAgentPanes).toEqual([])
+  expect(state.activeAgents).toEqual([])
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+  await keys('Down')
+  await expect(page.locator('#result-0')).toBeFocused()
+  await page.getByRole('textbox', { name: 'Search' }).focus()
+  await expect(page.getByRole('textbox', { name: 'Search' })).toBeFocused()
+  await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()!.sendInputEvent({ type: 'char', keyCode: 'a' }))
+  await expect(page.getByRole('textbox', { name: 'Search' })).toHaveValue('a')
 })
