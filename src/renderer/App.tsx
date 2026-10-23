@@ -1387,7 +1387,12 @@ let Panel = ({ type, hidden = false }: { type: Control; hidden?: boolean }) => {
   let [detailBack, setDetailBack] = useState<PanelBack | null>(null)
   let navigation = type === 'plugin-dialog' ? isPanel(control) ? { label: 'Back', run: dismiss } : null : detailBack ?? panelBack
   let leave = navigation?.run ?? dismiss
-  let ref = useRef<HTMLDivElement>(null)
+  let ref = useRef<HTMLDivElement>(null), lastFocused = useRef<HTMLElement | null>(null), wasHidden = useRef(false)
+  let rememberFocus = (event: FocusEvent<HTMLDivElement>) => { lastFocused.current = event.target }
+  useEffect(() => {
+    if (wasHidden.current && !hidden) lastFocused.current?.focus()
+    wasHidden.current = hidden
+  }, [hidden])
   let [sessionTab, setSessionTab] = useState(() => localStorage.getItem('session-picker-tab') === 'remote' ? 'remote' : 'local')
   let chooseLocalSessions = () => { setSessionTab('local'); localStorage.setItem('session-picker-tab', 'local') }
   let chooseRemoteSessions = () => { setSessionTab('remote'); localStorage.setItem('session-picker-tab', 'remote') }
@@ -1408,7 +1413,7 @@ let Panel = ({ type, hidden = false }: { type: Control; hidden?: boolean }) => {
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
-  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys}>
+  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal="true" tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
     <PanelHeader back={navigation} dismiss={dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Sessions</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote sessions</button>

@@ -8,7 +8,7 @@ export let usePanelStack = (initial: string | null = null, label = 'Back', origi
   let list = useRef<HTMLElement>(null)
   let previous = useRef<string | null>(null)
   let back = useCallback(() => setSelected(null), [])
-  let navigation = useMemo(() => selected ? selected === initial && origin ? origin : { label, run: back } : null, [selected, initial, origin, label, back])
+  let navigation = useMemo(() => selected ? selected === initial && origin ? origin : { label, run: back, focus: true } : null, [selected, initial, origin, label, back])
   usePanelBack(navigation)
   useEffect(() => {
     if (!selected && previous.current) {

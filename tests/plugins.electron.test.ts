@@ -141,7 +141,7 @@ test('bundled shell/Python examples run from the plugin panel with prompts and r
   let prompt = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
   await expect(prompt.getByRole('button', { name: 'Close', exact: true })).toHaveCount(0)
   await prompt.getByRole('button', { name: 'Back', exact: true }).click()
-  await expect(details.getByRole('button', { name: 'Jump to heading', exact: true })).toBeVisible()
+  await expect(details.getByRole('button', { name: 'Jump to heading', exact: true })).toBeFocused()
   await expect(panel.getByRole('button', { name: 'Back to plugins' })).toBeVisible()
   await details.getByRole('button', { name: 'Jump to heading', exact: true }).click()
   let picker = chrome.getByRole('textbox', { name: 'Jump to heading', exact: true })
