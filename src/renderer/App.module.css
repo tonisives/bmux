@@ -191,6 +191,16 @@
 .panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
 .remoteService { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .remoteSession[data-active="true"] { background: #252d34; }
+.remoteGroup { display: flex; flex: 1; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; }
+.remoteGroup .remoteService { margin-left: auto; }
+.sessionWorkspace .remoteSessionRow { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) 34px; }
+.sessionWorkspace .remoteSessionRow .sessionClose { grid-column: 2; }
+.remotePreviewHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.remotePreviewHeading button { flex-shrink: 0; color: #aebca7; }
+.remotePreviewPane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.remotePreviewCaption { display: flex; flex-direction: column; padding: 6px 8px; flex-shrink: 0; }
+.remotePreviewCaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remoteAgentDetails { overflow: auto; border: 1px solid #363c45; padding: 12px; }
 [data-bookmark-picker] .bookmarkRow { outline: none; }
 [data-bookmark-picker] .bookmarkRow[data-active="true"] { background: #303944; color: #f0f2f5; }
 .profileHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: #eceef2; }

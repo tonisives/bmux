@@ -82,7 +82,7 @@ void app.whenReady().then(async () => {
     updateMenu?.close()
     remoteHost?.close()
     localRemote?.close()
-    flushing = runtime?.shutdown() ?? Promise.resolve()
+    flushing = Promise.all([runtime?.shutdown(), localRemote?.flush()]).then(() => undefined)
     server?.close()
     removeSocket(socketPath)
     void flushing.finally(() => { quitting = true; app.quit() })
@@ -114,6 +114,11 @@ void app.whenReady().then(async () => {
   ipcMain.handle('remote-sessions', event => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     return localRemote!.list()
+  })
+  ipcMain.handle('remote-session-previews', (event, host: string, session: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
+    return localRemote!.sessionPreviews(host, session)
   })
   ipcMain.handle('remote-close-session', (event, host: string, session: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')

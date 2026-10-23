@@ -6,14 +6,17 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { requestRemoteSessionClose } from './remote-request'
 import { remoteIdentity } from './remote-identity'
+import { createRemotePreviews } from './remote-previews'
+import type { RemoteSession } from '../shared/remote-sessions'
 
-export type LocalRemoteSession = { canClose?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
+export type LocalRemoteSession = RemoteSession
 export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
 export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHost[] }
 
 export let createLocalRemote = (directory: string) => {
   let identity = remoteIdentity(path.join(directory, 'remote-desktop.pem'))
   let closing = Promise.resolve()
+  let previews = createRemotePreviews(path.join(directory, 'remote'))
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
   let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; token: string; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
@@ -31,9 +34,12 @@ export let createLocalRemote = (directory: string) => {
       if (response.status === 401) continue
       if (!response.ok) throw new Error('Remote sessions unavailable')
       activeToken = token
-      return { authenticated: true, hosts: await response.json() as LocalRemoteHost[] }
+      let hosts = await response.json() as LocalRemoteHost[]
+      await previews.reconcile(hosts)
+      return { authenticated: true, hosts }
     }
     activeToken = undefined
+    await previews.reconcile([])
     return { authenticated: false, hosts: [] }
   }
   let connect = async (publicKey: JsonWebKey, token: string) => {
@@ -54,6 +60,10 @@ export let createLocalRemote = (directory: string) => {
   })
   ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => connect(publicKey, selection(event.sender).token))
   ipcMain.handle('remote-client-update', (event, state: RemoteViewUpdate) => selection(event.sender).update(state))
+  ipcMain.handle('remote-client-preview', (event, pane: string, image: string) => {
+    let selected = selection(event.sender)
+    return previews.set(selected.host.id, selected.session, pane, image)
+  })
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
   let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>) => {
     let listing = await list()
@@ -86,5 +96,6 @@ export let createLocalRemote = (directory: string) => {
     return result
   }
   let close = () => { for (let contents of viewers.keys()) if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); viewers.clear() }
-  return { origin, list, open, close, closeSession, useProfiles, preferProfile }
+  let sessionPreviews = async (host: string, session: string) => { await list(); return previews.get(host, session) }
+  return { origin, list, open, close, closeSession, sessionPreviews, flush: previews.flush, useProfiles, preferProfile }
 }
