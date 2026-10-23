@@ -47,7 +47,7 @@ export let requestRemoteSessionClose = async (origin: string, host: Host, sessio
 }
 export let requestRemoteSessionPreviews = async (origin: string, host: Host, session: string, panes: string[], identity: Identity, connect: Connect): Promise<Record<string, Snapshot>> => {
   let receiver = await createRemotePreviewReceiver(), snapshots: Record<string, Snapshot> = {}
-  await requestRemote(origin, host, identity, connect, { type: 'session-previews', session, key: receiver.publicKey }, async payload => {
+  await requestRemote(origin, host, identity, connect, { type: 'session-previews', session, panes, key: receiver.publicKey }, async payload => {
     if (payload.type === 'session-previews-complete') return true
     if (payload.type !== 'session-preview' || typeof payload.pane !== 'string' || !panes.includes(payload.pane) || snapshots[payload.pane]) throw new Error('Invalid preview pane')
     snapshots[payload.pane] = await receiver.decrypt(payload.preview as EncryptedPreview)

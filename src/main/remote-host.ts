@@ -146,6 +146,8 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           try {
             if (!allowed(message.from)) throw new Error('Access revoked')
             if (typeof payload.session !== 'string' || typeof payload.request !== 'string' || payload.request.length > 64) throw new Error('Invalid preview request')
+            if (!Array.isArray(payload.panes) || payload.panes.length > 100 || !payload.panes.every(pane => typeof pane === 'string' && pane.length <= 128)) throw new Error('Invalid preview panes')
+            let requested = new Set(payload.panes)
             if (previewing.has(message.from) || previewing.size >= 4) throw new Error('Preview capacity reached')
             let key = payload.key as JsonWebKey
             if (key?.kty !== 'OKP' || key.crv !== 'X25519' || typeof key.x !== 'string' || key.x.length > 64) throw new Error('Invalid preview key')
@@ -153,6 +155,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
             try {
               let current = socket, previews = await runtime.remote.previews(payload.session)
               for (let [pane, snapshot] of Object.entries(previews)) {
+                if (!requested.has(pane)) continue
                 let preview = await encryptRemotePreview(key, snapshot)
                 if (socket !== current || current?.readyState !== WebSocket.OPEN || !allowed(message.from) || !runtime.model.sessions.some(session => session.id === payload.session && session.windows.some(window => window.panes.some(item => item.id === pane)))) return
                 // Await each write so larger sessions stay within relay backpressure limits.

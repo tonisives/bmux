@@ -305,6 +305,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let remotePicker = local.getByRole('dialog',{name:'Sessions'})
       await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
       await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
+      await remotePicker.getByRole('button',{name:/main.*remote/}).hover()
       // This desktop has never watched a frame; the preview comes from the host.
       await expect(local.getByRole('complementary', { name: 'Remote session preview' }).locator(`[data-preview-pane="${pane}"] img`)).toBeVisible()
       let windows = (await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)
