@@ -50,7 +50,7 @@ it('fetches separately encrypted pane previews over signed requests', async () =
   server.on('connection', socket => socket.on('message', raw => {
     void (async () => {
       let message = JSON.parse(raw.toString()), payload = createEnvelopeVerifier('host', 'generation', () => ({ [viewer.id]: viewer.publicKey as { kty: string; crv: string; x: string } }))(message.envelope)
-      expect(payload).toMatchObject({ type: 'session-previews', session: 'session' })
+      expect(payload).toMatchObject({ type: 'session-previews', session: 'session', panes: ['one', 'two'] })
       for (let [pane, snapshot] of Object.entries(snapshots)) {
         let preview = await encryptRemotePreview(payload.key as JsonWebKey, snapshot)
         socket.send(JSON.stringify({ type: 'signal', from: 'host', envelope: host.seal(viewer.id, 'generation', { type: 'session-preview', request: payload.request, pane, preview }) }))

@@ -66,6 +66,7 @@ it('closes an advertised session for control access without opening a video stre
 it('shares encrypted host screenshots with watch access without opening a stream or updating activity', async () => {
   let { deliver, offers, runtime, viewer, socket, capture } = setup(undefined, false)
   let receiver = await createRemotePreviewReceiver()
+  runtime.model.sessions[0].windows[0].panes.push({ id: 'newPane', title: 'Created after listing' })
   socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'watch' }))
   runtime.remote.previews.mockResolvedValueOnce({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 }, newPane: { image: 'data:image/jpeg;base64,bmV3', capturedAt: 123457 } } as Awaited<ReturnType<typeof runtime.remote.previews>>)
   deliver({ type: 'session-previews', session: 'session', panes: ['pane'], request: 'preview', key: receiver.publicKey })
