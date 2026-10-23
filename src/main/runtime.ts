@@ -3575,7 +3575,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     previewTimer = setInterval(() => {
       let oldestFirst = [...tabs].sort(([a], [b]) => (snapshots[a]?.capturedAt ?? 0) - (snapshots[b]?.capturedAt ?? 0))
       for (let [paneId, live] of oldestFirst) if (!snapshots[paneId] || (remotePreviewsEnabled || live.parent.isVisible()) && Date.now() - snapshots[paneId].capturedAt >= 15000) requestPreview(paneId, live)
-    }, 15000)
+    }, 5000)
     previewTimer.unref()
     memoryTimer.unref()
     let idleTimer = setInterval(() => { void checkIdleTabs() }, MEMORY_INTERVAL_MS)
