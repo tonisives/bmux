@@ -10,7 +10,7 @@ let pointerScript = `(() => {
   pointer.style.cssText = 'all:initial!important;position:fixed!important;left:0!important;top:0!important;width:24px!important;height:27px!important;pointer-events:none!important;z-index:2147483647!important;display:none!important;';
   let shadow = pointer.attachShadow({mode:'closed'});
   let pulse = document.createElement('span');
-  pulse.style.cssText = 'position:absolute;left:0;top:0;width:27px;height:27px;border-radius:50%;background:#9cc7ff1f;box-shadow:0 0 0 1px #9cc7ff24;transform:translate(-50%,-50%);opacity:0;pointer-events:none;';
+  pulse.style.cssText = 'position:absolute;left:0;top:0;box-sizing:border-box;width:64px;height:64px;border-radius:50%;background:radial-gradient(circle,#ffc0df66 0 25%,#f591bf2b 26% 60%,transparent 61%);border:2px solid #f5a7ce;box-shadow:0 0 0 6px #f5a7ce22,0 0 28px #e77bbd55;transform:translate(-50%,-50%);opacity:0;pointer-events:none;';
   let reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   let svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 32 36');
@@ -19,33 +19,65 @@ let pointerScript = `(() => {
   svg.style.cssText = 'display:block;position:absolute;left:-2px;top:-2px;overflow:visible;filter:drop-shadow(0 1px 1px #0008);transform-origin:2px 2px;';
   let arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   arrow.setAttribute('d', 'M4 3.6Q2.2 2.3 2.6 4.5L7.6 27Q8 28.8 9.3 27.4L25 12.7Q26.5 11.4 24.5 10.8Z');
-  arrow.setAttribute('fill', '#f7f9fc');
-  arrow.setAttribute('stroke', '#252b35');
+  arrow.setAttribute('fill', '#f3a0cb');
+  arrow.setAttribute('stroke', '#5b2848');
   arrow.setAttribute('stroke-width', '1.4');
   arrow.setAttribute('stroke-linejoin', 'round');
   svg.append(arrow);
-  shadow.append(pulse, svg);
+  let trail = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  trail.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;opacity:0;pointer-events:none;';
+  let strokes = [10,3].map(width => {
+    let line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('fill','none');
+    line.setAttribute('stroke',width === 10 ? '#f49ac250' : '#f9a8d4cc');
+    line.setAttribute('stroke-width',String(width));
+    line.setAttribute('stroke-linecap','round');
+    line.setAttribute('stroke-linejoin','round');
+    trail.append(line);
+    return line;
+  });
+  shadow.append(trail, pulse, svg);
   document.documentElement.append(pointer);
-  let rotation = svg.animate([{transform:'rotate(-3deg)'},{transform:'rotate(3deg)'},{transform:'rotate(-3deg)'}], {duration:3600,iterations:Infinity,easing:'ease-in-out'});
-  let clickAnimation, idleTimer, visible = false;
+  let rotation = svg.animate([{transform:'rotate(-12deg)'},{transform:'rotate(12deg)'},{transform:'rotate(-12deg)'}], {duration:3600,iterations:Infinity,easing:'ease-in-out'});
+  let clickAnimation, trailAnimation, idleTimer, movementTimer, visible = false, moving = false, points = [], position, clickedAt;
+  let clearTrail = () => { clearTimeout(movementTimer); points = []; moving = false; trailAnimation?.cancel(); trail.style.opacity = '0'; };
   let updateMotion = () => {
-    if (reducedMotion.matches || !visible) { rotation.cancel(); clickAnimation?.cancel(); }
-    else rotation.play();
+    if (reducedMotion.matches || !visible) { clearTrail(); clickAnimation?.cancel(); }
+    if (reducedMotion.matches || !visible || moving) rotation.cancel(); else rotation.play();
   };
   let hide = () => { visible = false; pointer.style.setProperty('display','none','important'); updateMotion(); };
   reducedMotion.addEventListener('change', updateMotion);
   updateMotion();
   pointer.addEventListener('bmux-agent-cursor', event => {
-    let {x,y,hidden,click} = event.detail;
+    let {x,y,hidden,click,moving:inputMoving} = event.detail;
     clearTimeout(idleTimer);
     if (hidden) { hide(); return; }
-    if (x !== undefined) pointer.style.setProperty('transform','translate('+x+'px,'+y+'px)','important');
+    if (x !== undefined) {
+      position = {x,y};
+      pointer.style.setProperty('transform','translate('+x+'px,'+y+'px)','important');
+      if (clickedAt) { pulse.style.left = (clickedAt.x-x)+'px'; pulse.style.top = (clickedAt.y-y)+'px'; }
+      if (inputMoving && !reducedMotion.matches) {
+        moving = true;
+        clearTimeout(movementTimer);
+        trailAnimation?.cancel();
+        points = [...points,{x,y}].slice(-16);
+        let coordinates = points.map(point => (point.x-x)+','+(point.y-y)).join(' ');
+        strokes.forEach(line => line.setAttribute('points',coordinates));
+        trail.style.opacity = '1';
+        movementTimer = setTimeout(() => {
+          points = []; moving = false; updateMotion();
+          trailAnimation = trail.animate([{opacity:1},{opacity:0}],{duration:350,fill:'forwards'});
+        },100);
+      } else clearTrail();
+    }
     visible = true;
     pointer.style.setProperty('display','block','important');
     updateMotion();
     if (click && !reducedMotion.matches) {
+      clickedAt = position;
+      pulse.style.left = '0'; pulse.style.top = '0';
       clickAnimation?.cancel();
-      clickAnimation = pulse.animate([{transform:'translate(-50%,-50%) scale(.5)',opacity:1},{transform:'translate(-50%,-50%) scale(1.8)',opacity:0}], {duration:650,easing:'ease-out'});
+      clickAnimation = pulse.animate([{transform:'translate(-50%,-50%) scale(.45)',opacity:.95},{transform:'translate(-50%,-50%) scale(.95)',opacity:.85},{transform:'translate(-50%,-50%) scale(1.65)',opacity:0}], {duration:1100,easing:'ease-out'});
     }
     idleTimer = setTimeout(hide,20000);
   });
@@ -98,7 +130,7 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
       let wobble = Math.sin(Math.PI * t) ** 2 * Math.sin(phase + t * Math.PI * 2 * waves) * jitter
       let x = step === steps ? end.x : Math.max(0, Math.min(width - 1, (1 - t) ** 3 * start.x + 3 * (1 - t) ** 2 * t * first.x + 3 * (1 - t) * t ** 2 * second.x + t ** 3 * end.x + normal.x * wobble))
       let y = step === steps ? end.y : Math.max(0, Math.min(height - 1, (1 - t) ** 3 * start.y + 3 * (1 - t) ** 2 * t * first.y + 3 * (1 - t) * t ** 2 * second.y + t ** 3 * end.y + normal.y * wobble))
-      await update(tab, send, { x, y })
+      await update(tab, send, { x, y, moving: true })
       validate()
       await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' })
       positions.set(tab, { x, y })
