@@ -1488,6 +1488,16 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
   let previous = original.model.clients.find((client: { id: string }) => client.id === clientId)!
   let session = await rpc('new-session', { name: 'pane-layout-shortcuts', profile: original.model.profiles[0].id })
   let first = session.windows[0].panes[0]
+  await rpc('switch-client', { client: clientId, session: session.id })
+  await rpc('select-window', { client: clientId, window: session.windows[0].id })
+  await rpc('select-pane', { client: clientId, pane: first.id })
+  await activate()
+  await expect(chrome.locator(`[data-pane-id="${first.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+  await chrome.locator(`[data-pane-id="${first.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+  let input = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+  await expect(input).toBeFocused()
+  await input.fill(`${url}/layout-first`); await input.press('Enter')
+  await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/layout-first`)).toBe(true)
   let second = await rpc('split-window', { pane: first.id, url: `${url}/layout-second` })
   await rpc('split-window', { pane: second.id, url: `${url}/layout-third`, axis: 'vertical' })
   await rpc('split-window', { pane: first.id, url: `${url}/layout-fourth` })
@@ -1503,11 +1513,6 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
     await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode, modifiers }])
   }
   try {
-    let address = chrome.locator(`[data-pane-id="${first.id}"]`).getByRole('button', { name: 'Address', exact: true })
-    await address.click()
-    let input = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
-    await input.fill(`${url}/layout-first`); await input.press('Enter')
-    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/layout-first`)).toBe(true)
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(5)
     await press('1', ['alt'])
     await expect.poll(async () => { let panes = await boxes(); return panes.every(pane => pane && Math.abs(pane.y - panes[0]!.y) < 2 && Math.abs(pane.width - panes[0]!.width) < 2) }).toBe(true)
