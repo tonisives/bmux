@@ -242,8 +242,10 @@ restarts. Account warning pauses apply to the profile across websites. Session l
 the affected website manually, then use **Resume automation** in the Anti-bot
 tab. The notice names the blocking website and provides links to affected
 automation panes, including their agent identifiers. The **General anti-bot** row below the alerts holds the shared controls. Its gear
-opens a profile selector for Anti-bot settings, which apply across agents using
-that profile. Manual browsing never consumes
+opens shared agent requirements and a **Profile limits** list. Every profile is
+editable, including profiles with no open panes. Limits apply across agents using
+that profile, with a separate session timer for each website. Nested settings use
+the top-left back chevron or Escape to return to the previous view. Manual browsing never consumes
 automation time or waits for a cooldown, including in the same profile.
 Permission requests use the same notice bar with the requesting pane and
 **Go to pane**, **Deny**, and **Allow** controls. Visiting or dismissing a request

@@ -85,6 +85,7 @@
 .agentInformation dt { color: #9ca3ad; }
 .agentInformation button { margin: 12px 8px 0 0; padding: 6px 10px; border: 1px solid #505a66; }
 .agentInformation dd { margin: 0; overflow-wrap: anywhere; }
+.agentSettings { border-top: 1px solid #363c45; padding-top: 16px; }
 .agentActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .panel .agentAction { display: inline-flex; align-items: center; gap: 7px; margin: 0; padding: 6px 10px; border: 1px solid #505a66; background: #303944; color: #eceef2; }
 .panel .agentAction:hover:not(:disabled) { background: #414d5c; border-color: #7d8998; }
