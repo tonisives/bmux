@@ -22,10 +22,10 @@ export let createRemotePreviews = (directory: string) => {
     let host = hosts.find(host => host.id === hostId), session = host?.sessions.find(session => session.id === sessionId)
     return host && session ? { host, session } : undefined
   }
-  let set = async (hostId: string, sessionId: string, paneId: string, image: string) => {
+  let set = async (host: Pick<Host, 'id' | 'key'>, sessionId: string, paneId: string, image: string) => {
     await queue
-    let selected = session(hostId, sessionId)
-    if (!selected?.session.panes.some(pane => pane.id === paneId)) return
+    let selected = session(host.id, sessionId)
+    if (!selected?.session.panes.some(pane => pane.id === paneId) || selected.host.key?.x !== host.key?.x) return
     if (typeof image !== 'string' || image.length > 4 * 1024 * 1024 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(image)) throw new Error('Invalid remote preview')
     cache.set(owner(selected.host, selected.session, paneId).paneId, { image, capturedAt: Date.now() })
   }

@@ -62,7 +62,7 @@ export let createLocalRemote = (directory: string) => {
   ipcMain.handle('remote-client-update', (event, state: RemoteViewUpdate) => selection(event.sender).update(state))
   ipcMain.handle('remote-client-preview', (event, pane: string, image: string) => {
     let selected = selection(event.sender)
-    return previews.set(selected.host.id, selected.session, pane, image)
+    return previews.set(selected.host, selected.session, pane, image)
   })
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
   let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>) => {
