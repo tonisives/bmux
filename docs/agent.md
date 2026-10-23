@@ -197,8 +197,10 @@ needed for these defaults:
   same website and profile share its timer. A limit alert appears when an
   automation command reaches the limit; idle pages do not raise alerts. A full
   break without commands starts a fresh session on the next command.
-- At least 2 seconds between actions on social sites, shared across a profile's
-  panes. This covers Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
+- At least 2 seconds between actions on each social-site hostname within a
+  profile. Panes on the same hostname and profile share the delay across windows
+  and sessions; other hostnames and profiles have independent pacing. This covers
+  Instagram, Threads, Facebook, X, LinkedIn, Reddit, YouTube,
   TikTok, Bluesky, and Pinterest, including subdomains and common alternate hosts.
   Mouse movement and input releases are immediate.
 - Page actions share a domain lock across all panes and profiles, plus a lock for

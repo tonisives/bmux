@@ -54,7 +54,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     }
   } catch (error) { ledgerError = (error as NodeJS.ErrnoException).code !== 'ENOENT' }
   let usageKey = (profileId: string, url?: string) => JSON.stringify([profileId, automationWebsiteHost(url)])
-  let queues = new Map<string, Promise<void>>()
+  let queues = new Map<string, Promise<boolean>>()
   let lastAdmitted = new Map<string, number>()
   let ensureLedger = () => { if (ledgerError) throw safetyError('Automation safety ledger is unreadable; repair it before automating') }
   let persist = () => {
@@ -103,40 +103,50 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   }
   let before = async (profileId: string, inspect: () => Promise<Page>, targetUrl?: string, pace = true, actor?: AutomationActor, recordUsage = true) => {
     if (!automationSafetyEnabled(options.settings(), profileId, actor?.paneId)) return
-    let previous = queues.get(profileId) ?? Promise.resolve()
-    let task = previous.catch(() => undefined).then(async () => {
-      if (!automationSafetyEnabled(options.settings(), profileId, actor?.paneId)) return
-      let page = await inspect()
-      let enabledForPage = () => automationSiteEnabled(options.settings(), profileId, targetUrl ?? page.url, now(), actor?.paneId)
-      if (!enabledForPage()) return
-      ensureLedger()
-      let checkWarning = () => {
-        let host = automationWebsiteHost(page.url)
-        if (!page.warning || !host || !automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId)) return
-        let key = usageKey(profileId, page.url), value = usage[key] ?? { profileId, siteHost: host, startedAt: now(), lastUsed: now() }
-        usage[key] = { ...value, warning: page.warning, warningHost: host, ...(actor ? { actors: actorsFor(value, actor, page.url) } : {}) }
-        persist()
-      }
-      checkWarning()
-      assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
+    let page = await inspect()
+    while (true) {
       let key = usageKey(profileId, targetUrl ?? page.url)
-      let value = usage[key], current = now()
-      if (!value || rested(value)) value = { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: current, lastUsed: current, ...(value?.warning ? { warning: value.warning, warningHost: value.warningHost } : {}) }
-      let lastUsed = Math.max(lastAdmitted.get(profileId) ?? 0, ...Object.values(usage).filter(item => item.profileId === profileId).map(item => item.lastUsed))
-      let delay = pace && lastUsed && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
-      if (delay) { await sleep(delay); page = await inspect(); if (!enabledForPage()) return; checkWarning(); assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url) }
-      lastAdmitted.set(profileId, now())
-      if (!recordUsage) return
-      if (key !== usageKey(profileId, targetUrl ?? page.url)) {
-        key = usageKey(profileId, targetUrl ?? page.url)
-        value = usage[key] ?? { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: now(), lastUsed: now() }
-      }
-      usage[key] = { ...value, lastUsed: now(), ...(actor && recordUsage ? { actors: actorsFor(value, actor, targetUrl ?? page.url) } : {}) }
-      persist()
-      assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
-    })
-    queues.set(profileId, task)
-    try { await task } finally { if (queues.get(profileId) === task) queues.delete(profileId) }
+      let previous = queues.get(key)
+      let task = (previous ?? Promise.resolve()).catch(() => undefined).then(async () => {
+        if (!automationSafetyEnabled(options.settings(), profileId, actor?.paneId)) return true
+        if (previous) page = await inspect()
+        if (key !== usageKey(profileId, targetUrl ?? page.url)) return false
+        let enabledForPage = () => automationSiteEnabled(options.settings(), profileId, targetUrl ?? page.url, now(), actor?.paneId)
+        if (!enabledForPage()) return true
+        ensureLedger()
+        let checkWarning = () => {
+          let host = automationWebsiteHost(page.url)
+          if (!page.warning || !host || !automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId)) return
+          let key = usageKey(profileId, page.url), value = usage[key] ?? { profileId, siteHost: host, startedAt: now(), lastUsed: now() }
+          usage[key] = { ...value, warning: page.warning, warningHost: host, ...(actor ? { actors: actorsFor(value, actor, page.url) } : {}) }
+          persist()
+        }
+        checkWarning()
+        assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
+        let value = usage[key], current = now()
+        if (!value || rested(value)) value = { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: current, lastUsed: current, ...(value?.warning ? { warning: value.warning, warningHost: value.warningHost } : {}) }
+        let lastUsed = Math.max(lastAdmitted.get(key) ?? 0, usage[key]?.lastUsed ?? 0)
+        let delay = pace && lastUsed && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
+        if (delay) {
+          await sleep(delay)
+          page = await inspect()
+          // Navigation can change the pacing domain while this command waits.
+          // Release this queue before joining the destination's queue.
+          if (key !== usageKey(profileId, targetUrl ?? page.url)) return false
+          if (!enabledForPage()) return true
+          checkWarning()
+          assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
+        }
+        lastAdmitted.set(key, now())
+        if (!recordUsage) return true
+        usage[key] = { ...value, lastUsed: now(), ...(actor && recordUsage ? { actors: actorsFor(value, actor, targetUrl ?? page.url) } : {}) }
+        persist()
+        assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
+        return true
+      })
+      queues.set(key, task)
+      try { if (await task) return } finally { if (queues.get(key) === task) queues.delete(key) }
+    }
   }
   let complete = (profileId: string, actor: AutomationActor, url: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return

@@ -8,13 +8,13 @@ import { updateAutomationSafetyLimit, automationWebsiteHost, automationProfileLi
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
-let fixture = () => {
+let fixture = (pause?: (ms: number) => Promise<void>) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-safety-test-'))
   directories.push(directory)
   let time = Date.parse('2026-10-01T00:00:00Z'), settings = { ...DEFAULT_AUTOMATION.safety }, sleeps: number[] = []
   let file = path.join(directory, 'usage.json')
   let changes = 0
-  let create = () => createAutomationSafety({ file, settings: () => settings, now: () => time, sleep: async ms => { sleeps.push(ms); time += ms }, changed: () => { changes++ } })
+  let create = () => createAutomationSafety({ file, settings: () => settings, now: () => time, sleep: async ms => { sleeps.push(ms); if (pause) await pause(ms); time += ms }, changed: () => { changes++ } })
   return { policy: create(), file, settings, sleeps, changes: () => changes, advance: (ms: number) => { time += ms }, restart: create }
 }
 let instagram = async () => ({ url: 'https://www.instagram.com/' })
@@ -59,14 +59,88 @@ test('old and new configs enable global safety without optional groups', () => {
   expect(isSocialUrl('https://instagram.com.evil.test/')).toBe(false)
 })
 
-test('paces concurrent calls across panes in one profile, without delaying other profiles or local fixtures', async () => {
+test('paces concurrent panes on the same hostname and profile, independently of other sites and profiles', async () => {
   let { policy, sleeps } = fixture()
-  await Promise.all([policy.before('bot', instagram), policy.before('bot', instagram), policy.before('bot', async () => ({ url: 'https://x.com/' }))])
-  expect(sleeps).toEqual([2000, 2000])
+  await Promise.all([
+    policy.before('bot', instagram, undefined, true, { paneId: '%1' }),
+    policy.before('bot', async () => ({ url: 'https://WWW.INSTAGRAM.COM:8443/another-path' }), undefined, true, { paneId: '%2' }),
+    policy.before('bot', async () => ({ url: 'https://x.com/' }), undefined, true, { paneId: '%3' }),
+  ])
+  expect(sleeps).toEqual([2000])
   await policy.before('other', instagram)
-  await policy.before('local', async () => ({ url: 'http://127.0.0.1/fixture' }))
-  await policy.before('local', async () => ({ url: 'http://127.0.0.1/fixture' }))
-  expect(sleeps).toHaveLength(2)
+  await policy.before('bot', async () => ({ url: 'http://127.0.0.1/fixture' }))
+  await policy.before('bot', async () => ({ url: 'http://127.0.0.1/fixture' }))
+  expect(sleeps).toHaveLength(1)
+})
+
+test('a sleeping hostname queue does not block other sites, profiles, or local fixtures', async () => {
+  let release!: () => void, sleeping!: () => void
+  let gate = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { sleeping = resolve })
+  let { policy, sleeps } = fixture(async () => { sleeping(); await gate })
+  await policy.before('bot', instagram)
+  let finished = false
+  let waiting = policy.before('bot', instagram).then(() => { finished = true })
+  await started
+  try {
+    await Promise.all([
+      policy.before('bot', async () => ({ url: 'https://x.com/' })),
+      policy.before('bot', async () => ({ url: 'https://www.reddit.com/' })),
+      policy.before('bot', async () => ({ url: 'https://www.tiktok.com/' })),
+      policy.before('other', instagram),
+      policy.before('bot', async () => ({ url: 'http://127.0.0.1/fixture' })),
+    ])
+    expect(finished).toBe(false)
+    expect(sleeps).toEqual([2000])
+  } finally { release(); await waiting }
+})
+
+test('persisted pacing uses only the requested hostname after a restart', async () => {
+  let { policy, advance, sleeps, restart } = fixture()
+  await policy.before('bot', instagram)
+  advance(1000)
+  await policy.before('bot', async () => ({ url: 'https://x.com/' }))
+  expect(sleeps).toEqual([])
+  await restart().before('bot', instagram)
+  expect(sleeps).toEqual([1000])
+})
+
+test('a warning from another hostname still stops an action waiting in this profile', async () => {
+  let release!: () => void, sleeping!: () => void
+  let gate = new Promise<void>(resolve => { release = resolve }), started = new Promise<void>(resolve => { sleeping = resolve })
+  let { policy } = fixture(async () => { sleeping(); await gate })
+  await policy.before('bot', instagram)
+  let waiting = expect(policy.before('bot', instagram)).rejects.toThrow('challenge on x.com')
+  await started
+  try {
+    await expect(policy.before('bot', async () => ({ url: 'https://x.com/', warning: 'challenge' }))).rejects.toThrow('challenge on x.com')
+  } finally { release(); await waiting }
+})
+
+test('navigation during a delay joins the destination queue and respects its latest action', async () => {
+  let { policy, advance, sleeps } = fixture()
+  await policy.before('bot', instagram)
+  let inspections = 0
+  await policy.before('bot', async () => {
+    if (++inspections === 1) return instagram()
+    if (inspections === 2) {
+      advance(500)
+      await policy.before('bot', async () => ({ url: 'https://x.com/' }))
+    }
+    return { url: 'https://x.com/' }
+  })
+  expect(sleeps).toEqual([2000, 2000])
+  expect(policy.status().profiles.find(row => row.siteHost === 'x.com')?.lastUsed).toBe(Date.parse('2026-10-01T00:00:04.500Z'))
+})
+
+test('queued commands recheck the hostname before entering its pacing queue', async () => {
+  let { policy, sleeps } = fixture()
+  let inspections = 0
+  await Promise.all([
+    policy.before('bot', instagram),
+    policy.before('bot', async () => ++inspections === 1 ? instagram() : { url: 'https://x.com/' }),
+  ])
+  expect(sleeps).toEqual([])
+  expect(policy.status().profiles.map(row => row.siteHost)).toEqual(['www.instagram.com', 'x.com'])
 })
 
 test('session limits and cooldown survive app restarts and failed retries do not extend the break', async () => {
@@ -219,7 +293,7 @@ test('a page change during the delay is checked again before dispatch', async ()
   let { policy } = fixture()
   await policy.before('bot', instagram)
   let inspected = 0
-  await expect(policy.before('bot', async () => ({ url: 'https://instagram.com/', ...(++inspected > 1 ? { warning: 'challenge' as const } : {}) }))).rejects.toThrow('challenge')
+  await expect(policy.before('bot', async () => ({ url: 'https://www.instagram.com/', ...(++inspected > 1 ? { warning: 'challenge' as const } : {}) }))).rejects.toThrow('challenge')
   expect(inspected).toBe(2)
 })
 
@@ -455,13 +529,14 @@ test('social delay starts after an animated click completes', async () => {
   expect(sleeps).toEqual([1900])
 })
 
-test('navigation preflights keep profile pacing without creating website usage', async () => {
+test('navigation preflights pace each destination hostname and profile without creating website usage', async () => {
   let { policy, file, sleeps } = fixture()
   let blank = async () => ({ url: 'about:blank' })
   await Promise.all([
     policy.before('bot', blank, 'https://www.instagram.com/', true, { paneId: '%1' }, false),
     policy.before('bot', blank, 'https://x.com/', true, { paneId: '%2' }, false),
     policy.before('other', blank, 'https://x.com/', true, { paneId: '%3' }, false),
+    policy.before('bot', blank, 'https://www.instagram.com/another-path', true, { paneId: '%4' }, false),
   ])
   expect(sleeps).toEqual([2000])
   expect(policy.status().profiles).toEqual([])
