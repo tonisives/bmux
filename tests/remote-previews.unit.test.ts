@@ -28,6 +28,17 @@ it('restores viewed frames separately for hosts and removes closed or rekeyed se
     expect(await fs.readdir(path.join(directory, 'previews'))).toEqual([])
   } finally { await fs.rm(directory, { recursive: true, force: true }) }
 })
+it('preserves host capture timestamps and keeps a newer local frame', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-previews-'))
+  try {
+    let host = listing('one', true), cache = createRemotePreviews(directory)
+    await cache.reconcile([host])
+    await cache.set(host, 'session', 'pane', image, 123456)
+    expect((await cache.get('one', 'session')).pane.capturedAt).toBe(123456)
+    await cache.set(host, 'session', 'pane', 'data:image/jpeg;base64,b2xk', 123455)
+    expect((await cache.get('one', 'session')).pane).toEqual({ image, capturedAt: 123456 })
+  } finally { await fs.rm(directory, { recursive: true, force: true }) }
+})
 it('keeps private and legacy frames in memory and ignores panes outside the selected session', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-previews-'))
   try {

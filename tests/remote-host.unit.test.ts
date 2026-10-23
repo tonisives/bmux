@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { remoteIdentity } from '../src/main/remote-identity'
 import { startRemoteHost } from '../src/main/remote-host'
+import { createRemotePreviewReceiver } from '../src/shared/remote-preview'
 
 let sockets = vi.hoisted(() => [] as { emit: (event: string, data: string) => void; sent: { type: string; envelope?: { payload: string } }[] }[])
 vi.mock('ws', async () => {
@@ -14,7 +15,7 @@ vi.mock('ws', async () => {
     bufferedAmount = 0
     sent: { type: string; envelope?: { payload: string } }[] = []
     constructor() { super(); sockets.push(this) }
-    send(data: string) { this.sent.push(JSON.parse(data)) }
+    send(data: string, done?: () => void) { this.sent.push(JSON.parse(data)); done?.() }
     close() { this.readyState = 3 }
   }
   return { WebSocket: Socket }
@@ -29,7 +30,7 @@ beforeEach(async () => {
 })
 afterEach(async () => { host?.close(); host = undefined; await fs.rm(directory, { recursive: true, force: true }) })
 
-let setup = (request?: string) => {
+let setup = (request?: string, open = true) => {
   let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn() }
   let resolveCapture!: (value: typeof peer) => void
   let pending = new Promise<typeof peer>(resolve => { resolveCapture = resolve })
@@ -42,14 +43,14 @@ let setup = (request?: string) => {
     signalOffer()
     return pending
   })
-  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
   socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control' }))
   let deliver = (payload: unknown) => socket.emit('message', JSON.stringify({ type: 'signal', from: viewer.id, envelope: viewer.seal(host!.status().hostId, host!.status().generation, payload) }))
   let offers = () => socket.sent.filter(message => message.type === 'signal').map(message => JSON.parse(message.envelope!.payload))
-  deliver({ type: 'open', session: 'session', pane: 'pane', request })
+  if (open) deliver({ type: 'open', session: 'session', pane: 'pane', request })
   return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer, signalCandidate, runtime, viewer, socket }
 }
 
@@ -60,6 +61,33 @@ it('closes an advertised session for control access without opening a video stre
   deliver({ type: 'close-session', session: 'session', request: 'close-one' })
   await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'session-closed', request: 'close-one' }), { interval: 1 })
   expect(runtime.remote.closeSession).toHaveBeenCalledWith('session')
+})
+
+it('shares encrypted host screenshots with watch access without opening a stream or updating activity', async () => {
+  let { deliver, offers, runtime, viewer, socket, capture } = setup(undefined, false)
+  let receiver = await createRemotePreviewReceiver()
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'watch' }))
+  deliver({ type: 'session-previews', session: 'session', request: 'preview', key: receiver.publicKey })
+  await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'session-previews-complete', request: 'preview' }), { interval: 1 })
+  expect(await receiver.decrypt(offers()[0].preview)).toEqual({ image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 })
+  expect(runtime.remote.enablePreviews).toHaveBeenCalledOnce()
+  expect(runtime.remote.previews).toHaveBeenCalledWith('session')
+  expect(capture).not.toHaveBeenCalled()
+  expect(runtime.model.sessions[0].windows[0].lastVisitedAt).toBe(123456)
+  socket.emit('message', JSON.stringify({ type: 'revoked', id: viewer.id }))
+  deliver({ type: 'session-previews', session: 'session', request: 'revoked', key: receiver.publicKey })
+  expect(runtime.remote.previews).toHaveBeenCalledOnce()
+})
+
+it('drops captured previews when access is revoked while the host is capturing', async () => {
+  let { deliver, offers, runtime, viewer, socket } = setup(undefined, false)
+  let receiver = await createRemotePreviewReceiver(), resolve!: (value: Awaited<ReturnType<typeof runtime.remote.previews>>) => void
+  runtime.remote.previews.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  deliver({ type: 'session-previews', session: 'session', request: 'preview', key: receiver.publicKey })
+  socket.emit('message', JSON.stringify({ type: 'revoked', id: viewer.id }))
+  resolve({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })
+  await vi.waitFor(() => expect(runtime.remote.previews).toHaveResolved(), { interval: 1 })
+  expect(offers()).toEqual([])
 })
 
 it('rejects closing for watch access and reports a canceled host close', async () => {

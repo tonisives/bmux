@@ -2155,8 +2155,9 @@ let RemoteSessionPreview = ({ host, session }: { host?: RemoteHost; session?: Re
     setSnapshots({})
     if (!host || !session) return
     let active = true
-    void bridge.remoteSessionPreviews(host.id, session.id).then(value => { if (active) setSnapshots(value) }).catch(() => undefined)
-    return () => { active = false }
+    let refresh = () => { void bridge.remoteSessionPreviews(host.id, session.id).then(value => { if (active) setSnapshots(value) }).catch(() => undefined) }
+    let initial = setTimeout(refresh, 180), timer = setInterval(refresh, 15000)
+    return () => { active = false; clearTimeout(initial); clearInterval(timer) }
   }, [host?.id, session?.id])
   let actors = session?.panes.filter(pane => pane.agentId || pane.agentName || pane.agentPurpose || pane.agentType) ?? []
   return <aside className={css.sessionPreview} aria-label="Remote session preview" data-preview-session={session?.id}>
@@ -2167,7 +2168,7 @@ let RemoteSessionPreview = ({ host, session }: { host?: RemoteHost; session?: Re
 let RemoteAgentDetails = ({ pane }: { pane: RemoteSession['panes'][number] }) => <section aria-label={`Agent for ${pane.title}`}><strong>{pane.title}</strong><dl>{[['Name', pane.agentName], ['Agent ID', pane.agentId], ['Type', pane.agentType], ['Purpose', pane.agentPurpose], ...Object.entries(pane.agentData ?? {}).map(([key, value]) => [pane.agentFields?.[key] ?? key, value])].filter(([, value]) => value).map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}</dl></section>
 let RemotePreviewPane = ({ pane, snapshot }: { pane: RemoteSession['panes'][number]; snapshot?: Snapshot }) => <div className={css.remotePreviewPane} data-preview-pane={pane.id}>
   <div className={css.remotePreviewCaption} title={pane.agentPurpose}><span>{pane.title}</span>{(pane.agentName || pane.agentId) && <span className={css.remoteService}>{pane.agentName ?? pane.agentId}{pane.agentType && ` · ${pane.agentType}`}</span>}{pane.agentPurpose && <span>{pane.agentPurpose}</span>}</div>
-  <div className={css.sessionPreviewPage}>{snapshot && <img src={snapshot.image} alt={`Preview of ${pane.title}`} title={`Last viewed ${new Date(snapshot.capturedAt).toLocaleString()}`} />}</div>
+  <div className={css.sessionPreviewPage}>{snapshot && <img src={snapshot.image} alt={`Preview of ${pane.title}`} title={`Captured ${new Date(snapshot.capturedAt).toLocaleString()}`} />}</div>
 </div>
 let rememberRemoteSession = (host: string, session: string) => {
   localStorage.setItem('remote-session-last-active', `${host}:${session}`)

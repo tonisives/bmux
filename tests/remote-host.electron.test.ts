@@ -13,6 +13,8 @@ import { closeTestApplication } from './electron-fixture'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
 import { initialModel } from '../src/main/model'
 import { controlSocketPath } from '../bin/ipc.mjs'
+import { requestRemoteSessionPreviews } from '../src/main/remote-request'
+import { remoteIdentity } from '../src/main/remote-identity'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
@@ -122,6 +124,29 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       return hosts.flatMap((host: { sessions: { id: string; lastActivityAt?: number; canClose?: boolean }[] }) => host.sessions).find((session: { id: string }) => session.id === status.model.sessions[0].id)
     }, { timeout: 10000 }).toMatchObject({ lastActivityAt: lastUse, canClose: true })
     await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions[0].lastActivityAt).toBe(lastUse)
+    await test.step('Fetch host previews before opening a viewer and refresh hidden panes without activity', async () => {
+      let identity = remoteIdentity(path.join(directory, 'preview-test.pem'))
+      let hosts = await fetch(`${origin}/api/hosts`, { headers: { Cookie: `bmux_session=${cookie}` } }).then(response => response.json())
+      let host = hosts.find((host: { sessions: { id: string }[] }) => host.sessions.some(session => session.id === status.model.sessions[0].id))
+      expect(host.sessions[0].canPreview).toBe(true)
+      let fetchPreviews = () => requestRemoteSessionPreviews(origin, host, status.model.sessions[0].id, [pane], identity, async publicKey => {
+        let response = await fetch(`${origin}/api/connect`, { method: 'POST', headers: { Cookie: `bmux_session=${cookie}`, Origin: origin, 'Content-Type': 'application/json', 'X-Bmux-Desktop': '1' }, body: JSON.stringify({ publicKey }) })
+        expect(response.ok).toBe(true)
+        return response.json()
+      })
+      let before = await command('status'), first = await fetchPreviews()
+      expect(first[pane].image).toMatch(/^data:image\/jpeg;base64,/)
+      expect(first[pane].capturedAt).toBeGreaterThan(0)
+      // Only read state while the hidden host refreshes the changing fixture.
+      await expect.poll(async () => (await command('status')).snapshots[pane]?.capturedAt, { timeout: 25000, intervals: [1000, 2000] }).toBeGreaterThan(first[pane].capturedAt)
+      let next = await fetchPreviews(), after = await command('status')
+      expect(next[pane].capturedAt).toBeGreaterThan(first[pane].capturedAt)
+      expect(next[pane].image).not.toBe(first[pane].image)
+      expect(after.model.clients).toEqual(before.model.clients)
+      expect(after.model.sessions[0].lastActivityAt).toBe(lastUse)
+      expect(after.remoteControl[status.model.sessions[0].id]).toBeUndefined()
+      expect(application!.context().pages().some(page => page.url().endsWith('/remote-peer.html'))).toBe(false)
+    }, { timeout: 35000 })
     let other = await command('new-session','-s','uncontrolled')
     let otherPane = other.windows[0].panes[0].id
     // Establish the desktop before remote control; automation cannot take over a lease.
@@ -280,6 +305,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let remotePicker = local.getByRole('dialog',{name:'Sessions'})
       await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
       await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
+      // This desktop has never watched a frame; the preview comes from the host.
+      await expect(local.getByRole('complementary', { name: 'Remote session preview' }).locator(`[data-preview-pane="${pane}"] img`)).toBeVisible()
       let windows = (await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)
       await remotePicker.getByRole('button',{name:/main.*remote/}).click()
       await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
