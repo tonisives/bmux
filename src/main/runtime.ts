@@ -287,8 +287,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let downloadItems = new Map<string, DownloadItem>()
   let downloadPaths = new Set<string>()
   let focusedClientId: string | null = null
-  let lastFocusedClientId: string | null = null
-  let preferredClient = () => model.clients.find(client => client.id === (focusedClientId ?? lastFocusedClientId)) ?? model.clients[0]
+  let preferredClient = () => model.clients.find(client => client.id === (focusedClientId ?? model.lastFocusedClientId)) ?? model.clients[0]
   let pointerTarget: { clientId: string; paneId: string; expires: number; origin: { x: number; y: number } } | undefined
   let permissionFocusTarget: { clientId: string; paneId: string } | undefined
   let pageFocusTarget: { clientId: string; paneId: string } | undefined
@@ -1922,9 +1921,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     resizeChrome()
     window.on('resize', resizeChrome)
     window.on('focus', () => {
+      if (shuttingDown) return
       for (let profileId of Object.keys(profileProxyFailures)) void proxyRecovery.retry(profileId)
       focusedClientId = client.id
-      lastFocusedClientId = client.id
+      model.lastFocusedClientId = client.id
       resizeChrome()
       reclaimDesktopControl(client.sessionId)
       void scheduleVisuals().then(() => {
@@ -3514,10 +3514,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (background) { model.clients = []; save(); return }
     let restore = [...model.clients]
     if (!restore.length) { await createClient(model.sessions[0].id); return }
+    let selectedClient = restore.find(client => client.id === model.lastFocusedClientId) ?? restore[restore.length - 1]
     repairClients()
     for (let client of restore) await createClient(client.sessionId, client, false)
-    let last = clients.get(restore[restore.length - 1].id)
-    await app.dock?.show(); last?.window.show(); last?.window.focus()
+    let selected = clients.get(selectedClient.id)!
+    await app.dock?.show(); selected.window.show(); await focusWindow(selected.window)
   }
   let shutdown = () => {
     if (shuttingDown) return
