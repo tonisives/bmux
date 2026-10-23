@@ -1,4 +1,3 @@
-import { buildIdInset } from '../shared/build-info'
 import type { RemoteView } from '../shared/remote'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
@@ -58,7 +57,7 @@ type Notification = { id: string; text: string; cooldown?: { retryAfter: string;
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { settingsTarget: 'build' | null; setSettingsTarget: (target: 'build' | null) => void; agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -70,6 +69,7 @@ export let App = () => {
   let [dismissedConfigError, setDismissedConfigError] = useState(''), [dismissedStartupNotice, setDismissedStartupNotice] = useState('')
   let { allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView } = useBookmarkMemory()
   let [acknowledgedDownloads, setAcknowledgedDownloads] = useState<Set<string>>(() => new Set())
+  let [settingsTarget, setSettingsTarget] = useState<'build' | null>(null)
   let previous = useRef('')
   let knownPanes = useRef<Set<string> | null>(null)
   let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false)
@@ -149,7 +149,7 @@ export let App = () => {
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, run).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
-  let context = { agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
+  let context = { settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <BrowserStatus />
@@ -163,19 +163,19 @@ let BrowserStatus = () => {
   let { state, control, message } = useUI()
   let { client } = selection(state)
   if (!client) return null
-  return <>
-    <footer className={css.status} aria-label="Browser status">
-      {state.statusBar === 'bottom' && <BuildId />}
-      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
-    </footer>
-    {state.statusBar !== 'bottom' && state.showBuildId && state.buildInfo && <div className={css.buildFooter}><BuildId /></div>}
-  </>
+  return <footer className={css.status} aria-label="Browser status">
+    {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
+    <BuildId />
+  </footer>
 }
 
 let BuildId = () => {
-  let { state } = useUI()
+  let { state, show, setSettingsTarget } = useUI()
   if (!state.showBuildId || !state.buildInfo) return null
-  return <span className={css.buildId} aria-label="Build ID">{state.buildInfo.revision} · {state.buildInfo.builtAt}</span>
+  let { version, revision, builtAt } = state.buildInfo
+  let date = builtAt.slice(2, 10).replaceAll('-', ''), time = builtAt.slice(11, 16).replace(':', '')
+  let open = () => { setSettingsTarget('build'); show('settings') }
+  return <button type="button" className={css.buildId} aria-label="Build information" title={`bmux ${version} · ${revision} · ${builtAt}`} onClick={open}>v{version} · {date}.{time}</button>
 }
 
 let useControlDismiss = (control: Control | null, dismiss: () => void, blocked: boolean) => {
@@ -1258,9 +1258,9 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!placement || !client || !ref.current) return
-    let rect = clampFloat(placement, client.width, client.height - 28 - buildIdInset(state.showBuildId, state.statusBar))
+    let rect = clampFloat(placement, client.width, client.height - 28)
     for (let key of ['x', 'y', 'width', 'height'] as const) ref.current.style.setProperty(`--float-${key}`, `${rect[key]}px`)
-  }, [placement, client?.width, client?.height, state.showBuildId, state.statusBar])
+  }, [placement, client?.width, client?.height])
   return <div ref={ref} className={css.floatingPreview} aria-hidden="true"><div>{tab?.url}</div>{tab && state.snapshots[tab.id] && <img src={state.snapshots[tab.id].image} alt="" />}</div>
 }
 let BrowserPane = ({ paneId }: { paneId: string }) => {
@@ -3260,6 +3260,7 @@ type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard'
 type SettingsSearchItem = { tab: SettingsTab; label: string; section?: string; keywords?: string; target: string }
 let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }]
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
+  { tab: 'general', label: 'About bmux', section: 'Build information', keywords: 'version build commit date timestamp', target: '[data-setting-id="build-info"]' },
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
   { tab: 'general', label: 'Vim editing', section: 'Text editing', keywords: 'URL address rename tabs sessions normal insert motions website fields Ctrl E', target: '[name="vimEditing"]' },
@@ -3276,10 +3277,19 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'keyboard', label: 'Edit shortcuts in config', target: '[data-setting-id="edit-shortcuts"]' },
 ]
 let SearchAppOptions = () => <>{SEARCH_APPS.map(app => <option key={app} value={app}>{({ google: 'Google', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave Search' } as Record<string, string>)[app]}</option>)}</>
+let BuildInformation = () => {
+  let { state } = useUI()
+  if (!state.buildInfo) return null
+  let { version, revision, builtAt } = state.buildInfo
+  return <section className={css.settingsGroup} data-setting-id="build-info" aria-label="About bmux"><h3>About bmux</h3>
+    <dl className={css.buildDetails}><dt>Version</dt><dd>{version}</dd><dt>Commit</dt><dd>{revision}</dd><dt>Built at (UTC)</dt><dd>{builtAt}</dd></dl>
+  </section>
+}
 let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void; matches?: Set<string> }) => {
   let { state } = useUI()
   let show = (target: string) => !matches || matches.has(target)
   return <>
+    {show('[data-setting-id="build-info"]') && <BuildInformation />}
     {(show('[name="searchApps.normal"]') || show('[name="searchApps.private"]')) && <section className={css.settingsGroup} aria-label="Search apps"><h3>Search apps</h3>
       {show('[name="searchApps.normal"]') && <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>}
       {show('[name="searchApps.private"]') && <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>}
@@ -3340,13 +3350,18 @@ let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, curr
   </section>)}{!results.length && <p role="status">No matching settings.</p>}</div>
 }
 let SettingsContent = () => {
-  let { state, run, onMessage } = useUI()
+  let { state, run, onMessage, settingsTarget, setSettingsTarget } = useUI()
   let [savedTab, setTab] = useSettingsState<SettingsTab>('settings:tab', 'general')
   let tab = SETTINGS_TABS.some(tab => tab.id === savedTab) ? savedTab : 'general'
   let [query, setQuery] = useSettingsState('settings:query', '')
   let [prefix, setPrefix] = useSettingsState('settings:prefix', state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix)
   let root = useRef<HTMLDivElement>(null)
   let searchInput = useRef<HTMLInputElement>(null)
+  useLayoutEffect(() => {
+    if (settingsTarget !== 'build') return
+    setTab('general'); setQuery(''); setSettingsTarget(null)
+    root.current?.querySelector('[role="tabpanel"]')?.scrollTo(0, 0)
+  }, [settingsTarget, setSettingsTarget, setTab, setQuery])
   let savedPrefix = state.keyboard?.prefix ?? DEFAULT_KEYBOARD.prefix, previousPrefix = useRef(savedPrefix)
   useEffect(() => { if (previousPrefix.current !== savedPrefix) { previousPrefix.current = savedPrefix; setPrefix(savedPrefix) } }, [savedPrefix, setPrefix])
   let makeDefault = async () => { if (await run('settings.default-browser')) onMessage('Default browser requested. Confirm any macOS prompt; you can also choose bmux in System Settings > Desktop & Dock.') }

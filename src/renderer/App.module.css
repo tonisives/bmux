@@ -1,6 +1,4 @@
 .app { display: flex; flex-direction: column; height: 100%; }
-.buildFooter { order: 2; display: flex; align-items: center; height: 18px; flex-shrink: 0; padding: 0 8px; background: #1b1f24; }
-.buildId { color: #77818d; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; flex-shrink: 0; user-select: text; -webkit-app-region: no-drag; }
 .workspace { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
 .floatingPreview { position: absolute; left: var(--float-x); top: var(--float-y); width: var(--float-width); height: var(--float-height); border: 2.25px solid #343c48; border-radius: 10px; background: #111318; overflow: hidden; pointer-events: none; }
 .floatingPreview > div { height: 30px; padding: 6px; background: #1b1f24; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -9,6 +7,10 @@
 .app[data-status-bar="bottom"] .status { order: 1; }
 .status button, .status input, .status form { -webkit-app-region: no-drag; }
 .status button { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; max-width: 240px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.status .buildId { margin-left: auto; color: #77818d; font-size: 10px; white-space: nowrap; }
+.buildDetails { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 20px; margin: 10px 0 0; font-size: 12px; }
+.buildDetails dt { color: #9ca3ad; }
+.buildDetails dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
 .status .newTab { display: grid; place-items: center; align-self: flex-end; width: 24px; height: 24px; margin-left: -6.4px; border-top: 1px solid transparent; color: #77818d; }
 .app[data-status-bar="bottom"] .newTab { align-self: flex-start; border-top: 0; border-bottom: 1px solid transparent; }
