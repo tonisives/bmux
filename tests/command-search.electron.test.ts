@@ -1513,7 +1513,7 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
     await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode, modifiers }])
   }
   try {
-    await expect(chrome.locator('[data-pane-id]')).toHaveCount(5)
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(4)
     await press('1', ['alt'])
     await expect.poll(async () => { let panes = await boxes(); return panes.every(pane => pane && Math.abs(pane.y - panes[0]!.y) < 2 && Math.abs(pane.width - panes[0]!.width) < 2) }).toBe(true)
     await press('|', ['shift'])
@@ -1525,7 +1525,7 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
     await rpc('toggle-pane-zoom', { client: clientId })
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(1)
     await press('=')
-    await expect(chrome.locator('[data-pane-id]')).toHaveCount(5)
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(4)
     await expect.poll(async () => { let panes = await boxes(); return new Set(panes.map(pane => Math.round(pane!.y))).size }).toBe(2)
     let after = await currentWindow()
     expect(after.panes.map((pane: { id: string }) => pane.id)).toEqual(before.panes.map((pane: { id: string }) => pane.id))
