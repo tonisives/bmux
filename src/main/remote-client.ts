@@ -60,8 +60,9 @@ export let createLocalRemote = (directory: string) => {
   })
   ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => connect(publicKey, selection(event.sender).token))
   ipcMain.handle('remote-client-update', (event, state: RemoteViewUpdate) => selection(event.sender).update(state))
-  ipcMain.handle('remote-client-preview', (event, pane: string, image: string) => {
+  ipcMain.handle('remote-client-preview', async (event, pane: string, image: string) => {
     let selected = selection(event.sender)
+    await list()
     return previews.set(selected.host, selected.session, pane, image)
   })
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
