@@ -193,7 +193,7 @@
 .remoteSession[data-active="true"] { background: #252d34; }
 .remoteGroup { display: flex; flex: 1; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; }
 .remoteGroup .remoteService { margin-left: auto; }
-.sessionWorkspace .remoteSessionRow { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) 34px; }
+.sessionWorkspace .sessionRow.remoteSessionRow { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) 34px; }
 .sessionWorkspace .remoteSessionRow .sessionClose { grid-column: 2; }
 .remotePreviewHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .remotePreviewHeading button { flex-shrink: 0; color: #aebca7; }
