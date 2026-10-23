@@ -8,7 +8,7 @@ import { usePanelStack } from './usePanelStack'
 import { PanelBackContext, PanelHeader } from './PanelHeader'
 import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
-import { activityAge, activityLabel, windowVisitTime } from '../shared/pane-activity'
+import { activityAge, activityLabel, compactActivityLabel, windowVisitTime } from '../shared/pane-activity'
 import { paneAgents } from '../shared/pane-agents'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
@@ -598,6 +598,8 @@ let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteVie
 }
 let LocalStatus = () => {
   let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   let { client, session, profile } = selection(state)
   let { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag } = useWindowDrag()
   let sessions = () => show('sessions')
@@ -624,6 +626,8 @@ let LocalStatus = () => {
         if (tab.dataset.pinned === 'true') return tab.getBoundingClientRect().width
         let range = document.createRange()
         range.selectNodeContents(tab.querySelector(`.${css.windowLabel}`)!)
+        let activity = tab.querySelector('time')
+        tab.style.setProperty('--window-activity-width', `${activity ? activity.getBoundingClientRect().width + 5 : 0}px`)
         return range.getBoundingClientRect().width + parseFloat(getComputedStyle(tab).minWidth)
       })
       let automaticWidth = Math.max(0, ...widths.filter((_, index) => tabs[index].dataset.automatic === 'true'))
@@ -638,10 +642,10 @@ let LocalStatus = () => {
     let observer = new ResizeObserver(reveal)
     observer.observe(list); reveal()
     return () => observer.disconnect()
-  }, [client?.windowId, session?.windows])
+  }, [client?.windowId, session?.windows, now])
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
-    <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} />)}</div>
+    <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} now={now} />)}</div>
     <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
@@ -656,7 +660,7 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
   if (paneId && state.favicons[paneId]) return <img className={css.tabFavicon} src={state.favicons[paneId]} alt="" />
   return <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>
 }
-let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: number; active: boolean }) => {
+let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
@@ -664,6 +668,7 @@ let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: 
   let characters = Array.from(window.name)
   let name = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
   let label = `${index}:${name}${active ? '*' : ''}`
+  let visitedAt = windowVisitTime(window)
   let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
   let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
   let tooltipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -687,9 +692,10 @@ let StatusWindow = ({ window, index, active }: { window: InternalWindow; index: 
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
-    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : undefined} title={window.name} draggable>
+    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable>
       <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
+      {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
     {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
     {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
