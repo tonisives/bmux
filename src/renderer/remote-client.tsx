@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, PointerEvent } from 'react'
+import type { KeyboardEvent, PointerEvent, RefObject } from 'react'
 import type { RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { createRoot } from 'react-dom/client'
 import { createViewer } from '../../remote/web/client'
@@ -9,7 +9,30 @@ import css from './remote-client.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
 type Selection = { origin: string; host: Host; session: string }
-let bridge = (window as unknown as { remoteClient: { update: (state: RemoteViewUpdate) => Promise<void>; actions: (listener: (action: RemoteViewAction) => void) => () => void; close: () => Promise<void>; selection: () => Promise<Selection>; connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } }).remoteClient
+let bridge = (window as unknown as { remoteClient: { preview: (pane: string, image: string) => Promise<void>; update: (state: RemoteViewUpdate) => Promise<void>; actions: (listener: (action: RemoteViewAction) => void) => () => void; close: () => Promise<void>; selection: () => Promise<Selection>; connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } }).remoteClient
+
+let useRemotePreview = (video: RefObject<HTMLVideoElement | null>, pane?: string) => {
+  useEffect(() => {
+    let target = video.current
+    if (!target || !pane) return
+    let callback = 0, captured = 0
+    let frame = () => {
+      if (target.readyState >= 2 && target.videoWidth && target.videoHeight && Date.now() - captured >= 15000) {
+        let canvas = document.createElement('canvas'), scale = Math.min(1, 960 / target.videoWidth, 720 / target.videoHeight)
+        canvas.width = Math.round(target.videoWidth * scale); canvas.height = Math.round(target.videoHeight * scale)
+        let context = canvas.getContext('2d')
+        if (context) {
+          context.drawImage(target, 0, 0, canvas.width, canvas.height)
+          void bridge.preview(pane, canvas.toDataURL('image/jpeg', .65)).catch(() => undefined)
+          captured = Date.now()
+        }
+      }
+      callback = target.requestVideoFrameCallback(frame)
+    }
+    callback = target.requestVideoFrameCallback(frame)
+    return () => target.cancelVideoFrameCallback(callback)
+  }, [pane])
+}
 
 let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
@@ -25,7 +48,7 @@ let App = () => {
     let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
     void createViewer({
       hosts: setHosts,
-      stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
+      stream: stream => { setState(undefined); if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
       state: next => { setState(next); setError('') },
       error: setError,
       disconnected: () => { if (closed) return; setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },
@@ -46,13 +69,14 @@ let App = () => {
   let session = state?.sessions.find(item => item.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
   let lease = session && state?.controls[session.id], controlling = !!viewer && !!lease && lease.owner === viewer.id
   let viewport = state && state.viewports[state.pane]
+  useRemotePreview(video, state?.pane)
   useEffect(() => {
     if (!selection) return
     void bridge.update({ name: session?.name ?? selection.host.sessions.find(item => item.id === selection.session)?.name ?? 'Remote', connected: !!state, controlling, occupied: !!lease, pane: state?.pane, panes: session?.windows.flatMap(window => window.panes) ?? [], error }).catch(() => undefined)
   }, [selection, session, state, controlling, lease, error])
   useEffect(() => bridge.actions(action => {
     if (!viewer) return
-    if (action.type === 'switch') { viewer.send({ type: 'switch', pane: action.pane }); return }
+    if (action.type === 'switch') { setState(undefined); if (video.current) video.current.srcObject = null; viewer.send({ type: 'switch', pane: action.pane }); return }
     if (!session) return
     if (action.type === 'acquire') viewer.send({ type: 'acquire', session: session.id, takeover: !!lease })
     else if (action.type === 'release') viewer.send({ type: 'release', session: session.id })

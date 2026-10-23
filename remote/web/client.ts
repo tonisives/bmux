@@ -2,7 +2,8 @@ import { envelopeText, validEnvelope } from '../../src/shared/remote'
 import type { RemoteEnvelope } from '../../src/shared/remote'
 import { observeViewerFocus, receiveViewerMessage } from './viewer-updates'
 import { prepareIceAnswer } from '../../src/shared/remote-ice'
-export type Host = { id: string; service: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; sessions: { id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }[] }
+import type { RemoteHost } from '../../src/shared/remote-sessions'
+export type Host = RemoteHost & { generation: string; key: JsonWebKey }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string }[] }[] }
 export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }> }
 let bytes = (text: string) => new TextEncoder().encode(text)

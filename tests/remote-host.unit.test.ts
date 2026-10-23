@@ -42,7 +42,7 @@ let setup = (request?: string) => {
     signalOffer()
     return pending
   })
-  let runtime = { model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capture, disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
@@ -120,4 +120,14 @@ it('advertises agent use newer than a window visit', () => {
   Object.assign(runtime.model.sessions[0], { lastActivityAt: 234567 })
   socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
   expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ sessions: [{ lastActivityAt: 234567, canClose: true }] })
+})
+
+it('advertises typed pane descriptions and field labels without terminal origins or commands', () => {
+  let { socket, runtime } = setup()
+  Object.assign(runtime.model.sessions[0].windows[0].panes[0], { agentId: 'researcher', agentName: 'Research', agentPurpose: 'Checking source links', agentType: 'scraper', agentData: { task: 'Article discovery' }, agentOrigin: { type: 'tmux', paneId: '%1', panePid: '123' } })
+  runtime.state = () => ({ automationAgents: { definitions: { scraper: { fields: { task: { label: 'Current task' } }, focusCommand: 'local-only' } } } })
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
+  let advertised = socket.sent.find(message => message.type === 'sessions') as unknown as { sessions: { private: boolean; panes: Record<string, unknown>[] }[] }
+  expect(advertised.sessions[0].private).toBe(false)
+  expect(advertised.sessions[0].panes[0]).toEqual({ id: 'pane', title: 'fixture', agentId: 'researcher', agentName: 'Research', agentPurpose: 'Checking source links', agentType: 'scraper', agentData: { task: 'Article discovery' }, agentFields: { task: 'Current task' } })
 })

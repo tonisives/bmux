@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Host } from '../../remote/web/client'
 
 contextBridge.exposeInMainWorld('remoteClient', {
+  preview: (pane: string, image: string): Promise<void> => ipcRenderer.invoke('remote-client-preview', pane, image),
   update: (state: RemoteViewUpdate): Promise<void> => ipcRenderer.invoke('remote-client-update', state),
   actions: (listener: (action: RemoteViewAction) => void) => {
     let handler = (_event: Electron.IpcRendererEvent, action: RemoteViewAction) => listener(action)

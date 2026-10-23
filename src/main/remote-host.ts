@@ -6,6 +6,7 @@ import { remoteIdentity, createEnvelopeVerifier } from './remote-identity'
 import type { createRuntime } from './runtime'
 import type { RemoteEnvelope } from '../shared/remote'
 import { sessionActivityTime } from '../shared/pane-activity'
+import { agentInfo } from '../shared/agent-info'
 
 type PublicKey = { kty: string; crv: string; x: string }
 type Config = { url: string; token: string; identityFile?: string }
@@ -35,7 +36,15 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let send = (value: unknown) => { if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 262144) socket.send(JSON.stringify(value)) }
   let lastSessions = ''
   let advertise = () => {
-    let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({ id: session.id, name: session.name, canClose: true, lastActivityAt: sessionActivityTime(session), panes: session.windows.flatMap(window => window.panes.map(pane => ({ id: pane.id, title: pane.title }))) }))
+    let definitions = runtime.state().automationAgents?.definitions ?? {}
+    let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({
+      id: session.id, name: session.name, private: session.private === true, canClose: true, lastActivityAt: sessionActivityTime(session),
+      panes: session.windows.flatMap(window => window.panes.map(pane => {
+        let { agentOrigin: _origin, ...actor } = pane.lastUsedBy === 'human' ? {} : agentInfo(pane)
+        let fields = actor.agentType ? definitions[actor.agentType]?.fields : undefined
+        return { id: pane.id, title: pane.title, ...actor, ...(fields ? { agentFields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.label])) } : {}) }
+      })),
+    }))
     let serialized = JSON.stringify(sessions)
     if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
   }
