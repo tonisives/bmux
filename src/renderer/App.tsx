@@ -1,3 +1,4 @@
+import { buildIdInset } from '../shared/build-info'
 import type { RemoteView } from '../shared/remote'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
@@ -150,13 +151,30 @@ export let App = () => {
   let context = { agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && <Panel key={panel} type={panel} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
-    <footer className={css.status} aria-label="Browser status">
-      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
-    </footer>
+    <BrowserStatus />
     {notices.length > 0 && <Notifications notices={notices} />}
     {panel && panel !== 'profiles' && <Panel key={panel} type={panel} />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
+}
+
+let BrowserStatus = () => {
+  let { state, control, message } = useUI()
+  let { client } = selection(state)
+  if (!client) return null
+  return <>
+    <footer className={css.status} aria-label="Browser status">
+      {state.statusBar === 'bottom' && <BuildId />}
+      {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
+    </footer>
+    {state.statusBar !== 'bottom' && state.showBuildId && state.buildInfo && <div className={css.buildFooter}><BuildId /></div>}
+  </>
+}
+
+let BuildId = () => {
+  let { state } = useUI()
+  if (!state.showBuildId || !state.buildInfo) return null
+  return <span className={css.buildId} aria-label="Build ID">{state.buildInfo.revision} · {state.buildInfo.builtAt}</span>
 }
 
 let useControlDismiss = (control: Control | null, dismiss: () => void, blocked: boolean) => {
@@ -1239,9 +1257,9 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (!placement || !client || !ref.current) return
-    let rect = clampFloat(placement, client.width, client.height - 28)
+    let rect = clampFloat(placement, client.width, client.height - 28 - buildIdInset(state.showBuildId, state.statusBar))
     for (let key of ['x', 'y', 'width', 'height'] as const) ref.current.style.setProperty(`--float-${key}`, `${rect[key]}px`)
-  }, [placement, client?.width, client?.height])
+  }, [placement, client?.width, client?.height, state.showBuildId, state.statusBar])
   return <div ref={ref} className={css.floatingPreview} aria-hidden="true"><div>{tab?.url}</div>{tab && state.snapshots[tab.id] && <img src={state.snapshots[tab.id].image} alt="" />}</div>
 }
 let BrowserPane = ({ paneId }: { paneId: string }) => {
