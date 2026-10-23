@@ -16,13 +16,14 @@ test('session previews persist across restarts and are deleted when unloaded win
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as any).port}`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: true\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: true\n')
   let application: ElectronApplication | undefined, chrome: Page
   let launch = async () => {
     application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     await expect(chrome.getByRole('button', { name: 'Sessions', exact: true })).toBeVisible()
+    expect((await chrome.evaluate(() => (window as any).bmux.state())).configError).toBeNull()
   }
   let state = () => chrome.evaluate(() => (window as any).bmux.state())
   let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
