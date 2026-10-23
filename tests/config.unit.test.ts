@@ -233,3 +233,9 @@ it('keeps the optional dark mode address button disabled by default and validate
   expect(parseConfig('keyboard: {}\nshowDarkModeButton: true').showDarkModeButton).toBe(true)
   expect(() => parseConfig('keyboard: {}\nshowDarkModeButton: yes')).toThrow('showDarkModeButton must be true or false')
 })
+
+it('build ID is opt-in and accepts only a boolean', () => {
+  expect(parseConfig('keyboard: {}').showBuildId).toBe(false)
+  expect(parseConfig('keyboard: {}\nshowBuildId: true').showBuildId).toBe(true)
+  expect(() => parseConfig('keyboard: {}\nshowBuildId: yes')).toThrow('showBuildId must be true or false')
+})

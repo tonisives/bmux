@@ -139,6 +139,7 @@ Edit `~/.config/bmux/config.yaml`, or press Command+,. Changes reload automatica
 
 ```yaml
 statusBar: top
+showBuildId: false
 showTabCloseButtons: false
 clickMode:
   enabled: true
@@ -177,6 +178,8 @@ keyboard:
     "(": previous-session
     ")": next-session
 ```
+
+Set `showBuildId: true` to show the running build’s commit and ISO 8601 UTC build time at the bottom left. It reloads live and defaults to off.
 
 Set `showTabCloseButtons: true` when you want close buttons on the internal-window labels.
 
