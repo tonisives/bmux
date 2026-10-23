@@ -1493,10 +1493,7 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
   await rpc('select-pane', { client: clientId, pane: first.id })
   await activate()
   await expect(chrome.locator(`[data-pane-id="${first.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
-  await chrome.locator(`[data-pane-id="${first.id}"]`).getByRole('button', { name: 'Address', exact: true }).click()
-  let input = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
-  await expect(input).toBeFocused()
-  await input.fill(`${url}/layout-first`); await input.press('Enter')
+  await rpc('navigate', { pane: first.id, url: `${url}/layout-first` })
   await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/layout-first`)).toBe(true)
   let second = await rpc('split-window', { pane: first.id, url: `${url}/layout-second` })
   await rpc('split-window', { pane: second.id, url: `${url}/layout-third`, axis: 'vertical' })
@@ -1509,11 +1506,26 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
   let before = await currentWindow(), paneIds = before.panes.map((pane: { id: string }) => pane.id).filter((id: string) => id !== floating.id)
   let boxes = () => Promise.all(paneIds.map((id: string) => chrome.locator(`[data-pane-id="${id}"]`).boundingBox()))
   let press = async (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => {
-    await activate(); await rpc('focus-page', { client: clientId })
-    await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode, modifiers }])
+    await activate()
+    await rpc('select-pane', { client: clientId, pane: first.id })
+    await rpc('focus-page', { client: clientId })
+    await expect.poll(() => application.evaluate(async ({ BaseWindow, webContents }, { expectedUrl, keyCode, modifiers }) => {
+      let contents = webContents.getFocusedWebContents(), native = BaseWindow.getFocusedWindow()
+      if (contents?.getURL() !== expectedUrl || !native?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents === contents)) return false
+      for (let [index, event] of [{ keyCode: 'x', modifiers: ['control'] }, { keyCode, modifiers }].entries()) {
+        contents.sendInputEvent({ type: 'keyDown', ...event } as Electron.KeyboardInputEvent)
+        contents.sendInputEvent({ type: 'keyUp', ...event } as Electron.KeyboardInputEvent)
+        if (!index) await new Promise(resolve => setTimeout(resolve, 30))
+      }
+      return true
+    }, { expectedUrl: `${url}/layout-first`, keyCode, modifiers })).toBe(true)
   }
   try {
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(4)
+    for (let path of ['first', 'second', 'third', 'fourth', 'floating']) {
+      await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/layout-${path}`)).toBe(true)
+      await expect(application.context().pages().find(page => page.url() === `${url}/layout-${path}`)!.locator('h1')).toBeVisible()
+    }
     await press('1', ['alt'])
     await expect.poll(async () => { let panes = await boxes(); return panes.every(pane => pane && Math.abs(pane.y - panes[0]!.y) < 2 && Math.abs(pane.width - panes[0]!.width) < 2) }).toBe(true)
     await press('|', ['shift'])
@@ -1533,6 +1545,8 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
     expect((await state()).model.clients.find((client: { id: string }) => client.id === clientId).paneId).toBe(first.id)
     let page = application.context().pages().find(page => page.url() === `${url}/layout-first`)!
     await expect(page.locator('h1')).toBeVisible()
+    let content = await chrome.locator(`[data-pane-id="${first.id}"] [data-browser-content]`).boundingBox()
+    await expect.poll(() => application.evaluate(({ BaseWindow }, expectedUrl) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === expectedUrl)?.getBounds(), `${url}/layout-first`)).toEqual({ x: Math.round(content!.x), y: Math.round(content!.y), width: Math.round(content!.width), height: Math.round(content!.height) })
   } finally {
     await rpc('switch-client', { client: clientId, session: previous.sessionId })
     await rpc('select-window', { client: clientId, window: previous.windowId })

@@ -3,11 +3,14 @@ import { layoutPaneIds } from './floating'
 import type { Layout } from '../shared/types'
 
 export type PaneLayout = 'tiled' | 'even-horizontal' | 'even-vertical'
-let stack = (nodes: Layout[], axis: 'horizontal' | 'vertical'): Layout | null => nodes.length < 2 ? nodes[0] ?? null : {
-  kind: 'split', id: id('split'), axis, ratio: 1 / nodes.length, first: nodes[0], second: stack(nodes.slice(1), axis)!,
+let stack = (nodes: Layout[], axis: 'horizontal' | 'vertical'): Layout | null => {
+  if (nodes.length < 2) return nodes[0] ?? null
+  let middle = Math.ceil(nodes.length / 2)
+  return { kind: 'split', id: id('split'), axis, ratio: middle / nodes.length, first: stack(nodes.slice(0, middle), axis)!, second: stack(nodes.slice(middle), axis)! }
 }
 export let arrangePanes = (layout: Layout | null, name: PaneLayout): Layout | null => {
   let panes: Layout[] = layoutPaneIds(layout).map(paneId => ({ kind: 'pane', paneId }))
+  if (!panes.length) return null
   if (name !== 'tiled') return stack(panes, name === 'even-horizontal' ? 'horizontal' : 'vertical')
   let rows = Math.ceil(panes.length / Math.ceil(Math.sqrt(panes.length))), offset = 0
   return stack(Array.from({ length: rows }, (_, index) => {
