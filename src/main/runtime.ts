@@ -403,7 +403,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let pluginInteractive = (context: PluginContext) => pluginSelected(context) && context.clientId === focusedClientId && clients.get(context.clientId!)?.window.isFocused() === true
   let accessibilityPreference = false
   let visualScheduled = false
-  let snapshotPending = new Set<string>()
+  let snapshotPending = new Map<string, Promise<void>>()
+  let remotePreviewsEnabled = false
   let settingsFile = path.join(dataDirectory, 'settings.json')
   let grantFile = path.join(dataDirectory, 'permissions.json')
   let readSettings = async () => {
@@ -1657,16 +1658,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let requestPreview = (tabId: string, live: LiveTab) => {
     // Preview work must never hold up detaching or attaching native views.
-    if (shuttingDown || !isLiveTabOpen(live) || tabs.get(tabId) !== live || loading[tabId] || tabQueues.has(tabId) || snapshotPending.has(tabId) || snapshotPending.size >= 4) return
+    if (snapshotPending.has(tabId)) return snapshotPending.get(tabId)
+    if (shuttingDown || !isLiveTabOpen(live) || tabs.get(tabId) !== live || loading[tabId] || tabQueues.has(tabId) || snapshotPending.size >= 4) return
     if (!/^(https?:|file:)/.test(live.contents.getURL())) return
-    snapshotPending.add(tabId)
     let url = live.contents.getURL()
     let capture = () => {
       let debuggerApi = live.contents.debugger
       if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
       return debuggerApi.sendCommand('Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false })
     }
-    void Promise.race([
+    let pending = Promise.race([
       Promise.resolve().then(capture),
       sleep(3000).then(() => { throw new Error('Preview capture timed out') }),
     ]).then(result => {
@@ -1678,6 +1679,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         previewCache.set(tabId, { image: `data:image/jpeg;base64,${image.toJPEG(65).toString('base64')}`, capturedAt: Date.now() }); publish()
       }
     }).catch(() => undefined).finally(() => snapshotPending.delete(tabId))
+    snapshotPending.set(tabId, pending)
+    return pending
   }
   let singlePaneBounds = (tabId: string, live: LiveClient, exact?: Bounds) => {
     // Popup and session changes can reconcile before the renderer publishes the
@@ -3586,8 +3589,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     recordMemory()
     memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)
     previewTimer = setInterval(() => {
-      for (let [paneId, live] of tabs) if (!snapshots[paneId] || live.parent.isVisible() && Date.now() - snapshots[paneId].capturedAt >= 15000) requestPreview(paneId, live)
-    }, 15000)
+      let oldestFirst = [...tabs].sort(([a], [b]) => (snapshots[a]?.capturedAt ?? 0) - (snapshots[b]?.capturedAt ?? 0))
+      for (let [paneId, live] of oldestFirst) if (!snapshots[paneId] || (remotePreviewsEnabled || live.parent.isVisible()) && Date.now() - snapshots[paneId].capturedAt >= 15000) requestPreview(paneId, live)
+    }, 5000)
     previewTimer.unref()
     memoryTimer.unref()
     let idleTimer = setInterval(() => { void checkIdleTabs() }, MEMORY_INTERVAL_MS)
@@ -3643,6 +3647,31 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (episode && !remote.attentions().some(item => item.pane === pane && item.episode === episode)) throw new Error('The help request changed. Refresh before resuming.')
       automationSafety?.resume(target.pane.profileId,page)
       attention.resolve(pane,episode); publish(); return { resumed:true }
+    },
+    enablePreviews: () => { remotePreviewsEnabled = true },
+    previews: async (sessionId: string) => {
+      let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
+      if (!session) throw new Error('Remote session unavailable')
+      let paneIds = session.windows.flatMap(window => window.panes.map(pane => pane.id))
+      // Capture loaded panes without selecting, restoring, or waking unloaded pages.
+      await Promise.all(paneIds.map(async paneId => {
+        let live = tabs.get(paneId)
+        if (live && (!snapshots[paneId] || Date.now() - snapshots[paneId].capturedAt >= 15000)) await requestPreview(paneId, live)
+      }))
+      if (!model.sessions.includes(session)) throw new Error('Remote session unavailable')
+      return Object.fromEntries(paneIds.flatMap(paneId => {
+        let snapshot = snapshots[paneId]
+        if (!snapshot) return []
+        let image = snapshot.image
+        if (image.length > 65536) {
+          let frame = nativeImage.createFromDataURL(image)
+          while (image.length > 65536 && !frame.isEmpty() && frame.getSize().width > 1) {
+            frame = frame.resize({ width: Math.max(1, Math.floor(frame.getSize().width / 2)) })
+            image = `data:image/jpeg;base64,${frame.toJPEG(60).toString('base64')}`
+          }
+        }
+        return image.length <= 65536 ? [[paneId, { image, capturedAt: snapshot.capturedAt }]] : []
+      }))
     },
     closeSession: async (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)

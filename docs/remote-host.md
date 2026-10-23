@@ -134,6 +134,8 @@ access to owned services and services shared with the signed-in account. The rel
 stores service keys as hashes, account grants, device public keys and operational
 metadata. Session names and pane titles are advertised to authorized accounts
 for discovery. Video, input, page URLs and full session state travel inside WebRTC.
+Pane preview screenshots use signed requests with X25519/AES-GCM encryption
+between the requesting client and host; the relay forwards ciphertext.
 Signed negotiation binds SDP fingerprints, recipient, runtime generation, nonce
 and expiry to the host and viewer keys authenticated by the relay. The web origin
 and relay are trusted to identify hosts and enforce account grants.
@@ -191,6 +193,14 @@ session and its control lease; Disconnect keeps it running. Hosts must run a
 version supporting remote session closing and activity metadata. An older host
 returns an update-required message before a close request is sent. The list uses
 host timestamps; opening a viewer never substitutes its local visit time.
+
+The preview beside the list is fetched from the remote browser before opening
+video. Remote hosts capture loaded panes after navigation and about every 15
+seconds, including hidden panes. Fetching a preview leaves selection, control,
+and last-used timestamps unchanged. Unloaded pages keep their last saved preview
+until they run again. Clients retain the host's capture time and fall back to
+their last viewed frame for older hosts or unavailable previews. Private-session
+previews stay in memory. The selected preview refreshes while the popup is open.
 
 Small streams are centered in the page area. Larger streams have scrollbars.
 Disconnect leaves the hosted session running and returns to the remaining local

@@ -4,7 +4,7 @@ import type { WebContents } from 'electron'
 import type { RemotePage } from './runtime'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { requestRemoteSessionClose } from './remote-request'
+import { requestRemoteSessionClose, requestRemoteSessionPreviews } from './remote-request'
 import { remoteIdentity } from './remote-identity'
 import { createRemotePreviews } from './remote-previews'
 import type { RemoteSession } from '../shared/remote-sessions'
@@ -15,7 +15,9 @@ export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHos
 
 export let createLocalRemote = (directory: string) => {
   let identity = remoteIdentity(path.join(directory, 'remote-desktop.pem'))
+  let previewIdentity = remoteIdentity(path.join(directory, 'remote-preview-device.pem'))
   let closing = Promise.resolve()
+  let fetching = Promise.resolve(), latestPreview: symbol | undefined
   let previews = createRemotePreviews(path.join(directory, 'remote'))
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
@@ -97,7 +99,6 @@ export let createLocalRemote = (directory: string) => {
     return result
   }
   let close = () => { for (let contents of viewers.keys()) if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); viewers.clear() }
-  let sessionPreviews = async (host: string, session: string) => { await list(); return previews.get(host, session) }
   let account = async (endpoint: string, body?: unknown): Promise<unknown> => {
     if (!/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
     if (!activeToken) await list()
@@ -107,6 +108,23 @@ export let createLocalRemote = (directory: string) => {
     let result = await response.json() as { error?: string }
     if (!response.ok) throw new Error(result.error || 'Account request unavailable')
     return result
+  }
+  let sessionPreviews = async (hostId: string, sessionId: string) => {
+    let request = Symbol(); latestPreview = request
+    let listing = await list()
+    let host = listing.hosts.find(host => host.id === hostId), selected = host?.sessions.find(session => session.id === sessionId)
+    let token = activeToken
+    if (host && selected?.canPreview && token) {
+      // One device connection at a time; skip rows passed while navigating the list.
+      fetching = fetching.catch(() => undefined).then(async () => {
+        if (request !== latestPreview) return
+        let snapshots = await requestRemoteSessionPreviews(origin, host, sessionId, selected.panes.map(pane => pane.id), previewIdentity, key => connect(key, token))
+        await list()
+        for (let [pane, snapshot] of Object.entries(snapshots)) await previews.set(host, sessionId, pane, snapshot.image, snapshot.capturedAt)
+      }).catch(() => undefined)
+      await fetching
+    }
+    return previews.get(hostId, sessionId)
   }
   return { origin, list, open, close, closeSession, sessionPreviews, account, flush: previews.flush, useProfiles, preferProfile }
 }

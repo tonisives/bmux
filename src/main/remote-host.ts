@@ -7,6 +7,7 @@ import type { createRuntime } from './runtime'
 import type { RemoteEnvelope } from '../shared/remote'
 import { sessionActivityTime } from '../shared/pane-activity'
 import { agentInfo } from '../shared/agent-info'
+import { encryptRemotePreview } from '../shared/remote-preview'
 
 type PublicKey = { kty: string; crv: string; x: string }
 type Config = { url: string; token: string; identityFile?: string }
@@ -21,6 +22,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     return value
   }
   let initial = config(), identity = remoteIdentity(initial.identityFile ?? path.join(directory, 'remote-identity.pem'))
+  runtime.remote.enablePreviews()
   let hostFile = path.join(directory, 'remote-host-id')
   if (!fs.existsSync(hostFile)) fs.writeFileSync(hostFile, randomUUID(), { mode: 0o600, flag: 'wx' })
   let hostId = fs.readFileSync(hostFile, 'utf8').trim(), generation = randomUUID()
@@ -29,6 +31,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let verify = createEnvelopeVerifier(hostId, generation, () => Object.fromEntries([...authorized].map(([id, value]) => [id, value.key])))
   let socket: WebSocket | undefined, stopped = false, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
   let opening = new Map<string, symbol>()
+  let previewing = new Set<string>()
   let streams = new Map<string, { peer: Stream; pane: string; request?: string; connection: string; expires?: number; expiry?: ReturnType<typeof setTimeout>; renewing?: boolean }>(), iceServers: RTCIceServer[] = []
   let streamPermits = false
   let attention = new Map<string, { target: { pane: string; session: string; episode: string; reason: string }; resolved: boolean; acknowledged: boolean }>()
@@ -59,7 +62,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let advertise = () => {
     let definitions = runtime.state().automationAgents?.definitions ?? {}
     let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({
-      id: session.id, name: session.name, private: session.private === true, canClose: true, lastActivityAt: sessionActivityTime(session),
+      id: session.id, name: session.name, private: session.private === true, canClose: true, canPreview: true, lastActivityAt: sessionActivityTime(session),
       panes: session.windows.flatMap(window => window.panes.map(pane => {
         let { agentOrigin: _origin, ...actor } = pane.lastUsedBy === 'human' ? {} : agentInfo(pane)
         let fields = actor.agentType ? definitions[actor.agentType]?.fields : undefined
@@ -172,7 +175,30 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
         let envelope = message.envelope as RemoteEnvelope
         if (envelope.from !== message.from) throw new Error('Identity mismatch')
         let payload = verify(envelope)
-        if (payload.type === 'close-session') {
+        if (payload.type === 'session-previews') {
+          try {
+            if (!allowed(message.from)) throw new Error('Access revoked')
+            if (typeof payload.session !== 'string' || typeof payload.request !== 'string' || payload.request.length > 64) throw new Error('Invalid preview request')
+            if (!Array.isArray(payload.panes) || payload.panes.length > 100 || !payload.panes.every(pane => typeof pane === 'string' && pane.length <= 128)) throw new Error('Invalid preview panes')
+            let requested = new Set(payload.panes)
+            if (previewing.has(message.from) || previewing.size >= 4) throw new Error('Preview capacity reached')
+            let key = payload.key as JsonWebKey
+            if (key?.kty !== 'OKP' || key.crv !== 'X25519' || typeof key.x !== 'string' || key.x.length > 64) throw new Error('Invalid preview key')
+            previewing.add(message.from)
+            try {
+              let current = socket, previews = await runtime.remote.previews(payload.session)
+              for (let [pane, snapshot] of Object.entries(previews)) {
+                if (!requested.has(pane)) continue
+                let preview = await encryptRemotePreview(key, snapshot)
+                if (socket !== current || current?.readyState !== WebSocket.OPEN || !allowed(message.from) || !runtime.model.sessions.some(session => session.id === payload.session && session.windows.some(window => window.panes.some(item => item.id === pane)))) return
+                // Await each write so larger sessions stay within relay backpressure limits.
+                await new Promise<void>((resolve, reject) => current.send(JSON.stringify({ type: 'signal', to: message.from, envelope: identity.seal(message.from, generation, { type: 'session-preview', request: payload.request, pane, preview }) }), error => error ? reject(error) : resolve()))
+              }
+              if (socket === current && allowed(message.from)) signal(message.from, { type: 'session-previews-complete', request: payload.request })
+            } finally { previewing.delete(message.from) }
+          } catch (error) { signal(message.from, { type: 'error', request: payload.request, error: error instanceof Error ? error.message : 'Unable to load previews' }) }
+        }
+        else if (payload.type === 'close-session') {
           try {
             if (allowed(message.from) !== 'control') throw new Error('Watch only access')
             if (typeof payload.session !== 'string') throw new Error('Invalid session')

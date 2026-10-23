@@ -32,13 +32,13 @@
 .windows[data-dragging] .windowTab { transform: translateX(var(--tab-drag-offset, 0px)); transition: transform 160ms ease; }
 .windows .windowTab[data-dragging="true"] { opacity: .4; }
 @media (prefers-reduced-motion: reduce) { .windows[data-dragging] .windowTab { transition: none; } }
-.windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: 37px; height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
+.windowTab { position: relative; display: inline-flex; align-items: center; gap: 2px; flex: 0 1 auto; min-width: calc(37px + var(--window-activity-width, 0px)); height: 24px; padding-right: 4px; border: 1px solid #343c48; border-bottom: 0; border-radius: 4px 4px 0 0; background: #23282f; }
 .windows[data-compressed="true"] .windowTab[data-automatic="true"] { flex-basis: var(--automatic-tab-width); }
 .windows .windowTab[data-selected="true"] { flex: 0 0 auto; max-width: 100%; }
 .windows[data-compressed="true"] .windowTab[data-selected="true"] { flex-basis: auto; }
-.windowTab:has(.windowClose) { min-width: 53px; }
-.windowTab:has(.windowAudio) { min-width: 55px; }
-.windowTab:has(.windowClose):has(.windowAudio) { min-width: 71px; }
+.windowTab:has(.windowClose) { min-width: calc(53px + var(--window-activity-width, 0px)); }
+.windowTab:has(.windowAudio) { min-width: calc(55px + var(--window-activity-width, 0px)); }
+.windowTab:has(.windowClose):has(.windowAudio) { min-width: calc(71px + var(--window-activity-width, 0px)); }
 .windowTab[data-selected="false"]:hover { background: #303844; }
 .status .windowTab[data-selected="false"]:hover .windowClose:not(:hover) { background: inherit; }
 .windowTab[data-selected="true"] { border-color: #56616f; background: #343c48; color: #f0f2f5; }
@@ -49,6 +49,7 @@
 .status .windowSelect:hover { color: inherit; }
 .windows .windowTab[data-pinned="true"] { flex: 0 0 28px; min-width: 28px; padding-right: 0; }
 .status .windowTab[data-pinned="true"] .windowSelect { justify-content: center; padding: 0; }
+.windowActivity { flex: 0 0 auto; white-space: nowrap; }
 .windowLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabFavicon, .tabSpinner, .tabPlaceholder { display: block; width: 12px; height: 12px; flex: 0 0 12px; }
 .tabFavicon { object-fit: contain; }
@@ -518,9 +519,9 @@
 .sessionWindows > :last-child .sessionBranch::after { bottom: 50%; }
 .sessionWindowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sessionWindowActivity { flex-shrink: 0; color: #8995a3; font-weight: 400; }
-.sessionWindowActivity[data-age="recent"] { color: #a7c88d; }
-.sessionWindowActivity[data-age="today"] { color: #e5c07b; }
-.sessionWindowActivity[data-age="old"] { color: #e88b8b; }
+.windowActivity[data-age="recent"], .sessionWindowActivity[data-age="recent"] { color: #a7c88d; }
+.windowActivity[data-age="today"], .sessionWindowActivity[data-age="today"] { color: #e5c07b; }
+.windowActivity[data-age="old"], .sessionWindowActivity[data-age="old"] { color: #e88b8b; }
 .sessionPicker .sessionAudio { grid-column: 2; display: flex; align-items: center; justify-content: center; padding: 3px 0; border-radius: 0; color: #a7c88d; }
 .sessionAudio[data-muted="true"] { color: #77818d; }
 .sessionPicker .sessionAudio:is(:hover, :focus-visible) { background: #303944; color: #f0f2f5; }
