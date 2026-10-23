@@ -175,7 +175,7 @@ let BuildId = () => {
   let { version, revision, builtAt } = state.buildInfo
   let date = builtAt.slice(2, 10).replaceAll('-', ''), time = builtAt.slice(11, 16).replace(':', '')
   let open = () => { setSettingsTarget('build'); show('settings') }
-  return <button type="button" className={css.buildId} aria-label="Build information" title={`bmux ${version} · ${revision} · ${builtAt}`} onClick={open}>v{version} · {date}.{time}</button>
+  return <button type="button" className={css.buildId} aria-label="Build information" title={`bmux ${version} · ${revision} · ${builtAt}`} onClick={open}>{date}.{time}</button>
 }
 
 let useControlDismiss = (control: Control | null, dismiss: () => void, blocked: boolean) => {

@@ -62,7 +62,7 @@ test('compact build information opens General settings without reducing native p
       }).toBe(true)
       let before = await content.boundingBox()
       await writeConfig(true, position)
-      await expect(label).toHaveText(/^v\d+\.\d+\.\d+ · \d{6}\.\d{4}$/)
+      await expect(label).toHaveText(/^\d{6}\.\d{4}$/)
       await expect.poll(async () => {
         let bounds = await nativeBounds(), rect = await content.boundingBox(), badge = await label.boundingBox()
         let viewport = await chrome.evaluate(() => ({ width: innerWidth, height: innerHeight }))
