@@ -296,6 +296,7 @@ test('automation and permission notices identify agent panes while personal brow
     await chrome.getByRole('group', { name: 'General anti-bot settings', exact: true }).getByRole('button', { name: 'Anti-bot settings', exact: true }).click()
     await chrome.getByRole('dialog', { name: 'General anti-bot settings', exact: true }).getByRole('button', { name: 'default', exact: true }).click()
     await expect(antiBot).toContainText('Agent %46')
+    await expect(chrome.getByRole('dialog', { name: 'General anti-bot settings', exact: true }).getByRole('button', { name: 'Back to general anti-bot settings' })).toBeVisible()
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice.png') })
   } finally {

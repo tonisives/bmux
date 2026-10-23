@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { CloseButton } from './CloseButton'
 import css from './PanelHeader.module.css'
@@ -8,7 +8,7 @@ export let PanelBackContext = createContext<(back: PanelBack | null) => void>(()
 
 export let usePanelBack = (back: PanelBack | null) => {
   let setBack = useContext(PanelBackContext)
-  useEffect(() => {
+  useLayoutEffect(() => {
     setBack(back)
     return () => setBack(null)
   }, [back, setBack])
