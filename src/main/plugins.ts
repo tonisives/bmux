@@ -139,8 +139,7 @@ export let createPlugins = (options: Options) => {
     if (capability !== 'browser.manage' && ((args.pane !== undefined && args.pane !== run.context.paneId) || (args.tab !== undefined && args.tab !== run.context.paneId))) throw new Error('Invocation is bound to its original pane')
     if (run.public.hook && ['select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
     let url = method === 'navigate' ? String(args.url) : run.context.url
-    // Page helpers install like userscripts, independently of agent activity.
-    if (method !== 'script.install' && url && run.context.profileId && run.context.paneId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
+    if (url && run.context.profileId && run.context.paneId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
     try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context }, run.controller.signal) }
     catch (error) {
       if (isAutomationSafetyError(error)) { run.policyError = error.message; finish(run, 'failed'); throw error }

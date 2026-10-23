@@ -32,6 +32,7 @@ export let createPluginBrowser = (options: Options) => {
     }
     let read = <T>(operation: () => Promise<T>) => options.read && context.paneId ? options.read(context.paneId, operation) : operation()
     if (method === 'script.install') {
+      // Installing a keyboard helper should leave human input available.
       if (typeof args.source !== 'string' || !args.source.length || args.source.length > 262144 || typeof args.worldName !== 'string' || !args.worldName.trim() || args.worldName.length > 128) throw new Error('Script source and isolated world name required')
       validate()
       let { frameTree } = await options.cdp(context.paneId!, 'Page.getFrameTree')
