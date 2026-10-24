@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useRemote } from './RemoteContext'
@@ -22,6 +22,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let [history, setHistory] = useState(false)
   let [busy, setBusy] = useState(false)
   let [notice, setNotice] = useState('')
+  let [notificationsOff, setNotificationsOff] = useState(false)
   let [disconnect, setDisconnect] = useState<string>()
   let [newHost, setNewHost] = useState<Host>()
   let [profileHost, setProfileHost] = useState<Host>()
@@ -88,7 +89,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
     {section === 'settings' && <ScrollView contentContainerStyle={local.content}>
       <Text style={styles.title}>Settings</Text>
       <View style={styles.card}><Text style={styles.label}>Account</Text><Text style={styles.text}>{remote.account.name || remote.account.email || 'Signed in'}</Text>{!!remote.account.email && <Text style={styles.secondary}>{remote.account.email}</Text>}<Text style={styles.secondary}>Relay {remote.billing?.relay.active ? 'active' : 'inactive'}</Text><Button title="Sign out" busy={busy} onPress={() => void action(remote.logout)} /></View>
-      {Platform.OS !== 'web' && <View style={styles.card}><Text style={styles.label}>Notifications</Text><Text style={styles.text}>Know when an agent needs your help.</Text><Button title="Enable notifications" busy={busy} onPress={() => void action(async () => { let enabled = await remote.enableNotifications(); setNotice(enabled ? 'Notifications enabled.' : 'Notifications are off. Enable them in system settings.') })} />{!!notice && <Text style={styles.secondary}>{notice}</Text>}</View>}
+      {Platform.OS !== 'web' && <View style={styles.card}><Text style={styles.label}>Notifications</Text><Text style={styles.text}>Know when an agent needs your help.</Text><Button title="Enable notifications" busy={busy} onPress={() => void action(async () => { let enabled = await remote.enableNotifications(); setNotificationsOff(!enabled); setNotice(enabled ? 'Notifications enabled.' : 'Notifications are off. Enable them in system settings.') })} />{notificationsOff && <Button title="Open system settings" onPress={() => void action(Linking.openSettings)} />}{!!notice && <Text style={styles.secondary}>{notice}</Text>}</View>}
       {remote.hosts.some(host => host.capabilities?.streamQuality === 1) && <View style={styles.card}><Text style={styles.label}>Data use</Text><View style={styles.row}>{(['auto', 'data-saver', 'quality'] as RemoteQualityMode[]).map(mode => <Button key={mode} title={mode === 'auto' ? 'Auto' : mode === 'data-saver' ? 'Data saver' : 'Quality'} primary={remote.streamQuality.mode === mode} onPress={() => void action(() => remote.streamQuality.setMode(mode))} />)}</View><Text style={styles.secondary}>Auto uses less data on cellular and full quality on Wi-Fi.</Text></View>}
       {remote.hosts.some(host => host.capabilities?.profiles === 1) && <View style={styles.card}><Text style={styles.label}>Profiles</Text>{remote.hosts.filter(host => host.capabilities?.profiles === 1).map(host => <View key={host.id} style={[styles.row, local.sectionHeading]}><Text style={[styles.text, { flex: 1 }]}>{host.service}</Text><Button title="Profiles" onPress={() => setProfileHost(host)} /></View>)}</View>}
       <View style={styles.card}><View style={[styles.row, local.sectionHeading]}><Text style={styles.label}>Live views</Text><Text style={styles.secondary}>{remote.views.length} / {remote.billing?.relay.maxStreams ?? 2}</Text></View>{remote.views.map(view => <View key={view.connection} style={[styles.row, local.sectionHeading]}><View style={{ flex: 1 }}><Text style={styles.text}>{remote.hosts.find(item => item.id === view.host)?.service || 'Browser'}</Text><Text style={styles.secondary}>{view.pane}</Text></View><Button title="Disconnect" onPress={() => setDisconnect(view.connection)} /></View>)}{remote.views.length === 0 && <Text style={styles.secondary}>No live views</Text>}</View>
