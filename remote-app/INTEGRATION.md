@@ -24,6 +24,7 @@ The backend must bind native kind to the authenticated session and single-use
 viewer ticket. Native WebSocket admission permits absent Origin only for that
 ticket kind. Browser Origin checks stay strict. The app sends no desktop header.
 Apple linking must retain the Google owner through explicit reauthentication.
+Privacy policy and support links are available before sign-in and in Settings.
 
 ## Profiles, sessions and pages
 

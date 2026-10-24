@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
+import { Link } from 'expo-router'
 import { useRemote } from './RemoteContext'
 import { attentionStatus } from './types'
 import { colors, radius, styles } from './theme'
@@ -40,6 +41,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       <Text style={local.welcomeBody}>Open your sessions. Help when an agent gets stuck. Pick up where you left off.</Text>
       <Button title="Sign in" primary busy={busy} onPress={() => void action(remote.login)} />
       {!!remote.error && <Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text>}
+      <HelpLinks />
     </View>
   </SafeAreaView>
   let sessions = <View style={split ? local.sidebarWide : local.sidebar}>
@@ -93,13 +95,19 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       {remote.hosts.some(host => host.capabilities?.streamQuality === 1) && <View style={styles.card}><Text style={styles.label}>Data use</Text><View style={styles.row}>{(['auto', 'data-saver', 'quality'] as RemoteQualityMode[]).map(mode => <Button key={mode} title={mode === 'auto' ? 'Auto' : mode === 'data-saver' ? 'Data saver' : 'Quality'} primary={remote.streamQuality.mode === mode} onPress={() => void action(() => remote.streamQuality.setMode(mode))} />)}</View><Text style={styles.secondary}>Auto uses less data on cellular and full quality on Wi-Fi.</Text></View>}
       {remote.hosts.some(host => host.capabilities?.profiles === 1) && <View style={styles.card}><Text style={styles.label}>Profiles</Text>{remote.hosts.filter(host => host.capabilities?.profiles === 1).map(host => <View key={host.id} style={[styles.row, local.sectionHeading]}><Text style={[styles.text, { flex: 1 }]}>{host.service}</Text><Button title="Profiles" onPress={() => setProfileHost(host)} /></View>)}</View>}
       <View style={styles.card}><View style={[styles.row, local.sectionHeading]}><Text style={styles.label}>Live views</Text><Text style={styles.secondary}>{remote.views.length} / {remote.billing?.relay.maxStreams ?? 2}</Text></View>{remote.views.map(view => <View key={view.connection} style={[styles.row, local.sectionHeading]}><View style={{ flex: 1 }}><Text style={styles.text}>{remote.hosts.find(item => item.id === view.host)?.service || 'Browser'}</Text><Text style={styles.secondary}>{view.pane}</Text></View><Button title="Disconnect" onPress={() => setDisconnect(view.connection)} /></View>)}{remote.views.length === 0 && <Text style={styles.secondary}>No live views</Text>}</View>
+      <HelpLinks />
     </ScrollView>}
     <Sheet title="Disconnect this view?" visible={!!disconnect} close={() => setDisconnect(undefined)}><Text style={styles.text}>The browser and its background work will keep running.</Text><Button title="Disconnect" primary busy={busy} onPress={() => disconnect && void action(async () => { await remote.disconnectView(disconnect); setDisconnect(undefined) })} /></Sheet>
     <NewSessionSheet host={newHost} close={() => { setNewHost(undefined); remote.close() }} created={() => setNewHost(undefined)} />
     <ProfilesSheet host={profileHost} close={() => { setProfileHost(undefined); remote.close() }} />
   </SafeAreaView>
 }
+let HelpLinks = () => <View style={local.helpLinks}>
+  <Link href="https://bmux.cc/privacy/" target="_blank" rel="noreferrer" style={local.helpLink}>Privacy policy</Link>
+  <Link href="https://tonis.dev/#contact" target="_blank" rel="noreferrer" style={local.helpLink}>Support</Link>
+</View>
 let local = StyleSheet.create({
+  helpLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }, helpLink: { color: colors.secondary, fontSize: 13, minHeight: 44, paddingVertical: 12 },
   center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 400, padding: 28, gap: 24 }, welcomeTitle: { color: colors.text, fontSize: 34, fontWeight: '600', lineHeight: 40 }, welcomeBody: { color: colors.secondary, fontSize: 16, lineHeight: 24 },
   brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, header: { minHeight: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border },
   iconButton: { minHeight: 44, minWidth: 40, alignItems: 'center', justifyContent: 'center', position: 'relative' }, badge: { position: 'absolute', right: 0, top: 2, backgroundColor: colors.warning, color: colors.bg, fontSize: 10, fontWeight: '700', minWidth: 16, textAlign: 'center', borderRadius: 8, padding: 2 },

@@ -15,13 +15,17 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
   let page: Page | undefined
   let host = { id: 'fixture-host', service: 'Research computer', generation: 'runtime-current', permission: 'control', key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', panes: [{ id: 'pane-primary', title: 'Example page' }, { id: 'pane-secondary', title: 'Second page' }] }] }
   let views = [{ connection: 'other-view', host: host.id, generation: host.generation, pane: 'other-pane' }]
+  let signedIn = false
   let requests: string[] = [], signals: { type: string; pane?: string; session?: string }[] = []
   let server = http.createServer((request, response) => {
     void (async () => {
       let route = new URL(request.url ?? '/', 'http://localhost').pathname
       let json = (body: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)) }
       requests.push(route)
-      if (route === '/api/me') { json({ owner: 'fixture-owner', name: 'Browser operator' }); return }
+      if (route === '/api/me') {
+        if (!signedIn) { response.writeHead(401); response.end(); return }
+        json({ owner: 'fixture-owner', name: 'Browser operator' }); return
+      }
       if (route === '/api/hosts') { json([host]); return }
       if (route === '/api/connect') { json({ ticket: 'fixture-ticket', iceServers: [] }); return }
       let attention = { id: 'opaque-attention', revision: 1, reason: 'help', status: 'pending', createdAt: new Date().toISOString(), host: host.id, generation: 'runtime-stale', session: 'session-research', pane: 'pane-secondary', episode: 'episode-fixture', online: true, resolved: false }
@@ -65,12 +69,20 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     }, origin)
     await expect.poll(() => application!.context().pages().some(page => page.url() === origin + '/')).toBe(true)
     page = application.context().pages().find(page => page.url() === origin + '/')!
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
+    await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
+    await page.screenshot({ path: info.outputPath('companion-welcome.png') })
+    signedIn = true
+    await page.reload()
     await expect(page.getByRole('button', { name: 'Research computer', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toBeVisible()
     await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByText('Browser operator', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
+    await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
     await expect(page.getByText('1 / 2', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     expect(requests).not.toContain('/api/streams/disconnect')
