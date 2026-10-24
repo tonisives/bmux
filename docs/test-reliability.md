@@ -1,5 +1,19 @@
 # Focused test verification
 
+## Proxy guidance in failed panes
+
+Failed network loads in proxied panes show connection guidance beside Reload.
+The pane's retained connection determines the note, even after the profile's
+new-pane default changes. Loopback and private IPs are recognized directly;
+custom hostnames use the browser host's system resolver, including hosts-file
+entries. Unresolved, public, and mixed DNS answers keep the wording conditional.
+Late DNS results cannot restore a note after navigation or pane disposal.
+
+The local proxy fixture checks a failed tunnel, conditional hostname guidance,
+floating-pane rendering, successful recovery, and a direct pane without proxy
+help. Keep the existing pane-proxy, navigation-error, HTTP/2 Reload, and floating
+pane cases in focused verification.
+
 ## Remote capture and control interruptions
 
 The Capterra host log recorded invalid `CopyOutputResultSender` messages, three

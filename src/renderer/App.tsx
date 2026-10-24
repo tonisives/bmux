@@ -4,6 +4,7 @@ import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
+import { NavigationFailure } from './NavigationFailure'
 import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
@@ -1362,7 +1363,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
+  let fallback = state.crashes[tab.id] ? <NavigationFailure error={state.crashes[tab.id]} hint={state.navigationProxyHints?.[tab.id]} reload={reload} /> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
   return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={`${css.content} ${remoteSize ? css.remoteViewport : ''}`} ref={ref} data-remote-viewport={remoteSize ? true : undefined} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={!remoteSize && pane.device ? undefined : true} data-content-pane-id={!remoteSize && pane.device ? undefined : pane.id} onMouseDown={focus}>
     {control === 'command' && client!.paneId === pane.id && <CommandPrompt key={`${client!.windowId}:${pane.id}`} />}
     {remoteSize ? <div className={css.remoteCanvas}>{fallback}</div> : pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}

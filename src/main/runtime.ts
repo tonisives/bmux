@@ -65,6 +65,7 @@ import { normalizeUrl } from './url'
 import { createProfileProxyRelays, testProxyRelay, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { createProxyRecovery } from './proxy-recovery'
+import { createNavigationProxyHints } from './navigation-proxy-hints'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
@@ -290,6 +291,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let snapshots = previewCache.snapshots
   let previewOwners = () => walkPanes(model).map(({ session, window, pane }) => ({ paneId: pane.id, windowId: window.id, profileId: pane.profileId, persistent: !session.private && !session.ephemeral }))
   let crashes: Record<string, string> = {}
+  let navigationProxyHints = createNavigationProxyHints(() => publish())
+  let setNavigationError = (tabId: string, error: string, url?: string) => {
+    crashes[tabId] = error
+    let pane = walkPanes(model).find(item => item.pane.id === tabId)?.pane
+    navigationProxyHints.record(tabId, error, url ?? pane?.url ?? '', !!pane && !!(hostProxy ?? connectionProfile(model, paneConnectionId(pane)).proxy), !!hostProxy)
+  }
+  let clearNavigationError = (tabId: string) => { delete crashes[tabId]; navigationProxyHints.clear(tabId) }
   let loading: Record<string, boolean> = {}
   let audio: PublicState['audio'] = {}
   let audibleMedia = new Set<string>()
@@ -438,7 +446,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputLocked(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputLocked(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -1066,7 +1074,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     live.ready = process.env.ELECTRON_RENDERER_URL
       ? contents.loadURL(new URL('remote-client.html', process.env.ELECTRON_RENDERER_URL).href)
       : contents.loadFile(path.join(import.meta.dirname, '../renderer/remote-client.html'))
-    void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = errorText(error); publish() } })
+    void live.ready.catch(error => { if (!live.disposed) { setNavigationError(tabId, errorText(error)); publish() } })
     return live
   }
   let createLiveTab = (tabId: string, load = true, popupOptions?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }) => {
@@ -1129,7 +1137,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // Access API, whose requests have no input node to receive selected files.
       (pane.device ? contents.loadURL('about:blank').then(() => { if (isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device!) }) : Promise.resolve()).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents) }),
     ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
-    void live.ready.catch(error => { if (!live.disposed) { crashes[tabId] = `Device identity failed: ${errorText(error)}`; publish(); void scheduleVisuals() } })
+    void live.ready.catch(error => { if (!live.disposed) { setNavigationError(tabId, `Device identity failed: ${errorText(error)}`); publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
     contents.on('audio-state-changed', ({ audible }) => {
       if (live.disposed) return
@@ -1178,7 +1186,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       audio[tabId] = { playing: false, muted: contents.isAudioMuted() }
       audibleMedia.delete(tabId)
       faviconRevisions.set(tabId, (faviconRevisions.get(tabId) ?? 0) + 1)
-      if (crashes[tabId]) { delete crashes[tabId]; void scheduleVisuals() }
+      if (crashes[tabId]) { clearNavigationError(tabId); void scheduleVisuals() }
       publish()
     })
     contents.on('found-in-page', (_event, result) => {
@@ -1305,8 +1313,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     // Chromium finishes its internal error document too; a new navigation clears the failure.
     contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
-    contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
-    contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
+    contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); setNavigationError(tabId, `Page process ${details.reason}. Reload to recover.`); publish(); void scheduleVisuals() })
+    contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { setNavigationError(tabId, description, failedUrl); publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions, backToOpener = false) => {
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true, model)
       let added = created.panes[0]
@@ -1426,7 +1434,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
       live.initialNavigation = result
-      void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } })
+      void result.catch(error => { navigationCrashMarker.clear(tabId, initialUrl); if (!live.disposed && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), initialUrl); publish() } })
     }
     return live
   }
@@ -1621,7 +1629,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     remotePages.delete(tabId)
     for (let [requestId, request] of permissions) if (request.paneId === tabId) { request.reply(false); permissions.delete(requestId) }
     delete security[tabId]
-    delete crashes[tabId]
+    clearNavigationError(tabId)
     delete loading[tabId]
     delete audio[tabId]
     audibleMedia.delete(tabId)
@@ -3409,7 +3417,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'reload' || method === 'hard-reload') {
       let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)
       let reconnect = crashes[tabId]?.includes('ERR_HTTP2_PROTOCOL_ERROR') === true
-      delete crashes[tabId]; loading[tabId] = true; publish()
+      clearNavigationError(tabId); loading[tabId] = true; publish()
       try {
         // A reload must be able to interrupt an unfinished initial navigation.
         let live = await ensureLiveTab(tabId, false), contents = live.contents
@@ -3433,7 +3441,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       live.initialNavigation = undefined
       live.unloadGuard?.cancel()
       live.contents.stop()
-      delete crashes[tabId]; delete loading[tabId]
+      clearNavigationError(tabId); delete loading[tabId]
       publish(); return { pane: tabId }
     }
     if (['back', 'forward'].includes(method)) {
@@ -3446,7 +3454,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let { pane, session } = tabById(model, tabId)
         return execute({ method: 'new-window', args: { session: session.id, profile: pane.profileId, url: entry.url } }, sourceClientId)
       }
-      delete crashes[tabId]
+      clearNavigationError(tabId)
       if (method === 'back') {
         if (contents.navigationHistory.canGoBack()) guardedNavigation(live, () => contents.navigationHistory.goBack())
         else {
@@ -3495,12 +3503,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let navigation = Symbol()
       live.pendingNavigation = navigation
       live.pendingUrl = url
-      delete crashes[tabId]; security[tabId] = initialSecurity(url, true); loading[tabId] = true
+      clearNavigationError(tabId); security[tabId] = initialSecurity(url, true); loading[tabId] = true
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
       let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
-      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { crashes[tabId] = errorText(error); publish() } }).finally(() => {
+      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), url); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url && (live.disposed || live.contents.isDestroyed() || !live.contents.isLoading())) live.pendingUrl = undefined
@@ -3543,7 +3551,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           if (hostProxy && (responseCode === 504 || responseCode >= 590 || (proxyRelays.get(paneConnectionId(pane))?.failures ?? 0) > failures)) throw new Error('PROXY_UNAVAILABLE')
           return { id: tab.id, url: contents.getURL() }
         }
-        if (method === 'reload') { delete crashes[tabId]; guardedNavigation(live, () => contents.reload()); publish(); return { reloading: tabId } }
+        if (method === 'reload') { clearNavigationError(tabId); guardedNavigation(live, () => contents.reload()); publish(); return { reloading: tabId } }
         if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) guardedNavigation(live, () => history.goBack()); if (method === 'forward' && history.canGoForward()) guardedNavigation(live, () => history.goForward()); return { pane: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
         if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
