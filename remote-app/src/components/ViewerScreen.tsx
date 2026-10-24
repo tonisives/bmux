@@ -74,8 +74,8 @@ export let ViewerScreen = () => {
       {host?.permission === 'control' && <Button title={controlling ? 'Release' : occupied ? 'Take over' : 'Take control'} primary={!controlling} busy={busy} disabled={!remote.state} onPress={() => controlling ? release() : occupied ? setTakeover(true) : void acquire()} />}
     </View>
     {(!!help || verifying || verified) && <View style={[local.attention, compact && local.compactAttention]}>
-      <Text style={[local.attentionText, compact && local.compactAttentionText, verified && { color: colors.success }]} numberOfLines={compact ? 1 : undefined}>{verifying ? 'Verifying' : verified ? 'Verified · Agent resumed' : failed ? 'Still needs help' : help?.reason === 'help' ? 'Agent needs your help' : 'Automation needs verification'}</Text>
-      {!compact && !verified && <Text style={styles.secondary}>{verifying ? 'The agent is checking the result.' : failed ? 'Verification did not finish successfully. The task is paused.' : 'Resolve the issue, then resume.'}</Text>}
+      <Text style={[local.attentionText, compact && local.compactAttentionText, verified && { color: colors.success }]} numberOfLines={compact ? 1 : undefined}>{verifying ? 'Checking the result' : verified ? 'Verified · Agent resumed' : failed ? 'Still needs help' : help?.reason === 'help' ? 'Agent needs your help' : 'Browser needs attention'}</Text>
+      {!compact && !verified && <Text style={styles.secondary}>{verifying ? 'The agent is checking the result.' : failed ? 'The check needs another attempt. The task is paused.' : controlling ? 'Finish helping, then resume the agent.' : 'Take control to complete the browser check or help the agent.'}</Text>}
       {!!help && !verifying && !verified && <View style={styles.row}>
         {host?.capabilities?.verifiedAttention === 1 && attention?.status === 'pending' && <Button title={failed ? 'Retry resume' : 'Resume agent'} primary busy={busy} disabled={!controlling} onPress={() => void action(() => remote.resume(attention.id))} />}
         <Button title="Leave paused" onPress={remote.close} />
@@ -121,5 +121,5 @@ let local = StyleSheet.create({
   screen: { flex: 1, minHeight: 0 }, header: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderBottomColor: colors.border, borderBottomWidth: 1 },
   heading: { flex: 1, gap: 4, minWidth: 0 }, footer: { padding: 12, gap: 10, borderTopWidth: 1, borderTopColor: colors.border },
   pages: { flexGrow: 0, maxHeight: 58, backgroundColor: colors.surface }, pageContent: { padding: 8, gap: 8 },
-  attention: { paddingVertical: 10, paddingHorizontal: 16, gap: 4, backgroundColor: 'rgba(255,159,10,0.1)' }, attentionText: { color: colors.warning, fontWeight: '600', fontSize: 14 },
+  attention: { paddingVertical: 12, paddingHorizontal: 16, gap: 8, backgroundColor: colors.surface }, attentionText: { color: colors.warning, fontWeight: '600', fontSize: 14 },
 })

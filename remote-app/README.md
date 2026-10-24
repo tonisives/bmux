@@ -33,6 +33,7 @@ ignored; app.config.ts and the lockfile are the sources of configuration.
 - Machine chips, sessions and pages share the same layout across platforms.
 - Try demo opens two interactive sample pages without sign-in or a live view.
   It uses the same session list and controls, and labels its local task Demo.
+  Its Attention inbox opens the sample request on its exact page in Watch.
 - Wide screens place sessions beside the browser. Connected sessions lead the
   list; machine setup and an unopened included browser sit below them.
 - Opening a page or attention request starts in Watch.
@@ -42,8 +43,12 @@ ignored; app.config.ts and the lockfile are the sources of configuration.
   to the same host generation and page.
 - Attention links and push data carry an opaque attention ID. The app resolves
   the authenticated target and checks its host generation, session and pane.
+- Open requests appear above the session list and mark their matching pages.
+  The inbox shows the computer, session, page and checking/completed status.
 - Native login credentials and per-account signing seeds use SecureStore.
-- Notifications use Expo tokens; permission is requested from Settings.
+- Notifications use Expo tokens. Connected sessions offer Enable alerts until
+  registration succeeds; Settings shows the registration status. Returning from
+  system settings rechecks permission without prompting.
 
 The shared signed viewer lives in remote/web/client.ts. Platform adapters supply
 WebRTC, storage, signing, WebSocket and lifecycle behavior without changing web

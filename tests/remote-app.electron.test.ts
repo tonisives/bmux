@@ -16,6 +16,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
   let host = { id: 'fixture-host', service: 'Research computer', generation: 'runtime-current', permission: 'control', key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', panes: [{ id: 'pane-primary', title: 'Example page' }, { id: 'pane-secondary', title: 'Second page' }] }] }
   let views = [{ connection: 'other-view', host: host.id, generation: host.generation, pane: 'other-pane' }]
   let signedIn = false
+  let attentionGeneration = host.generation
   let requests: string[] = [], signals: { type: string; pane?: string; session?: string }[] = []
   let server = http.createServer((request, response) => {
     void (async () => {
@@ -28,9 +29,10 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       }
       if (route === '/api/hosts') { json([host]); return }
       if (route === '/api/connect') { json({ ticket: 'fixture-ticket', iceServers: [] }); return }
-      let attention = { id: 'opaque-attention', revision: 1, reason: 'help', status: 'pending', createdAt: new Date().toISOString(), host: host.id, generation: 'runtime-stale', session: 'session-research', pane: 'pane-secondary', episode: 'episode-fixture', online: true, resolved: false }
+      let attention = { id: 'opaque-attention', revision: 1, reason: 'challenge', status: 'pending', createdAt: new Date().toISOString(), host: host.id, generation: attentionGeneration, session: 'session-research', pane: 'pane-secondary', episode: 'episode-fixture', online: true, resolved: false }
       if (route === '/api/attention') { json({ items: [attention], nextCursor: null }); return }
       if (route === '/api/attention/opaque-attention') { json(attention); return }
+      if (route === '/api/attention/opaque-attention/inbox') { json({ ok: true }); return }
       if (route === '/api/billing/status') { json({ enabled: true, relay: { active: true, maxStreams: 2, monthlyCents: 1000, currency: 'usd' } }); return }
       if (route === '/api/streams') { json(views); return }
       if (route === '/api/streams/disconnect') { views = []; json({ ok: true }); return }
@@ -100,6 +102,15 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Field Notes', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Price tracker', exact: true })).toBeVisible()
     await page.screenshot({ path: info.outputPath('companion-demo-mobile.png') })
+    await page.getByRole('button', { name: 'Price tracker', exact: true }).click()
+    await page.getByRole('button', { name: 'Attention, 1 pending', exact: true }).click()
+    await expect(page.getByText('Demo browser · Shopping research', { exact: true })).toBeVisible()
+    await expect(page.getByText('Field Notes', { exact: true })).toBeVisible()
+    await page.screenshot({ path: info.outputPath('companion-demo-alert-mobile.png') })
+    await page.getByRole('button', { name: 'Open request: Agent needs your help, Demo browser · Shopping research, Field Notes', exact: true }).click()
+    await expect(page.getByText('Pocket notebook', { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Confirm stock', exact: true })).toBeDisabled()
+    await expect(page.getByText('Watch · Demo pages', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Take control', exact: true }).click()
     await page.getByRole('button', { name: 'Confirm stock', exact: true }).click()
     await page.getByRole('button', { name: 'Price tracker', exact: true }).click()
@@ -122,8 +133,15 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     let sessionRow = await page.getByRole('button', { name: 'Open Research', exact: true }).boundingBox()
     let connectionRow = await page.getByRole('button', { name: 'Connect a machine', exact: true }).boundingBox()
     expect(connectionRow!.y).toBeGreaterThan(sessionRow!.y + sessionRow!.height)
+    await expect(page.getByText('Browser needs attention', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Needs help', { exact: true })).toBeVisible()
     await page.screenshot({ path: info.outputPath('companion-connected-list.png') })
     await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
+    await page.getByRole('button', { name: 'Open page', exact: true }).click()
+    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(1)
+    expect(signals.find(message => message.type === 'open')).toMatchObject({ session: 'session-research', pane: 'pane-secondary' })
+    await expect(page.getByText('Watch', { exact: true })).toBeVisible()
+    expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByText('Browser operator', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
@@ -137,8 +155,8 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     expect(requests.filter(route => route === '/api/streams/disconnect')).toHaveLength(1)
     await page.getByRole('button', { name: 'Sessions', exact: true }).first().click()
     await page.getByRole('button', { name: 'Open Research', exact: true }).click()
-    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(1)
-    expect(signals.find(message => message.type === 'open')).toMatchObject({ session: 'session-research', pane: 'pane-primary' })
+    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(2)
+    expect(signals.filter(message => message.type === 'open')[1]).toMatchObject({ session: 'session-research', pane: 'pane-primary' })
     await expect(page.getByText('Watch', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toBeDisabled()
     expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
@@ -155,14 +173,15 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     for (let socket of sockets.clients) socket.terminate()
     await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
-    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(2)
-    expect(signals.filter(message => message.type === 'open')[1]).toMatchObject({ session: 'session-research', pane: 'pane-primary' })
+    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(3)
+    expect(signals.filter(message => message.type === 'open')[2]).toMatchObject({ session: 'session-research', pane: 'pane-primary' })
     await expect(page.getByText('Watch', { exact: true })).toBeVisible()
+    attentionGeneration = 'runtime-stale'
     await page.getByRole('button', { name: 'Attention, 1 pending', exact: true }).click()
-    await page.getByText('Agent needs your help', { exact: true }).click()
+    await page.getByText('Browser needs attention', { exact: true }).click()
     await expect(page.getByRole('alert')).toHaveText('The requested browser is no longer available.')
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
-    expect(signals.filter(message => message.type === 'open')).toHaveLength(2)
+    expect(signals.filter(message => message.type === 'open')).toHaveLength(3)
     await page.screenshot({ path: info.outputPath('companion-stale-attention.png') })
   } finally {
     if (page && info.status !== info.expectedStatus) {
