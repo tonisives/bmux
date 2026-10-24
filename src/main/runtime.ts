@@ -68,6 +68,7 @@ import { createProxyRecovery } from './proxy-recovery'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
+import { capturePageFrame } from './frame-capture'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
@@ -1715,17 +1716,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (shuttingDown || !isLiveTabOpen(live) || tabs.get(tabId) !== live || loading[tabId] || tabQueues.has(tabId) || snapshotPending.size >= 4) return
     if (!/^(https?:|file:)/.test(live.contents.getURL())) return
     let url = live.contents.getURL()
-    let capture = () => {
-      let debuggerApi = live.contents.debugger
-      if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-      return debuggerApi.sendCommand('Page.captureScreenshot', { format: 'jpeg', quality: 65, fromSurface: true, captureBeyondViewport: false })
-    }
     let pending = Promise.race([
-      Promise.resolve().then(capture),
+      capturePageFrame(live.contents),
       sleep(3000).then(() => { throw new Error('Preview capture timed out') }),
-    ]).then(result => {
-      if (result.data && !shuttingDown && tabs.get(tabId) === live && isLiveTabOpen(live) && live.contents.getURL() === url) {
-        let image = nativeImage.createFromBuffer(Buffer.from(result.data, 'base64'))
+    ]).then(image => {
+      if (!shuttingDown && tabs.get(tabId) === live && isLiveTabOpen(live) && live.contents.getURL() === url) {
         if (image.isEmpty()) return
         let size = image.getSize(), scale = Math.min(1, 960 / size.width, 720 / size.height)
         if (scale < 1) image = image.resize({ width: Math.round(size.width * scale), height: Math.round(size.height * scale) })

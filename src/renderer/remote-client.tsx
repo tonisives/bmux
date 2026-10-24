@@ -38,6 +38,7 @@ let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [retry, setRetry] = useState(0)
   let lastSession = useRef<State['sessions'][number] | undefined>(undefined), [requestedPane, setRequestedPane] = useState<string>()
+  let lastViewport = useRef<State['viewports'][string] | undefined>(undefined)
   let video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
   useEffect(() => {
     let closed = false
@@ -49,7 +50,7 @@ let App = () => {
     let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
     void createViewer({
       hosts: setHosts,
-      stream: stream => { setState(undefined); if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
+      stream: stream => { if (!closed && video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
       state: next => { setState(next); setError('') },
       error: setError,
       disconnected: () => { if (closed) return; setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },
@@ -72,6 +73,7 @@ let App = () => {
   let session = currentSession ?? lastSession.current
   let lease = session && state?.controls[session.id], controlling = !!viewer && !!lease && lease.owner === viewer.id
   let viewport = state && state.viewports[state.pane]
+  if (viewport) lastViewport.current = viewport
   useRemotePreview(video, state?.pane)
   useEffect(() => {
     if (!selection) return
@@ -117,7 +119,7 @@ let App = () => {
     viewer?.send({ type: 'input', generation: lease?.generation, viewportGeneration: viewport.generation, event: { type: event.type === 'keyup' ? 'keyUp' : event.key.length === 1 && !event.ctrlKey && !event.metaKey ? 'char' : 'keyDown', keyCode, modifiers } })
   }
   return <main className={css.viewport} role="region" aria-label="Remote viewport">
-    <video ref={video} className={css.video} width={viewport?.width} height={viewport?.height} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
+    <video ref={video} className={css.video} width={lastViewport.current?.width} height={lastViewport.current?.height} muted autoPlay playsInline tabIndex={0} onPointerDown={down} onPointerUp={up} onPointerMove={move} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
   </main>
 }
 createRoot(document.getElementById('root')!).render(<App />)

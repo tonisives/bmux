@@ -1,11 +1,11 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createViewer } from '../remote/web/client'
 import type { Host, ViewerEvents, ViewerIdentity } from '../remote/web/client'
 
 let fixture = async () => {
   let socket = { readyState: 1, bufferedAmount: 0, send: vi.fn(), close: vi.fn(), onopen: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
   let channel = { readyState: 'open', bufferedAmount: 0, send: vi.fn(), onopen: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
-  let peer = { close: vi.fn(), remoteDescription: undefined as unknown, localDescription: { toJSON: () => ({ type: 'answer', sdp: 'answer' }) }, iceGatheringState: 'complete', ondatachannel: undefined as ((event: { channel: unknown }) => void) | undefined, setRemoteDescription: vi.fn(async (value: unknown) => { peer.remoteDescription = value }), setLocalDescription: vi.fn(async () => {}), createAnswer: vi.fn(async () => ({ type: 'answer', sdp: 'answer' })), addIceCandidate: vi.fn() }
+  let peer = { close: vi.fn(), connectionState: 'connected', onconnectionstatechange: undefined as (() => void) | undefined, remoteDescription: undefined as unknown, localDescription: { toJSON: () => ({ type: 'answer', sdp: 'answer' }) }, iceGatheringState: 'complete', ondatachannel: undefined as ((event: { channel: unknown }) => void) | undefined, setRemoteDescription: vi.fn(async (value: unknown) => { peer.remoteDescription = value }), setLocalDescription: vi.fn(async () => {}), createAnswer: vi.fn(async () => ({ type: 'answer', sdp: 'answer' })), addIceCandidate: vi.fn() }
   let events: ViewerEvents = { hosts: vi.fn(), state: vi.fn(), stream: vi.fn(), error: vi.fn(), disconnected: vi.fn(), message: vi.fn() }
   let identity: ViewerIdentity = { publicKey: { x: 'viewer' }, fingerprint: async key => key.x!, sign: vi.fn(async () => 'signature'), verify: vi.fn(async () => true) }
   let observe = vi.fn(() => vi.fn())
@@ -17,6 +17,55 @@ let fixture = async () => {
   let receive = (payload: unknown) => socket.onmessage!({ data: JSON.stringify({ type: 'signal', from: host.id, envelope: { version: 1, from: host.id, to: viewer.id, generation: host.generation, nonce: crypto.randomUUID(), expires: Date.now() + 30000, payload: JSON.stringify(payload), signature: 'host signature' } }) })
   return { socket, channel, peer, events, viewer, host, receive, identity, observe }
 }
+afterEach(() => vi.useRealTimers())
+
+let watchingFixture = async () => {
+  let value = await fixture(), watching = value.viewer.watch(value.host, 'session', 'pane')
+  await vi.waitFor(() => expect(value.socket.send).toHaveBeenCalled())
+  value.receive({ type: 'offer', sdp: { type: 'offer', sdp: 'offer' } })
+  await vi.waitFor(() => expect(value.peer.ondatachannel).toBeTypeOf('function'))
+  value.peer.ondatachannel!({ channel: value.channel })
+  value.channel.onmessage!({ data: JSON.stringify({ type: 'state', pane: 'pane', viewports: {}, sessions: [], controls: {} }) })
+  await watching
+  return value
+}
+
+it('keeps the viewer connected when its video connection recovers from a brief interruption', async () => {
+  let value = await watchingFixture()
+  vi.useFakeTimers()
+  value.peer.connectionState = 'disconnected'; value.peer.onconnectionstatechange!()
+  await vi.advanceTimersByTimeAsync(4000)
+  expect(value.events.disconnected).not.toHaveBeenCalled()
+  value.peer.connectionState = 'connected'; value.peer.onconnectionstatechange!()
+  await vi.advanceTimersByTimeAsync(6000)
+  expect(value.events.disconnected).not.toHaveBeenCalled()
+  expect(value.viewer.send({ type: 'renew', session: 'session', generation: 1 })).toBe(true)
+  value.viewer.close()
+})
+
+it('reports a sustained connection loss once even if the host disconnects too', async () => {
+  let value = await watchingFixture()
+  vi.useFakeTimers()
+  value.peer.connectionState = 'disconnected'; value.peer.onconnectionstatechange!()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(value.events.disconnected).toHaveBeenCalledOnce()
+  value.socket.onmessage!({ data: JSON.stringify({ type: 'disconnected', id: value.host.id }) })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(value.events.disconnected).toHaveBeenCalledOnce()
+  value.viewer.close()
+})
+
+it('reports a failed connection immediately and cancels delayed disconnects when stopped', async () => {
+  let value = await watchingFixture()
+  vi.useFakeTimers()
+  value.peer.connectionState = 'failed'; value.peer.onconnectionstatechange!()
+  expect(value.events.disconnected).toHaveBeenCalledOnce()
+  value.peer.connectionState = 'disconnected'; value.peer.onconnectionstatechange!()
+  value.viewer.stop()
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(value.events.disconnected).toHaveBeenCalledOnce()
+  value.viewer.close()
+})
 it('creates a native-adapted viewer without browser storage, DOM or browser crypto', async () => {
   let value = await fixture()
   expect(value.viewer.id).toBe('viewer')

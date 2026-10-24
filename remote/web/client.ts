@@ -66,6 +66,12 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
   let opening: ((error?: Error) => void) | undefined
   let pending: { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined
   let finish = (error?: Error) => { if (!pending) return; let current = pending; pending = undefined; clearTimeout(current.timer); if (error) current.reject(error); else current.resolve() }
+  let connectionLoss: ReturnType<typeof setTimeout> | undefined, disconnected = false
+  let connectionLost = (error: Error) => {
+    clearTimeout(connectionLoss); connectionLoss = undefined
+    if (closed || disconnected) return
+    disconnected = true; finish(error); events.disconnected()
+  }
   let outgoing = Promise.resolve()
   let signal = (payload: unknown) => {
     if (!host || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Disconnected'))
@@ -91,7 +97,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
     incoming = incoming.then(async () => {
       let message = JSON.parse(event.data)
       if (message.type === 'hosts') { events.hosts(message.hosts); return }
-      if (message.type === 'disconnected' && message.id === host?.id) { peer?.close(); finish(new Error('Host disconnected')); events.disconnected(); return }
+      if (message.type === 'disconnected' && message.id === host?.id) { peer?.close(); connectionLost(new Error('Host disconnected')); return }
       if (message.type === 'signal-error' && message.to === host?.id) { finish(new Error(message.error)); return }
       if (message.type !== 'signal' || !host || message.from !== host.id) return
       let envelope = message.envelope as RemoteEnvelope
@@ -112,10 +118,16 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
       }
       if (payload.type !== 'offer') return
       peer?.close()
+      clearTimeout(connectionLoss); connectionLoss = undefined
       let current = options.peer ? options.peer({ iceServers }) : new RTCPeerConnection({ iceServers })
       peer = current; connection = payload.connection
       current.ontrack = event => { if (peer === current) events.stream(event.streams[0]) }
-      current.onconnectionstatechange = () => { if (peer === current && ['failed','disconnected'].includes(current.connectionState)) { finish(new Error('Video connection failed')); events.disconnected() } }
+      current.onconnectionstatechange = () => {
+        if (peer !== current || closed) return
+        if (current.connectionState === 'failed') connectionLost(new Error('Video connection failed'))
+        else if (current.connectionState === 'disconnected') connectionLoss ??= setTimeout(() => { if (peer === current) connectionLost(new Error('Video connection lost')) }, 5000)
+        else { clearTimeout(connectionLoss); connectionLoss = undefined }
+      }
       current.ondatachannel = event => {
         if (peer !== current) return
         channel = event.channel
@@ -140,7 +152,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
       if (peer === current) await signal({ type: 'answer', sdp: answer, request: currentRequest, connection: payload.connection })
     }).catch(error => { if (currentRequest !== request) return; let failure = error instanceof Error ? error : new Error('Connection failed'); finish(failure); events.error(failure.message) })
   }
-  socket.onclose = () => { opening?.(new Error('Connection closed')); stopRefresh(); peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
+  socket.onclose = () => { opening?.(new Error('Connection closed')); stopRefresh(); peer?.close(); connectionLost(new Error('Connection closed')) }
   socket.onerror = () => { opening?.(new Error('Connection unavailable')); finish(new Error('Connection unavailable')); events.error('Connection unavailable') }
   let ready = new Promise<void>((resolve, reject) => {
     let timer = setTimeout(() => { opening?.(new Error('Connection timed out')); socket.close() }, 15000)
@@ -154,6 +166,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
     if (host) await signal({ type: 'close' })
     if (attempt !== operation || closed) throw new Error('Connection replaced')
     finish(new Error('Connection replaced'))
+    clearTimeout(connectionLoss); connectionLoss = undefined; disconnected = false
     peer?.close(); peer = undefined; channel = undefined
     host = selected; mode = payload.type; seen.clear(); request = uuid(); connection = undefined; candidates.clear()
     let ready = new Promise<void>((resolve, reject) => { pending = { resolve, reject, timer: setTimeout(() => finish(new Error('Connection timed out. Check that the host is online.')), 20000) } })
@@ -165,7 +178,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
     id, publicKey, send,
     watch: (selected: Host, session: string, pane: string) => open(selected, { type: 'open', session, pane }),
     manage: (selected: Host) => open(selected, { type: 'manage' }),
-    stop: () => { operation++; if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('View stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined; mode = undefined; request = undefined; connection = undefined; candidates.clear() },
-    close: () => { operation++; stopRefresh(); closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
+    stop: () => { operation++; clearTimeout(connectionLoss); connectionLoss = undefined; if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('View stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined; mode = undefined; request = undefined; connection = undefined; candidates.clear() },
+    close: () => { operation++; clearTimeout(connectionLoss); stopRefresh(); closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
   }
 }
