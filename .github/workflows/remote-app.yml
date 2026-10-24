@@ -1,0 +1,90 @@
+name: Remote app
+on:
+  push:
+    branches: [main, feat/remote-app]
+    paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', '.github/workflows/remote-app.yml']
+  pull_request:
+    paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', '.github/workflows/remote-app.yml']
+  workflow_dispatch:
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: remote-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: remote-app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - run: pnpm check
+      - run: pnpm export:web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-app-web
+          path: remote-app/dist/
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: remote-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: remote-app/pnpm-lock.yaml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - run: pnpm exec expo prebuild --platform android --no-install
+      - run: ./gradlew :app:assembleRelease --no-daemon --max-workers=4 -PreactNativeArchitectures=arm64-v8a
+        working-directory: remote-app/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-app-android-preview
+          path: remote-app/android/app/build/outputs/apk/release/*.apk
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: remote-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: remote-app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - run: pnpm exec expo prebuild --platform ios --no-install
+      - run: pod install --project-directory=ios
+      - run: xcodebuild -workspace ios/bmuxremote.xcworkspace -scheme bmuxremote -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build -jobs 4 CODE_SIGNING_ALLOWED=NO -quiet build > ios-build.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: remote-app-ios-build-log
+          path: remote-app/ios-build.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-app-ios-simulator
+          path: remote-app/ios/build/Build/Products/Release-iphonesimulator/*.app/

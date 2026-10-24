@@ -6,6 +6,22 @@ import type { RemoteHost } from '../../src/shared/remote-sessions'
 export type Host = RemoteHost & { generation: string; key: JsonWebKey }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string }[] }[] }
 export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }>; attention?: { pane: string; session: string; episode: string; reason: string }[] }
+export type ViewerIdentity = {
+  publicKey: JsonWebKey
+  fingerprint: (key: JsonWebKey) => Promise<string>
+  sign: (text: string) => Promise<string>
+  verify: (key: JsonWebKey, signature: string, text: string) => Promise<boolean>
+}
+export type ViewerEvents = { hosts: (hosts: Host[]) => void; stream: (stream: MediaStream) => void; state: (state: State) => void; error: (text: string) => void; disconnected: () => void; message?: (message: Record<string, unknown>) => void }
+export type ViewerOptions = {
+  origin?: string
+  connect?: (publicKey: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }>
+  identity?: ViewerIdentity
+  peer?: (configuration: RTCConfiguration) => RTCPeerConnection
+  socket?: (url: URL) => WebSocket
+  uuid?: () => string
+  observe?: (refresh: () => void) => () => void
+}
 let bytes = (text: string) => new TextEncoder().encode(text)
 let base64 = (data: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(data)))
 let decode = (text: string) => Uint8Array.from(atob(text), char => char.charCodeAt(0))
@@ -18,30 +34,48 @@ export let api = async (endpoint: string, value?: unknown) => {
   }
   return response.json()
 }
-export let createViewer = async (events: { hosts: (hosts: Host[]) => void; stream: (stream: MediaStream) => void; state: (state: State) => void; error: (text: string) => void; disconnected: () => void }, options: { origin?: string; connect?: (publicKey: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } = {}) => {
+export let createBrowserIdentity = async (): Promise<ViewerIdentity> => {
   let stored = localStorage.getItem('bmux-device-key')
   let key: JsonWebKey
   if (stored) key = JSON.parse(stored)
   else { let pair = await crypto.subtle.generateKey('Ed25519', true, ['sign','verify']) as CryptoKeyPair; key = await crypto.subtle.exportKey('jwk', pair.privateKey); localStorage.setItem('bmux-device-key', JSON.stringify(key)) }
   let privateKey = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['sign'])
   let publicKey = { kty: key.kty, crv: key.crv, x: key.x }
-  let id = await fingerprint(publicKey)
+  return {
+    publicKey, fingerprint,
+    sign: async text => base64(await crypto.subtle.sign('Ed25519', privateKey, bytes(text))),
+    verify: async (key, signature, text) => {
+      let imported = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['verify'])
+      return crypto.subtle.verify('Ed25519', imported, decode(signature), bytes(text))
+    },
+  }
+}
+export let createViewer = async (events: ViewerEvents, options: ViewerOptions = {}) => {
+  let identity = options.identity ?? await createBrowserIdentity()
+  let publicKey = identity.publicKey
+  let id = await identity.fingerprint(publicKey)
+  let uuid = options.uuid ?? (() => crypto.randomUUID())
   let { ticket, iceServers } = options.connect ? await options.connect(publicKey) : await api('/api/connect', { publicKey })
   let url = new URL('/connect', options.origin ?? location.href); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('ticket', ticket)
-  let socket = new WebSocket(url), host: Host | undefined, peer: RTCPeerConnection | undefined, channel: RTCDataChannel | undefined
+  let socket = options.socket ? options.socket(url) : new WebSocket(url), host: Host | undefined, peer: RTCPeerConnection | undefined, channel: RTCDataChannel | undefined
   let seen = new Set<string>(), closed = false
   let request: string | undefined, connection: string | undefined
   let candidates = new Map<string, RTCIceCandidateInit[]>()
+  let opening: ((error?: Error) => void) | undefined
   let pending: { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined
   let finish = (error?: Error) => { if (!pending) return; let current = pending; pending = undefined; clearTimeout(current.timer); if (error) current.reject(error); else current.resolve() }
   let signal = async (payload: unknown) => {
     if (!host || socket.readyState !== WebSocket.OPEN) throw new Error('Disconnected')
     let selected = host
-    let envelope = { version: 1 as const, from: id, to: selected.id, generation: selected.generation, nonce: crypto.randomUUID(), expires: Date.now() + 60000, payload: JSON.stringify(payload) }
-    let signature = base64(await crypto.subtle.sign('Ed25519', privateKey, bytes(envelopeText(envelope))))
+    let envelope = { version: 1 as const, from: id, to: selected.id, generation: selected.generation, nonce: uuid(), expires: Date.now() + 60000, payload: JSON.stringify(payload) }
+    let signature = await identity.sign(envelopeText(envelope))
     socket.send(JSON.stringify({ type: 'signal', to: selected.id, envelope: { ...envelope, signature } }))
   }
-  let send = (message: unknown) => { if (channel?.readyState === 'open' && channel.bufferedAmount < 65536) channel.send(JSON.stringify(message)) }
+  let send = (message: unknown) => {
+    if (channel?.readyState !== 'open' || channel.bufferedAmount >= 65536) return false
+    channel.send(JSON.stringify(message))
+    return true
+  }
   let refresh = () => send({ type: 'state' }), stopRefresh = () => {}
   let incoming = Promise.resolve()
   socket.onmessage = event => {
@@ -53,9 +87,8 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       if (message.type === 'signal-error' && message.to === host?.id) { finish(new Error(message.error)); return }
       if (message.type !== 'signal' || !host || message.from !== host.id) return
       let envelope = message.envelope as RemoteEnvelope
-      if (!validEnvelope(envelope, id, host.generation) || seen.has(envelope.nonce) || envelope.from !== await fingerprint(host.key)) throw new Error('Invalid host signature')
-      let publicKey = await crypto.subtle.importKey('jwk', host.key, 'Ed25519', false, ['verify'])
-      if (!await crypto.subtle.verify('Ed25519', publicKey, decode(envelope.signature), bytes(envelopeText(envelope)))) throw new Error('Invalid host signature')
+      if (!validEnvelope(envelope, id, host.generation) || seen.has(envelope.nonce) || envelope.from !== await identity.fingerprint(host.key)) throw new Error('Invalid host signature')
+      if (!await identity.verify(host.key, envelope.signature, envelopeText(envelope))) throw new Error('Invalid host signature')
       if (currentRequest !== request) return
       seen.add(envelope.nonce)
       let payload = JSON.parse(envelope.payload)
@@ -71,7 +104,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       }
       if (payload.type !== 'offer') return
       peer?.close()
-      let current = new RTCPeerConnection({ iceServers })
+      let current = options.peer ? options.peer({ iceServers }) : new RTCPeerConnection({ iceServers })
       peer = current; connection = payload.connection
       current.ontrack = event => { if (peer === current) events.stream(event.streams[0]) }
       current.onconnectionstatechange = () => { if (peer === current && ['failed','disconnected'].includes(current.connectionState)) { finish(new Error('Video connection failed')); events.disconnected() } }
@@ -83,6 +116,7 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
           if (peer !== current) return
           let message = JSON.parse(event.data)
           receiveViewerMessage(message, { ...events, ready: finish, refresh })
+          events.message?.(message)
         }
       }
       await current.setRemoteDescription(payload.sdp)
@@ -96,18 +130,22 @@ export let createViewer = async (events: { hosts: (hosts: Host[]) => void; strea
       if (peer === current) await signal({ type: 'answer', sdp: answer, request: currentRequest, connection: payload.connection })
     }).catch(error => { if (currentRequest !== request) return; let failure = error instanceof Error ? error : new Error('Connection failed'); finish(failure); events.error(failure.message) })
   }
-  socket.onclose = () => { stopRefresh(); peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
-  socket.onerror = () => { finish(new Error('Connection unavailable')); events.error('Connection unavailable') }
-  let ready = new Promise<void>((resolve, reject) => { socket.onopen = () => resolve(); setTimeout(() => { if (socket.readyState !== WebSocket.OPEN) reject(new Error('Connection timed out')) }, 15000) })
+  socket.onclose = () => { opening?.(new Error('Connection closed')); stopRefresh(); peer?.close(); finish(new Error('Connection closed')); if (!closed) events.disconnected() }
+  socket.onerror = () => { opening?.(new Error('Connection unavailable')); finish(new Error('Connection unavailable')); events.error('Connection unavailable') }
+  let ready = new Promise<void>((resolve, reject) => {
+    let timer = setTimeout(() => { opening?.(new Error('Connection timed out')); socket.close() }, 15000)
+    opening = error => { clearTimeout(timer); opening = undefined; if (error) reject(error); else resolve() }
+    socket.onopen = () => opening?.()
+  })
   await ready
-  stopRefresh = observeViewerFocus(refresh, window, document)
+  stopRefresh = options.observe ? options.observe(refresh) : observeViewerFocus(refresh, window, document)
   return {
     id, publicKey, send,
     watch: async (selected: Host, session: string, pane: string) => {
       if (host) await signal({ type: 'close' })
       finish(new Error('Watch replaced'))
       peer?.close(); peer = undefined; channel = undefined
-      host = selected; seen.clear(); request = crypto.randomUUID(); connection = undefined; candidates.clear()
+      host = selected; seen.clear(); request = uuid(); connection = undefined; candidates.clear()
       let ready = new Promise<void>((resolve, reject) => { pending = { resolve, reject, timer: setTimeout(() => finish(new Error('Watch timed out. Check that the host is online.')), 20000) } })
       try { await signal({ type: 'open', session, pane, request }) } catch (error) { finish(error instanceof Error ? error : new Error('Unable to watch')) }
       await ready
