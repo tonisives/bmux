@@ -2,7 +2,7 @@ import type { Host, State } from '../../remote/web/client'
 export type { Host, State }
 export type { RelayAccount, RelayBilling, LiveView } from '../../src/shared/remote-account'
 
-export type LoginSession = { owner: string; accessToken: string; expiresAt: string }
+export type LoginSession = { owner: string; accessToken: string; expiresAt: string; refreshToken?: string; refreshExpiresAt?: string }
 export type AttentionStatus = 'pending' | 'claimed' | 'verifying' | 'resolved' | 'failed' | 'expired'
 export type Attention = { id: string; reason: string; created_at: string; resolved_at?: string | null; status?: AttentionStatus }
 export type AttentionTarget = { id: string; reason: string; host: string; generation: string; session: string; pane: string; episode: string; resolved: boolean; online: boolean }

@@ -1,5 +1,7 @@
 import { origin } from './api'
 
+export let accessToken = async (): Promise<string | undefined> => undefined
+
 type GoogleWindow = Window & { google?: { accounts: { oauth2: { initTokenClient: (options: { client_id: string; scope: string; callback: (result: { access_token?: string }) => void; error_callback: () => void }) => { requestAccessToken: () => void } } } } }
 export let signIn = async () => {
   let config = await fetch(new URL('/api/config', origin)).then(value => value.json()) as { googleClientId: string }

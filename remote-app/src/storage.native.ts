@@ -1,14 +1,14 @@
 import * as SecureStore from 'expo-secure-store'
 import type { LoginSession } from './types'
+import { storedSession } from './auth-protocol'
 
 let sessionKey = 'bmux.remote.session'
 export let readSession = async (): Promise<LoginSession | undefined> => {
   let value = await SecureStore.getItemAsync(sessionKey)
   if (!value) return
   try {
-    let session = JSON.parse(value) as LoginSession
-    let expires = Date.parse(session.expiresAt)
-    if (/^[a-f0-9]{64}$/.test(session.accessToken) && typeof session.owner === 'string' && session.owner && Number.isFinite(expires) && expires > Date.now()) return session
+    let session = storedSession(JSON.parse(value))
+    if (session) return session
   } catch {}
   await clearSession()
 }

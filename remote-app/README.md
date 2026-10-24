@@ -45,9 +45,10 @@ Origin checks.
 ## Integration status
 
 The standalone web export, iOS simulator Release build and Android arm64 Release
-build compile. The native auth adapter is pending the hosted PKCE contract.
-Native sessions must receive native-kind signaling tickets from that service.
-No desktop Origin header is used.
+build compile. The native PKCE client, rotating-token storage and sign-out
+adapter are implemented. The hosted service has not yet advertised its native
+auth endpoints or issued native-kind signaling tickets. INTEGRATION.md records
+the exact client contract. No desktop Origin header is used.
 
 Backend/host integration also supplies the verified attention lifecycle, default
 profile discovery, session/page creation, host-side proxy setup and testing,

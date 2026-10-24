@@ -5,8 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Crypto from 'expo-crypto'
 import { createApi } from './api'
 import { openViewer } from './viewer'
-import { readSession, clearSession } from './storage'
-import { signIn, signOut } from './auth'
+import { clearSession } from './storage'
+import { accessToken, signIn, signOut } from './auth'
 import { observeNotifications, registerPush, removePush } from './notifications'
 import { attentionIdFromUrl } from './links'
 import { attentionSelection } from './types'
@@ -29,7 +29,7 @@ let useRemoteState = () => {
   let [error, setError] = useState('')
   let [connecting, setConnecting] = useState(false)
   let [epoch, setEpoch] = useState(0)
-  let [api] = useState(() => createApi(async () => (await readSession())?.accessToken))
+  let [api] = useState(() => createApi(accessToken))
   let activeViewer = useRef<Viewer | undefined>(undefined)
   let activeState = useRef<State | undefined>(undefined)
   let activeSelection = useRef<Selection | undefined>(undefined)
@@ -134,7 +134,7 @@ let useRemoteState = () => {
       message: message => {
         let id = typeof message.request === 'string' ? message.request : ''
         let item = pending.current.get(id)
-        if (!item) return
+        if (!item || (message.type !== 'result' && message.type !== 'error')) return
         clearTimeout(item.timer); pending.current.delete(id)
         if (message.type === 'result') item.resolve(message.result)
         else if (message.type === 'error') item.reject(new Error(String(message.error)))
