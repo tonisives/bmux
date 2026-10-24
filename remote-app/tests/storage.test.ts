@@ -16,7 +16,7 @@ it.each([
   expect(storage.deleteItemAsync).toHaveBeenCalledWith('bmux.remote.session')
 })
 it('retains a valid native bearer until its expiry', async () => {
-  let session = { owner: 'owner', accessToken: 'a'.repeat(64), expiresAt: '2100-01-01' }
+  let session = { owner: 'owner', accessToken: 'a'.repeat(64), expiresAt: '2100-01-01', refreshToken: 'b'.repeat(64), refreshExpiresAt: '2100-01-02' }
   storage.getItemAsync.mockResolvedValueOnce(JSON.stringify(session))
   storage.deleteItemAsync.mockClear()
   expect(await readSession()).toEqual(session)

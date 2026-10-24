@@ -8,9 +8,18 @@ import * as Crypto from 'expo-crypto'
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) })
 let deviceKey = 'bmux.remote.push-device'
 let handledResponses = new Set<string>()
-export let pushDevice = async () => {
-  let device = await AsyncStorage.getItem(deviceKey)
-  if (!device) { device = Crypto.randomUUID(); await AsyncStorage.setItem(deviceKey, device) }
+let device: Promise<string> | undefined
+export let pushDevice = () => {
+  if (!device) {
+    device = (async () => {
+      let stored = await AsyncStorage.getItem(deviceKey)
+      if (stored) return stored
+      let id = Crypto.randomUUID()
+      await AsyncStorage.setItem(deviceKey, id)
+      return id
+    })()
+    void device.catch(() => { device = undefined })
+  }
   return device
 }
 export let registerPush = async (api: AccountApi, requestPermission = false) => {

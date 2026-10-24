@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { authCode, authRedirect, issuedSession, nativeAuth, storedSession } from '../src/auth-protocol'
+import { authCode, authRedirect, issuedSession, mobileAuthEndpoints, storedSession } from '../src/auth-protocol'
 
 let session = () => ({ owner: 'google-owner', accessToken: 'a'.repeat(64), expiresAt: new Date(Date.now() + 300000).toISOString(), refreshToken: 'b'.repeat(64), refreshExpiresAt: new Date(Date.now() + 86400000).toISOString() })
-let config = { protocol: 1, clientId: 'bmux-remote', authorizationEndpoint: '/api/auth/authorize', tokenEndpoint: '/api/auth/token', revocationEndpoint: '/api/auth/revoke' }
 describe('hosted native auth', () => {
-  it('accepts only the same-origin advertised account endpoints', () => {
-    expect(nativeAuth(config, 'https://remote.bmux.cc').tokenEndpoint).toBe('https://remote.bmux.cc/api/auth/token')
-    for (let authorizationEndpoint of ['https://other.example/api/auth', 'http://remote.bmux.cc/api/auth', '/api/auth?token=secret', '/connect']) expect(() => nativeAuth({ ...config, authorizationEndpoint }, 'https://remote.bmux.cc')).toThrow()
-    expect(() => nativeAuth(undefined, 'https://remote.bmux.cc')).toThrow('Mobile sign-in is unavailable')
+  it('uses the canonical HTTPS mobile account endpoints', () => {
+    expect(mobileAuthEndpoints('https://remote.bmux.cc').exchange).toBe('https://remote.bmux.cc/api/auth/mobile/exchange')
+    expect(() => mobileAuthEndpoints('http://remote.bmux.cc')).toThrow()
+    expect(() => mobileAuthEndpoints('https://user:password@remote.bmux.cc')).toThrow()
+    expect(mobileAuthEndpoints('http://127.0.0.1:1943').refresh).toBe('http://127.0.0.1:1943/api/auth/mobile/refresh')
   })
   it('binds the returned code to the exact callback and original state', () => {
     let code = 'c'.repeat(64)

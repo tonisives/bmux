@@ -1,60 +1,55 @@
 import { AuthRequest, CodeChallengeMethod, ResponseType } from 'expo-auth-session'
+import * as Crypto from 'expo-crypto'
 import { origin } from './api'
-import { authCode, authRedirect, issuedSession, nativeAuth } from './auth-protocol'
+import { authCode, authRedirect, issuedSession, mobileAuthEndpoints } from './auth-protocol'
 import { clearSession, readSession, writeSession } from './storage'
+import type { RemoteNativeExchange, RemoteNativeRefresh } from '../../src/shared/remote-mobile-auth'
 import type { LoginSession } from './types'
 
+let endpoints = mobileAuthEndpoints(origin)
 let revision = 0
 let refreshing: Promise<string | undefined> | undefined
-let signingIn = false
-let configuration = async () => {
-  let response = await fetch(new URL('/api/config', origin), { credentials: 'omit', signal: AbortSignal.timeout(15000) })
-  if (!response.ok) throw new Error('The account service is unavailable.')
-  let config = await response.json() as { nativeAuth?: unknown }
-  return nativeAuth(config.nativeAuth, origin)
-}
-let exchange = async (endpoint: string, body: Record<string, string>) => {
+let signingIn = false, signingOut = false
+let exchange = async (endpoint: string, body: RemoteNativeExchange | RemoteNativeRefresh) => {
   let response = await fetch(endpoint, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) })
-  if (!response.ok) {
-    let error = new Error(response.status === 400 || response.status === 401 ? 'Sign in to continue.' : 'The account service is unavailable.')
-    Object.assign(error, { status: response.status })
-    throw error
-  }
+  if (!response.ok) throw Object.assign(new Error(response.status === 400 || response.status === 401 ? 'Sign in to continue.' : 'The account service is unavailable.'), { status: response.status })
   return response.json() as Promise<unknown>
 }
 export let signIn = async (): Promise<void> => {
-  if (signingIn) return
+  if (signingIn || signingOut) return
   signingIn = true
   let attempt = ++revision
   try {
-    let config = await configuration()
-    let request = new AuthRequest({ clientId: config.clientId, redirectUri: authRedirect, responseType: ResponseType.Code, usePKCE: true, codeChallengeMethod: CodeChallengeMethod.S256, scopes: ['openid', 'email', 'profile'] })
-    let result = await request.promptAsync({ authorizationEndpoint: config.authorizationEndpoint })
+    let request = new AuthRequest({ clientId: 'bmux-remote', state: Crypto.randomUUID(), redirectUri: authRedirect, responseType: ResponseType.Code, usePKCE: true, codeChallengeMethod: CodeChallengeMethod.S256 })
+    let config = await request.getAuthRequestConfigAsync()
+    if (!config.codeChallenge || !request.codeVerifier) throw new Error('Sign-in could not be started.')
+    let url = new URL(endpoints.start)
+    url.search = new URLSearchParams({ state: request.state, code_challenge: config.codeChallenge, code_challenge_method: 'S256', redirect_uri: authRedirect }).toString()
+    let result = await request.promptAsync({ authorizationEndpoint: endpoints.start }, { url: url.href })
     if (result.type === 'cancel' || result.type === 'dismiss') return
-    if (result.type !== 'success' || !request.codeVerifier) throw new Error('Sign-in could not be verified. Please try again.')
+    if (result.type !== 'success') throw new Error('Sign-in could not be verified. Please try again.')
     let code = authCode(result.url, request.state)
-    let session = issuedSession(await exchange(config.tokenEndpoint, { grant_type: 'authorization_code', client_id: config.clientId, code, code_verifier: request.codeVerifier, redirect_uri: authRedirect }))
-    if (revision === attempt) await writeSession(session)
+    let session = issuedSession(await exchange(endpoints.exchange, { code, codeVerifier: request.codeVerifier }))
+    if (revision === attempt && !signingOut) await writeSession(session)
   } finally { signingIn = false }
 }
 export let accessToken = async (): Promise<string | undefined> => {
+  if (signingOut) return
   if (refreshing) return refreshing
   let attempt = revision
   let current = (async () => {
     let session = await readSession()
-    if (!session || attempt !== revision) return
+    if (!session || attempt !== revision || signingOut) return
     if (Date.parse(session.expiresAt) > Date.now() + 60000) return session.accessToken
-    if (!session.refreshToken || !session.refreshExpiresAt || Date.parse(session.refreshExpiresAt) <= Date.now()) {
+    if (Date.parse(session.refreshExpiresAt) <= Date.now()) {
       if (Date.parse(session.expiresAt) > Date.now()) return session.accessToken
-      await clearSession()
-      return
+      await clearSession(); return
     }
     try {
-      let config = await configuration()
-      let next = issuedSession(await exchange(config.tokenEndpoint, { grant_type: 'refresh_token', client_id: config.clientId, refresh_token: session.refreshToken! }), session.owner)
+      let next = issuedSession(await exchange(endpoints.refresh, { refreshToken: session.refreshToken }), session.owner)
       if (attempt !== revision) return
       await writeSession(next)
-      return next.accessToken
+      return signingOut ? undefined : next.accessToken
     } catch (error) {
       let status = (error as { status?: number }).status
       if (attempt === revision && (status === 400 || status === 401)) await clearSession()
@@ -66,13 +61,15 @@ export let accessToken = async (): Promise<string | undefined> => {
   return refreshing
 }
 export let signOut = async (): Promise<void> => {
-  revision++
-  await refreshing?.catch(() => {})
-  let session: LoginSession | undefined = await readSession()
+  if (signingOut) return
+  signingOut = true
   try {
+    await refreshing?.catch(() => {})
+    revision++
+    let session: LoginSession | undefined = await readSession()
     if (!session) return
-    let config = await configuration()
-    let response = await fetch(config.revocationEndpoint, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: config.clientId, token: session.refreshToken ?? session.accessToken, token_type_hint: session.refreshToken ? 'refresh_token' : 'access_token' }), signal: AbortSignal.timeout(15000) })
+    if (Date.parse(session.expiresAt) <= Date.now() && Date.parse(session.refreshExpiresAt) > Date.now()) session = issuedSession(await exchange(endpoints.refresh, { refreshToken: session.refreshToken }), session.owner)
+    let response = await fetch(endpoints.logout, { method: 'POST', credentials: 'omit', headers: { Authorization: 'Bearer ' + session.accessToken }, signal: AbortSignal.timeout(15000) })
     if (!response.ok) throw new Error('Server sign-out could not be confirmed. Local sign-out is complete.')
-  } finally { await clearSession() }
+  } finally { try { await clearSession() } finally { signingOut = false } }
 }

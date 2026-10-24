@@ -4,10 +4,13 @@ import * as Clipboard from 'expo-clipboard'
 import { useRemote } from '../RemoteContext'
 import { colors, styles } from '../theme'
 import { fitViewport } from '../viewport'
+import { browserAddress } from '../address'
 import type { Frame } from '../viewport'
 import { BrowserSurface } from './BrowserSurface'
 import { Button } from './Button'
 import { Sheet } from './Sheet'
+import { NewPageSheet } from './NewPageSheet'
+import { PageConnectionSheet } from './PageConnectionSheet'
 
 export let ViewerScreen = () => {
   let remote = useRemote()
@@ -15,6 +18,8 @@ export let ViewerScreen = () => {
   let [text, setText] = useState('')
   let [busy, setBusy] = useState(false)
   let [takeover, setTakeover] = useState(false)
+  let [newPage, setNewPage] = useState(false)
+  let [connection, setConnection] = useState(false)
   let frame = useRef<Frame>({ width: 390, height: 640 })
   let selection = remote.selection
   let host = remote.hosts.find(item => item.id === selection?.host)
@@ -25,6 +30,10 @@ export let ViewerScreen = () => {
   let occupied = !!lease && !controlling
   let viewport = remote.state && remote.state.viewports[remote.state.pane]
   let help = remote.state?.attention?.find(item => item.pane === remote.state?.pane)
+  let attention = remote.target
+  let verifying = attention?.status === 'verifying'
+  let verified = attention?.status === 'resolved' && attention.attempt?.outcome === 'verified'
+  let failed = attention?.status === 'pending' && !!attention.attempt?.outcome
   let action = async (run: () => Promise<unknown>) => {
     setBusy(true)
     try { await run() } catch (error) { remote.setError((error as Error).message) } finally { setBusy(false) }
@@ -45,7 +54,10 @@ export let ViewerScreen = () => {
   }
   let submit = () => {
     if (!controlling) return
-    if (inputMode === 'address') command('navigate', { url: text.trim() })
+    if (inputMode === 'address') {
+      try { command('navigate', { url: browserAddress(text) || 'about:blank' }) }
+      catch (error) { remote.setError((error as Error).message); return }
+    }
     else remote.viewer?.send({ type: 'text', generation: lease?.generation, text })
     setText(''); setInputMode(undefined)
   }
@@ -55,7 +67,14 @@ export let ViewerScreen = () => {
       <View style={local.heading}><Text style={styles.text} numberOfLines={1}>{pane?.title || host?.sessions.find(item => item.id === selection?.session)?.name || 'Browser'}</Text><Text style={styles.secondary} numberOfLines={1}>{pane?.url || host?.service}</Text></View>
       {host?.permission === 'control' && <Button title={controlling ? 'Release' : occupied ? 'Take over' : 'Take control'} primary={!controlling} busy={busy} disabled={!remote.state} onPress={() => controlling ? release() : occupied ? setTakeover(true) : void acquire()} />}
     </View>
-    {!!help && <View style={local.attention}><Text style={local.attentionText}>{help.reason === 'help' ? 'Agent needs your help' : 'Automation needs verification'}</Text><Text style={styles.secondary}>Resolve the issue before resuming.</Text></View>}
+    {(!!help || verifying || verified) && <View style={local.attention}>
+      <Text style={[local.attentionText, verified && { color: colors.success }]}>{verifying ? 'Verifying' : verified ? 'Verified · Agent resumed' : failed ? 'Still needs help' : help?.reason === 'help' ? 'Agent needs your help' : 'Automation needs verification'}</Text>
+      {!verified && <Text style={styles.secondary}>{verifying ? 'The agent is checking the result.' : failed ? 'Verification did not finish successfully. The task is paused.' : 'Resolve the issue, then resume.'}</Text>}
+      {!!help && !verifying && !verified && <View style={styles.row}>
+        {host?.capabilities?.verifiedAttention === 1 && attention?.status === 'pending' && <Button title={failed ? 'Retry resume' : 'Resume agent'} primary busy={busy} disabled={!controlling} onPress={() => void action(() => remote.resume(attention.id))} />}
+        <Button title="Leave paused" onPress={remote.close} />
+      </View>}
+    </View>}
     <BrowserSurface stream={remote.stream} viewport={viewport} controlling={controlling} busy={remote.connecting} frameChanged={value => { frame.current = value }} input={(event, generation) => {
       if (controlling && viewport?.generation === generation) remote.viewer?.send({ type: 'input', generation: lease?.generation, viewportGeneration: generation, event })
     }} />
@@ -69,6 +88,8 @@ export let ViewerScreen = () => {
         <Button title="Forward" onPress={() => command('forward')} />
         <Button title="Reload" onPress={() => command('reload')} />
         <Button title="Address" onPress={() => { setText(pane?.url ?? ''); setInputMode('address') }} />
+        {host?.capabilities?.pageCreate === 1 && !!session?.revision && <Button title="New page" onPress={() => setNewPage(true)} />}
+        {host?.capabilities?.proxy === 1 && !!session?.revision && !!pane?.profileId && <Button title="Connection" onPress={() => setConnection(true)} />}
         <Button title="Keyboard" onPress={() => { setText(''); setInputMode('text') }} />
         <Button title="Paste" onPress={() => void action(async () => { let text = await Clipboard.getStringAsync(); if (text) remote.viewer?.send({ type: 'text', generation: lease?.generation, text }) })} />
         <Button title="Enter" onPress={() => key('Enter')} />
@@ -85,6 +106,8 @@ export let ViewerScreen = () => {
       <Text style={styles.text}>Another viewer is controlling this session.</Text>
       <Button title="Take over" primary busy={busy} onPress={() => void acquire(true)} />
     </Sheet>
+    <NewPageSheet visible={newPage} close={() => setNewPage(false)} created={() => setNewPage(false)} />
+    <PageConnectionSheet visible={connection} close={() => setConnection(false)} reopened={() => setConnection(false)} />
   </View>
 }
 let local = StyleSheet.create({

@@ -1,73 +1,99 @@
 import { beforeEach, expect, it, vi } from 'vitest'
+import type { LoginSession } from '../src/types'
 
-let mocks = vi.hoisted(() => ({ readSession: vi.fn(), writeSession: vi.fn(async () => {}), clearSession: vi.fn(async () => {}), prompt: vi.fn(), request: vi.fn() }))
+let mocks = vi.hoisted(() => ({ readSession: vi.fn(), writeSession: vi.fn(), clearSession: vi.fn(), prompt: vi.fn(), request: vi.fn() }))
 vi.mock('../src/api', () => ({ origin: 'https://remote.bmux.cc' }))
 vi.mock('../src/storage', () => mocks)
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'fixture-auth-state-1234567890' }))
 vi.mock('expo-auth-session', () => ({
   CodeChallengeMethod: { S256: 'S256' }, ResponseType: { Code: 'code' },
   AuthRequest: class {
-    state = 'original-state'
+    state: string
     codeVerifier = 'v'.repeat(64)
-    constructor(config: unknown) { mocks.request(config) }
+    constructor(config: { state: string }) { this.state = config.state; mocks.request(config) }
+    getAuthRequestConfigAsync = async () => ({ codeChallenge: 'p'.repeat(43) })
     promptAsync = mocks.prompt
   },
 }))
-let config = { nativeAuth: { protocol: 1, clientId: 'bmux-remote', authorizationEndpoint: '/api/auth/authorize', tokenEndpoint: '/api/auth/token', revocationEndpoint: '/api/auth/revoke' } }
-let session = (owner = 'owner') => ({ owner, accessToken: 'a'.repeat(64), expiresAt: new Date(Date.now() + 300000).toISOString(), refreshToken: 'b'.repeat(64), refreshExpiresAt: new Date(Date.now() + 86400000).toISOString() })
+let persisted: LoginSession | undefined
+let session = (owner = 'owner'): LoginSession => ({ owner, accessToken: 'a'.repeat(64), expiresAt: new Date(Date.now() + 300000).toISOString(), refreshToken: 'b'.repeat(64), refreshExpiresAt: new Date(Date.now() + 86400000).toISOString() })
 let response = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
-beforeEach(() => { vi.resetModules(); vi.clearAllMocks(); vi.unstubAllGlobals() })
+beforeEach(() => {
+  vi.resetModules(); vi.clearAllMocks(); vi.unstubAllGlobals()
+  persisted = undefined
+  mocks.readSession.mockImplementation(async () => persisted)
+  mocks.writeSession.mockImplementation(async (value: LoginSession) => { persisted = value })
+  mocks.clearSession.mockImplementation(async () => { persisted = undefined })
+})
 
-it('exchanges a verified PKCE callback and stores only the issued account session', async () => {
+it('opens hosted S256 authorization and exchanges only the verified code and verifier', async () => {
   let next = session()
-  let fetcher = vi.fn(async (url: string | URL) => response(String(url).endsWith('/api/config') ? config : next))
+  let fetcher = vi.fn(async (_url: string | URL, _init?: RequestInit) => response(next))
   vi.stubGlobal('fetch', fetcher)
-  mocks.prompt.mockResolvedValueOnce({ type: 'success', url: 'bmux-remote://auth/callback?state=original-state&code=' + 'c'.repeat(64) })
+  mocks.prompt.mockResolvedValueOnce({ type: 'success', url: 'bmux-remote://auth/callback?state=fixture-auth-state-1234567890&code=' + 'c'.repeat(64) })
   let auth = await import('../src/auth.native')
   await auth.signIn()
   expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({ usePKCE: true, codeChallengeMethod: 'S256', responseType: 'code' }))
-  let exchange = fetcher.mock.calls.find(([url]) => String(url).endsWith('/api/auth/token'))
-  expect(JSON.parse((exchange as unknown as [string, RequestInit])[1].body as string)).toEqual({ grant_type: 'authorization_code', client_id: 'bmux-remote', code: 'c'.repeat(64), code_verifier: 'v'.repeat(64), redirect_uri: 'bmux-remote://auth/callback' })
-  expect(mocks.writeSession).toHaveBeenCalledWith(next)
+  let url = new URL(mocks.prompt.mock.calls[0][1].url)
+  expect(url.origin + url.pathname).toBe('https://remote.bmux.cc/api/auth/mobile/start')
+  expect(url.searchParams.get('state')).toBe('fixture-auth-state-1234567890')
+  expect(url.searchParams.get('code_challenge')).toBe('p'.repeat(43))
+  expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+  expect(url.searchParams.get('redirect_uri')).toBe('bmux-remote://auth/callback')
+  expect(String(fetcher.mock.calls[0][0])).toBe('https://remote.bmux.cc/api/auth/mobile/exchange')
+  expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toEqual({ code: 'c'.repeat(64), codeVerifier: 'v'.repeat(64) })
+  expect(persisted).toEqual(next)
 })
 it('does not exchange a callback from a different authorization attempt', async () => {
-  let fetcher = vi.fn(async () => response(config))
+  let fetcher = vi.fn()
   vi.stubGlobal('fetch', fetcher)
   mocks.prompt.mockResolvedValueOnce({ type: 'success', url: 'bmux-remote://auth/callback?state=other-state&code=' + 'c'.repeat(64) })
   let auth = await import('../src/auth.native')
   await expect(auth.signIn()).rejects.toThrow('Sign-in could not be verified')
-  expect(fetcher).toHaveBeenCalledTimes(1)
-  expect(mocks.writeSession).not.toHaveBeenCalled()
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(persisted).toBeUndefined()
 })
 it('coalesces concurrent refreshes so rotating tokens are used once', async () => {
-  mocks.readSession.mockResolvedValue({ ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() })
+  persisted = { ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() }
   let next = { ...session(), accessToken: 'd'.repeat(64), refreshToken: 'e'.repeat(64) }
-  let fetcher = vi.fn(async (url: string | URL) => response(String(url).endsWith('/api/config') ? config : next))
+  let fetcher = vi.fn(async (_url: string | URL, _init?: RequestInit) => response(next))
   vi.stubGlobal('fetch', fetcher)
   let auth = await import('../src/auth.native')
   expect(await Promise.all([auth.accessToken(), auth.accessToken(), auth.accessToken()])).toEqual([next.accessToken, next.accessToken, next.accessToken])
-  expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/api/auth/token'))).toHaveLength(1)
-  expect(mocks.writeSession).toHaveBeenCalledTimes(1)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(String(fetcher.mock.calls[0][0])).toBe('https://remote.bmux.cc/api/auth/mobile/refresh')
+  expect(persisted).toEqual(next)
 })
-it('does not restore a session when sign-out occurs during refresh', async () => {
-  mocks.readSession.mockResolvedValue({ ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() })
+it('revokes the rotated session and clears it when sign-out occurs during refresh', async () => {
+  persisted = { ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() }
+  let next = { ...session(), accessToken: 'd'.repeat(64), refreshToken: 'e'.repeat(64) }
   let resolve!: (value: ReturnType<typeof response>) => void
   let deferred = new Promise<ReturnType<typeof response>>(done => { resolve = done })
-  let fetcher = vi.fn(async (url: string | URL) => String(url).endsWith('/api/auth/token') ? deferred : response(config))
+  let fetcher = vi.fn(async (url: string | URL, _init?: RequestInit) => String(url).endsWith('/refresh') ? deferred : response({ ok: true }))
   vi.stubGlobal('fetch', fetcher)
   let auth = await import('../src/auth.native')
   let token = auth.accessToken()
-  await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/api/auth/token'))).toBe(true))
+  await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/refresh'))).toBe(true))
   let logout = auth.signOut()
-  resolve(response(session()))
+  resolve(response(next))
   expect(await token).toBeUndefined()
   await logout
-  expect(mocks.writeSession).not.toHaveBeenCalled()
-  expect(mocks.clearSession).toHaveBeenCalledTimes(1)
+  let revocation = fetcher.mock.calls.find(([url]) => String(url).endsWith('/logout'))!
+  expect(revocation[1]?.headers).toEqual({ Authorization: 'Bearer ' + next.accessToken })
+  expect(persisted).toBeUndefined()
+  expect(await auth.accessToken()).toBeUndefined()
 })
 it('rejects a refresh response that changes the existing owner', async () => {
-  mocks.readSession.mockResolvedValue({ ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() })
-  vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => response(String(url).endsWith('/api/config') ? config : session('another-owner'))))
+  persisted = { ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() }
+  vi.stubGlobal('fetch', vi.fn(async () => response(session('another-owner'))))
   let auth = await import('../src/auth.native')
   await expect(auth.accessToken()).rejects.toThrow('invalid session')
-  expect(mocks.writeSession).not.toHaveBeenCalled()
+  expect(persisted?.owner).toBe('owner')
+})
+it('clears a session rejected by the refresh service', async () => {
+  persisted = { ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() }
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401 })))
+  let auth = await import('../src/auth.native')
+  await expect(auth.accessToken()).rejects.toThrow('Sign in to continue')
+  expect(persisted).toBeUndefined()
 })

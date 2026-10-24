@@ -24,8 +24,9 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       if (route === '/api/me') { json({ owner: 'fixture-owner', name: 'Browser operator' }); return }
       if (route === '/api/hosts') { json([host]); return }
       if (route === '/api/connect') { json({ ticket: 'fixture-ticket', iceServers: [] }); return }
-      if (route === '/api/attention') { json({ attention: [{ id: 'opaque-attention', reason: 'help', created_at: new Date().toISOString(), resolved_at: null }] }); return }
-      if (route === '/api/attention/opaque-attention') { json({ id: 'opaque-attention', reason: 'help', host: host.id, generation: 'runtime-stale', session: 'session-research', pane: 'pane-secondary', episode: 'episode-fixture', online: true, resolved: false }); return }
+      let attention = { id: 'opaque-attention', revision: 1, reason: 'help', status: 'pending', createdAt: new Date().toISOString(), host: host.id, generation: 'runtime-stale', session: 'session-research', pane: 'pane-secondary', episode: 'episode-fixture', online: true, resolved: false }
+      if (route === '/api/attention') { json({ items: [attention], nextCursor: null }); return }
+      if (route === '/api/attention/opaque-attention') { json(attention); return }
       if (route === '/api/billing/status') { json({ enabled: true, relay: { active: true, maxStreams: 2, monthlyCents: 1000, currency: 'usd' } }); return }
       if (route === '/api/streams') { json(views); return }
       if (route === '/api/streams/disconnect') { views = []; json({ ok: true }); return }
@@ -67,6 +68,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Research computer', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toBeVisible()
+    await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByText('Browser operator', { exact: true })).toBeVisible()
     await expect(page.getByText('1 / 2', { exact: true })).toBeVisible()

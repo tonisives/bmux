@@ -8,6 +8,11 @@ import { colors, radius, styles } from './theme'
 import { Button } from './components/Button'
 import { Sheet } from './components/Sheet'
 import { ViewerScreen } from './components/ViewerScreen'
+import { NewSessionSheet } from './components/NewSessionSheet'
+import { ProfilesSheet } from './components/ProfilesSheet'
+import { IncludedBrowserCard } from './components/IncludedBrowserCard'
+import type { Host } from './types'
+import type { RemoteQualityMode } from '../../src/shared/remote-management'
 
 export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let remote = useRemote()
@@ -18,9 +23,11 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let [busy, setBusy] = useState(false)
   let [notice, setNotice] = useState('')
   let [disconnect, setDisconnect] = useState<string>()
+  let [newHost, setNewHost] = useState<Host>()
+  let [profileHost, setProfileHost] = useState<Host>()
   let { width } = useWindowDimensions()
   let split = width >= 768
-  let pending = remote.attention.filter(item => ['pending', 'claimed', 'verifying'].includes(attentionStatus(item)))
+  let pending = remote.attention.filter(item => !item.dismissedAt && ['pending', 'verifying'].includes(attentionStatus(item)))
   let action = async (run: () => Promise<unknown>) => { setBusy(true); try { await run() } catch (value) { remote.setError((value as Error).message) } finally { setBusy(false) } }
   useEffect(() => { if (attentionId) { remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
   useEffect(() => { if (remote.selection) setSection('sessions') }, [remote.selection])
@@ -38,8 +45,9 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
     <ScrollView horizontal style={local.machineBar} contentContainerStyle={local.machineContent} showsHorizontalScrollIndicator={false}>
       {[{ id: '', service: 'All machines' }, ...remote.hosts].map(host => <Pressable key={host.id} accessibilityRole="button" accessibilityLabel={host.service} onPress={() => setMachine(host.id)} style={[local.machine, host.id === machine && local.machineSelected]}><View style={[local.dot, { backgroundColor: host.id ? colors.success : colors.accent }]} /><Text style={[local.machineText, host.id === machine && { color: colors.text }]}>{host.service}</Text></Pressable>)}
     </ScrollView>
-    <View style={local.search}><Ionicons name="search" size={17} color={colors.secondary} /><TextInput style={local.searchInput} placeholder="Search sessions" placeholderTextColor={colors.muted} value={search} onChangeText={setSearch} accessibilityLabel="Search sessions" /></View>
+    <View style={local.search}><Ionicons name="search" size={17} color={colors.secondary} /><TextInput style={local.searchInput} placeholder="Search sessions" placeholderTextColor={colors.muted} value={search} onChangeText={setSearch} accessibilityLabel="Search sessions" />{remote.hosts.some(host => host.permission === 'control' && host.capabilities?.sessionCreate === 1 && (!machine || host.id === machine)) && <Button title="New session" onPress={() => setNewHost(remote.hosts.find(host => host.permission === 'control' && host.capabilities?.sessionCreate === 1 && (!machine || host.id === machine)))} />}</View>
     <ScrollView contentContainerStyle={local.list}>
+      <IncludedBrowserCard />
       {remote.hosts.filter(host => !machine || host.id === machine).map(host => <View key={host.id} style={local.host}>
         <Text style={styles.label}>{host.service}</Text>
         {host.sessions.filter(session => (session.name + ' ' + session.panes.map(pane => pane.title).join(' ')).toLowerCase().includes(search.toLowerCase())).map(session => <View key={session.id} style={[local.session, remote.selection?.host === host.id && remote.selection.session === session.id && local.sessionSelected]}>
@@ -66,19 +74,28 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
     {section === 'sessions' && <View style={local.body}>{(split || !remote.selection) && sessions}{remote.selection ? <View style={local.detail}><ViewerScreen /></View> : split && <View style={[local.detail, local.center]}><Ionicons name="browsers-outline" size={40} color={colors.muted} /><Text style={styles.secondary}>Select a session to watch</Text></View>}</View>}
     {section === 'attention' && <ScrollView contentContainerStyle={local.content}>
       <View style={[styles.row, local.sectionHeading]}><Text style={styles.title}>Attention</Text><Button title={history ? 'Pending' : 'History'} onPress={() => setHistory(!history)} /></View>
-      {(history ? remote.attention : pending).map(item => <Pressable key={item.id} accessibilityRole="button" onPress={() => { remote.rememberAttention(item.id); setSection('sessions') }} style={styles.card}>
+      {(history ? remote.attention : pending).map(item => <View key={item.id} style={styles.card}>
+        <Pressable accessibilityRole="button" accessibilityLabel={item.reason === 'help' ? 'Agent needs your help' : 'Browser needs attention'} disabled={!['pending', 'verifying'].includes(item.status)} onPress={() => { remote.rememberAttention(item.id); setSection('sessions') }} style={{ gap: 12 }}>
         <View style={[styles.row, local.sectionHeading]}><Text style={styles.text}>{item.reason === 'help' ? 'Agent needs your help' : 'Browser needs attention'}</Text><Text style={{ color: attentionStatus(item) === 'resolved' ? colors.success : colors.warning }}>{attentionStatus(item)}</Text></View>
-        <Text style={styles.secondary}>{new Date(item.created_at).toLocaleString()}</Text>
-      </Pressable>)}
+        <Text style={styles.secondary}>{new Date(item.createdAt).toLocaleString()}</Text>
+        {item.status === 'pending' && !!item.attempt?.outcome && <Text style={styles.secondary}>Verification needs another attempt.</Text>}
+        </Pressable>
+        {!item.dismissedAt && <View style={styles.row}><Button title="Dismiss" busy={busy} onPress={() => void action(() => remote.markAttention(item.id, { dismissed: true }))} /></View>}
+      </View>)}
+      {!!remote.attentionCursor && <Button title="Load more" busy={remote.loadingAttention} onPress={() => void action(remote.loadMoreAttention)} />}
       {(history ? remote.attention : pending).length === 0 && <View style={local.empty}><Ionicons name="checkmark-circle-outline" size={34} color={colors.success} /><Text style={styles.text}>Nothing needs your attention</Text></View>}
     </ScrollView>}
     {section === 'settings' && <ScrollView contentContainerStyle={local.content}>
       <Text style={styles.title}>Settings</Text>
       <View style={styles.card}><Text style={styles.label}>Account</Text><Text style={styles.text}>{remote.account.name || remote.account.email || 'Signed in'}</Text>{!!remote.account.email && <Text style={styles.secondary}>{remote.account.email}</Text>}<Text style={styles.secondary}>Relay {remote.billing?.relay.active ? 'active' : 'inactive'}</Text><Button title="Sign out" busy={busy} onPress={() => void action(remote.logout)} /></View>
       {Platform.OS !== 'web' && <View style={styles.card}><Text style={styles.label}>Notifications</Text><Text style={styles.text}>Know when an agent needs your help.</Text><Button title="Enable notifications" busy={busy} onPress={() => void action(async () => { let enabled = await remote.enableNotifications(); setNotice(enabled ? 'Notifications enabled.' : 'Notifications are off. Enable them in system settings.') })} />{!!notice && <Text style={styles.secondary}>{notice}</Text>}</View>}
+      {remote.hosts.some(host => host.capabilities?.streamQuality === 1) && <View style={styles.card}><Text style={styles.label}>Data use</Text><View style={styles.row}>{(['auto', 'data-saver', 'quality'] as RemoteQualityMode[]).map(mode => <Button key={mode} title={mode === 'auto' ? 'Auto' : mode === 'data-saver' ? 'Data saver' : 'Quality'} primary={remote.streamQuality.mode === mode} onPress={() => void action(() => remote.streamQuality.setMode(mode))} />)}</View><Text style={styles.secondary}>Auto uses less data on cellular and full quality on Wi-Fi.</Text></View>}
+      {remote.hosts.some(host => host.capabilities?.profiles === 1) && <View style={styles.card}><Text style={styles.label}>Profiles</Text>{remote.hosts.filter(host => host.capabilities?.profiles === 1).map(host => <View key={host.id} style={[styles.row, local.sectionHeading]}><Text style={[styles.text, { flex: 1 }]}>{host.service}</Text><Button title="Profiles" onPress={() => setProfileHost(host)} /></View>)}</View>}
       <View style={styles.card}><View style={[styles.row, local.sectionHeading]}><Text style={styles.label}>Live views</Text><Text style={styles.secondary}>{remote.views.length} / {remote.billing?.relay.maxStreams ?? 2}</Text></View>{remote.views.map(view => <View key={view.connection} style={[styles.row, local.sectionHeading]}><View style={{ flex: 1 }}><Text style={styles.text}>{remote.hosts.find(item => item.id === view.host)?.service || 'Browser'}</Text><Text style={styles.secondary}>{view.pane}</Text></View><Button title="Disconnect" onPress={() => setDisconnect(view.connection)} /></View>)}{remote.views.length === 0 && <Text style={styles.secondary}>No live views</Text>}</View>
     </ScrollView>}
     <Sheet title="Disconnect this view?" visible={!!disconnect} close={() => setDisconnect(undefined)}><Text style={styles.text}>The browser and its background work will keep running.</Text><Button title="Disconnect" primary busy={busy} onPress={() => disconnect && void action(async () => { await remote.disconnectView(disconnect); setDisconnect(undefined) })} /></Sheet>
+    <NewSessionSheet host={newHost} close={() => { setNewHost(undefined); remote.close() }} created={() => setNewHost(undefined)} />
+    <ProfilesSheet host={profileHost} close={() => { setProfileHost(undefined); remote.close() }} />
   </SafeAreaView>
 }
 let local = StyleSheet.create({

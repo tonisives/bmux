@@ -1,97 +1,88 @@
 # Mobile integration
 
-The native client is in this directory. Hosted account auth, account ownership,
-attention delivery/state and host primitives stay in the backend workstream.
-The contract below is implemented by the client and still needs server support.
+The canonical wire contract is [remote-mobile-contract.md](../docs/remote-mobile-contract.md).
+Shared DTOs live in src/shared/remote-management.ts, remote-attention.ts,
+remote-mobile-auth.ts and remote-account.ts. Hosted auth, account ownership,
+attention delivery and host primitives belong to the backend workstream.
 
-## Hosted sign-in
+## Native authentication
 
-GET /api/config advertises nativeAuth:
+The app opens /api/auth/mobile/start in the system browser with S256 PKCE,
+a fresh state and redirect_uri=bmux-remote://auth/callback. It accepts only
+the exact callback URI, matching state and a single opaque code. The code is
+exchanged at /api/auth/mobile/exchange with codeVerifier. No bearer is accepted
+from a URL.
 
-    {
-      "protocol": 1,
-      "clientId": "bmux-remote",
-      "authorizationEndpoint": "/api/auth/authorize",
-      "tokenEndpoint": "/api/auth/token",
-      "revocationEndpoint": "/api/auth/revoke"
-    }
+RemoteNativeCredentials are stored in SecureStore. Concurrent requests share
+one /api/auth/mobile/refresh operation. Refresh must retain the owner and rotate
+both tokens. Sign-out waits for an active refresh, calls /api/auth/mobile/logout
+with the latest bearer, removes the push binding, and clears local credentials.
+A late sign-in or refresh cannot restore a signed-out account. Web retains its
+same-origin HttpOnly cookie and needs POST /api/logout.
 
-The paths can differ; the client accepts same-origin /api/ endpoints advertised
-by the service. Native requests omit browser cookies. The system browser opens
-the authorization endpoint using response_type=code, client_id=bmux-remote,
-redirect_uri=bmux-remote://auth/callback, state, code_challenge and
-code_challenge_method=S256. Scopes are openid, email and profile.
+The backend must bind native kind to the authenticated session and single-use
+viewer ticket. Native WebSocket admission permits absent Origin only for that
+ticket kind. Browser Origin checks stay strict. The app sends no desktop header.
+Apple linking must retain the Google owner through explicit reauthentication.
 
-The hosted screen offers Google and Apple. The server retains the existing
-Google subject owner. Linking another provider requires explicit account
-reauthentication; matching email alone must not change or merge owner IDs.
+## Profiles, sessions and pages
 
-The server returns only code and the original state to the callback. The app
-checks the exact callback URI and state before exchanging the code. No bearer
-is accepted from a URL. POST tokenEndpoint takes JSON:
+Signed manage signaling establishes a data-only WebRTC peer without a live-view
+slot. Typed RPC runs exclusively over its encrypted channel. Switching to a live
+page closes management; opening settings closes the live view and its lease.
 
-    {
-      "grant_type": "authorization_code",
-      "client_id": "bmux-remote",
-      "code": "opaque single-use code",
-      "code_verifier": "original PKCE verifier",
-      "redirect_uri": "bmux-remote://auth/callback"
-    }
+The UI discovers the ready default profile and saved profiles. It creates a
+session with its initial page, creates pages under a session lease, and sends
+opaque revisions for existing-session mutations. The current encrypted state
+supplies session.revision, session.defaultProfileId, pane.profileId and
+pane.connectionId. New hosts advertise management capabilities; unsupported
+actions remain hidden. The backend workstream is finalizing these state fields.
 
-The token response is:
+Proxy credentials are write-only and stay in local form state until sent over
+WebRTC. Keep, replace and clear are explicit. Testing can use an unsaved proxy
+draft. Saving changes the default connection for new pages. Reopening an
+existing page with a saved connection is an explicit action under its lease and
+preserves the page profile. No proxy credentials go to account HTTP endpoints.
 
-    {
-      "owner": "existing account owner",
-      "accessToken": "64 lowercase hex characters",
-      "expiresAt": "ISO timestamp",
-      "refreshToken": "64 lowercase hex characters",
-      "refreshExpiresAt": "ISO timestamp"
-    }
+## Attention
 
-Refresh uses the same endpoint with grant_type=refresh_token, client_id and
-refresh_token. Both tokens rotate in the response. The app coalesces concurrent
-refreshes, requires the same owner and prevents a late refresh from restoring a
-signed-out session. Store credentials stay in SecureStore.
+The inbox reads /api/attention?v=2 with cursor pagination. Read/dismiss mutations
+change inbox metadata only. Expo push data contains only attentionId. Opening a
+notification resolves the authenticated exact host generation, session, pane
+and episode, then starts in Watch. It never acquires control or resumes.
 
-POST revocationEndpoint takes client_id, token and token_type_hint. The app
-revokes its refresh token on sign-out and removes the local session even when
-the network fails. Web also needs POST /api/logout to revoke and clear its
-existing HttpOnly login cookie.
+Resume requires a current lease and fresh attention resolution. A persisted
+request UUID is reused after lost acknowledgements. Only a matching revisioned
+RemoteResumeAcknowledgement starts Verifying and releases the lease. A lost
+acknowledgement can be recovered from the matching persisted server attempt.
+The app polls the target for the originating agent's verification result;
+failure or timeout remains paused and permits a fresh revision to be retried.
+Leave paused releases the live view without changing the attention event.
+The backend has not yet specified a separate cannot-complete operation.
 
-Native issuance must bind client kind to the authenticated session. The existing
-POST /api/connect then issues a single-use native viewer ticket. The WebSocket
-server permits absent Origin only for that authenticated ticket kind and keeps
-strict web Origin checks. The app supplies no desktop Origin header.
+## Quality and included browser
 
-## Attention and hosting
+Auto quality uses Wi-Fi quality and cellular/unknown Data saver. Manual Auto,
+Data saver and Quality preferences are stored per account. Quality messages
+change capture/encoder settings independently of the page viewport. Pinch/pan
+is local; Take control preserves zoom. Only Fit to phone requests a host resize.
 
-The existing Expo registration endpoints and opaque attentionId push data are
-used directly. Opening resolves GET /api/attention/:id and requires its exact
-host generation, session, pane and active episode. Opening always watches.
+GET /api/hosted-browser supplies the included browser state. Open uses a
+persisted requestId at POST /api/hosted-browser/open, polls pending states, and
+watches only a ready exact target. Resource, idle and retention policies come
+from the server. The included browser uses the relay entitlement on the existing
+tgs node; it offers no shell or scripting API. The backend must preserve working
+sign-in popups within its interactive browser limit.
 
-The remaining server/host contracts are:
+## Release checks
 
-- Durable pending, claimed, verifying, resolved, failed and expired attention
-  states; explicit claim and cannot-complete actions.
-- An episode/revision acknowledgement durably stored by the host before waking
-  the originating help waiter. The client releases control after that ack and
-  shows Verifying until the script reports success or failure. A generic
-  resumed=true response is not verification.
-- Host capabilities and safe profile discovery, including the ready default
-  profile; create session/page on attached or rented hosts; proxy set/test with
-  credentials retained only on the host. Profile and connection IDs remain
-  separate. Mutating a saved proxy must state which new connection it affects.
-- Stream quality independent from the website viewport. Auto selects Data
-  Saver on cellular; manual settings override that choice.
-- Included browser status and wake on the existing tgs node, isolated per
-  account, one primary interactive page plus auth popups. Persist its profile
-  and saved URL, then sleep 15 minutes after the last viewer. No shell, external
-  agent API or scripting tools are included in this browser offering.
-- The existing account-wide maximum of two simultaneous live pane views applies
-  to direct and TURN connections. List/profile metadata does not consume a view.
-- Same-origin web hosting plus /attention/:id routing, Apple association and
-  Android assetlinks files for the separate cc.bmux.remote app.
+Source builds do not verify deployed flows. Before release, exercise real
+hosted Google/Apple auth, native-kind ticket admission, direct and TURN video,
+control/viewport restoration, cold/warm push opening, duplicate/lost resume
+acknowledgements, script success/failure, default profile and proxy setup,
+session/page creation, quality changes, included-browser wake/sleep and the
+account-wide two-view limit. Metadata-only management must consume no view.
 
-The existing attention resume primitive is not exposed as the finished mobile
-Resume action until the durable acknowledgement and script verification path
-is available. Source builds alone do not verify these runtime paths.
+Separate Expo project, APNs/FCM credentials, Apple association and Android
+assetlinks files are required for cc.bmux.remote. Serve the Metro web export and
+/attention/:id routes on the remote service origin. Purchases stay on the web.

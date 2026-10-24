@@ -47,14 +47,15 @@ Origin checks.
 
 The standalone web export, iOS simulator Release build and Android arm64 Release
 build compile. The native PKCE client, rotating-token storage and sign-out
-adapter are implemented. The hosted service has not yet advertised its native
-auth endpoints or issued native-kind signaling tickets. INTEGRATION.md records
-the exact client contract. No desktop Origin header is used.
+adapter follow the shared mobile contract. The backend implementation is still
+in progress. INTEGRATION.md records the integration behavior and runtime checks.
+No desktop Origin header is used.
 
-Backend/host integration also supplies the verified attention lifecycle, default
+The client includes the revisioned attention inbox and Resume flow, default
 profile discovery, session/page creation, host-side proxy setup and testing,
-stream quality, and included browser wake/sleep. These remain release gates.
-The existing episode resume response is not treated as script verification.
+stream quality, and included browser opening. Backend/host integration and real
+device verification remain release gates. A resume acknowledgement is not
+treated as script verification.
 
 The local Android Release APK uses Expo's generated development signing key.
 Store uploads require the separate production credentials and app records.
