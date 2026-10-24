@@ -44,11 +44,21 @@ test('background panes deliver static frames without a visible window', async ()
     await expect.poll(() => application.evaluate(() => (globalThis as typeof globalThis & { captureColors: Set<number> }).captureColors.size), { timeout: 15000 }).toBeGreaterThan(1)
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
     await application.context().pages().find(page => page.url() === origin + '/')!.evaluate(() => (window as any).stopFrames())
-    await application.evaluate(async ({ webContents }, { url, iceServers, relayOnly }) => {
+    let source = application.context().pages().find(page => page.url() === origin + '/')!
+    let initialVisibility = await source.evaluate(() => {
+      ;(window as any).captureVisibility = []
+      document.addEventListener('visibilitychange', () => (window as any).captureVisibility.push(document.visibilityState))
+      return document.visibilityState
+    })
+    await application.evaluate(async ({ webContents, nativeImage }, { url, iceServers, relayOnly }) => {
       let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!
       contents.endFrameSubscription()
       let state = globalThis as any
-      state.remoteCapture = await state.createTestCapture({ contents, iceServers, relayOnly, signal: (sdp: unknown) => { state.remoteOffer = sdp }, data: (data: string) => { state.remoteData = data }, closed: () => undefined })
+      let capture = contents.capturePage.bind(contents)
+      state.emptyRemoteFrames = 1
+      state.remoteCaptureClosed = 0
+      contents.capturePage = (...args) => state.emptyRemoteFrames-- > 0 ? Promise.resolve(nativeImage.createEmpty()) : capture(...args)
+      state.remoteCapture = await state.createTestCapture({ contents, iceServers, relayOnly, signal: (sdp: unknown) => { state.remoteOffer = sdp }, data: (data: string) => { state.remoteData = data }, closed: () => { state.remoteCaptureClosed++ } })
     }, { url: origin, iceServers, relayOnly })
     await expect.poll(() => application.evaluate(() => !!(globalThis as any).remoteOffer)).toBe(true)
     await test.step('Native focus lookup remains safe with an active hidden transport', async () => {
@@ -79,11 +89,14 @@ test('background panes deliver static frames without a visible window', async ()
     expect(color[3]).toBe(255)
     expect(color[1]).toBeLessThan(100)
     expect(Math.max(color[0], color[2])).toBeGreaterThan(150)
+    await application.evaluate(() => { (globalThis as any).emptyRemoteFrames = 3 })
     await application.evaluate(({ webContents }, url) => webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!.endFrameSubscription(), origin)
     await application.context().pages().find(page => page.url() === origin + '/')!.evaluate(() => { let canvas = document.querySelector('canvas')!; let context = canvas.getContext('2d')!; context.fillStyle = 'green'; context.fillRect(0, 0, canvas.width, canvas.height) })
     await expect.poll(() => viewer.evaluate(() => { let video = document.querySelector('video')!; let canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; let context = canvas.getContext('2d')!; context.drawImage(video, 0, 0); return context.getImageData(100, 100, 1, 1).data[1] }), { timeout: 15000 }).toBeGreaterThan(100)
     await viewer.evaluate(() => (window as any).testChannel.send('capture-test'))
     await expect.poll(() => application.evaluate(() => (globalThis as any).remoteData), { timeout: 15000 }).toBe('capture-test')
+    expect(await application.evaluate(() => (globalThis as any).remoteCaptureClosed)).toBe(0)
+    expect(await source.evaluate(() => ({ visibility: document.visibilityState, changes: (window as any).captureVisibility }))).toEqual({ visibility: initialVisibility, changes: [] })
     if (relayOnly) expect(await viewer.evaluate(async () => {
       let stats = await (window as any).testPeer.getStats()
       let selected = [...stats.values()].find((item: any) => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated) as any

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { createFrameCapture } from '../src/main/frame-capture'
+import { capturePageFrame, createFrameCapture } from '../src/main/frame-capture'
 
 afterEach(() => { vi.useRealTimers() })
 let fixture = () => {
@@ -34,6 +34,8 @@ it('bounds capture concurrency and discards frames from a closed stream after re
   expect(contents.capturePage).toHaveBeenCalledOnce()
   stop()
   let stopNew = subscribe(contents, receive)
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(contents.capturePage).toHaveBeenCalledOnce()
   finish('obsolete')
   await vi.advanceTimersByTimeAsync(0)
   expect(receive.mock.calls).toEqual([['frame']])
@@ -52,4 +54,43 @@ it('continues after a failed capture and ignores a page destroyed during capture
   expect(contents.capturePage).toHaveBeenCalledTimes(2)
   stop()
   expect(contents.setBackgroundThrottling.mock.calls).toEqual([[false]])
+})
+
+it('shares native capture between startup, live video, and previews without changing page visibility', async () => {
+  let { contents, subscribe } = fixture(), receive = vi.fn()
+  let finish!: (frame: string) => void
+  contents.capturePage.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  let stop = subscribe(contents, receive)
+  await vi.advanceTimersByTimeAsync(0)
+  let initial = capturePageFrame(contents), preview = capturePageFrame(contents), connected = capturePageFrame(contents)
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(contents.capturePage.mock.calls).toEqual([[undefined, { stayHidden: true }]])
+  finish('shared frame')
+  expect(await Promise.all([initial, preview, connected])).toEqual(['shared frame', 'shared frame', 'shared frame'])
+  expect(receive).toHaveBeenCalledWith('shared frame')
+  await vi.advanceTimersByTimeAsync(100)
+  expect(contents.capturePage).toHaveBeenCalledTimes(2)
+  stop()
+})
+
+it('releases a rejected native capture so later previews and streams can recover', async () => {
+  let { contents } = fixture()
+  contents.capturePage.mockRejectedValueOnce(new Error('surface changed'))
+  let first = capturePageFrame(contents), other = capturePageFrame(contents)
+  expect(first).toBe(other)
+  await expect(first).rejects.toThrow('surface changed')
+  await expect(capturePageFrame(contents)).resolves.toBe('frame')
+  expect(contents.capturePage).toHaveBeenCalledTimes(2)
+})
+
+it('keeps the last video frame when navigation produces an empty capture', async () => {
+  let { contents } = fixture(), receive = vi.fn()
+  let subscribe = createFrameCapture((frame: string) => frame || undefined)
+  contents.capturePage.mockResolvedValueOnce('')
+  let stop = subscribe(contents, receive)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(receive).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(100)
+  expect(receive).toHaveBeenCalledExactlyOnceWith('frame')
+  stop()
 })

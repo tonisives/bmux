@@ -360,6 +360,21 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect.poll(() => viewport.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await test.step('A stream update preserves control and the desktop viewport', async () => {
+        let geometry = await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height') }))
+        await application!.evaluate(({ ipcMain }) => {
+          ;(globalThis as any).remoteViewerUpdates = []
+          ipcMain.on('remote-client-update', (_event, state) => (globalThis as any).remoteViewerUpdates.push({ connected: state.connected, controlling: state.controlling }))
+        })
+        await attached.evaluate(async () => {
+          let peer = (window as any).bmuxTestRemotePeers.at(-1) as RTCPeerConnection
+          peer.ontrack!({ streams: [document.querySelector('video')!.srcObject] } as unknown as RTCTrackEvent)
+          await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        })
+        expect(await application!.evaluate(() => (globalThis as any).remoteViewerUpdates)).not.toContainEqual({ connected: false, controlling: false })
+        expect(await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height') }))).toEqual(geometry)
+        await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      })
       await viewport.evaluate(element => { element.scrollLeft = 64; element.scrollTop = 64 })
       await expect.poll(() => viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 64, y: 64 })
       let frame = (await viewport.boundingBox())!

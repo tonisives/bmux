@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
-import { createFrameCapture } from './frame-capture'
+import { capturePageFrame, createFrameCapture } from './frame-capture'
 
 type CaptureOptions = { contents: Electron.WebContents; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void; data: (message: string) => void; closed: () => void }
 let frameSize = (frame: Electron.NativeImage) => {
@@ -8,6 +8,7 @@ let frameSize = (frame: Electron.NativeImage) => {
   return { width: Math.round(size.width * scale), height: Math.round(size.height * scale) }
 }
 let encodeFrame = (frame: Electron.NativeImage) => {
+  if (frame.isEmpty()) return
   let size = frameSize(frame)
   if (size.width !== frame.getSize().width || size.height !== frame.getSize().height) frame = frame.resize(size)
   return `data:image/jpeg;base64,${frame.toJPEG(80).toString('base64')}`
@@ -27,6 +28,13 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     framePending = true
     send({ type: 'frame', data })
   }
+  let start = (frame?: Electron.NativeImage) => {
+    if (disposed) return
+    send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...(frame && !frame.isEmpty() ? frameSize(frame) : {}) })
+    unsubscribe = subscribe(options.contents, sendFrame)
+    let data = frame && encodeFrame(frame)
+    if (data) sendFrame(data)
+  }
   let close = () => {
     if (disposed) return
     disposed = true
@@ -39,19 +47,10 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   let receive = (event: Electron.IpcMainEvent, message: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; data?: string; state?: string }) => {
     if (event.sender !== window.webContents || !message || typeof message.type !== 'string') return
     if (message.type === 'ready') {
-      void options.contents.capturePage().then(frame => {
-        if (disposed) return
-        send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...frameSize(frame) })
-        unsubscribe = subscribe(options.contents, sendFrame)
-        sendFrame(encodeFrame(frame))
-      }).catch(() => {
-        if (disposed) return
-        send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate })
-        unsubscribe = subscribe(options.contents, sendFrame)
-      })
+      void capturePageFrame(options.contents).then(start).catch(() => start())
     } else if (message.type === 'frame-ack') framePending = false
     else if (message.type === 'connection' && message.state === 'connected') {
-      void options.contents.capturePage().then(frame => sendFrame(encodeFrame(frame))).catch(() => undefined)
+      void capturePageFrame(options.contents).then(frame => { let data = encodeFrame(frame); if (data) sendFrame(data) }).catch(() => undefined)
     }
     else if (message.type === 'offer' && message.sdp) options.signal(message.sdp)
     else if (message.type === 'candidate' && message.candidate) options.candidate?.(message.candidate)
