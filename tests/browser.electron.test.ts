@@ -3687,7 +3687,7 @@ test('window activity ignores viewing while visits and real input stay separate'
     }, { target: legacy.panes[0].url, type })
     for (let type of ['mouseMove', 'mouseDown', 'mouseWheel'] as const) {
       let previous = (await savedWindow(legacy.id)).panes[0].lastActivityAt
-      await expect.poll(async () => { await input(type); return (await savedWindow(legacy.id)).panes[0].lastActivityAt }).toBeGreaterThan(previous)
+      await expect.poll(async () => { await input(type); return (await savedWindow(legacy.id)).panes[0].lastActivityAt }, { message: `${type} refreshes the activity timestamp` }).toBeGreaterThan(previous)
       await expect(statusAge(legacy.id)).toHaveText('jn')
     }
     await cli('navigate', { tab: secondPane.id, url: `${url}/visits-background` })

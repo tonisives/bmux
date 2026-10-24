@@ -1220,7 +1220,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       save()
     }
     contents.on('before-input-event', (_event, input) => { if (input.type === 'keyDown') recordActivity() })
-    contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseWheel' || input.type === 'mouseMove' && (input.movementX || input.movementY)) recordActivity() })
+    contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseMove' && (input.movementX || input.movementY)) recordActivity() })
+    contents.on('input-event', (_event, input) => { if (input.type === 'mouseWheel') recordActivity() })
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       // Bootstrap and new-window blanks must never become a Back destination.
