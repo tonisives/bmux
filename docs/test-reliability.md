@@ -1,5 +1,18 @@
 # Focused test verification
 
+## Renderer closing and numeric pane reuse
+
+The full Check on `fdb5ce0f` found two closing-fixture failures. A popup could
+destroy its inspection target before the command that scheduled `window.close`
+returned. The fixture now closes that popup from its opener's renderer, keeping
+the command target alive while retaining the popup-removal and background-polling
+assertions.
+
+The numeric-ID case split a blank pane and closed it during initialization,
+without checking the close result. It now waits for the document, requires a
+successful close, and verifies removal before expecting that ID to be reused.
+Repeat both cases with the existing internal-window and pane reopen case.
+
 ## Google search helper input locks
 
 Loading a Google search with the result navigation hooks enabled registered its
