@@ -387,7 +387,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>, pane: Pane) => {
     if (currentPane(actor.paneId) !== pane) return
-    pane.lastUsedBy = 'agent'; pane.lastActivityAt = Date.now(); save()
+    pane.lastUsedBy = 'agent'; save()
     recordSessionActivity(actor.paneId)
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
@@ -403,7 +403,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let actor = automatedNavigations.get(paneId)
     if (!actor || url === 'about:blank') return
     automatedNavigations.delete(paneId)
-    try { automationSafety?.complete(pane.profileId, actor, url); touchAgent(actor, pane) }
+    try { automationSafety?.complete(pane.profileId, actor, url); pane.lastActivityAt = Date.now(); touchAgent(actor, pane) }
     catch (error) { reportError(error); publish() }
   }
   let automationSafety: ReturnType<typeof createAutomationSafety> | undefined
@@ -739,7 +739,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let current = live && !live.contents.isDestroyed() ? live.contents.getURL() : ''
       if (!current || current === 'about:blank' && tab.url !== 'about:blank') current = live?.pendingUrl ?? tab.url
       return [current, ...(live?.pendingUrl ? [live.pendingUrl] : []), ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])]
-    }, () => { assertAgentTarget(pane); return operation() }, agentActionInput(method, args, owner))).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
+    }, async () => {
+      assertAgentTarget(pane)
+      let result = await operation()
+      if (!readsPage(method, args) && currentPane(pane) === original) { original.lastActivityAt = Date.now(); save(); publish() }
+      return result
+    }, agentActionInput(method, args, owner))).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
   }
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
     let live = tabs.get(tabId), document = documents.get(tabId)
