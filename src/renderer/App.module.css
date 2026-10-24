@@ -192,12 +192,13 @@
 .panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
 .remoteService { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .remoteSession[data-active="true"] { background: #252d34; }
-.remoteGroup { display: flex; flex: 1; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; }
+.remoteGroup { display: flex; flex: 1; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; color: #8995a3; }
+.remoteGroup svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.remoteGroup[aria-expanded="true"] svg { transform: rotate(90deg); }
 .remoteGroup .remoteService { margin-left: auto; }
-.sessionWorkspace .sessionRow.remoteSessionRow { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) 34px; }
-.sessionWorkspace .remoteSessionRow .sessionClose { grid-column: 2; }
 .remotePreviewHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .remotePreviewHeading button { flex-shrink: 0; color: #aebca7; }
+.remotePreviewHeading .sessionPreviewTitle { flex: 1; min-width: 0; }
 .remotePreviewPane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .remotePreviewCaption { display: flex; flex-direction: column; padding: 6px 8px; flex-shrink: 0; }
 .remotePreviewCaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -628,7 +629,13 @@
 .pluginPopup [role="switch"][aria-checked="true"] { color: #b4d49a; }
 
 .remoteConnection { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remoteLibrary { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.remoteAccountPage { flex: 1; min-width: 0; overflow: auto; padding: 0 4px 16px; }
+.remoteAccountPage > h3 { margin: 0 0 16px; font-size: inherit; }
+.remoteToolbar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-bottom: 8px; }
+.remoteToolbar > button { display: flex; align-items: center; gap: 6px; padding: 4px 8px; }
+.remoteToolbar > button[data-remote-action="relay"] > svg { width: 12px; height: 12px; fill: currentColor; color: #778493; }
+.remoteToolbar > button[data-connected="true"] > svg { color: #a7c88d; }
+.remoteToolbar kbd { color: #8995a3; font: inherit; }
 .remotePreviewSettings { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
 .remotePreviewSettings label { display: flex; align-items: center; gap: 12px; }
 .remotePreviewSettings select { padding: 6px 8px; border: 1px solid #505a66; background: #111318; color: inherit; font: inherit; }
@@ -636,8 +643,6 @@
 .panel .remoteSettingsButton { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; }
 .remoteSettingsButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .remoteSettingsButton[aria-pressed="true"] { color: #bdc9b4; }
-.remotePages { padding-left: 30px; }
-.sessionPicker .remoteTreeHeader .sessionToggle { left: calc(3ch + 54px); }
 .status .remoteSessionName { max-width: min(160px, 24vw); overflow: hidden; text-overflow: ellipsis; display: block; }
 .remoteStatusActions { display: flex; align-items: center; gap: 4px; height: 100%; flex: 0 0 auto; -webkit-app-region: no-drag; }
 .remoteStatusActions > button { display: grid; place-items: center; width: 24px; height: 24px; }
@@ -667,5 +672,3 @@
   .extensionWorkspace { grid-template-columns: minmax(0, 1fr); }
   .extensionPlaceholder, .extensionWorkspace[data-details-open="true"] > .extensionList { display: none; }
 }
-
-.remotePages > :not(:last-child) .sessionBranch::after { bottom: -3px; }

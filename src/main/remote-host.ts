@@ -10,7 +10,7 @@ import { agentInfo } from '../shared/agent-info'
 import { encryptRemotePreview } from '../shared/remote-preview'
 
 type PublicKey = { kty: string; crv: string; x: string }
-type Config = { url: string; token: string; identityFile?: string }
+type Config = { url: string; token: string; identityFile?: string; service?: string }
 type Stream = { close: () => void; answer: (sdp: RTCSessionDescriptionInit) => void; candidate: (value: RTCIceCandidateInit) => void; send: (data: string) => void }
 export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directory: string, configFile: string) => {
   let config = (): Config => {
@@ -258,7 +258,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   connect()
   return {
     close,
-    status: () => ({ hostId, generation, publicKey: identity.publicKey, fingerprint: identity.id, connected: socket?.readyState === WebSocket.OPEN }),
+    status: () => ({ hostId, generation, service: initial.service, publicKey: identity.publicKey, fingerprint: identity.id, connected: socket?.readyState === WebSocket.OPEN }),
     job: (id: string, attempt: string, result?: 'succeeded' | 'failed') => {
       if (!id || id.length > 256 || !attempt || attempt.length > 256) throw new Error('Invalid job identity')
       usage()
