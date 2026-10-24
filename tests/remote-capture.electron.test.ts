@@ -45,9 +45,10 @@ test('background panes deliver static frames without a visible window', async ()
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
     await application.context().pages().find(page => page.url() === origin + '/')!.evaluate(() => (window as any).stopFrames())
     let source = application.context().pages().find(page => page.url() === origin + '/')!
-    await source.evaluate(() => {
+    let initialVisibility = await source.evaluate(() => {
       ;(window as any).captureVisibility = []
       document.addEventListener('visibilitychange', () => (window as any).captureVisibility.push(document.visibilityState))
+      return document.visibilityState
     })
     await application.evaluate(async ({ webContents, nativeImage }, { url, iceServers, relayOnly }) => {
       let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!
@@ -95,7 +96,7 @@ test('background panes deliver static frames without a visible window', async ()
     await viewer.evaluate(() => (window as any).testChannel.send('capture-test'))
     await expect.poll(() => application.evaluate(() => (globalThis as any).remoteData), { timeout: 15000 }).toBe('capture-test')
     expect(await application.evaluate(() => (globalThis as any).remoteCaptureClosed)).toBe(0)
-    expect(await source.evaluate(() => ({ hidden: document.hidden, changes: (window as any).captureVisibility }))).toEqual({ hidden: true, changes: [] })
+    expect(await source.evaluate(() => ({ visibility: document.visibilityState, changes: (window as any).captureVisibility }))).toEqual({ visibility: initialVisibility, changes: [] })
     if (relayOnly) expect(await viewer.evaluate(async () => {
       let stats = await (window as any).testPeer.getStats()
       let selected = [...stats.values()].find((item: any) => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated) as any
