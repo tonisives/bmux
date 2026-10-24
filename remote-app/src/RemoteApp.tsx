@@ -14,7 +14,7 @@ import { ProfilesSheet } from './components/ProfilesSheet'
 import { IncludedBrowserCard } from './components/IncludedBrowserCard'
 import { SessionList } from './components/SessionList'
 import { DemoWorkspace } from './components/DemoWorkspace'
-import { useSplitView } from './useSplitView'
+import { useCompactHeight, useSplitView } from './useSplitView'
 import type { Host } from './types'
 import type { RemoteQualityMode } from '../../src/shared/remote-management'
 
@@ -31,6 +31,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let [newHost, setNewHost] = useState<Host>()
   let [profileHost, setProfileHost] = useState<Host>()
   let split = useSplitView()
+  let compact = useCompactHeight()
   let hasSessions = remote.hosts.some(host => host.sessions.some(session => session.panes.length > 0))
   let pending = remote.attention.filter(item => !item.dismissedAt && ['pending', 'verifying'].includes(attentionStatus(item)))
   let action = async (run: () => Promise<unknown>) => { setBusy(true); try { await run() } catch (value) { remote.setError((value as Error).message) } finally { setBusy(false) } }
@@ -61,13 +62,13 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
     />
   </View>
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
-    <View style={local.header}>
+    {!(compact && section === 'sessions' && remote.selection) && <View style={local.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Sessions" onPress={() => setSection('sessions')}><Text style={local.brand}>bmux remote</Text></Pressable>
       <View style={styles.row}>
         <Pressable style={local.iconButton} accessibilityRole="button" accessibilityLabel={'Attention, ' + pending.length + ' pending'} onPress={() => { remote.close(); setSection('attention'); void remote.refresh() }}><Ionicons name="notifications-outline" size={22} color={section === 'attention' ? colors.accent : colors.secondary} />{pending.length > 0 && <Text style={local.badge}>{pending.length}</Text>}</Pressable>
         <Pressable style={local.iconButton} accessibilityRole="button" accessibilityLabel="Settings" onPress={() => { remote.close(); setSection('settings'); void remote.refresh() }}><Ionicons name="settings-outline" size={22} color={section === 'settings' ? colors.accent : colors.secondary} /></Pressable>
       </View>
-    </View>
+    </View>}
     {!!remote.error && <View style={local.error}><Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text><Button title="Reconnect" disabled={remote.connecting} onPress={remote.retry} /><Button title="Dismiss" onPress={() => remote.setError('')} /></View>}
     {section === 'sessions' && <View style={local.body}>{(split || !remote.selection) && sessions}{remote.selection ? <View style={local.detail}><ViewerScreen /></View> : split && <View style={[local.detail, local.center]}><Ionicons name="browsers-outline" size={40} color={colors.muted} /><Text style={styles.secondary}>Select a session to watch</Text></View>}</View>}
     {section === 'attention' && <ScrollView contentContainerStyle={local.content}>

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, radius, styles } from '../theme'
-import { useSplitView } from '../useSplitView'
+import { useCompactHeight, useSplitView } from '../useSplitView'
 import type { Host, Selection } from '../types'
 import { Button } from './Button'
 import { SessionList } from './SessionList'
@@ -17,6 +17,7 @@ let firstPage: Selection = { host: demoHost.id, generation: demoHost.generation,
 
 export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: () => void }) => {
   let split = useSplitView()
+  let compact = useCompactHeight()
   let [selection, setSelection] = useState<Selection | undefined>(firstPage)
   let [controlling, setControlling] = useState(false)
   let [confirmed, setConfirmed] = useState(false)
@@ -24,7 +25,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   let prices = selection?.pane === 'demo-prices'
   let resume = () => { setResumed(true); setControlling(false) }
   return <SafeAreaView style={styles.screen}>
-    <View style={local.header}>
+    <View style={[local.header, compact && local.compactHeader]}>
       <Text style={local.brand}>bmux remote</Text>
       <View style={styles.row}><View style={local.demoBadge}><Text style={local.demoText}>Demo</Text></View><Button title="Exit demo" onPress={close} /></View>
     </View>
@@ -35,15 +36,15 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
         </View>} />
       </View>}
       {selection ? <View style={local.detail}>
-        <View style={local.toolbar}><Button title="Sessions" onPress={() => setSelection(undefined)} /><View style={local.heading}><Text style={styles.text}>{prices ? 'Price tracker' : 'Field Notes'}</Text><Text style={styles.secondary}>Sample page</Text></View><Button title={controlling ? 'Release' : 'Take control'} primary={!controlling} onPress={() => setControlling(!controlling)} /></View>
-        <View style={local.attention}>
-          <View style={local.attentionHeading}><Ionicons name={resumed ? 'checkmark-circle-outline' : 'hand-left-outline'} size={20} color={resumed ? colors.success : colors.warning} />
-            <View style={local.heading}><Text style={local.attentionTitle}>{resumed ? 'Demo agent resumed' : 'Demo agent needs your help'}</Text><Text style={styles.secondary}>{resumed ? 'Stock confirmed. The sample task is complete.' : confirmed ? 'Stock confirmed. Resume when you’re ready.' : 'Take control and confirm the notebook is in stock.'}</Text></View>
+        <View style={[local.toolbar, compact && local.compactToolbar]}>{!(compact && split) && <Button title="Sessions" onPress={() => setSelection(undefined)} />}<View style={local.heading}><Text style={styles.text} numberOfLines={1}>{prices ? 'Price tracker' : 'Field Notes'}</Text><Text style={styles.secondary}>{compact ? controlling ? 'Control' : 'Watch' : 'Sample page'}</Text></View><Button title={controlling ? 'Release' : 'Take control'} primary={!controlling} onPress={() => setControlling(!controlling)} /></View>
+        <View style={[local.attention, compact && local.compactAttention]}>
+          <View style={[local.attentionHeading, compact && local.compactAttentionHeading]}><Ionicons name={resumed ? 'checkmark-circle-outline' : 'hand-left-outline'} size={20} color={resumed ? colors.success : colors.warning} />
+            <View style={local.heading}><Text style={local.attentionTitle} numberOfLines={compact ? 1 : undefined}>{resumed ? 'Demo agent resumed' : 'Demo agent needs your help'}</Text>{!compact && <Text style={styles.secondary}>{resumed ? 'Stock confirmed. The sample task is complete.' : confirmed ? 'Stock confirmed. Resume when you’re ready.' : 'Take control and confirm the notebook is in stock.'}</Text>}</View>
           </View>
           {!resumed && confirmed && <Button title="Resume demo agent" disabled={!controlling} onPress={resume} />}
         </View>
-        <View style={local.address}><Ionicons name="lock-closed-outline" size={13} color={colors.secondary} /><Text style={styles.secondary}>{prices ? 'tracker.example/notebooks' : 'fieldnotes.example/notebooks'}</Text></View>
-        <ScrollView style={local.page} contentContainerStyle={local.pageContent}>
+        {!compact && <View style={local.address}><Ionicons name="lock-closed-outline" size={13} color={colors.secondary} /><Text style={styles.secondary}>{prices ? 'tracker.example/notebooks' : 'fieldnotes.example/notebooks'}</Text></View>}
+        <ScrollView testID="demo-browser-page" style={local.page} contentContainerStyle={local.pageContent}>
           {prices ? <>
             <Text style={local.siteLabel}>PRICE TRACKER</Text><Text style={local.pageTitle}>Notebook watchlist</Text><Text style={local.pageDescription}>Compare the two pages in this sample session.</Text>
             <View style={local.tableHeader}><Text style={local.column}>Item</Text><Text style={local.price}>Price</Text><Text style={local.stock}>Stock</Text></View>
@@ -61,14 +62,15 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
             </View>
           </>}
         </ScrollView>
-        <ScrollView horizontal style={local.tabs} contentContainerStyle={local.tabContent}>{demoHost.sessions[0].panes.map(pane => <Button key={pane.id} title={pane.title} primary={selection.pane === pane.id} onPress={() => setSelection({ ...firstPage, pane: pane.id })} />)}</ScrollView>
-        <View style={local.footer}><Text style={styles.secondary}>{controlling ? 'Control' : 'Watch'} · Demo pages</Text><Button title="Use my browser" onPress={connect} /></View>
+        {!compact && <><ScrollView horizontal style={local.tabs} contentContainerStyle={local.tabContent}>{demoHost.sessions[0].panes.map(pane => <Button key={pane.id} title={pane.title} primary={selection.pane === pane.id} onPress={() => setSelection({ ...firstPage, pane: pane.id })} />)}</ScrollView>
+        <View style={local.footer}><Text style={styles.secondary}>{controlling ? 'Control' : 'Watch'} · Demo pages</Text><Button title="Use my browser" onPress={connect} /></View></>}
       </View> : split && <View style={[local.detail, local.empty]}><Text style={styles.secondary}>Select a sample page</Text></View>}
     </View>
   </SafeAreaView>
 }
 
 let local = StyleSheet.create({
+  compactHeader: { minHeight: 48 }, compactToolbar: { paddingVertical: 4 }, compactAttention: { paddingVertical: 6, flexWrap: 'nowrap' }, compactAttentionHeading: { flexBasis: 0, flexShrink: 1 },
   header: { minHeight: 68, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border }, brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, demoBadge: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.grouped }, demoText: { color: colors.warning, fontSize: 12, fontWeight: '600' },
   workspace: { flex: 1, minHeight: 0, flexDirection: 'row' }, sidebar: { width: 380, maxWidth: '45%', minHeight: 0, borderRightWidth: 1, borderRightColor: colors.border }, list: { flex: 1 }, detail: { flex: 1, minWidth: 0, minHeight: 0 }, empty: { alignItems: 'center', justifyContent: 'center' },
   guide: { gap: 12, padding: 8 }, guideTitle: { color: colors.text, fontSize: 18, fontWeight: '600' }, description: { color: colors.secondary, fontSize: 14, lineHeight: 21 },

@@ -70,9 +70,10 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     }, origin)
     await expect.poll(() => application!.context().pages().some(page => page.url() === origin + '/')).toBe(true)
     page = application.context().pages().find(page => page.url() === origin + '/')!
-    let resize = async (width: number) => {
-      await application!.evaluate(({ BrowserWindow }, { id, width }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, 800)) }, { id: windowId, width })
+    let resize = async (width: number, height = 800) => {
+      await application!.evaluate(({ BrowserWindow }, { id, width, height }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, height)) }, { id: windowId, width, height })
       await expect.poll(() => page!.evaluate(() => innerWidth)).toBe(width)
+      await expect.poll(() => page!.evaluate(() => innerHeight)).toBe(height)
     }
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
@@ -86,6 +87,13 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Resume demo agent', exact: true })).toHaveCount(0)
     await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
     await page.screenshot({ path: info.outputPath('companion-demo-desktop.png') })
+    await resize(960, 390)
+    await expect(page.getByText('Demo', { exact: true })).toBeVisible()
+    await expect.poll(async () => (await page!.getByTestId('demo-browser-page').boundingBox())?.height ?? 0).toBeGreaterThan(150)
+    await page.getByRole('button', { name: 'Open Price tracker', exact: true }).click()
+    await expect(page.getByText('Notebook watchlist', { exact: true })).toBeVisible()
+    await page.screenshot({ path: info.outputPath('companion-demo-landscape.png') })
+    await page.getByRole('button', { name: 'Open Field Notes', exact: true }).click()
     await resize(390)
     await expect(page.getByRole('button', { name: 'Open Field Notes', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Field Notes', exact: true })).toBeVisible()
@@ -133,6 +141,11 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByText('Watch', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toBeDisabled()
     expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
+    await resize(960, 390)
+    await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
+    await expect.poll(async () => (await page!.getByLabel('Remote browser viewport', { exact: true }).boundingBox())?.height ?? 0).toBeGreaterThan(150)
+    await expect(page.getByRole('button', { name: 'Sessions', exact: true })).toBeVisible()
+    await page.screenshot({ path: info.outputPath('companion-landscape-watch.png') })
     await resize(390)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toHaveCount(0)
     await expect(page.getByText('Watch', { exact: true })).toBeVisible()

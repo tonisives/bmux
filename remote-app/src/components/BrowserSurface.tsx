@@ -114,7 +114,7 @@ export let BrowserSurface = ({ stream, viewport, controlling, busy, input, frame
   </View>
 }
 let local = StyleSheet.create({
-  surface: { flex: 1, backgroundColor: '#000000', overflow: 'hidden', minHeight: 200 },
+  surface: { flex: 1, backgroundColor: '#000000', overflow: 'hidden', minHeight: 0 },
   loading: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', gap: 12 },
   caption: { color: colors.secondary, fontSize: 14 },
 })
