@@ -54,6 +54,7 @@ export let RemoteAccount = ({ api, visit, signIn, rent = false, local = false }:
   if (!account) return <section className={styles.account}><p>{error || 'Sign in to manage relay and boxes.'}</p><button onClick={signIn}>Sign in with Google</button></section>
   return <div className={styles.account} aria-label="Remote account" data-setting-id="remote-account">
     <p>{account.email || account.owner}</p>
+    {!account.email && <button onClick={signIn}>Confirm billing email with Google</button>}
     {error && <p className={styles.error} role="alert">{error}</p>}
     <section className={styles.section} aria-label="Relay"><div className={styles.heading}><h3>Relay</h3><span>$10 / month</span></div>
       <p>Connect your computers and view two panes at once across your account.</p>

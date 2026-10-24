@@ -195,8 +195,10 @@ returns an update-required message before a close request is sent. The list uses
 host timestamps; opening a viewer never substitutes its local visit time.
 
 The preview beside the list is fetched from the remote browser before opening
-video. Remote hosts capture loaded panes after navigation and about every 15
-seconds, including hidden panes. Fetching a preview leaves selection, control,
+video. Remote hosts capture loaded panes after navigation and agent actions,
+including hidden panes, at most once per pane every 15 seconds. Bursts coalesce
+into a trailing capture of the latest state; idle panes keep their last frame.
+Fetching a preview only reads that cache and leaves selection, control,
 and last-used timestamps unchanged. Unloaded pages keep their last saved preview
 until they run again. Clients retain the host's capture time and fall back to
 their last viewed frame for older hosts or unavailable previews. Private-session

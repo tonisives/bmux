@@ -10,6 +10,7 @@ import type { PublicState } from '../src/shared/types'
 test('paid remote account connects a running computer and opens regional box checkout', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(),'bmux-paid-remote-')), config = path.join(directory,'config.yaml')
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let billingEmail: string | undefined
   let requests: { route: string; body: Record<string, unknown> }[] = [], views = [{ connection:'fixture-view', host:'fixture-host', generation:'fixture-generation', pane:'fixture-pane' }]
   let server = http.createServer((request,response) => {
     void (async () => {
@@ -19,7 +20,7 @@ test('paid remote account connects a running computer and opens regional box che
       let body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
       if (request.method === 'POST') requests.push({route,body})
       if (route === '/api/hosts') { json([]); return }
-      if (route === '/api/me') { json({owner:'123456789',email:'pilot@example.com'}); return }
+      if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
       if (route === '/api/rentals') { json([]); return }
       if (route === '/api/streams') { json(views); return }
@@ -59,7 +60,13 @@ test('paid remote account connects a running computer and opens regional box che
     let command = chrome.getByRole('combobox',{name:'Command',exact:true}); await command.fill('settings'); await command.press('Enter')
     let settings = chrome.getByRole('dialog',{name:'Settings',exact:true})
     await settings.getByRole('tab',{name:'Account',exact:true}).click()
+    await expect(settings.getByRole('button',{name:'Confirm billing email with Google',exact:true})).toBeVisible()
+    billingEmail = 'pilot@example.com'
+    await settings.getByRole('button',{name:'Close',exact:true}).click()
+    await chrome.getByRole('button',{name:'Command prompt',exact:true}).click()
+    await command.fill('settings'); await command.press('Enter')
     await expect(settings).toContainText('pilot@example.com')
+    await expect(settings.getByRole('button',{name:'Confirm billing email with Google',exact:true})).toHaveCount(0)
     await settings.getByRole('button',{name:'Disconnect view',exact:true}).click()
     await expect(settings.getByRole('button',{name:'Disconnect view',exact:true})).toHaveCount(0)
     await settings.getByRole('button',{name:'Connect this computer',exact:true}).click()
