@@ -8,6 +8,7 @@ import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
+import { RemoteMachineDetails, RemoteMachineHeading, remoteMachineName, useRemoteMachines } from './RemoteMachine'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
 import { VimCursor } from './VimCursor'
@@ -1459,11 +1460,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
   let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
-    <PanelHeader back={closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
+    <PanelHeader back={sessionPicker || closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Local</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote</button>
     </div> : <strong>{title}</strong>}</PanelHeader>
     <div className={css.panelBody}>
+      {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
       {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
@@ -1905,7 +1907,7 @@ let useSessionNavigation = (toggleSort: () => void) => {
     if ((!editing && event.key === 'x') || (event.ctrlKey && event.key === 'x')) {
       event.preventDefault(); setCount('')
       let row = editing ? rows[0] : target
-      row?.closest('[data-session-target]')?.querySelector<HTMLButtonElement>('button[aria-label^="Close "]')?.click()
+      row?.closest('[data-session-target], [data-page-target]')?.querySelector<HTMLButtonElement>('button[aria-label^="Close "]')?.click()
       return
     }
     if (!editing && !event.ctrlKey && ['i', 'a', '/'].includes(event.key)) {
@@ -2151,6 +2153,7 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
   let toggleSort = () => { endDrag(); setReordering(false); setRecent(!recent); localStorage.setItem('remote-session-sort-recent', String(!recent)) }
   let toggleReordering = () => { endDrag(); setReordering(!reordering); setRecent(false); localStorage.setItem('remote-session-sort-recent', 'false') }
   let { ref, input, query, change, sessionKeys, focusMode, mode, count } = useSessionNavigation(toggleSort)
+  let machineView = useRemoteMachines(remote?.hosts ?? [], ref), machine = machineView.selected
   useEffect(() => { if (returnFocus) ref.current?.querySelector<HTMLButtonElement>(`[data-remote-action="${returnFocus}"]`)?.focus({ preventScroll: true }) }, [])
   let [lastActive, setLastActive] = useState(() => localStorage.getItem('remote-session-last-active'))
   let [now, setNow] = useState(Date.now)
@@ -2164,14 +2167,15 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
   }, [remote])
   let all = remote?.hosts.flatMap(host => host.sessions.map(session => ({ host, session }))) ?? []
   let { images, refreshing, refreshPreview } = useRemotePreviewImages(all, settings)
-  let sessions = all.filter(({ host, session }) => fuzzyMatch(query, `${session.name} ${host.service} ${session.panes.map(pane => `${pane.title} ${pane.agentName ?? ''} ${pane.agentId ?? ''} ${pane.agentType ?? ''} ${pane.agentPurpose ?? ''} ${Object.values(pane.agentData ?? {}).join(' ')}`).join(' ')}`))
+  let sessions = all.filter(({ host, session }) => fuzzyMatch(query, `${session.name} ${host.service} ${host.machine?.name ?? ''} ${session.panes.map(pane => `${pane.title} ${pane.agentName ?? ''} ${pane.agentId ?? ''} ${pane.agentType ?? ''} ${pane.agentPurpose ?? ''} ${Object.values(pane.agentData ?? {}).join(' ')}`).join(' ')}`))
   let sessionKey = (host: string, session: string) => JSON.stringify(['session', host, session])
-  let serviceKey = (service: string) => JSON.stringify(['service', service])
+  let machineKey = (host: RemoteHost) => JSON.stringify(['machine', host.id])
   let rank = (key: string) => order.indexOf(key) < 0 ? order.length : order.indexOf(key)
   sessions.sort((a, b) => rank(sessionKey(a.host.id, a.session.id)) - rank(sessionKey(b.host.id, b.session.id)))
   let visited = (session: { lastActivityAt?: number }) => session.lastActivityAt
   if (recent) sessions.sort((a, b) => (visited(b.session) ?? 0) - (visited(a.session) ?? 0))
-  let services = [...new Set(sessions.map(item => item.host.service))].sort((a, b) => rank(serviceKey(a)) - rank(serviceKey(b)))
+  let machineRank = (host: RemoteHost) => rank(order.includes(machineKey(host)) ? machineKey(host) : JSON.stringify(['service', host.service]))
+  let machines = (remote?.hosts ?? []).filter(host => !query || sessions.some(item => item.host.id === host.id)).sort((a, b) => machineRank(a) - machineRank(b))
   let preview = all.find(({ host, session }) => `${host.id}:${session.id}` === previewId) ?? sessions[0]
   let move = (source: string, target: string, position: SessionDrop['position'], siblings: string[]) => {
     if (!siblings.includes(source) || source === target) return
@@ -2187,7 +2191,7 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
     onDrop: (event: DragEvent<HTMLElement>) => { if (!dragSource.current || !siblings.includes(dragSource.current)) return; event.preventDefault(); event.stopPropagation(); move(dragSource.current, id, dragPosition(event), siblings) },
   })
   let handle = (id: string, name: string, siblings: string[]) => reordering && <RemoteOrderHandle id={id} name={name} start={value => { dragSource.current = value }} end={endDrag} move={direction => { let target = siblings[siblings.indexOf(id) + direction]; if (target) move(id, target, direction < 0 ? 'before' : 'after', siblings) }} />
-  let previewRow = (target: Element) => { let row = target.closest<HTMLElement>('[data-remote-session]'); if (row) setPreviewId(row.dataset.remoteSession!) }
+  let previewRow = (target: Element) => { let row = target.closest<HTMLElement>('[data-remote-session]'); if (row) { machineView.select(undefined); setPreviewId(row.dataset.remoteSession!) } }
   let previewFocus = (event: FocusEvent<HTMLDivElement>) => { focusMode(event); if (!event.target.closest('[data-picker-action]')) previewRow(event.target) }
   let previewHover = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof Element && !event.target.closest('[data-picker-action]')) previewRow(event.target) }
   useLayoutEffect(() => { if (document.activeElement === input.current) setPreviewId(sessions[0] ? `${sessions[0].host.id}:${sessions[0].session.id}` : null) }, [query, recent])
@@ -2201,8 +2205,8 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
     if (!event.nativeEvent.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'g' && event.target instanceof HTMLElement && !event.target.closest('input, select, [role="alertdialog"]')) { event.preventDefault(); open('relay'); return }
     if (event.key === 'Escape' && event.target === input.current && !query && !sessions.length) { event.preventDefault(); event.stopPropagation(); dismiss(); return }
     if (!event.altKey && !event.ctrlKey && !event.metaKey && event.target instanceof HTMLElement && !event.target.closest('input, [role="alertdialog"]') && ['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-      let group = event.target.closest<HTMLElement>('[data-remote-service]'), service = group?.dataset.remoteService
-      if (service) { event.preventDefault(); let close = event.key === 'h' || event.key === 'ArrowLeft'; if (close) group?.querySelector<HTMLButtonElement>('[data-service-toggle]')?.focus(); setCollapsed(values => close ? [...new Set([...values, service])] : values.filter(value => value !== service)); return }
+      let group = event.target.closest<HTMLElement>('[data-remote-machine]'), host = group?.dataset.remoteMachine
+      if (host) { event.preventDefault(); let close = event.key === 'h' || event.key === 'ArrowLeft'; if (close) group?.querySelector<HTMLButtonElement>('[data-machine-toggle]')?.focus(); setCollapsed(values => close ? [...new Set([...values, host])] : values.filter(value => value !== host)); return }
     }
     sessionKeys(event)
   }
@@ -2210,16 +2214,17 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
     <RemoteSessionActions open={open} />
     <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} /><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder remote sessions" title="Reorder remote sessions" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list>
-    {services.map(service => {
-      let children = sessions.filter(item => item.host.service === service), expanded = !!query || !collapsed.includes(service)
+    {machines.map(host => {
+      let children = sessions.filter(item => item.host.id === host.id), expanded = !!query || !collapsed.includes(host.id), name = remoteMachineName(host, remote?.hosts ?? [])
       let siblings = children.map(({ host, session }) => sessionKey(host.id, session.id))
-      let toggle = () => setCollapsed(values => expanded ? [...values, service] : values.filter(value => value !== service))
-      return <div key={service} data-remote-service={service}>
-        <div className={css.sessionTreeHeading} {...dragProps(serviceKey(service), services.map(serviceKey))}>
-          {handle(serviceKey(service), `service ${service}`, services.map(serviceKey))}
-          <RemoteServiceHeading service={service} expanded={expanded} count={children.length} toggle={toggle} />
+      let toggle = () => setCollapsed(values => expanded ? [...values, host.id] : values.filter(value => value !== host.id))
+      let details = () => machineView.select(host.id), chevron = <SessionTreeChevron />
+      return <div key={host.id} data-remote-machine={host.id} data-remote-service={host.service}>
+        <div className={css.sessionTreeHeading} {...dragProps(machineKey(host), machines.map(machineKey))}>
+          {handle(machineKey(host), `machine ${name}`, machines.map(machineKey))}
+          <RemoteMachineHeading host={host} name={name} color={machineView.color(host.id)} expanded={expanded} toggle={toggle} details={details} chevron={chevron} />
         </div>
-        {expanded && <div role="group" aria-label={`Sessions on ${service}`}>{children.map(({ host, session }) => <RemoteSessionTree key={`${host.id}:${session.id}`} host={host} session={session} active={lastActive === `${host.id}:${session.id}`} now={now} query={query} onSelect={openRemote} onClosed={refresh} dragProps={dragProps(sessionKey(host.id, session.id), siblings)} handle={handle(sessionKey(host.id, session.id), session.name, siblings)} />)}</div>}
+        {expanded && <div role="group" aria-label={`Sessions on ${name}`}>{children.map(({ host, session }) => <RemoteSessionTree key={`${host.id}:${session.id}`} host={host} session={session} active={lastActive === `${host.id}:${session.id}`} now={now} query={query} onSelect={openRemote} onClosed={refresh} dragProps={dragProps(sessionKey(host.id, session.id), siblings)} handle={handle(sessionKey(host.id, session.id), session.name, siblings)} />)}</div>}
       </div>
     })}
     {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
@@ -2228,7 +2233,9 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
     </div>
   </div>
 
-  return <div className={css.sessionWorkspace}>{picker}<RemoteSessionPreview session={preview?.session} snapshots={preview ? images[`${preview.host.id}:${preview.session.id}`] ?? {} : {}} refreshing={refreshing} refresh={() => { if (preview) refreshPreview(preview.host.id, preview.session.id) }} /></div>
+  let changeMachineColor = (color: string) => { if (machine) machineView.save(machine.id, color) }
+  let previewPanel = machine ? <aside className={css.sessionPreview} aria-label="Remote machine details"><RemoteMachineDetails host={machine} name={remoteMachineName(machine, remote?.hosts ?? [])} color={machineView.color(machine.id)} changeColor={changeMachineColor} back={machineView.back} /></aside> : <RemoteSessionPreview session={preview?.session} snapshots={preview ? images[`${preview.host.id}:${preview.session.id}`] ?? {} : {}} refreshing={refreshing} refresh={() => { if (preview) refreshPreview(preview.host.id, preview.session.id) }} />
+  return <div className={css.sessionWorkspace}>{picker}{previewPanel}</div>
 }
 let DesktopRemoteAccount = ({ rent = false, view = 'account' }: { rent?: boolean; view?: 'account' | 'relay' | 'boxes' }) => {
   let { dismiss } = useUI()
@@ -2253,7 +2260,6 @@ let RemoteSessionActions = ({ open }: { open: (view: 'relay' | 'boxes' | 'settin
   let relay = () => open('relay'), boxes = () => open('boxes'), settings = () => open('settings')
   return <div className={css.remoteToolbar} role="group" aria-label="Remote actions"><button type="button" data-picker-action data-remote-action="relay" data-connected={!!computer?.connected} aria-label="Relay" title={computer?.connected ? 'Connected to relay (g)' : 'Relay (g)'} onClick={relay}><svg viewBox="0 0 16 16" role="img" aria-label={computer?.connected ? 'Connected to relay' : 'Relay disconnected'}><circle cx="8" cy="8" r="4" /></svg>Relay <kbd>g</kbd></button><button type="button" data-picker-action data-remote-action="boxes" onClick={boxes}>Add box</button><button type="button" data-picker-action data-remote-action="settings" className={css.remoteSettingsButton} aria-label="Remote session settings" title="Remote session settings" onClick={settings}><SettingsIcon /></button></div>
 }
-let RemoteServiceHeading = ({ service, expanded, count, toggle }: { service: string; expanded: boolean; count: number; toggle: () => void }) => <button type="button" data-picker-action data-service-toggle className={css.remoteGroup} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} remote service ${service}`} onClick={toggle}><SessionTreeChevron />{service}<span className={css.remoteService}>{count}</span></button>
 let RemoteOrderHandle = ({ id, name, start, end, move }: { id: string; name: string; start: (id: string) => void; end: () => void; move: (direction: number) => void }) => {
   let drag = (event: DragEvent<HTMLButtonElement>) => { event.stopPropagation(); start(id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }
   let keys = (event: KeyboardEvent<HTMLButtonElement>) => { if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); event.stopPropagation(); move(event.key === 'ArrowUp' ? -1 : 1) } }
@@ -2277,13 +2283,16 @@ let RemoteSessionTree = ({ host, session, active, now, query, onSelect, onClosed
       <RemoteSessionRow host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={active} visitedAt={session.lastActivityAt} now={now} onSelect={onSelect} onClosed={onClosed} />
       <button type="button" className={css.sessionToggle} data-picker-action data-session-toggle aria-label={`${expanded ? 'Collapse' : 'Expand'} pages in ${session.name}`} aria-expanded={expanded} onClick={toggle}><SessionTreeChevron /></button>
     </div></div>
-    {expanded && <div className={css.sessionWindows} data-remote-pages role="group" aria-label={`Pages in ${session.name}`}>{session.panes.map(pane => <RemotePageRow key={pane.id} host={host.id} session={session.id} pane={pane} active={active && localStorage.getItem('remote-session-last-pane') === pane.id} now={now} select={onSelect} />)}</div>}
+    {expanded && <div className={css.sessionWindows} data-remote-pages role="group" aria-label={`Pages in ${session.name}`}>{session.panes.map(pane => <RemotePageRow key={pane.id} host={host.id} session={session.id} pane={pane} active={active && localStorage.getItem('remote-session-last-pane') === pane.id} now={now} select={onSelect} canClose={host.permission === 'control'} onClosed={onClosed} />)}</div>}
   </div>
 }
 let SessionTreeChevron = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
-let RemotePageRow = ({ host, session, pane, active, now, select }: { host: string; session: string; pane: RemoteSession['panes'][number]; active: boolean; now: number; select: (host: string, session: string, pane: string) => void }) => {
+let RemotePageRow = ({ host, session, pane, active, now, select, canClose, onClosed }: { host: string; session: string; pane: RemoteSession['panes'][number]; active: boolean; now: number; select: (host: string, session: string, pane: string) => void; canClose: boolean; onClosed: () => Promise<unknown> }) => {
   let open = () => select(host, session, pane.id)
-  return <div className={css.sessionRow} data-remote-session={`${host}:${session}`} data-remote-pane={pane.id}><button type="button" className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={open} title={pane.agentPurpose ?? pane.title}><SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon /><span className={css.sessionWindowName}>{pane.title || 'Blank page'}</span>{pane.lastActivityAt && <time className={css.sessionWindowActivity} data-age={activityAge(pane.lastActivityAt, now)} dateTime={new Date(pane.lastActivityAt).toISOString()} title={`Last used ${new Date(pane.lastActivityAt).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>}</button></div>
+  let closing = useRemoteSessionClosing(host, session, onClosed, pane.id), name = pane.title || 'Blank page'
+  return <div className={css.sessionRow} data-page-target data-remote-session={`${host}:${session}`} data-remote-pane={pane.id}>
+    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} kind="page" /> : <><button ref={closing.row} type="button" className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={open} title={pane.agentPurpose ?? pane.title}><SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon /><span className={css.sessionWindowName}>{name}</span>{pane.lastActivityAt && <time className={css.sessionWindowActivity} data-age={activityAge(pane.lastActivityAt, now)} dateTime={new Date(pane.lastActivityAt).toISOString()} title={`Last used ${new Date(pane.lastActivityAt).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>}</button>{canClose && <button className={css.sessionClose} data-picker-action onClick={closing.ask} aria-label={`Close remote page ${name}`}>x</button>}</>}
+  </div>
 }
 let RefreshIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 7a6.5 6.5 0 1 0 .5 5M16 3v5h-5" /></svg>
 let RemoteSessionPreview = ({ session, snapshots, refreshing, refresh }: { session?: RemoteSession; snapshots: Record<string, Snapshot>; refreshing: boolean; refresh: () => void }) => {
@@ -2309,7 +2318,7 @@ let rememberRemoteSession = (host: string, session: string, pane?: string) => {
   if (pane) localStorage.setItem('remote-session-last-pane', pane)
   localStorage.setItem('remote-session-last-active', `${host}:${session}`)
 }
-let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => Promise<unknown>) => {
+let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => Promise<unknown>, pane?: string) => {
   let { onMessage } = useUI()
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null), confirmButton = useRef<HTMLButtonElement>(null), restoreRow = useRef(false)
@@ -2318,19 +2327,19 @@ let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => P
     else if (restoreRow.current) { restoreRow.current = false; row.current?.focus({ preventScroll: true }) }
   }, [confirming])
   let restore = useRef<() => void>(() => {})
-  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-remote-tree]') ?? row.current?.closest('[data-session-target]')); setConfirming(true) }
+  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest(pane ? '[data-remote-pane]' : '[data-remote-tree]') ?? row.current?.closest('[data-session-target]')); setConfirming(true) }
   let cancel = () => { restoreRow.current = true; setConfirming(false) }
   let close = async () => {
     if (busy) return
     setBusy(true)
-    try { await bridge.closeRemoteSession(host, session); await onClosed?.(); setConfirming(false); restore.current() }
+    try { if (pane) await bridge.closeRemotePage(host, session, pane); else await bridge.closeRemoteSession(host, session); await onClosed?.(); setConfirming(false); restore.current() }
     catch (error) { onMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); cancel() }
     finally { setBusy(false) }
   }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   return { confirming, busy, row, confirmButton, ask, cancel, close, confirmKeys }
 }
-let RemoteSessionConfirmation = ({ name, closing }: { name: string; closing: ReturnType<typeof useRemoteSessionClosing> }) => <div className={css.sessionConfirm} onKeyDown={closing.confirmKeys} role="alertdialog" aria-label={`Close remote session ${name}?`}><span>Close remote session "{name}"?</span><button ref={closing.confirmButton} data-picker-action onClick={closing.close} disabled={closing.busy}>yes</button><button data-picker-action onClick={closing.cancel} disabled={closing.busy}>no</button></div>
+let RemoteSessionConfirmation = ({ name, closing, kind = 'session' }: { name: string; closing: ReturnType<typeof useRemoteSessionClosing>; kind?: 'session' | 'page' }) => <div className={css.sessionConfirm} onKeyDown={closing.confirmKeys} role="alertdialog" aria-label={`Close remote ${kind} ${name}?`}><span>Close remote {kind} "{name}"?</span><button ref={closing.confirmButton} data-picker-action onClick={closing.close} disabled={closing.busy}>yes</button><button data-picker-action onClick={closing.cancel} disabled={closing.busy}>no</button></div>
 let RemoteSessionRow = ({ host, service, session, name, active, canClose, visitedAt, now, onSelect, onClosed }: { host: string; service: string; session: string; name: string; active: boolean; canClose: boolean; visitedAt?: number; now: number; onSelect: (host: string, session: string, pane?: string) => void; onClosed: () => Promise<unknown> }) => {
   let select = () => onSelect(host, session)
   let closing = useRemoteSessionClosing(host, session, onClosed)

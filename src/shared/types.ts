@@ -57,6 +57,7 @@ export type Bridge = {
   remoteSessions: () => Promise<RemoteSessionListing>
   remoteSessionPreviews: (host: string, session: string, request?: RemotePreviewRequest) => Promise<Record<string, Snapshot>>
   closeRemoteSession: (host: string, session: string) => Promise<void>
+  closeRemotePage: (host: string, session: string, pane: string) => Promise<void>
   openRemote: (host?: string, session?: string, pane?: string) => Promise<void>
   remoteAccount: <T>(path: string, body?: unknown) => Promise<T>
   openRemoteBilling: (url: string) => Promise<void>

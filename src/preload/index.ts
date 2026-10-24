@@ -18,6 +18,7 @@ let bridge: Bridge = {
   remoteSessions: () => ipcRenderer.invoke('remote-sessions'),
   remoteSessionPreviews: (host: string, session: string, request?: 'cache' | 'missing' | 'refresh') => ipcRenderer.invoke('remote-session-previews', host, session, request),
   closeRemoteSession: (host: string, session: string) => ipcRenderer.invoke('remote-close-session', host, session),
+  closeRemotePage: (host: string, session: string, pane: string) => ipcRenderer.invoke('remote-close-page', host, session, pane),
   openRemote: (host, session, pane) => ipcRenderer.invoke('remote-open', host, session, pane),
   remoteAccount: (path, body) => ipcRenderer.invoke('remote-account', path, body),
   openRemoteBilling: url => ipcRenderer.invoke('remote-billing-open', url),

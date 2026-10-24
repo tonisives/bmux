@@ -3761,6 +3761,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       controls.release(session.id)
       return await execute({ method: 'kill-session', args: { session: session.id, confirm: true } }) as { closed?: string; cancelled?: string }
     },
+    closePage: async (sessionId: string, paneId: string) => {
+      let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
+      if (!session?.windows.some(window => window.panes.some(pane => pane.id === paneId))) throw new Error('Remote page unavailable')
+      controls.release(session.id)
+      return await execute({ method: 'kill-pane', args: { pane: paneId, confirm: true } }) as { closed?: string; cancelled?: string }
+    },
     state: () => { clearRemoteSizes(); return { sessions: model.sessions, viewports: Object.fromEntries([...tabs.keys()].map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents }),
     acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },

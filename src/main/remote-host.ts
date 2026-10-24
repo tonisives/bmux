@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { WebSocket } from 'ws'
 import { remoteIdentity, createEnvelopeVerifier } from './remote-identity'
@@ -8,6 +9,7 @@ import type { RemoteEnvelope } from '../shared/remote'
 import { sessionActivityTime } from '../shared/pane-activity'
 import { agentInfo } from '../shared/agent-info'
 import { encryptRemotePreview } from '../shared/remote-preview'
+import { buildInfo } from '../shared/build-info'
 
 type PublicKey = { kty: string; crv: string; x: string }
 type Config = { url: string; token: string; identityFile?: string; service?: string }
@@ -62,7 +64,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let advertise = () => {
     let definitions = runtime.state().automationAgents?.definitions ?? {}
     let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({
-      id: session.id, name: session.name, private: session.private === true, canClose: true, canPreview: true, lastActivityAt: sessionActivityTime(session),
+      id: session.id, name: session.name, private: session.private === true, canClose: true, canClosePages: true, canPreview: true, lastActivityAt: sessionActivityTime(session),
       panes: session.windows.flatMap(window => window.panes.map(pane => {
         let { agentOrigin: _origin, ...actor } = pane.lastUsedBy === 'human' ? {} : agentInfo(pane)
         let fields = actor.agentType ? definitions[actor.agentType]?.fields : undefined
@@ -70,7 +72,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       })),
     }))
     let serialized = JSON.stringify(sessions)
-    if (serialized !== lastSessions) { send({ type: 'sessions', sessions }); lastSessions = serialized }
+    if (serialized !== lastSessions) { send({ type: 'sessions', sessions, machine: { name: os.hostname(), platform: process.platform, arch: process.arch, version: buildInfo?.version, revision: buildInfo?.revision } }); lastSessions = serialized }
   }
   let disconnect = (id: string, release = true) => { opening.delete(id); let stream = streams.get(id); streams.delete(id); if (stream) { clearTimeout(stream.expiry); releasePermit(stream.connection); stream.peer.close() } if (release) runtime.remote.disconnect(id) }
   let extendPermit = (id: string) => { let stream = streams.get(id); if (!stream || !streamPermits) return; clearTimeout(stream.expiry); stream.expires = Date.now() + 18000; stream.expiry = setTimeout(() => disconnect(id), 18000) }
@@ -197,6 +199,19 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
               if (socket === current && allowed(message.from)) signal(message.from, { type: 'session-previews-complete', request: payload.request })
             } finally { previewing.delete(message.from) }
           } catch (error) { signal(message.from, { type: 'error', request: payload.request, error: error instanceof Error ? error.message : 'Unable to load previews' }) }
+        }
+        else if (payload.type === 'close-page') {
+          try {
+            if (allowed(message.from) !== 'control') throw new Error('Watch only access')
+            if (typeof payload.session !== 'string' || typeof payload.pane !== 'string') throw new Error('Invalid page')
+            let watching = [...streams].filter(([, stream]) => stream.pane === payload.pane).map(([id, stream]) => ({ id, request: stream.request }))
+            let result = await runtime.remote.closePage(payload.session, payload.pane)
+            if (result.cancelled) throw new Error('Page closing canceled')
+            let next = runtime.model.sessions.find(session => session.id === payload.session)?.windows.flatMap(window => window.panes)[0]
+            if (next) for (let viewer of watching) { try { await open(viewer.id, next.id, viewer.request, true) } catch { disconnect(viewer.id) } }
+            advertise()
+            signal(message.from, { type: 'page-closed', request: payload.request })
+          } catch (error) { signal(message.from, { type: 'error', request: payload.request, error: error instanceof Error ? error.message : 'Unable to close page' }) }
         }
         else if (payload.type === 'close-session') {
           try {
