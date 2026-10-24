@@ -5,6 +5,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
+import { generateKeyPairSync } from 'node:crypto'
 import type { PublicState } from '../src/shared/types'
 import type { RentedBox } from '../src/shared/remote-account'
 
@@ -15,6 +16,7 @@ test('paid remote account connects a running computer and opens regional box che
   let catalogFailed = false, rentals: RentedBox[] = []
   let quote = {id:'regional-quote',region:'fsn1',regionName:'Falkenstein',memoryGb:4,cores:2,diskGb:40,trafficBytes:20e12,monthlyCents:851,currency:'usd'}
   let checkoutUrl = 'https://checkout.stripe.com/c/pay/bmux-fixture'
+  let readyHost = false, publicKey = generateKeyPairSync('ed25519').publicKey.export({format:'jwk'})
   let requests: { route: string; body: Record<string, unknown> }[] = [], views = [{ connection:'fixture-view', host:'fixture-host', generation:'fixture-generation', pane:'fixture-pane' }]
   let server = http.createServer((request,response) => {
     void (async () => {
@@ -23,7 +25,7 @@ test('paid remote account connects a running computer and opens regional box che
       for await (let chunk of request) chunks.push(chunk)
       let body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
       if (request.method === 'POST') requests.push({route,body})
-      if (route === '/api/hosts') { json([]); return }
+      if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
       if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
       if (route === '/api/billing/rates') { json({base:'USD',source:'ECB',date:'2026-10-23',rates:{USD:1,EUR:.9,GBP:.75,JPY:150,THB:35}}); return }
@@ -151,6 +153,16 @@ test('paid remote account connects a running computer and opens regional box che
     rentals[0].state = 'provisioning'
     await chrome.getByRole('button',{name:'Sessions',exact:true}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
     await expect(picker).toContainText('Installing and connecting…')
+    rentals[0].state = 'ready'; rentals[0].service = 'research-box'
+    await picker.getByRole('button',{name:'Back to remote sessions'}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
+    await picker.getByRole('button',{name:'Open box',exact:true}).click()
+    await expect(picker.getByRole('alert')).toContainText('Box is connecting. Try again shortly.')
+    readyHost = true
+    await picker.getByRole('button',{name:'Open box',exact:true}).click()
+    await expect(picker).toHaveCount(0)
+    await expect.poll(async () => Object.values((await state()).remoteViews ?? {}).some(view => view.service === 'research-box' && !view.controlling)).toBe(true)
+    await chrome.getByRole('button',{name:'Disconnect',exact:true}).click()
+    await chrome.getByRole('button',{name:'Sessions',exact:true}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
     await picker.getByRole('button',{name:'Delete now',exact:true}).click()
     let deleteName = picker.getByRole('textbox',{name:'Type Research box final to delete'})
     await deleteName.fill('wrong'); await expect(picker.getByRole('button',{name:'Delete box and files'})).toBeDisabled()
