@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Link } from 'expo-router'
@@ -12,14 +12,17 @@ import { ViewerScreen } from './components/ViewerScreen'
 import { NewSessionSheet } from './components/NewSessionSheet'
 import { ProfilesSheet } from './components/ProfilesSheet'
 import { IncludedBrowserCard } from './components/IncludedBrowserCard'
+import { SessionList } from './components/SessionList'
+import { DemoWorkspace } from './components/DemoWorkspace'
+import { useSplitView } from './useSplitView'
 import type { Host } from './types'
 import type { RemoteQualityMode } from '../../src/shared/remote-management'
 
 export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let remote = useRemote()
   let [section, setSection] = useState<'sessions' | 'attention' | 'settings'>('sessions')
-  let [machine, setMachine] = useState('')
-  let [search, setSearch] = useState('')
+  let [demo, setDemo] = useState(false)
+  let [setup, setSetup] = useState(false)
   let [history, setHistory] = useState(false)
   let [busy, setBusy] = useState(false)
   let [notice, setNotice] = useState('')
@@ -27,43 +30,35 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let [disconnect, setDisconnect] = useState<string>()
   let [newHost, setNewHost] = useState<Host>()
   let [profileHost, setProfileHost] = useState<Host>()
-  let { width } = useWindowDimensions()
-  let split = width >= 768
+  let split = useSplitView()
+  let hasSessions = remote.hosts.some(host => host.sessions.some(session => session.panes.length > 0))
   let pending = remote.attention.filter(item => !item.dismissedAt && ['pending', 'verifying'].includes(attentionStatus(item)))
   let action = async (run: () => Promise<unknown>) => { setBusy(true); try { await run() } catch (value) { remote.setError((value as Error).message) } finally { setBusy(false) } }
-  useEffect(() => { if (attentionId) { remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
+  useEffect(() => { if (attentionId) { setDemo(false); remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
   useEffect(() => { if (remote.selection) setSection('sessions') }, [remote.selection])
-  if (remote.loading) return <View style={[styles.screen, local.center]}><ActivityIndicator color={colors.accent} /></View>
+  let openDemo = () => { remote.close(); setDemo(true) }
+  if (demo) return <DemoWorkspace close={() => setDemo(false)} connect={() => { setDemo(false); if (!remote.account) void action(remote.login); else setSetup(true) }} />
+  if (remote.loading) return <View style={[styles.screen, local.center]}><ActivityIndicator color={colors.secondary} /><Button title="Try demo" onPress={openDemo} /></View>
   if (!remote.account) return <SafeAreaView style={[styles.screen, local.center]}>
     <View style={local.welcome}>
       <Text style={local.brand}>bmux remote</Text>
-      <Text style={local.welcomeTitle}>Your browser, wherever you are.</Text>
-      <Text style={local.welcomeBody}>Open your sessions. Help when an agent gets stuck. Pick up where you left off.</Text>
-      <Button title="Sign in" primary busy={busy} onPress={() => void action(remote.login)} />
+      <Text style={local.welcomeTitle}>Your sessions, wherever you are.</Text>
+      <Text style={local.welcomeBody}>Explore two sample pages, or sign in to open your browsers.</Text>
+      <View style={local.welcomeActions}><Button title="Try demo" primary onPress={openDemo} /><Button title="Sign in" busy={busy} onPress={() => void action(remote.login)} /></View>
       {!!remote.error && <Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text>}
       <HelpLinks />
     </View>
   </SafeAreaView>
   let sessions = <View style={split ? local.sidebarWide : local.sidebar}>
-    <ScrollView horizontal style={local.machineBar} contentContainerStyle={local.machineContent} showsHorizontalScrollIndicator={false}>
-      {[{ id: '', service: 'All machines' }, ...remote.hosts].map(host => <Pressable key={host.id} accessibilityRole="button" accessibilityLabel={host.service} onPress={() => setMachine(host.id)} style={[local.machine, host.id === machine && local.machineSelected]}><View style={[local.dot, { backgroundColor: host.id ? colors.success : colors.accent }]} /><Text style={[local.machineText, host.id === machine && { color: colors.text }]}>{host.service}</Text></Pressable>)}
-    </ScrollView>
-    <View style={local.search}><Ionicons name="search" size={17} color={colors.secondary} /><TextInput style={local.searchInput} placeholder="Search sessions" placeholderTextColor={colors.muted} value={search} onChangeText={setSearch} accessibilityLabel="Search sessions" />{remote.hosts.some(host => host.permission === 'control' && host.capabilities?.sessionCreate === 1 && (!machine || host.id === machine)) && <Button title="New session" onPress={() => setNewHost(remote.hosts.find(host => host.permission === 'control' && host.capabilities?.sessionCreate === 1 && (!machine || host.id === machine)))} />}</View>
-    <ScrollView contentContainerStyle={local.list}>
-      <IncludedBrowserCard />
-      {remote.hosts.filter(host => !machine || host.id === machine).map(host => <View key={host.id} style={local.host}>
-        <Text style={styles.label}>{host.service}</Text>
-        {host.sessions.filter(session => (session.name + ' ' + session.panes.map(pane => pane.title).join(' ')).toLowerCase().includes(search.toLowerCase())).map(session => <View key={session.id} style={[local.session, remote.selection?.host === host.id && remote.selection.session === session.id && local.sessionSelected]}>
-          <Pressable accessibilityRole="button" accessibilityLabel={'Open ' + session.name} onPress={() => { let pane = session.panes[0]; if (pane) void action(() => remote.watch({ host: host.id, generation: host.generation, session: session.id, pane: pane.id })) }} style={local.sessionHeading}>
-            <Ionicons name="browsers-outline" size={20} color={colors.accent} />
-            <View style={local.sessionText}><Text style={local.sessionName} numberOfLines={1}>{session.name}</Text><Text style={styles.secondary}>{session.panes.length} {session.panes.length === 1 ? 'page' : 'pages'}{host.permission === 'watch' ? ' · Watch' : ''}</Text></View>
-            <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-          </Pressable>
-          {session.panes.length > 1 && session.panes.map(pane => <Pressable key={pane.id} accessibilityRole="button" accessibilityLabel={'Open ' + (pane.title || 'page')} style={local.pane} onPress={() => void action(() => remote.watch({ host: host.id, generation: host.generation, session: session.id, pane: pane.id }))}><View style={local.paneDot} /><Text style={local.paneTitle} numberOfLines={1}>{pane.title || 'Untitled page'}</Text></Pressable>)}
-        </View>)}
-      </View>)}
-      {remote.hosts.length === 0 && <View style={local.empty}><Ionicons name="desktop-outline" size={32} color={colors.muted} /><Text style={styles.text}>{remote.connecting ? 'Connecting to your machines…' : 'Your machines will appear here'}</Text><Text style={styles.secondary}>Sessions stay on their owning machine.</Text><Button title="Refresh" busy={remote.connecting} onPress={remote.retry} /></View>}
-    </ScrollView>
+    <SessionList hosts={remote.hosts} selection={remote.selection} select={selection => void action(() => remote.watch(selection))} create={setNewHost}
+      header={!hasSessions && <IncludedBrowserCard />}
+      empty={<View style={local.empty}><Ionicons name="desktop-outline" size={32} color={colors.secondary} /><Text style={styles.text}>{remote.connecting ? 'Connecting to your machines…' : 'Use your computer'}</Text><Text style={local.setupText}>Open bmux’s Remote settings on your computer and sign in with this account.</Text><Button title="Refresh" busy={remote.connecting} onPress={remote.retry} /></View>}
+      footer={<View style={local.connectionOptions}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Connect a machine" onPress={() => setSetup(true)} style={local.connectionRow}><Ionicons name="add" size={18} color={colors.secondary} /><Text style={styles.secondary}>Connect a machine</Text></Pressable>
+        {hasSessions && <IncludedBrowserCard compact />}
+        {!hasSessions && <Button title="Try demo" onPress={openDemo} />}
+      </View>}
+    />
   </View>
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
     <View style={local.header}>
@@ -95,11 +90,17 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       {remote.hosts.some(host => host.capabilities?.streamQuality === 1) && <View style={styles.card}><Text style={styles.label}>Data use</Text><View style={styles.row}>{(['auto', 'data-saver', 'quality'] as RemoteQualityMode[]).map(mode => <Button key={mode} title={mode === 'auto' ? 'Auto' : mode === 'data-saver' ? 'Data saver' : 'Quality'} primary={remote.streamQuality.mode === mode} onPress={() => void action(() => remote.streamQuality.setMode(mode))} />)}</View><Text style={styles.secondary}>Auto uses less data on cellular and full quality on Wi-Fi.</Text></View>}
       {remote.hosts.some(host => host.capabilities?.profiles === 1) && <View style={styles.card}><Text style={styles.label}>Profiles</Text>{remote.hosts.filter(host => host.capabilities?.profiles === 1).map(host => <View key={host.id} style={[styles.row, local.sectionHeading]}><Text style={[styles.text, { flex: 1 }]}>{host.service}</Text><Button title="Profiles" onPress={() => setProfileHost(host)} /></View>)}</View>}
       <View style={styles.card}><View style={[styles.row, local.sectionHeading]}><Text style={styles.label}>Live views</Text><Text style={styles.secondary}>{remote.views.length} / {remote.billing?.relay.maxStreams ?? 2}</Text></View>{remote.views.map(view => <View key={view.connection} style={[styles.row, local.sectionHeading]}><View style={{ flex: 1 }}><Text style={styles.text}>{remote.hosts.find(item => item.id === view.host)?.service || 'Browser'}</Text><Text style={styles.secondary}>{view.pane}</Text></View><Button title="Disconnect" onPress={() => setDisconnect(view.connection)} /></View>)}{remote.views.length === 0 && <Text style={styles.secondary}>No live views</Text>}</View>
+      <Button title="Try demo" onPress={openDemo} />
       <HelpLinks />
     </ScrollView>}
     <Sheet title="Disconnect this view?" visible={!!disconnect} close={() => setDisconnect(undefined)}><Text style={styles.text}>The browser and its background work will keep running.</Text><Button title="Disconnect" primary busy={busy} onPress={() => disconnect && void action(async () => { await remote.disconnectView(disconnect); setDisconnect(undefined) })} /></Sheet>
     <NewSessionSheet host={newHost} close={() => { setNewHost(undefined); remote.close() }} created={() => setNewHost(undefined)} />
     <ProfilesSheet host={profileHost} close={() => { setProfileHost(undefined); remote.close() }} />
+    <Sheet title="Connect a browser" visible={setup} close={() => setSetup(false)}>
+      <IncludedBrowserCard />
+      <Text style={styles.text}>Use your computer</Text><Text style={local.setupText}>Open bmux’s Remote settings on your computer and sign in with this account. Its sessions will appear here.</Text>
+      <Button title="Refresh machines" busy={remote.connecting} onPress={() => { remote.retry(); setSetup(false) }} />
+    </Sheet>
   </SafeAreaView>
 }
 let HelpLinks = () => <View style={local.helpLinks}>
@@ -108,12 +109,10 @@ let HelpLinks = () => <View style={local.helpLinks}>
 </View>
 let local = StyleSheet.create({
   helpLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }, helpLink: { color: colors.secondary, fontSize: 13, minHeight: 44, paddingVertical: 12 },
-  center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 400, padding: 28, gap: 24 }, welcomeTitle: { color: colors.text, fontSize: 34, fontWeight: '600', lineHeight: 40 }, welcomeBody: { color: colors.secondary, fontSize: 16, lineHeight: 24 },
-  brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, header: { minHeight: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border },
-  iconButton: { minHeight: 44, minWidth: 40, alignItems: 'center', justifyContent: 'center', position: 'relative' }, badge: { position: 'absolute', right: 0, top: 2, backgroundColor: colors.warning, color: colors.bg, fontSize: 10, fontWeight: '700', minWidth: 16, textAlign: 'center', borderRadius: 8, padding: 2 },
-  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 340, flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
-  machineBar: { flexGrow: 0, maxHeight: 64 }, machineContent: { padding: 12, gap: 8, alignItems: 'center' }, machine: { flexDirection: 'row', gap: 7, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderRadius: radius.sm, backgroundColor: colors.surface }, machineSelected: { backgroundColor: colors.grouped }, machineText: { color: colors.secondary, fontSize: 13, fontWeight: '500' }, dot: { width: 6, height: 6, borderRadius: 3 },
-  search: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 12, gap: 8, backgroundColor: colors.surface, borderRadius: radius.sm }, searchInput: { color: colors.text, paddingVertical: 12, flex: 1, fontSize: 14 },
-  list: { padding: 16, gap: 24 }, host: { gap: 10 }, session: { padding: 12, gap: 8, backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent' }, sessionSelected: { borderColor: colors.accent }, sessionHeading: { flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 44 }, sessionText: { flex: 1, minWidth: 0, gap: 4 }, sessionName: { color: colors.text, fontWeight: '500', fontSize: 15 }, pane: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8, paddingLeft: 32 }, paneDot: { height: 4, width: 4, borderRadius: 2, backgroundColor: colors.muted }, paneTitle: { flex: 1, color: colors.secondary, fontSize: 13 },
+  center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 440, padding: 28, gap: 24 }, welcomeTitle: { color: colors.text, fontSize: 28, fontWeight: '600', lineHeight: 35 }, welcomeBody: { color: colors.secondary, fontSize: 16, lineHeight: 24 }, welcomeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, header: { minHeight: 68, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border },
+  iconButton: { minHeight: 44, minWidth: 44, borderRadius: radius.pill, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', position: 'relative' }, badge: { position: 'absolute', right: 0, top: 2, backgroundColor: colors.warning, color: colors.bg, fontSize: 10, fontWeight: '700', minWidth: 16, textAlign: 'center', borderRadius: 8, padding: 2 },
+  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 380, maxWidth: '45%', flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
+  connectionOptions: { gap: 4, paddingTop: 4 }, connectionRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8 }, setupText: { color: colors.secondary, fontSize: 14, lineHeight: 22, textAlign: 'left' },
   content: { padding: 24, gap: 20, maxWidth: 680, width: '100%', alignSelf: 'center' }, sectionHeading: { justifyContent: 'space-between' }, empty: { padding: 28, gap: 14, alignItems: 'center' }, error: { backgroundColor: 'rgba(255,69,58,0.1)', padding: 12, flexDirection: 'row', gap: 12, alignItems: 'center' }, errorText: { color: colors.danger, fontSize: 14, flexShrink: 1 },
 })

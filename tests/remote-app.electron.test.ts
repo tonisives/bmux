@@ -34,6 +34,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       if (route === '/api/billing/status') { json({ enabled: true, relay: { active: true, maxStreams: 2, monthlyCents: 1000, currency: 'usd' } }); return }
       if (route === '/api/streams') { json(views); return }
       if (route === '/api/streams/disconnect') { views = []; json({ ok: true }); return }
+      if (route === '/api/hosted-browser') { json({ entitled: true, state: 'running', revision: 1, target: { host: host.id, generation: host.generation, session: 'session-research', pane: 'pane-primary' } }); return }
       let file = path.join(exported, decodeURIComponent(route))
       if (!file.startsWith(exported + path.sep)) { response.writeHead(404); response.end(); return }
       let content = await fs.readFile(file).catch(async error => {
@@ -69,15 +70,50 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     }, origin)
     await expect.poll(() => application!.context().pages().some(page => page.url() === origin + '/')).toBe(true)
     page = application.context().pages().find(page => page.url() === origin + '/')!
+    let resize = async (width: number) => {
+      await application!.evaluate(({ BrowserWindow }, { id, width }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, 800)) }, { id: windowId, width })
+      await expect.poll(() => page!.evaluate(() => innerWidth)).toBe(width)
+    }
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
     await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
     await page.screenshot({ path: info.outputPath('companion-welcome.png') })
+    await page.getByRole('button', { name: 'Try demo', exact: true }).click()
+    await expect(page.getByText('Demo', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open Field Notes', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open Price tracker', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Confirm stock', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Resume demo agent', exact: true })).toBeDisabled()
+    await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
+    await page.screenshot({ path: info.outputPath('companion-demo-desktop.png') })
+    await resize(390)
+    await expect(page.getByRole('button', { name: 'Open Field Notes', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Field Notes', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Price tracker', exact: true })).toBeVisible()
+    await page.screenshot({ path: info.outputPath('companion-demo-mobile.png') })
+    await page.getByRole('button', { name: 'Take control', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm stock', exact: true }).click()
+    await page.getByRole('button', { name: 'Price tracker', exact: true }).click()
+    await expect(page.getByText('Confirmed', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Resume demo agent', exact: true }).click()
+    await expect(page.getByText('Demo agent resumed', { exact: true })).toBeVisible()
+    await expect(page.getByText('Watch · Demo pages', { exact: true })).toBeVisible()
+    expect(signals).toHaveLength(0)
+    expect(requests).not.toContain('/api/connect')
+    await page.getByRole('button', { name: 'Exit demo', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+    await resize(1280)
     signedIn = true
     await page.reload()
     await expect(page.getByRole('button', { name: 'Research computer', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Included browser', exact: true })).toHaveCount(0)
+    await expect(page.getByText('Included browser', { exact: true })).toHaveCount(0)
+    let sessionRow = await page.getByRole('button', { name: 'Open Research', exact: true }).boundingBox()
+    let connectionRow = await page.getByRole('button', { name: 'Connect a machine', exact: true }).boundingBox()
+    expect(connectionRow!.y).toBeGreaterThan(sessionRow!.y + sessionRow!.height)
+    await page.screenshot({ path: info.outputPath('companion-connected-list.png') })
     await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByText('Browser operator', { exact: true })).toBeVisible()
@@ -97,10 +133,6 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByText('Watch', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toBeDisabled()
     expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
-    let resize = async (width: number) => {
-      await application!.evaluate(({ BrowserWindow }, { id, width }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, 800)) }, { id: windowId, width })
-      await expect.poll(() => page!.evaluate(() => innerWidth)).toBe(width)
-    }
     await resize(390)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toHaveCount(0)
     await expect(page.getByText('Watch', { exact: true })).toBeVisible()

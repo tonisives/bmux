@@ -3,6 +3,7 @@ import type { ExpoConfig } from 'expo/config'
 let config: ExpoConfig = {
   name: 'bmux remote',
   slug: 'bmux-remote',
+  owner: 'tonisives',
   version: '1.0.0',
   icon: '../design/app-icon.png',
   scheme: 'bmux-remote',
@@ -29,7 +30,7 @@ let config: ExpoConfig = {
   ],
   extra: {
     remoteOrigin: process.env.EXPO_PUBLIC_REMOTE_ORIGIN ?? 'https://remote.bmux.cc',
-    eas: { projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID },
+    eas: { projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? 'bb9e879b-323b-4054-a2b1-e3d9f86de092' },
   },
 }
 

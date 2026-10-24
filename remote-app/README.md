@@ -17,10 +17,10 @@ pnpm export:web
 ```
 
 Web uses the page's own origin for cookies and signaling. Serve its export with
-the connection service. Set `EXPO_PUBLIC_REMOTE_ORIGIN` for native builds, which
-need a separate EAS project ID in `EXPO_PUBLIC_EAS_PROJECT_ID`, its APNs/FCM
-credentials, and the app identifiers `cc.bmux.remote`. Do not reuse Clawtab's
-push project or signing identity.
+the connection service. Native builds default to `https://remote.bmux.cc` and
+the separate `@tonisives/bmux-remote` EAS project. `EXPO_PUBLIC_REMOTE_ORIGIN`
+and `EXPO_PUBLIC_EAS_PROJECT_ID` override those defaults. Production needs
+APNs/FCM credentials and provisioning for `cc.bmux.remote`.
 
 The native viewer uses react-native-webrtc and requires a development or release
 build. Expo Go does not include that module. Generated native projects are
@@ -29,6 +29,10 @@ ignored; app.config.ts and the lockfile are the sources of configuration.
 ## Client behavior
 
 - Machine chips, sessions and pages share the same layout across platforms.
+- Try demo opens two interactive sample pages without sign-in or a live view.
+  It uses the same session list and controls, and labels its local task Demo.
+- Wide screens place sessions beside the browser. Connected sessions lead the
+  list; machine setup and an unopened included browser sit below them.
 - Opening a page or attention request starts in Watch.
 - Zoom and pan are local. Fit to phone explicitly changes the host viewport
   while its viewer owns the control lease.

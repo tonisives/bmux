@@ -5,6 +5,19 @@ Shared DTOs live in src/shared/remote-management.ts, remote-attention.ts,
 remote-mobile-auth.ts and remote-account.ts. Hosted auth, account ownership,
 attention delivery and host primitives belong to the backend workstream.
 
+## Onboarding and layout
+
+Try demo opens two local sample pages without authentication or signaling. It
+starts in Watch, requires Take control before confirming stock, and requires an
+explicit Resume demo agent. The shared session list is also used for connected
+hosts. Wide screens show list and detail side by side; phones show one at a time.
+Controls use pill shapes and rows use rounded inset groups with neutral fills.
+
+When sessions exist, connection setup moves below the list. The included-browser
+promotion is hidden when that browser already has listed pages; a browser that
+has not been opened is a compact optional row. New accounts can open an entitled
+included browser in one action. Their default profile comes from the host.
+
 ## Native authentication
 
 The app opens /api/auth/mobile/start in the system browser with S256 PKCE,
@@ -89,6 +102,7 @@ acknowledgements, script success/failure, default profile and proxy setup,
 session/page creation, quality changes, included-browser wake/sleep and the
 account-wide two-view limit. Metadata-only management must consume no view.
 
-Separate Expo project, APNs/FCM credentials, Apple association and Android
-assetlinks files are required for cc.bmux.remote. Serve the Metro web export and
+The separate Expo project is @tonisives/bmux-remote, ID
+bb9e879b-323b-4054-a2b1-e3d9f86de092. APNs/FCM credentials, Apple association and
+Android assetlinks files are required for cc.bmux.remote. Serve the Metro web export and
 /attention/:id routes on the remote service origin. Purchases stay on the web.
