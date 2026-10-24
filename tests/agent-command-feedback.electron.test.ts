@@ -39,7 +39,8 @@ test('four panes show independent agent cursors and five-second command labels',
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.fill(urls[0]); await address.press('Enter')
-    panes.push((await rpc('split-window', { pane: panes[0], axis: 'horizontal', url: urls[1] })).id)
+    let secondProfile = await rpc('profile.create', { name: 'Second cursor profile' })
+    panes.push((await rpc('split-window', { pane: panes[0], profile: secondProfile.id, axis: 'horizontal', url: urls[1] })).id)
     panes.push((await rpc('split-window', { pane: panes[0], axis: 'vertical', url: urls[2] })).id)
     panes.push((await rpc('split-window', { pane: panes[1], axis: 'vertical', url: urls[3] })).id)
     await rpc('select-pane', { pane: panes[0], client: client.id })
@@ -69,6 +70,8 @@ test('four panes show independent agent cursors and five-second command labels',
     for (let index = 0; index < 4; index++) {
       let pointer = pages[index].locator('#bmux-virtual-mouse')
       await expect(pointer).toBeVisible()
+      let profileColor = await chrome.locator(`[data-pane-id="${panes[index]}"] [data-profile-avatar] rect`).first().getAttribute('fill')
+      expect(await pages[index].evaluate(() => (window as any).cursorShadow.querySelector('path').getAttribute('fill'))).toBe(profileColor)
       await expect(pointer).toHaveCSS('transform', `matrix(1, 0, 0, 1, ${points[index].x}, ${points[index].y})`)
       expect(locks.find(lock => lock.labels.includes(expectedLabels[index]))!.bounds).toEqual(views.find(view => view.url === urls[index])!.bounds)
     }

@@ -28,7 +28,7 @@ shows an **Active agent** icon while commands run in that pane and for 60 second
 after its last command, even when there are no alerts. Hover to identify the
 agent, or click to inspect its live context and focus its terminal.
 
-To disable the ID requirement, open the agent dialog's **Agent settings** and
+To disable the ID requirement, open the agent dialog's **Bot settings** and
 turn off **Require agent ID**, or set `automation.agents.requireId: false` in
 `config.yaml`. The setting reloads live.
 
@@ -52,7 +52,7 @@ automation:
         focusCommand: /absolute/path/to/bmux/scripts/focus-tmux-agent.sh
 ```
 
-Set **Agent settings > Require agent type** (or `requireType: true`) to require
+Set **Bot settings > Require agent type** (or `requireType: true`) to require
 a configured type for every browser command. Mark fields `required: true` to
 reject commands missing that type's context. This example requires all three
 terminal IDs. Other applications can define their own required fields.
@@ -180,15 +180,17 @@ bmux kill-window -t <window-id>
 bmux kill-session -t <session-id-or-name> --confirm
 ```
 
-Panes are persistent by default. Global anti-bot protection is enabled for every
+Panes are persistent by default. Global bot protection is enabled for every
 profile, including existing profiles. Additional automation policies may require
 a lease before agent commands can access selected websites.
 
-## Anti-bot protection
+## Bot settings
 
-Open the profile view's **Anti-bot** tab to check protection, limits, and pauses,
+Open the profile view's **Bot** tab to check protection, limits, and pauses,
 or disable it for a profile or individual pane. Pane toggles override the profile
-default. Changes are saved and take effect immediately.
+default. Expand **Cursor and timing** to configure the pointer and feedback timers,
+including profile or custom cursor color. These cursor settings are shared across
+profiles. Changes are saved and take effect immediately.
 The CLI and plugin browser API share the guard; site-specific plugins are not
 needed for these defaults:
 
@@ -207,7 +209,7 @@ needed for these defaults:
   for each pane. Clicks, scrolls, typing, keys, navigation, and scripts finish with a
   random 0.8–1.2 second pause before the next action can run. `www` and bare
   hostnames share the domain lock. Unrelated domains in different panes proceed
-  independently, as do separate profiles. This also applies with Anti-bot or mouse
+  independently, as do separate profiles. This also applies with bot protection or mouse
   simulation off; longer social-site delays still apply. DOM reads, waits, and screenshots do not take
   the action lock. Raw mouse and keyboard presses retain it until release;
   releases reach the page immediately.
@@ -233,8 +235,8 @@ needed for these defaults:
   sends browser input events without moving the system mouse cursor.
   Before each click it follows a varied curve with small deviations,
   changing speed and timing, and lands exactly on the target.
-  **Simulate mouse movement** in Anti-bot > Limits toggles this for the profile.
-  It defaults on independently of Anti-bot protection, including profiles or panes
+  **Simulate mouse movement** in Bot > Limits toggles this for the profile.
+  It defaults on independently of bot protection, including profiles or panes
   with protection off, excluded websites, files, and local addresses.
   Rotation and pulses stop when the system requests reduced motion.
 - Known account warnings, visible verification challenges, and rate-limit pages
@@ -242,9 +244,9 @@ needed for these defaults:
 
 Human browser controls remain available. Session usage and warning pauses survive
 restarts. Account warning pauses apply to the profile across websites. Session limits apply only to their recorded website. Resolve the warning on
-the affected website manually, then use **Resume automation** in the Anti-bot
+the affected website manually, then use **Resume automation** in the Bot
 tab. The notice names the blocking website and provides links to affected
-automation panes, including their agent identifiers. The **General anti-bot** row below the alerts holds the shared controls. Its gear
+automation panes, including their agent identifiers. The **Bot settings** row below the alerts holds the shared controls. Its gear
 opens shared agent requirements and a **Profile limits** list. Every profile is
 editable, including profiles with no open panes. Limits apply across agents using
 that profile, with a separate session timer for each website. Nested settings use
@@ -257,14 +259,14 @@ Session alerts name websites used by admitted automation commands and committed
 navigations, even if a pane later navigates elsewhere manually. Denied commands
 do not add panes or websites. Old profile-wide timers start fresh per website; existing account warning pauses
 are preserved.
-The alert's **Disable anti-bot** dropdown shows the recorded website hostname and offers
+The alert's **Disable Bot protection** dropdown shows the recorded website hostname and offers
 **For 15 minutes**, **For 1 hour**, and **Until removed**. Its exclusion appears
 in this profile's **Excluded websites** list. Add a hostname or URL there to turn off
-anti-bot for that exact hostname: session limits, social-site pacing, and warning
+bot protection for that exact hostname: session limits, social-site pacing, and warning
 checks are skipped. Other profiles and websites retain their protection.
 Exclusions persist until you remove them. Older temporary rules show their
 expiry and offer **Keep excluded** to make them permanent.
-The Profile tabs have icons and titled sections. Anti-bot shows **Enable Anti-bot**
+The Profile tabs have icons and titled sections. Bot shows **Enable Bot protection**
 with profile and pane switches and their On/Off states, then **Limits** and
 **Excluded websites**. **Paused automation** appears above those sections only
 when a warning, break, or safety error needs attention. Its action resumes after
@@ -279,9 +281,9 @@ warning pause or change these settings. Resuming does not clear session usage or
 bypass a cooldown.
 
 Reaching the session limit shows a UI alert with the retry time. Wait for that
-time, or choose **Reset all anti bot sessions** in the general row to restart
+time, or choose **Reset all bot sessions** in the general row to restart
 timers and end cooldowns across every profile. **Reset session** in a profile's
-**Anti-bot** tab resets the selected website in that profile. Both keep account warnings and site exclusions. The CLI cannot reset a session.
+**Bot** tab resets the selected website in that profile. Both keep account warnings and site exclusions. The CLI cannot reset a session.
 Dismissal hides the current alert without resetting the session.
 
 ```sh

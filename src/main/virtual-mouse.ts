@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
+import { DEFAULT_AGENT_FEEDBACK, resolveAgentFeedback } from '../shared/agent-feedback'
 import type { AgentFeedbackSettings } from '../shared/agent-feedback'
 
 type Point = { x: number; y: number }
@@ -115,7 +115,7 @@ let pointerScript = (configuration: AgentFeedbackSettings) => `(() => {
   });
 })()`
 
-export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random, settings = () => DEFAULT_AGENT_FEEDBACK) => {
+export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random, settings = (_tab: string) => resolveAgentFeedback(DEFAULT_AGENT_FEEDBACK)) => {
   let positions = new Map<string, Point>()
   let hiddenTabs = new Set<string>()
   let update = async (tab: string, send: Send, detail: Record<string, unknown> = {}) => {
@@ -132,7 +132,7 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
   let show = async (tab: string, send: Send, validate: () => void, target?: Point) => {
     let { point, width, height } = await startPoint(tab, send, validate)
     if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) point = { x: Math.max(0, Math.min(width - 1, target.x)), y: Math.max(0, Math.min(height - 1, target.y)) }
-    await send('Runtime.evaluate', { expression: pointerScript(settings()) })
+    await send('Runtime.evaluate', { expression: pointerScript(settings(tab)) })
     validate()
     await update(tab, send, point)
     validate()
@@ -155,7 +155,7 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     let steps = Math.max(20, Math.min(38, Math.ceil(distance / 24)))
     let waits = Array.from({ length: steps }, () => 12 + Math.round(random() * 12))
     let duration = waits.reduce((total, wait) => total + wait, 0), elapsed = 0
-    await send('Runtime.evaluate', { expression: pointerScript(settings()) })
+    await send('Runtime.evaluate', { expression: pointerScript(settings(tab)) })
     for (let step = 0; step <= steps; step++) {
       validate()
       let progress = elapsed / duration, t = progress ** 3 * (10 - 15 * progress + 6 * progress ** 2)
@@ -174,6 +174,6 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     if (hidden) hiddenTabs.add(tab); else hiddenTabs.delete(tab)
     if (hidden) await update(tab, send)
   }
-  return { show, move, configure: (send: Send) => send('Runtime.evaluate', { expression: `document.getElementById('bmux-virtual-mouse')?.dispatchEvent(new CustomEvent('bmux-agent-cursor-settings',{detail:${JSON.stringify(settings())}}))` }), click: (tab: string, send: Send) => update(tab, send, { click: true }), setHidden, hiddenTabs,
+  return { show, move, configure: (tab: string, send: Send) => send('Runtime.evaluate', { expression: `document.getElementById('bmux-virtual-mouse')?.dispatchEvent(new CustomEvent('bmux-agent-cursor-settings',{detail:${JSON.stringify(settings(tab))}}))` }), click: (tab: string, send: Send) => update(tab, send, { click: true }), setHidden, hiddenTabs,
     forget: (tab: string) => { positions.delete(tab); hiddenTabs.delete(tab) } }
 }

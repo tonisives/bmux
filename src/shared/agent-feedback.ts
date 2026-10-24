@@ -1,3 +1,5 @@
+import { profileColor } from './profile-color'
+
 export type AgentFeedbackSettings = {
   color: string
   cursorSize: number
@@ -15,7 +17,7 @@ export type AgentFeedbackSettings = {
 }
 
 export let DEFAULT_AGENT_FEEDBACK: AgentFeedbackSettings = {
-  color: '#f3a0cb', cursorSize: 24, idleRotationDegrees: 12, idleRotationMs: 3600,
+  color: 'profile', cursorSize: 24, idleRotationDegrees: 12, idleRotationMs: 3600,
   haloSize: 64, haloDurationMs: 1100, trailWidth: 10, trailFadeMs: 350,
   cursorHideMs: 20000, commandDisplayMs: 5000, inputUnlockMs: 20000,
   actionDelayMinMs: 800, actionDelayMaxMs: 1200
@@ -34,8 +36,8 @@ export let parseAgentFeedback = (value: unknown): AgentFeedbackSettings => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('agentFeedback must be a mapping')
   for (let [key, amount] of Object.entries(value)) {
     if (key === 'color') {
-      if (typeof amount !== 'string' || !/^#[\da-f]{6}$/i.test(amount)) throw new Error('agentFeedback.color must be a six-digit hex color')
-      result.color = amount.toLowerCase()
+      if (amount !== 'profile' && (typeof amount !== 'string' || !/^#[\da-f]{6}$/i.test(amount))) throw new Error('agentFeedback.color must be profile or a six-digit hex color')
+      result.color = String(amount).toLowerCase()
     } else {
       let range = AGENT_FEEDBACK_RANGES[key as keyof typeof AGENT_FEEDBACK_RANGES]
       if (!Object.hasOwn(AGENT_FEEDBACK_RANGES, key)) throw new Error(`Unknown agentFeedback setting: ${key}`)
@@ -46,3 +48,5 @@ export let parseAgentFeedback = (value: unknown): AgentFeedbackSettings => {
   if (result.actionDelayMaxMs < result.actionDelayMinMs) throw new Error('Maximum action pause must be at least the minimum')
   return result
 }
+
+export let resolveAgentFeedback = (settings: AgentFeedbackSettings, profileId = 'profile_default'): AgentFeedbackSettings => ({ ...settings, color: settings.color === 'profile' ? profileColor(profileId) : settings.color })
