@@ -17,6 +17,7 @@ let config: ExpoConfig = {
   },
   android: {
     package: 'cc.bmux.remote',
+    googleServicesFile: process.env.GOOGLE_SERVICES_JSON,
     blockedPermissions: ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.BLUETOOTH', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE'],
     intentFilters: [{ action: 'VIEW', autoVerify: true, data: [{ scheme: 'https', host: 'remote.bmux.cc', pathPrefix: '/attention/' }], category: ['BROWSABLE', 'DEFAULT'] }],
   },

@@ -21,6 +21,8 @@ the connection service. Native builds default to `https://remote.bmux.cc` and
 the separate `@tonisives/bmux-remote` EAS project. `EXPO_PUBLIC_REMOTE_ORIGIN`
 and `EXPO_PUBLIC_EAS_PROJECT_ID` override those defaults. Production needs
 APNs/FCM credentials and provisioning for `cc.bmux.remote`.
+Supply the Android Firebase client configuration through the
+`GOOGLE_SERVICES_JSON` file environment variable in EAS.
 
 The native viewer uses react-native-webrtc and requires a development or release
 build. Expo Go does not include that module. Generated native projects are
