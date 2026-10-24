@@ -150,13 +150,16 @@ See [Browser automation](agent.md) for browser commands and protection settings.
 
 ## Cursor and timing
 
-Open **Profile > Bot** and expand **Cursor and timing**, or use a pane's
+Open **Profile > Bot** and choose **Appearance** or **Timing**, or use a pane's
 **Active agent** indicator, choose **Bot settings**, then
 **Cursor and timing**. Appearance controls include color, size, idle rotation,
 click halo, and movement trail. The Timing tab sets animation durations, cursor
 hide time, command-label duration, page unlock time, and the minimum/maximum
-pause between actions. **Apply** saves the settings and updates open panes live.
-**Reset defaults** restores the draft; choose **Apply** to save it.
+pause between actions with a two-handle slider. Fast (0–200 ms), Medium
+(800–1,200 ms), and Safe (1,500–2,500 ms) presets change only the action pause.
+Sliders have exact numeric inputs as well. **Apply** saves the settings and updates
+open panes live. **Reset defaults** restores the current tab's draft; choose
+**Apply** to save it.
 
 These settings also reload live from `~/.config/bmux/config.yaml`:
 
