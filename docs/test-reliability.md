@@ -1,5 +1,23 @@
 # Focused test verification
 
+## HTTP/2 navigation recovery
+
+A failed HTTP/2 navigation can finish Chromium's internal error document after
+reporting its failure. Clearing the failure on that completion hid the error and
+left a blank pane. An active stream in another pane can also keep a rejecting
+HTTP/2 connection pooled, so an ordinary reload reuses the failed connection.
+
+The error now survives the internal document. Reload replaces that profile's
+connections after `ERR_HTTP2_PROTOCOL_ERROR`, preserving cookies and storage.
+Page context menus use the same reload path. A replacement navigation or closed
+pane cancels the pending recovery before it can load an outdated destination.
+
+The isolated HTTP/2 fixture holds a streaming response, rejects requests on the
+initial connection, waits for the error document to finish, then clicks Reload.
+It requires a fresh connection, a visible native page, and a retained cookie.
+Keep the existing restored streaming-page reload, navigation failure/commit,
+abort, TLS, and renderer crash recovery cases in focused verification.
+
 ## Agent activity after pane ID reuse
 
 A queued agent command could outlive its closed pane and run on a newly opened

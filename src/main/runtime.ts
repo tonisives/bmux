@@ -1294,14 +1294,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         profile.history = recordHistory(profile.history ?? [], requestedHistoryUrl, requestedHistoryUrl, Date.now())
       }
       requestedHistoryUrl = undefined
-      live.unloadGuard?.cancel(); live.pendingUrl = undefined; delete crashes[tabId]; update()
+      live.unloadGuard?.cancel(); live.pendingUrl = undefined; update()
     })
     contents.on('did-navigate-in-page', () => update())
     contents.on('did-finish-load', () => {
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.
       if (pane.device && live.deviceScale !== undefined) void applyDeviceMetrics(contents, pane.device, live.deviceScale).catch(reportError)
     })
-    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); delete crashes[tabId]; update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
+    // Chromium finishes its internal error document too; a new navigation clears the failure.
+    contents.on('did-finish-load', () => { navigationCrashMarker.clear(tabId); update(); if (!session.private) void maintainCache(pane.profileId).catch(reportError) })
     contents.on('render-process-gone', (_event, details) => { navigationCrashMarker.clear(tabId); crashes[tabId] = `Page process ${details.reason}. Reload to recover.`; publish(); void scheduleVisuals() })
     contents.on('did-fail-load', (_event, code, description, failedUrl, mainFrame) => { if (mainFrame) navigationCrashMarker.clear(tabId, failedUrl); if (mainFrame && code !== -3) { crashes[tabId] = description; publish(); void scheduleVisuals() } })
     let openLinkWindow = (url: string, activate: boolean, options?: Electron.BrowserWindowConstructorOptions & { webContents?: WebContents }, loadOptions?: Electron.LoadURLOptions, backToOpener = false) => {
@@ -1394,7 +1395,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
             { type: 'separator' },
             { label: 'Back', enabled: navigation.canGoBack(), click: () => guardedNavigation(live, () => navigation.goBack()) },
             { label: 'Forward', enabled: navigation.canGoForward(), click: () => guardedNavigation(live, () => navigation.goForward()) },
-            { label: 'Reload', click: () => guardedNavigation(live, () => contents.reload()) },
+            { label: 'Reload', click: () => { void execute({ method: 'reload', args: { tab: tabId } }, clientId).catch(reportError) } },
           )
         }
         if (selectionText || params.isEditable) template.push(
@@ -3411,12 +3412,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'reload' || method === 'hard-reload') {
       let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)
+      let reconnect = crashes[tabId]?.includes('ERR_HTTP2_PROTOCOL_ERROR') === true
       delete crashes[tabId]; loading[tabId] = true; publish()
       try {
         // A reload must be able to interrupt an unfinished initial navigation.
         let live = await ensureLiveTab(tabId, false), contents = live.contents
         live.initialNavigation = undefined
         contents.stop()
+        if (reconnect) {
+          // Another streaming page can keep a rejected HTTP/2 connection in the pool.
+          let document = documents.get(tabId), navigation = live.pendingNavigation
+          await contents.session.closeAllConnections()
+          if (tabs.get(tabId) !== live || !isLiveTabOpen(live) || documents.get(tabId) !== document || live.pendingNavigation !== navigation) return { pane: tabId }
+        }
         loading[tabId] = true; publish()
         if (!contents.getURL() || contents.getURL() === 'about:blank' && tab.url !== 'about:blank') void guardedLoad(live, tab.url).catch(reportError)
         else if (method === 'hard-reload') guardedNavigation(live, () => contents.reloadIgnoringCache())
