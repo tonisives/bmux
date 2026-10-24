@@ -1,5 +1,22 @@
 # Focused test verification
 
+## Remote capture and control interruptions
+
+The Capterra host log recorded invalid `CopyOutputResultSender` messages, three
+GPU process exits, and fatal browser shutdown while a viewer was connected.
+Live polling, stream startup, connection refresh, and cached previews previously
+used independent compositor captures. These callers now share one pending native
+capture per page, including across viewer reconnects, and keep hidden pages hidden.
+Empty captures during navigation leave the previous video frame intact.
+
+The capture fixture supplies empty startup and live frames while still requiring
+decoded video, changing page pixels, an open data channel, and stable visibility.
+The native host flow also checks that a new stream event preserves control and
+viewport dimensions. Viewer unit regressions fail on the original implementation:
+brief connection interruptions immediately disconnected the viewer, and overlapping
+failure notifications scheduled reconnect more than once. Recovery now has a
+five-second window; failed connections still disconnect immediately.
+
 ## HTTP/2 navigation recovery
 
 A failed HTTP/2 navigation can finish Chromium's internal error document after
