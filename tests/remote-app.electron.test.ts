@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -11,6 +12,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
   test.skip(!await fs.stat(path.join(exported, 'index.html')).then(() => true, () => false), 'Requires the Metro web export from the Remote app workflow')
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-companion-test-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let page: Page | undefined
   let host = { id: 'fixture-host', service: 'Research computer', generation: 'runtime-current', permission: 'control', key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', panes: [{ id: 'pane-primary', title: 'Example page' }, { id: 'pane-secondary', title: 'Second page' }] }] }
   let views = [{ connection: 'other-view', host: host.id, generation: host.generation, pane: 'other-pane' }]
   let requests: string[] = [], signals: { type: string; pane?: string; session?: string }[] = []
@@ -61,7 +63,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       return window.id
     }, origin)
     await expect.poll(() => application!.context().pages().some(page => page.url() === origin + '/')).toBe(true)
-    let page = application.context().pages().find(page => page.url() === origin + '/')!
+    page = application.context().pages().find(page => page.url() === origin + '/')!
     await expect(page.getByRole('button', { name: 'Research computer', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toBeVisible()
@@ -83,7 +85,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
     let resize = async (width: number) => {
       await application!.evaluate(({ BrowserWindow }, { id, width }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, 800)) }, { id: windowId, width })
-      await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width)
+      await expect.poll(() => page!.evaluate(() => innerWidth)).toBe(width)
     }
     await resize(390)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toHaveCount(0)
@@ -91,13 +93,31 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await page.screenshot({ path: info.outputPath('companion-mobile-watch.png') })
     await resize(1280)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
+    for (let socket of sockets.clients) socket.terminate()
+    await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
+    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(2)
+    expect(signals.filter(message => message.type === 'open')[1]).toMatchObject({ session: 'session-research', pane: 'pane-primary' })
+    await expect(page.getByText('Watch', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Attention, 1 pending', exact: true }).click()
     await page.getByText('Agent needs your help', { exact: true }).click()
     await expect(page.getByRole('alert')).toHaveText('The requested browser is no longer available.')
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
-    expect(signals.filter(message => message.type === 'open')).toHaveLength(1)
+    expect(signals.filter(message => message.type === 'open')).toHaveLength(2)
     await page.screenshot({ path: info.outputPath('companion-stale-attention.png') })
   } finally {
+    if (page && info.status !== info.expectedStatus) {
+      await page.screenshot({ path: info.outputPath('companion-failure.png') }).catch(() => {})
+      let layout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, elements: [...document.querySelectorAll('[aria-label="Open Research"]')].map(element => {
+        let ancestors = [], current: Element | null = element
+        while (current && ancestors.length < 8) {
+          let rect = current.getBoundingClientRect(), style = getComputedStyle(current)
+          ancestors.push({ tag: current.tagName, x: rect.x, y: rect.y, width: rect.width, height: rect.height, flex: style.flex, display: style.display, overflow: style.overflow })
+          current = current.parentElement
+        }
+        return ancestors
+      }) })).catch(() => ({}))
+      await info.attach('companion-layout', { body: JSON.stringify(layout, null, 2), contentType: 'application/json' })
+    }
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate()
     sockets.close(); server.closeAllConnections()

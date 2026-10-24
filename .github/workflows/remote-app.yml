@@ -6,6 +6,9 @@ on:
   pull_request:
     paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', 'tests/remote-app.electron.test.ts', '.github/workflows/remote-app.yml']
   workflow_dispatch:
+concurrency:
+  group: remote-app-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   web:
     runs-on: ubuntu-24.04

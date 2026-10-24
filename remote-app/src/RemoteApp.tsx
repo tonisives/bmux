@@ -34,7 +34,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       {!!remote.error && <Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text>}
     </View>
   </SafeAreaView>
-  let sessions = <View style={[local.sidebar, split && local.sidebarWide]}>
+  let sessions = <View style={split ? local.sidebarWide : local.sidebar}>
     <ScrollView horizontal style={local.machineBar} contentContainerStyle={local.machineContent} showsHorizontalScrollIndicator={false}>
       {[{ id: '', service: 'All machines' }, ...remote.hosts].map(host => <Pressable key={host.id} accessibilityRole="button" accessibilityLabel={host.service} onPress={() => setMachine(host.id)} style={[local.machine, host.id === machine && local.machineSelected]}><View style={[local.dot, { backgroundColor: host.id ? colors.success : colors.accent }]} /><Text style={[local.machineText, host.id === machine && { color: colors.text }]}>{host.service}</Text></Pressable>)}
     </ScrollView>
@@ -62,7 +62,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
         <Pressable style={local.iconButton} accessibilityRole="button" accessibilityLabel="Settings" onPress={() => { remote.close(); setSection('settings'); void remote.refresh() }}><Ionicons name="settings-outline" size={22} color={section === 'settings' ? colors.accent : colors.secondary} /></Pressable>
       </View>
     </View>
-    {!!remote.error && <View style={local.error}><Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text><Button title="Dismiss" onPress={() => remote.setError('')} /></View>}
+    {!!remote.error && <View style={local.error}><Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text><Button title="Reconnect" disabled={remote.connecting} onPress={remote.retry} /><Button title="Dismiss" onPress={() => remote.setError('')} /></View>}
     {section === 'sessions' && <View style={local.body}>{(split || !remote.selection) && sessions}{remote.selection ? <View style={local.detail}><ViewerScreen /></View> : split && <View style={[local.detail, local.center]}><Ionicons name="browsers-outline" size={40} color={colors.muted} /><Text style={styles.secondary}>Select a session to watch</Text></View>}</View>}
     {section === 'attention' && <ScrollView contentContainerStyle={local.content}>
       <View style={[styles.row, local.sectionHeading]}><Text style={styles.title}>Attention</Text><Button title={history ? 'Pending' : 'History'} onPress={() => setHistory(!history)} /></View>
@@ -85,7 +85,7 @@ let local = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 400, padding: 28, gap: 24 }, welcomeTitle: { color: colors.text, fontSize: 34, fontWeight: '600', lineHeight: 40 }, welcomeBody: { color: colors.secondary, fontSize: 16, lineHeight: 24 },
   brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, header: { minHeight: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border },
   iconButton: { minHeight: 44, minWidth: 40, alignItems: 'center', justifyContent: 'center', position: 'relative' }, badge: { position: 'absolute', right: 0, top: 2, backgroundColor: colors.warning, color: colors.bg, fontSize: 10, fontWeight: '700', minWidth: 16, textAlign: 'center', borderRadius: 8, padding: 2 },
-  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { flex: 0, width: 340, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
+  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 340, flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
   machineBar: { flexGrow: 0, maxHeight: 64 }, machineContent: { padding: 12, gap: 8, alignItems: 'center' }, machine: { flexDirection: 'row', gap: 7, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderRadius: radius.sm, backgroundColor: colors.surface }, machineSelected: { backgroundColor: colors.grouped }, machineText: { color: colors.secondary, fontSize: 13, fontWeight: '500' }, dot: { width: 6, height: 6, borderRadius: 3 },
   search: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 12, paddingHorizontal: 12, gap: 8, backgroundColor: colors.surface, borderRadius: radius.sm }, searchInput: { color: colors.text, paddingVertical: 12, flex: 1, fontSize: 14 },
   list: { padding: 16, gap: 24 }, host: { gap: 10 }, session: { padding: 12, gap: 8, backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent' }, sessionSelected: { borderColor: colors.accent }, sessionHeading: { flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 44 }, sessionText: { flex: 1, minWidth: 0, gap: 4 }, sessionName: { color: colors.text, fontWeight: '500', fontSize: 15 }, pane: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 8, paddingLeft: 32 }, paneDot: { height: 4, width: 4, borderRadius: 2, backgroundColor: colors.muted }, paneTitle: { flex: 1, color: colors.secondary, fontSize: 13 },

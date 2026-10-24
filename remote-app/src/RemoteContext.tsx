@@ -17,6 +17,7 @@ let useRemoteState = () => {
   let [account, setAccount] = useState<RelayAccount>()
   let [loading, setLoading] = useState(true)
   let [hosts, setHosts] = useState<Host[]>([])
+  let [hostsLoaded, setHostsLoaded] = useState(false)
   let [viewer, setViewer] = useState<Viewer>()
   let [state, setState] = useState<State>()
   let [stream, setStream] = useState<MediaStream>()
@@ -119,9 +120,11 @@ let useRemoteState = () => {
   useEffect(() => {
     if (!account) return
     let active = true, opened: Viewer | undefined
+    hostList.current = []
+    setHosts([]); setHostsLoaded(false)
     setConnecting(true)
     void openViewer(account.owner, api, {
-      hosts: value => { if (active) setHosts(value) },
+      hosts: value => { if (active) { setHosts(value); setHostsLoaded(true) } },
       stream: value => { if (active) setStream(value) },
       state: value => {
         if (!active) return
@@ -179,11 +182,12 @@ let useRemoteState = () => {
     return () => { active = false }
   }, [account?.owner, viewer, pendingAttention, api, watch, close])
   useEffect(() => {
-    if (!selection || !viewer || state || connecting || pendingAttention) return
+    if (!selection || !viewer || state || connecting || pendingAttention || !hostsLoaded) return
     if (lastWatch.current?.viewer === viewer && lastWatch.current.key === JSON.stringify(selection)) return
     let host = hosts.find(item => item.id === selection.host && item.generation === selection.generation)
     if (host) void watch(selection).catch(value => setError(value.message))
-  }, [viewer, hosts, selection, state, connecting, pendingAttention, watch])
+    else { close(); setError('The requested browser is no longer available.') }
+  }, [viewer, hosts, hostsLoaded, selection, state, connecting, pendingAttention, watch, close])
   useEffect(() => {
     if (!state || !selection || state.controls[selection.session]?.owner !== viewer?.id) return
     let generation = state.controls[selection.session].generation
@@ -193,7 +197,7 @@ let useRemoteState = () => {
   return {
     account, loading, hosts, viewer, state, stream, selection, connecting, attention, target, billing, views, error,
     api, refresh, login, logout, watch, close, request, setError, rememberAttention,
-    retry: () => setEpoch(value => value + 1),
+    retry: () => { setError(''); setEpoch(value => value + 1) },
     enableNotifications: () => registerPush(api, true),
     disconnectView: async (connection: string) => { await api('/api/streams/disconnect', { connection }); await refresh() },
   }
