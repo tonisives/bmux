@@ -25,7 +25,7 @@ test('paid remote account connects a running computer and opens regional box che
       for await (let chunk of request) chunks.push(chunk)
       let body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
       if (request.method === 'POST') requests.push({route,body})
-      if (expired && route.startsWith('/api/')) { json({error:'Sign in expired'},401); return }
+      if (expired && route === '/api/billing/portal') { json({error:'Sign in expired'},401); return }
       if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
       if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
