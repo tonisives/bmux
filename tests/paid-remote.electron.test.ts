@@ -13,7 +13,7 @@ test('paid remote account connects a running computer and opens regional box che
   let directory = await fs.mkdtemp(path.join(os.tmpdir(),'bmux-paid-remote-')), config = path.join(directory,'config.yaml')
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let billingEmail: string | undefined
-  let catalogFailed = false, rentals: RentedBox[] = []
+  let catalogFailed = false, expired = false, rentals: RentedBox[] = []
   let quote = {id:'regional-quote',region:'fsn1',regionName:'Falkenstein',memoryGb:4,cores:2,diskGb:40,trafficBytes:20e12,monthlyCents:851,currency:'usd'}
   let checkoutUrl = 'https://checkout.stripe.com/c/pay/bmux-fixture'
   let readyHost = false, publicKey = generateKeyPairSync('ed25519').publicKey.export({format:'jwk'})
@@ -25,6 +25,7 @@ test('paid remote account connects a running computer and opens regional box che
       for await (let chunk of request) chunks.push(chunk)
       let body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
       if (request.method === 'POST') requests.push({route,body})
+      if (expired && route.startsWith('/api/')) { json({error:'Sign in expired'},401); return }
       if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
       if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
@@ -169,6 +170,15 @@ test('paid remote account connects a running computer and opens regional box che
     await deleteName.fill('Research box final'); await picker.getByRole('button',{name:'Delete box and files'}).click()
     await expect(picker.getByRole('button',{name:'Delete now'})).toHaveCount(0)
     expect(requests.find(item => /\/delete$/.test(item.route))?.body.confirmName).toBe('Research box final')
+    await picker.getByRole('button',{name:'Back to remote sessions'}).click(); await picker.getByRole('button',{name:'Relay',exact:true}).click()
+    await expect(picker.getByRole('button',{name:'Manage billing'})).toBeVisible()
+    expired = true
+    await picker.getByRole('button',{name:'Manage billing'}).click()
+    await expect(picker.getByRole('button',{name:'Sign in with Google'})).toBeVisible()
+    await expect(picker.getByRole('button',{name:'Manage billing'})).toHaveCount(0)
+    await picker.getByRole('button',{name:'Sign in with Google'}).click()
+    await expect(picker).toHaveCount(0)
+    await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/`)).toBe(true)
     expect(await application.evaluate(({BaseWindow}) => BaseWindow.getAllWindows().length)).toBe(nativeWindows)
     expect(requests.filter(item => item.route === '/api/services')).toHaveLength(1)
     expect(requests.filter(item => item.route === '/api/services/revoke')).toHaveLength(1)

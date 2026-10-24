@@ -14,6 +14,7 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   let [deleting, setDeleting] = useState<RentedBox>(), [confirmation, setConfirmation] = useState('')
   let [rates, setRates] = useState<ReferenceRates>(), [selectedCurrency, setSelectedCurrency] = useState<string>()
   let pending = useRef(false)
+  let report = (error: unknown) => { let value = message(error); setError(value); if (value === 'Sign in to remote') setAccount(undefined) }
   let currency = selectedCurrency ?? estimateCurrency(navigator.languages, rates)
   let money = (cents: number) => priceEstimate(cents, currency, rates, navigator.language)
   useEffect(() => {
@@ -40,7 +41,7 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
       if (loading || pending.current) return
       loading = true
       try { await refresh(() => active) }
-      catch (error) { if (active) setError(message(error)) }
+      catch (error) { if (active) report(error) }
       finally { loading = false; if (active) setLoaded(true) }
     }
     void load()
@@ -52,13 +53,13 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   useEffect(() => {
     if (!adding || !account) return
     let active = true
-    void api<{ enabled: boolean; quotes: BoxQuote[] }>('/api/rentals/catalog').then(value => { if (active) setCatalog(value) }).catch(error => { if (active) setError(message(error)) })
+    void api<{ enabled: boolean; quotes: BoxQuote[] }>('/api/rentals/catalog').then(value => { if (active) setCatalog(value) }).catch(error => { if (active) report(error) })
     return () => { active = false }
   }, [adding, account?.owner, api])
   let act = async (operation: () => Promise<unknown>) => {
     if (pending.current) return
     pending.current = true; setBusy(true); setError('')
-    try { await operation(); await refresh() } catch (error) { setError(message(error)) }
+    try { await operation(); await refresh() } catch (error) { report(error) }
     finally { pending.current = false; setBusy(false) }
   }
   let checkout = (path: string, body: unknown = {}) => act(async () => { let result = await api<{ url: string }>(path, body); await visit(result.url) })

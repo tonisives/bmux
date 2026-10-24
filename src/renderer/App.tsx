@@ -2079,7 +2079,7 @@ let RemoteSessionPicker = () => {
   let back = useMemo(() => view ? { label: 'Back to remote sessions', run: backToSessions } : null, [view, backToSessions])
   usePanelBack(back)
   let open = (next: 'relay' | 'boxes' | 'settings') => { origin.current = next; setView(next) }
-  if (view) return <div className={css.remoteAccountPage}><h3>{view === 'settings' ? 'Remote settings' : view === 'boxes' ? 'Add box' : 'Relay'}</h3>{view === 'settings' ? <RemotePreviewSettings /> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
+  if (view) return <div className={css.remoteAccountPage}>{view === 'settings' ? <><h3>Remote settings</h3><RemotePreviewSettings /></> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
   return <RemoteSessionLibrary open={open} returnFocus={origin.current} />
 }
 let useRemotePreviewImages = (all: { host: RemoteHost; session: RemoteSession }[], settings: RemotePreviewSettings) => {
