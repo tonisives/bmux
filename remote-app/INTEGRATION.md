@@ -67,6 +67,8 @@ Auto quality uses Wi-Fi quality and cellular/unknown Data saver. Manual Auto,
 Data saver and Quality preferences are stored per account. Quality messages
 change capture/encoder settings independently of the page viewport. Pinch/pan
 is local; Take control preserves zoom. Only Fit to phone requests a host resize.
+Closing text entry clears its draft. Changing the target or control lease also
+clears text and closes page-action sheets.
 
 GET /api/hosted-browser supplies the included browser state. Open uses a
 persisted requestId at POST /api/hosted-browser/open, polls pending states, and

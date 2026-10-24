@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { useRemote } from '../RemoteContext'
@@ -34,6 +34,10 @@ export let ViewerScreen = () => {
   let verifying = attention?.status === 'verifying'
   let verified = attention?.status === 'resolved' && attention.attempt?.outcome === 'verified'
   let failed = attention?.status === 'pending' && !!attention.attempt?.outcome
+  let clearInput = () => { setText(''); setInputMode(undefined) }
+  useEffect(() => {
+    clearInput(); setTakeover(false); setNewPage(false); setConnection(false)
+  }, [selection?.host, selection?.generation, selection?.session, selection?.pane, controlling, lease?.generation])
   let action = async (run: () => Promise<unknown>) => {
     setBusy(true)
     try { await run() } catch (error) { remote.setError((error as Error).message) } finally { setBusy(false) }
@@ -59,7 +63,7 @@ export let ViewerScreen = () => {
       catch (error) { remote.setError((error as Error).message); return }
     }
     else remote.viewer?.send({ type: 'text', generation: lease?.generation, text })
-    setText(''); setInputMode(undefined)
+    clearInput()
   }
   return <View style={local.screen}>
     <View style={local.header}>
@@ -98,7 +102,7 @@ export let ViewerScreen = () => {
         <Button title="Fit to phone" onPress={() => void action(async () => { await remote.request({ type: 'resize', generation: lease?.generation, ...fitViewport(frame.current) }); remote.viewer?.send({ type: 'state' }) })} />
       </ScrollView> : <Text style={styles.secondary}>Pinch to zoom · Drag to pan</Text>}
     </View>
-    <Sheet title={inputMode === 'address' ? 'Open address' : 'Type into page'} visible={!!inputMode} close={() => setInputMode(undefined)}>
+    <Sheet title={inputMode === 'address' ? 'Open address' : 'Type into page'} visible={!!inputMode} close={clearInput}>
       <TextInput autoFocus value={text} onChangeText={setText} onSubmitEditing={submit} style={styles.input} autoCapitalize="none" autoCorrect={inputMode !== 'address'} keyboardType={inputMode === 'address' ? 'url' : 'default'} placeholder={inputMode === 'address' ? 'https://example.com' : 'Text to insert'} placeholderTextColor={colors.muted} accessibilityLabel={inputMode === 'address' ? 'Address' : 'Text'} />
       <Button title={inputMode === 'address' ? 'Go' : 'Type'} primary disabled={!text.trim() || !controlling} onPress={submit} />
     </Sheet>
