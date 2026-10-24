@@ -188,7 +188,7 @@ Watch reports a host rejection or timeout instead of showing an idle video area.
 
 ## Attach from the desktop app
 
-Open the **Sessions** popup, then select **Remote sessions** in its title bar. The
+Open the **Sessions** popup, then select **Remote** in its title bar. The
 popup remembers the selected tab. Sign-in and remote viewing reuse the current
 bmux window. Selecting a remote session replaces its tab strip and address bar
 with the remote pages and URL. The status bar offers **Take control**, **Release
@@ -200,7 +200,7 @@ time. Hosts persist agent browser use and remote input, and advertise the latest
 of that activity and local window visits. Watching, listing sessions, and lease
 renewal leave the timestamp unchanged. Returning to the list highlights and focuses the last opened session,
 including after restarting the app. Use the local Sessions navigation: j/k,
-counts, gg/G, / to search, and x to close. The close button and x ask for yes/no
+counts, G, / to search, and x to close. Press g to open Relay. The close button and x ask for yes/no
 confirmation. Control access can close a hosted session from the list without
 opening its video, or from the viewer's status bar. Closing ends that hosted
 session and its control lease; Disconnect keeps it running. Hosts must run a

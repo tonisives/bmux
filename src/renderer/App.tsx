@@ -2289,13 +2289,14 @@ let RefreshIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16
 let RemoteSessionPreview = ({ session, snapshots, refreshing, refresh }: { session?: RemoteSession; snapshots: Record<string, Snapshot>; refreshing: boolean; refresh: () => void }) => {
   let [details, setDetails] = useState(false)
   let info = useRef<HTMLButtonElement>(null)
+  let openDetails = () => setDetails(true)
   let closeDetails = useCallback(() => { setDetails(false); requestAnimationFrame(() => info.current?.focus({ preventScroll: true })) }, [])
   let back = useMemo(() => ({ label: 'Back to preview', run: closeDetails }), [closeDetails])
   useEffect(() => setDetails(false), [session?.id])
   let actors = session?.panes.filter(pane => pane.agentId || pane.agentName || pane.agentPurpose || pane.agentType || Object.keys(pane.agentData ?? {}).length) ?? []
   let keys = (event: KeyboardEvent<HTMLElement>) => { if (details && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeDetails() } }
   return <aside className={css.sessionPreview} aria-label="Remote session preview" data-preview-session={session?.id} onKeyDown={keys}>
-    <div className={css.remotePreviewHeading}>{details && <BackButton back={back} />}<span className={css.sessionPreviewTitle}>{details ? 'Agent info' : session?.name}</span>{!details && <><button type="button" className={css.remoteSettingsButton} aria-label="Refresh remote previews" title="Refresh remote previews" disabled={!session || refreshing} onClick={refresh}><RefreshIcon /></button>{!!actors.length && <button ref={info} type="button" aria-label="Show remote agent details" onClick={() => setDetails(true)}>Agent info</button>}</>}</div>
+    <div className={css.remotePreviewHeading}>{details && <BackButton back={back} />}<span className={css.sessionPreviewTitle}>{details ? 'Agent info' : session?.name}</span>{!details && <><button type="button" className={css.remoteSettingsButton} aria-label="Refresh remote previews" title="Refresh remote previews" disabled={!session || refreshing} onClick={refresh}><RefreshIcon /></button>{!!actors.length && <button ref={info} type="button" aria-label="Show remote agent details" onClick={openDetails}>Agent info</button>}</>}</div>
     {details && !!actors.length ? <div className={`${css.agentInformation} ${css.remoteAgentDetails}`}>{actors.map(pane => <RemoteAgentDetails key={pane.id} pane={pane} />)}</div> : <div className={css.sessionPreviewPages}>{session?.panes.map(pane => <RemotePreviewPane key={pane.id} pane={pane} snapshot={snapshots[pane.id]} />)}</div>}
   </aside>
 }
