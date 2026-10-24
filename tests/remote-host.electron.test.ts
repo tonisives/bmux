@@ -319,17 +319,19 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{timeout:15000})
     await test.step('Open a remote session from the desktop and decode video',async()=>{
       let remotePicker = local.getByRole('dialog',{name:'Sessions'})
-      await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
-      await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
-      await remotePicker.getByRole('button',{name:/main.*remote/}).hover()
+      await remotePicker.getByRole('tab',{name:'Remote'}).click()
+      await expect(remotePicker.getByRole('button',{name:/^main(?: |$)/})).toBeVisible()
+      await remotePicker.getByRole('button',{name:/^main(?: |$)/}).hover()
       // This desktop has never watched a frame; the preview comes from the host.
       await expect(local.getByRole('complementary', { name: 'Remote session preview' }).locator(`[data-preview-pane="${pane}"] img`)).toBeVisible()
       let windows = (await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)
-      await remotePicker.getByRole('button',{name:/main.*remote/}).click()
+      await remotePicker.locator(`[data-remote-pane="${pane}"] [data-session-row]`).click()
       await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
       let attached = application!.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
       // The video element mounts before the attached viewer finishes signaling.
       await expect(local.locator('[data-remote-window-list] button')).not.toHaveCount(0, { timeout: 25000 })
+      await expect(local.getByRole('tablist', { name: 'Remote pages' }).getByRole('tab')).toHaveCount(2)
+      await expect(local.locator('[data-remote-tab] time')).toHaveCount(2)
       await expect(attached.locator('header, form, button')).toHaveCount(0)
       await expect(local.locator('[data-remote-address]')).toHaveCount(1)
       await expect.poll(async () => {

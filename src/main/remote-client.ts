@@ -7,21 +7,24 @@ import { pathToFileURL } from 'node:url'
 import { requestRemoteSessionClose, requestRemoteSessionPreviews } from './remote-request'
 import { remoteIdentity } from './remote-identity'
 import { createRemotePreviews } from './remote-previews'
+import type { Snapshot } from '../shared/types'
 import type { RemoteSession } from '../shared/remote-sessions'
+import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
+import type { RemotePreviewSettings, RemotePreviewRequest } from '../shared/remote-preview-settings'
 
 export type LocalRemoteSession = RemoteSession
 export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
 export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHost[] }
 
-export let createLocalRemote = (directory: string) => {
+export let createLocalRemote = (directory: string, previewSettings: () => RemotePreviewSettings = () => DEFAULT_REMOTE_PREVIEWS) => {
   let identity = remoteIdentity(path.join(directory, 'remote-desktop.pem'))
   let previewIdentity = remoteIdentity(path.join(directory, 'remote-preview-device.pem'))
   let closing = Promise.resolve()
-  let fetching = Promise.resolve(), latestPreview: symbol | undefined
-  let previews = createRemotePreviews(path.join(directory, 'remote'))
+  let fetching = Promise.resolve(), pendingPreviews = new Map<string, Promise<Record<string, Snapshot>>>()
+  let previews = createRemotePreviews(path.join(directory, 'remote'), () => previewSettings().saveLocally)
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
-  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; token: string; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
+  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; pane?: string; token: string; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
   let preferredProfileId: string | undefined, activeToken: string | undefined
   let profiles: () => string[] = () => []
   let useProfiles = (available: () => string[]) => { profiles = available }
@@ -58,7 +61,7 @@ export let createLocalRemote = (directory: string) => {
   }
   ipcMain.handle('remote-client-selection', event => {
     let selected = selection(event.sender)
-    return { origin, host: selected.host, session: selected.session }
+    return { origin, host: selected.host, session: selected.session, pane: selected.pane }
   })
   ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => connect(publicKey, selection(event.sender).token))
   ipcMain.handle('remote-client-update', (event, state: RemoteViewUpdate) => selection(event.sender).update(state))
@@ -68,19 +71,21 @@ export let createLocalRemote = (directory: string) => {
     return previews.set(selected.host, selected.session, pane, image)
   })
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
-  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>) => {
+  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>, paneId?: string) => {
     let listing = await list()
     if (!listing.authenticated || !activeToken) throw new Error('Sign in to remote')
     if (!hostId || !sessionId) throw new Error('Remote session required')
     let host = listing.hosts.find(item => item.id === hostId && item.sessions.some(item => item.id === sessionId))
     if (!host) throw new Error('Remote session unavailable')
+    let selected = host.sessions.find(item => item.id === sessionId)!
+    if (paneId && !selected.panes.some(pane => pane.id === paneId)) throw new Error('Remote pane unavailable')
     let token = activeToken
     await show({
       key: `${hostId}:${sessionId}`,
       title: host.sessions.find(item => item.id === sessionId)!.name,
-      view: { hostId, sessionId, name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, panes: [] },
+      view: { hostId, sessionId, name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, pane: paneId, panes: selected.panes.map(pane => ({ ...pane, url: '' })) },
       attach: (contents, close, update) => {
-        viewers.set(contents, { host, session: sessionId, token, close, update })
+        viewers.set(contents, { host, session: sessionId, pane: paneId, token, close, update })
         contents.once('destroyed', () => viewers.delete(contents))
       },
     })
@@ -109,22 +114,25 @@ export let createLocalRemote = (directory: string) => {
     if (!response.ok) throw new Error(result.error || 'Account request unavailable')
     return result
   }
-  let sessionPreviews = async (hostId: string, sessionId: string) => {
-    let request = Symbol(); latestPreview = request
-    let listing = await list()
-    let host = listing.hosts.find(host => host.id === hostId), selected = host?.sessions.find(session => session.id === sessionId)
-    let token = activeToken
-    if (host && selected?.canPreview && token) {
-      // One device connection at a time; skip rows passed while navigating the list.
-      fetching = fetching.catch(() => undefined).then(async () => {
-        if (request !== latestPreview) return
+  let sessionPreviews = (hostId: string, sessionId: string, request: RemotePreviewRequest = 'missing') => {
+    if (request === 'cache') return previews.get(hostId, sessionId)
+    let key = JSON.stringify([hostId, sessionId, request]), pending = pendingPreviews.get(key)
+    if (pending) return pending
+    let result = fetching.catch(() => undefined).then(async () => {
+      let listing = await list()
+      let host = listing.hosts.find(host => host.id === hostId), selected = host?.sessions.find(session => session.id === sessionId)
+      let cached = await previews.get(hostId, sessionId), token = activeToken
+      if (!host || !selected?.canPreview || !token || request === 'missing' && selected.panes.every(pane => cached[pane.id])) return cached
+      try {
         let snapshots = await requestRemoteSessionPreviews(origin, host, sessionId, selected.panes.map(pane => pane.id), previewIdentity, key => connect(key, token))
         await list()
         for (let [pane, snapshot] of Object.entries(snapshots)) await previews.set(host, sessionId, pane, snapshot.image, snapshot.capturedAt)
-      }).catch(() => undefined)
-      await fetching
-    }
-    return previews.get(hostId, sessionId)
+      } catch { /* Keep saved previews when the host is unavailable. */ }
+      return previews.get(hostId, sessionId)
+    }).finally(() => { if (pendingPreviews.get(key) === result) pendingPreviews.delete(key) })
+    pendingPreviews.set(key, result); fetching = result.then(() => undefined, () => undefined)
+    return result
   }
-  return { origin, list, open, close, closeSession, sessionPreviews, account, flush: previews.flush, useProfiles, preferProfile }
+
+  return { origin, list, open, close, closeSession, sessionPreviews, account, flush: previews.flush, refreshPreviewSettings: previews.configure, useProfiles, preferProfile }
 }

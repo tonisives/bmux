@@ -610,6 +610,29 @@
 .pluginPopup [role="switch"][aria-checked="true"] { color: #b4d49a; }
 
 .remoteConnection { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remoteLibrary { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.remotePreviewSettings { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
+.remotePreviewSettings label { display: flex; align-items: center; gap: 12px; }
+.remotePreviewSettings select { padding: 6px 8px; border: 1px solid #505a66; background: #111318; color: inherit; font: inherit; }
+.remotePreviewSettings p { margin: 0; color: #8995a3; }
+.panel .remoteSettingsButton { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; }
+.remoteSettingsButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.remoteSettingsButton[aria-pressed="true"] { color: #bdc9b4; }
+.remotePages { padding-left: 30px; }
+.sessionPicker .remoteTreeHeader .sessionToggle { left: calc(3ch + 54px); }
+.status .remoteSessionName { max-width: min(160px, 24vw); overflow: hidden; text-overflow: ellipsis; display: block; }
+.remoteStatusActions { display: flex; align-items: center; gap: 4px; height: 100%; flex: 0 0 auto; -webkit-app-region: no-drag; }
+.remoteStatusActions > button { display: grid; place-items: center; width: 24px; height: 24px; }
+.remoteStatusActions > button:hover { background: #343c48; }
+.remoteStatusActions svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.remoteStatusActions .remoteConnection { display: grid; place-items: center; width: 20px; height: 24px; }
+.remoteStatusActions .remoteConnection svg { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+.remoteConnection[data-connected="true"] { color: #a7c88d; }
+.remoteConnection[data-error="true"] { color: #e6a69c; }
+.remoteStatusActions .remoteConnection > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.remoteStatusActions .sessionConfirm { gap: 6px; height: 24px; max-width: min(260px, 40vw); padding: 0; white-space: nowrap; }
+.remoteStatusActions .sessionConfirm span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.remoteStatusActions .sessionConfirm button { flex: 0 0 auto; }
 
 .extensionsPanel { display: flex; flex-direction: column; width: min(1000px, 92vw); height: min(680px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: hidden; }
 .extensionsPanel > header { flex-shrink: 0; }
@@ -626,3 +649,5 @@
   .extensionWorkspace { grid-template-columns: minmax(0, 1fr); }
   .extensionPlaceholder, .extensionWorkspace[data-details-open="true"] > .extensionList { display: none; }
 }
+
+.remotePages > :not(:last-child) .sessionBranch::after { bottom: -3px; }

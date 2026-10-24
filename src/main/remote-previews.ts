@@ -3,21 +3,24 @@ import { createPreviewCache } from './preview-cache'
 import type { Snapshot } from '../shared/types'
 import type { Host } from '../../remote/web/client'
 
-let owner = (host: Host, session: Host['sessions'][number], paneId: string) => ({
+let owner = (host: Host, session: Host['sessions'][number], paneId: string, save = true) => ({
   paneId: createHash('sha256').update(JSON.stringify([host.id, host.key?.x, session.id, paneId])).digest('hex'),
-  windowId: host.key?.x ?? host.id, profileId: session.id, persistent: session.private === false,
+  windowId: host.key?.x ?? host.id, profileId: session.id, persistent: save && session.private === false,
 })
-export let createRemotePreviews = (directory: string) => {
+export let createRemotePreviews = (directory: string, saveLocally = () => true) => {
   let cache = createPreviewCache(directory), hosts: Host[] = [], loaded = false
   let queue = Promise.resolve()
-  let reconcile = (next: Host[]) => {
-    queue = queue.then(async () => {
-      let owners = next.flatMap(host => host.sessions.flatMap(session => session.panes.map(pane => owner(host, session, pane.id))))
-      if (!loaded) { await cache.restore(owners); loaded = true } else cache.reconcile(owners)
-      hosts = next
-    })
-    return queue
+  let saving = saveLocally()
+  let apply = async (next: Host[]) => {
+    let changed = saving !== saveLocally(), saved = changed ? { ...cache.snapshots } : {}
+    saving = saveLocally()
+    let owners = next.flatMap(host => host.sessions.flatMap(session => session.panes.map(pane => owner(host, session, pane.id, saving))))
+    if (!loaded) { await cache.restore(owners); loaded = true } else cache.reconcile(owners)
+    for (let owner of owners) if (!cache.snapshots[owner.paneId] && saved[owner.paneId]) cache.set(owner.paneId, saved[owner.paneId])
+    hosts = next
   }
+  let reconcile = (next: Host[]) => { queue = queue.then(() => apply(next)); return queue }
+  let configure = () => { queue = queue.then(() => loaded ? apply(hosts) : undefined); return queue }
   let session = (hostId: string, sessionId: string) => {
     let host = hosts.find(host => host.id === hostId), session = host?.sessions.find(session => session.id === sessionId)
     return host && session ? { host, session } : undefined
@@ -39,5 +42,5 @@ export let createRemotePreviews = (directory: string) => {
       return snapshot ? [[pane.id, snapshot]] : []
     })) : {}
   }
-  return { reconcile, set, get, flush: async () => { await queue; await cache.flush() } }
+  return { reconcile, configure, set, get, flush: async () => { await queue; await cache.flush() } }
 }

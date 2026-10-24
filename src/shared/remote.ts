@@ -35,7 +35,7 @@ export type RemoteView = {
   controlling: boolean
   occupied: boolean
   pane?: string
-  panes: { id: string; title: string; url: string }[]
+  panes: { id: string; title: string; url: string; lastActivityAt?: number }[]
   error?: string
 }
 export type RemoteViewUpdate = Omit<RemoteView, 'hostId' | 'sessionId' | 'service' | 'canControl'>
