@@ -558,7 +558,25 @@
 
 .profileSectionHeading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; }
 .profileSectionHeading h2 { margin: 0; }
-.antiBotSections { display: block; }
+.antiBotSections { display: block; container-type: inline-size; }
+.botTabs { margin-bottom: 18px; }
+.botTabs button { display: inline-flex; align-items: center; gap: 7px; }
+.botSettingsWorkspace[data-exclusions-open="true"] { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 24px; align-items: start; }
+.botSettingsOverview, .botSettingsDetails { min-width: 0; }
+.botSettingsDetails { border-left: 1px solid #363c45; padding-left: 24px; outline: none; scroll-margin-top: 48px; }
+.botSettingsDetails .profileSection { padding-top: 18px; }
+.botSettingsWorkspace[data-exclusions-open="true"] .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; }
+.botSettingsWorkspace[data-exclusions-open="true"] .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.siteExclusionSummary { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: var(--settings-row-width, 560px); padding: 12px 0; }
+.siteExclusionSummary h2 { margin-bottom: 2px; }
+.siteExclusionSummary span { color: #8e98a4; }
+.siteExclusionSummary button { flex-shrink: 0; }
+.siteExclusionSummary[aria-hidden="true"] { visibility: hidden; }
+@container (max-width: 720px) {
+  .botSettingsWorkspace[data-exclusions-open="true"] { grid-template-columns: minmax(0, 1fr); }
+  .botSettingsWorkspace[data-exclusions-open="true"] .botSettingsOverview { display: none; }
+  .botSettingsDetails { border-left: 0; padding-left: 0; }
+}
 
 .profilePanel .panelTabs button { display: inline-flex; align-items: center; gap: 7px; }
 .profileTabIcon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -656,6 +674,3 @@
   .extensionPlaceholder, .extensionWorkspace[data-details-open="true"] > .extensionList { display: none; }
 }
 
-.botCursorSettings > summary { cursor: pointer; padding: 12px 0; color: #eceef2; font-weight: 600; }
-.botCursorSettings > p { color: #8e98a4; }
-.botCursorSettings[open] { padding-bottom: 18px; }

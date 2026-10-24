@@ -4,7 +4,8 @@ import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
-import { AgentFeedbackSettings } from './AgentFeedbackSettings'
+import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
+import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
 import { VimMode } from './VimMode'
@@ -1441,7 +1442,10 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
   let cycleTabs = (event: KeyboardEvent<HTMLDivElement>) => {
     if (sessionPicker && detailBack) return
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
-    let tabs = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
+    let target = event.target as HTMLElement
+    if (target.closest('form[aria-label="Cursor and timing"]') && !target.closest('[role="tablist"]')) return
+    let group = target.closest('[role="tablist"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Bot sections"]') ?? ref.current
+    let tabs = [...(group?.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
     if (tabs.length < 2) return
     let selected = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
     let next = tabs[(selected + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length]
@@ -1533,11 +1537,12 @@ let GeneralBotSettings = () => {
   let { state, run } = useUI()
   let { profile: selectedProfile } = selection(state)
   let stack = usePanelStack(null, 'Back to Bot settings')
+  let profileBack = useMemo(() => ({ label: 'Back to Bot settings', run: stack.back }), [stack.back])
   if (stack.selected === 'cursor') return <AgentFeedbackSettings profileId={selectedProfile?.id} value={state.agentFeedback ?? DEFAULT_AGENT_FEEDBACK} save={value => run('settings.set', { key: 'agentFeedback', value })} />
   let profile = state.model.profiles.find(profile => profile.id === stack.selected)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
   let pane = profile && (panes.find(pane => pane.id === selection(state).pane?.id && pane.profileId === profile.id) ?? panes.find(pane => pane.profileId === profile.id))
-  if (profile) return <section aria-label={`${profile.name} bot settings`}><h2>{profile.name}</h2><ProfileBotSettings key={profile.id} profile={profile} pane={pane || undefined} /></section>
+  if (profile) return <section aria-label={`${profile.name} bot settings`}><h2>{profile.name}</h2><ProfileBotSettings key={profile.id} profile={profile} pane={pane || undefined} back={profileBack} /></section>
   return <div className={css.agentInformation}>
     <AgentRequirementSwitch setting="requireId" label="Require agent ID" />
     <AgentRequirementSwitch setting="requireType" label="Require agent type" />
@@ -2737,14 +2742,16 @@ let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; hos
 
 type BotProfileProps = { profile: Profile; pane?: ReturnType<typeof selection>['pane'] }
 
+let profileSiteExclusions = (state: PublicState, profileId: string) => Object.entries(state.automationSafety?.limits.sites?.[profileId] ?? {}).flatMap(([host, entry]) => {
+  let exclusion = automationSiteExclusion(entry)
+  return exclusion?.enabled ? [{ host, exclusion }] : []
+})
+
 let ProfileExcludedWebsites = ({ profile, pane }: BotProfileProps) => {
   let { state, run } = useUI()
   let [website, setWebsite] = useSettingsState(`profile:${profile?.id}:excluded-website`, () => automationWebsiteHost(pane?.url) ?? '', false), [busy, setBusy] = useState(false)
   if (!profile) return null
-  let exclusions = Object.entries(state.automationSafety?.limits.sites?.[profile.id] ?? {}).flatMap(([host, entry]) => {
-    let exclusion = automationSiteExclusion(entry)
-    return exclusion?.enabled ? [{ host, exclusion }] : []
-  })
+  let exclusions = profileSiteExclusions(state, profile.id)
   let change = (event: ChangeEvent<HTMLInputElement>) => { setWebsite(event.target.value); event.target.setCustomValidity('') }
   let add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2795,9 +2802,25 @@ let AutomationLimitsEditor = ({ profile }: { profile: Profile }) => {
   </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
 }
 
-let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
+let ProfileBotSettings = ({ profile, pane, back = null }: BotProfileProps & { back?: PanelBack | null }) => {
   let { state, run } = useUI()
   let [busy, setBusy] = useState(false)
+  let [showExclusions, setShowExclusions] = useState(false)
+  let [tab, setTab] = useState<'protection' | FeedbackSection>('protection')
+  let showAll = useRef<HTMLButtonElement>(null), details = useRef<HTMLDivElement>(null), wasShowing = useRef(false)
+  let openExclusions = () => setShowExclusions(true), closeExclusions = useCallback(() => setShowExclusions(false), [])
+  let navigation = useMemo(() => showExclusions ? { label: 'Back to Bot settings', run: closeExclusions, focus: true } : back, [showExclusions, closeExclusions, back])
+  usePanelBack(navigation)
+  useEffect(() => {
+    if (showExclusions) { details.current?.scrollIntoView({ block: 'start' }); details.current?.focus({ preventScroll: true }) }
+    else if (wasShowing.current) showAll.current?.focus()
+    wasShowing.current = showExclusions
+  }, [showExclusions])
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || !showExclusions) return
+    event.preventDefault(); event.stopPropagation(); closeExclusions()
+  }
+  let changeTab = (event: MouseEvent<HTMLButtonElement>) => { setTab(event.currentTarget.dataset.botTab as typeof tab); setShowExclusions(false) }
   let safety = state.automationSafety, limits = safety?.limits ?? DEFAULT_AUTOMATION.safety
   let savedEnabled = profile ? automationSafetyEnabled(limits, profile.id) : true
   let savedPaneEnabled = !!pane && automationSafetyEnabled(limits, pane.profileId, pane.id)
@@ -2832,7 +2855,8 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
     setPaneEnabled(next); setBusy(true)
     try { if (!await run('pane.anti-bot.set', { pane: pane.id, enabled: next })) setPaneEnabled(savedPaneEnabled) } finally { setBusy(false) }
   }
-  return <div className={css.antiBotSections} role="tabpanel" aria-label="Bot settings">
+  let exclusions = profileSiteExclusions(state, profile.id)
+  let protection = <>
     {paused && <ProfileSection title="Paused automation">
       <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
       {paneEnabled && cooldown && <p>Reset starts a new session for this website.</p>}
@@ -2843,12 +2867,20 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Bot protection for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Bot protection for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
     </ProfileSection>
-    <details className={css.botCursorSettings}><summary>Cursor and timing</summary>
-      <p>Shared across all profiles. The default cursor color follows each pane’s profile.</p>
-      <AgentFeedbackSettings heading={false} profileId={profile.id} value={state.agentFeedback ?? DEFAULT_AGENT_FEEDBACK} save={value => run('settings.set', { key: 'agentFeedback', value })} />
-    </details>
     <AutomationLimitsEditor key={`limits:${profile.id}`} profile={profile} />
-    <ProfileExcludedWebsites key={`exclusions:${profile.id}`} profile={profile} pane={pane} />
+    <section className={`${css.profileSection} ${css.siteExclusionSummary}`} aria-label="Excluded websites summary" aria-hidden={showExclusions} inert={showExclusions}>
+      <div><h2>Excluded websites</h2><span>{exclusions.length ? `${exclusions.length} ${exclusions.length === 1 ? 'website' : 'websites'}` : 'No excluded websites'}</span></div>
+      <button ref={showAll} type="button" onClick={openExclusions} aria-expanded={showExclusions}>Show all</button>
+    </section>
+  </>
+  return <div className={css.antiBotSections} role="tabpanel" aria-label="Bot settings" onKeyDown={keys}>
+    <div className={`${css.panelTabs} ${css.botTabs}`} role="tablist" aria-label="Bot sections">
+      {(['protection', 'appearance', 'timing'] as const).map(item => <button key={item} type="button" role="tab" data-bot-tab={item} aria-selected={tab === item} onClick={changeTab}><FeedbackTabIcon tab={item} />{item.charAt(0).toUpperCase() + item.slice(1)}</button>)}
+    </div>
+    {tab === 'protection' ? <div className={css.botSettingsWorkspace} data-exclusions-open={showExclusions}>
+      <div className={css.botSettingsOverview}>{protection}</div>
+      {showExclusions && <div ref={details} className={css.botSettingsDetails} tabIndex={-1}><ProfileExcludedWebsites key={`exclusions:${profile.id}`} profile={profile} pane={pane} /></div>}
+    </div> : <AgentFeedbackSettings section={tab} profileId={profile.id} value={state.agentFeedback ?? DEFAULT_AGENT_FEEDBACK} save={value => run('settings.set', { key: 'agentFeedback', value })} />}
   </div>
 }
 
@@ -2991,7 +3023,7 @@ let ProfileInfo = () => {
     {tab === 'pane' && <ProfilePaneSettings key={pane?.id} />}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
-    {tab === 'anti-bot' && <ProfileBotSettings profile={profile} pane={pane} />}
+    {tab === 'anti-bot' && <ProfileBotSettings key={profile.id} profile={profile} pane={pane} />}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }
