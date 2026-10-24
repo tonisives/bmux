@@ -79,6 +79,7 @@ import { trackSiteSecurity } from './site-security'
 import type { SiteSecurity } from '../shared/site-security'
 import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
+import { shouldDeferStartupPane } from './startup-restore'
 import { createAutomationPolicy } from './automation-policy'
 import { automationProfileLimits, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
 import { automationWarningScript, createAutomationSafety } from './automation-safety'
@@ -3630,7 +3631,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // Inactive restored panes need their icons before they have WebContents.
       let cachedIcon = faviconCache.get(pane.profileId, pane.url, session.private ? session.id : undefined)
       if (cachedIcon) favicons[pane.id] = cachedIcon
-      if (configuration.memory.lazyRestore && !resolve(model.profiles, pane.profileId, 'Profile').background && !pane.keepAlive) deferredTabs.add(pane.id)
+      if (shouldDeferStartupPane({ lazyRestore: configuration.memory.lazyRestore, backgroundStartup: background, backgroundProfile: resolve(model.profiles, pane.profileId, 'Profile').background, keepAlive: pane.keepAlive, deferBackground: process.env.BMUX_LAZY_RESTORE_BACKGROUND === '1' })) deferredTabs.add(pane.id)
     }
     filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
