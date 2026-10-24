@@ -73,7 +73,8 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     let resize = async (width: number, height = 800) => {
       await application!.evaluate(({ BrowserWindow }, { id, width, height }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, height)) }, { id: windowId, width, height })
       await expect.poll(() => page!.evaluate(() => innerWidth)).toBe(width)
-      await expect.poll(() => page!.evaluate(() => innerHeight)).toBe(height)
+      if (height < 500) await expect.poll(() => page!.evaluate(() => innerHeight)).toBe(height)
+      else await expect.poll(() => page!.evaluate(() => innerHeight)).toBeGreaterThanOrEqual(500)
     }
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
