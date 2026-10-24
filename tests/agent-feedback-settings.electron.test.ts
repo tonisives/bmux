@@ -33,7 +33,7 @@ test('cursor appearance and feedback timers save and apply live without renewing
     })
     await expect.poll(() => application!.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some((view: any) => view.getVisible() && view.webContents?.getURL() === url && view.getBounds().height > 200)), url)).toBe(true)
     let cli = async () => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'dom', '-t', pane], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'settings-agent' }, timeout: 20000 })
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'click', JSON.stringify({ pane, x: 80, y: 120 })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'settings-agent' }, timeout: 20000 })
       expect(JSON.parse(result.stdout).ok).toBe(true)
     }
     await cli()
@@ -48,6 +48,8 @@ test('cursor appearance and feedback timers save and apply live without renewing
     await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(dialog.getByRole('status')).toHaveText('Saved')
     await expect.poll(() => page.evaluate(() => ({ color: (window as any).cursorShadow.querySelector('path').getAttribute('fill'), size: (window as any).cursorShadow.querySelector('svg:last-child').getAttribute('width') }))).toEqual({ color: '#76beff', size: '40' })
+    await fs.mkdir(testInfo.outputDir, { recursive: true })
+    await promisify(execFile)('/usr/sbin/screencapture', ['-x', testInfo.outputPath('cursor-appearance-settings.png')])
     await dialog.getByRole('tab', { name: 'Timing', exact: true }).click()
     for (let [label, value] of [['Hide cursor after', '0'], ['Command label duration', '1'], ['Unlock page after', '0'], ['Minimum action pause', '200'], ['Maximum action pause', '100']]) await dialog.getByLabel(label, { exact: true }).fill(value)
     await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
@@ -56,11 +58,10 @@ test('cursor appearance and feedback timers save and apply live without renewing
     await dialog.getByLabel('Maximum action pause', { exact: true }).fill('0')
     await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(dialog.getByRole('status')).toHaveText('Saved')
-    await expect.poll(() => chrome.evaluate(() => (window as any).bmux.state().lockedAgentPanes)).toEqual([])
+    await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).lockedAgentPanes)).toEqual([])
     let saved = await fs.readFile(config, 'utf8')
     expect(saved).toContain('# preserve this comment')
     expect(parse(saved).agentFeedback).toMatchObject({ color: '#76beff', cursorSize: 40, idleRotationDegrees: 25, cursorHideMs: 0, commandDisplayMs: 1000, inputUnlockMs: 0, actionDelayMinMs: 0, actionDelayMaxMs: 0 })
-    await fs.mkdir(testInfo.outputDir, { recursive: true })
     await promisify(execFile)('/usr/sbin/screencapture', ['-x', testInfo.outputPath('cursor-timing-settings.png')])
     await dialog.getByRole('button', { name: 'Back to general anti-bot settings' }).click()
     await expect(dialog.getByRole('button', { name: 'Cursor and timing', exact: true })).toBeFocused()
@@ -68,7 +69,7 @@ test('cursor appearance and feedback timers save and apply live without renewing
     await chrome.getByRole('dialog', { name: 'Agent information', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
     await cli()
     let labels = () => page.evaluate(() => Array.from((window as any).commandShadow.querySelectorAll('[role="log"] div'), (node: any) => node.textContent))
-    await expect.poll(labels).toEqual(['dom'])
+    await expect.poll(labels).toEqual(['click (80, 120)'])
     await expect(page.locator('#bmux-virtual-mouse')).toBeVisible()
     await expect.poll(labels).toEqual([])
     await expect(page.locator('#bmux-virtual-mouse')).toBeVisible()
@@ -76,7 +77,7 @@ test('cursor appearance and feedback timers save and apply live without renewing
     let changed = parse(await fs.readFile(config, 'utf8')); changed.agentFeedback.cursorHideMs = 500
     await fs.writeFile(config, stringify(changed))
     await expect(page.locator('#bmux-virtual-mouse')).toBeHidden()
-    expect(await chrome.evaluate(() => (window as any).bmux.state().agentFeedback.cursorHideMs)).toBe(500)
+    expect(await chrome.evaluate(async () => (await (window as any).bmux.state()).agentFeedback.cursorHideMs)).toBe(500)
   } finally {
     await closeTestApplication(application)
     server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()))
