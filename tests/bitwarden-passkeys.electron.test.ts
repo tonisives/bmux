@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { patchBitwardenPasskeys } from '../src/main/bitwarden-extension'
+import { patchBitwardenConditionalAutofill, patchBitwardenPasskeys } from '../src/main/bitwarden-extension'
 import { closeTestApplication } from './electron-fixture'
 
 test('locked Bitwarden passkey startup opens unlock and releases sign-in without background popups', async ({}, testInfo) => {
@@ -60,11 +60,26 @@ test('locked Bitwarden passkey startup opens unlock and releases sign-in without
     response.setHeader('Content-Type', 'text/html')
     if (request.url === '/signin') { response.end('<!doctype html><h1>Normal sign-in</h1>'); return }
     response.end(`<!doctype html><h1>Passkey sign-in</h1><button id="signin">Sign in</button><p id="status"></p><a href="/signin">Use normal sign-in</a><script>
-      navigator.credentials.get = options => new Promise((resolve, reject) => {
+      let extensionGet = options => new Promise((resolve, reject) => {
         let channel = new MessageChannel()
         channel.port1.onmessage = ({data}) => { channel.port1.close(); data.error ? reject(new DOMException(data.error.message, data.error.name)) : resolve(data.credential) }
         window.postMessage({ command: 'passkey', options: { mediation: options?.mediation, failOpen: options?.failOpen } }, location.origin, [channel.port2])
       })
+      window.nativePasskeyRequests = 0
+      navigator.credentials.get = async options => {
+        if (options?.mediation !== 'conditional') return extensionGet(options)
+        let internalAbortControllers = [new AbortController(), new AbortController()]
+        let bitwardenResponse = async () => { try { return await extensionGet(options) } catch { return null } }
+        let browserResponse = async () => { window.nativePasskeyRequests++; return 'native-touch' }
+        let iterator = (function* () {
+          ${patchBitwardenConditionalAutofill('const response = yield Promise.race([bitwardenResponse(internalAbortControllers[0]),browserResponse(internalAbortControllers[1]),]);')}
+          return response
+        })()
+        let step = iterator.next()
+        while (!step.done) step = iterator.next(await step.value)
+        return step.value
+      }
+      navigator.credentials.get({mediation:'conditional',publicKey:{challenge:new Uint8Array([1])}}).finally(() => document.documentElement.dataset.conditionalComplete = 'true')
       document.querySelector('#signin').onclick = async () => {
         let status = document.querySelector('#status'); status.textContent = 'Waiting'
         try { let result = await navigator.credentials.get({publicKey: {challenge: new Uint8Array([1])}}); status.textContent = result.id }
@@ -86,6 +101,9 @@ test('locked Bitwarden passkey startup opens unlock and releases sign-in without
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
     let page = application.context().pages().find(page => page.url() === url)!
     await expect(page.locator('html')).toHaveAttribute('data-passkey-fixture', 'ready')
+    await expect(page.locator('html')).toHaveAttribute('data-conditional-complete', 'true')
+    expect(await page.evaluate(() => (window as any).nativePasskeyRequests)).toBe(0)
+    expect(application.context().pages().filter(page => page.url().endsWith('/unlock.html'))).toHaveLength(0)
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(page.locator('#status')).toHaveText('NotAllowedError: Unlock Bitwarden and try passkey sign-in again.')
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/unlock.html'))).toBe(true)
@@ -102,9 +120,10 @@ test('locked Bitwarden passkey startup opens unlock and releases sign-in without
     popup = application.context().pages().find(page => page.url().endsWith('/unlock.html'))!
     await popup.close()
     expect(await page.evaluate(async () => {
-      try { await navigator.credentials.get({ mediation: 'conditional', publicKey: { challenge: new Uint8Array([1]) } }); return 'resolved' }
+      try { return await navigator.credentials.get({ mediation: 'conditional', publicKey: { challenge: new Uint8Array([1]) } }) }
       catch (error) { return (error as DOMException).name }
-    })).toBe('NotAllowedError')
+    })).toBeNull()
+    expect(await page.evaluate(() => (window as any).nativePasskeyRequests)).toBe(0)
     expect(application.context().pages().filter(page => page.url().endsWith('/unlock.html'))).toHaveLength(0)
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/unlock.html'))).toBe(true)
@@ -114,6 +133,7 @@ test('locked Bitwarden passkey startup opens unlock and releases sign-in without
     await popup.close()
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(page.locator('#status')).toHaveText('fixture-credential')
+    expect(await page.evaluate(() => navigator.credentials.get({ mediation: 'conditional', publicKey: { challenge: new Uint8Array([1]) } }))).toMatchObject({ id: 'fixture-credential' })
     expect(await page.evaluate(async () => {
       try { await (navigator.credentials as any).get({ failOpen: true }); return 'resolved' }
       catch (error) { return { name: (error as DOMException).name, message: (error as DOMException).message } }

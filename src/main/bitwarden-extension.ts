@@ -76,6 +76,16 @@ export let patchBitwardenPasskeys = (source: string, release = version) => {
   return source.replace(target.passkey, `${preflight}${target.passkey}`)
 }
 
+export let patchBitwardenConditionalAutofill = (source: string) => {
+  let marker = 'bmux-conditional-passkeys-no-native-probe'
+  if (source.includes(marker)) return source
+  let race = /const response = yield Promise\.race\(\[\s*bitwardenResponse\(internalAbortControllers\[0\]\),\s*browserResponse\(internalAbortControllers\[1\]\),?\s*\]\);/
+  if (!race.test(source)) throw new Error('Bitwarden conditional autofill compatibility target was not found')
+  // Electron's native conditional path can request a USB touch on page load.
+  // Keep silent autofill in Bitwarden; explicit native fallback stays available.
+  return source.replace(race, `const response = yield bitwardenResponse(internalAbortControllers[0]);/* ${marker} */`)
+}
+
 export let patchBitwardenInlineNewItem = (source: string, release = version) => {
   let target = targets(release)
   if (source.includes(inlineNewItemPatch)) return source
@@ -117,6 +127,10 @@ export let patchBitwardenLockedInline = (source: string, release = version) => {
 }
 
 export let patchBitwardenPackage = async (directory: string, release = version) => {
+  let fido = path.join(directory, 'content', 'fido2-page-script.js')
+  let fidoSource = await fs.readFile(fido, 'utf8')
+  let fidoPatched = patchBitwardenConditionalAutofill(fidoSource)
+  if (fidoPatched !== fidoSource) await fs.writeFile(fido, fidoPatched)
   let background = path.join(directory, 'background.js')
   let source = await fs.readFile(background, 'utf8')
   let patched = patchBitwardenLockedInline(patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release), release)
