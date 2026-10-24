@@ -2,9 +2,9 @@ name: Remote app
 on:
   push:
     branches: [main, feat/remote-app]
-    paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', '.github/workflows/remote-app.yml']
+    paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', 'tests/remote-app.electron.test.ts', '.github/workflows/remote-app.yml']
   pull_request:
-    paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', '.github/workflows/remote-app.yml']
+    paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', 'tests/remote-app.electron.test.ts', '.github/workflows/remote-app.yml']
   workflow_dispatch:
 jobs:
   web:
@@ -29,6 +29,28 @@ jobs:
         with:
           name: remote-app-web
           path: remote-app/dist/
+  browser:
+    needs: web
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - uses: actions/download-artifact@v4
+        with:
+          name: remote-app-web
+          path: remote-app/dist/
+      - run: pnpm test:electron tests/remote-app.electron.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: remote-app-browser-results
+          path: test-results/
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 25

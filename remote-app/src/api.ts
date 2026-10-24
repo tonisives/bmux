@@ -1,7 +1,7 @@
-import Constants from 'expo-constants'
 import type { AccountApi } from '../../src/shared/remote-account'
+import { origin } from './origin'
 
-export let origin = new URL(Constants.expoConfig?.extra?.remoteOrigin ?? 'https://remote.bmux.cc').origin
+export { origin }
 export let createApi = (readToken: () => Promise<string | undefined>, base = origin): AccountApi => async <T>(path: string, value?: unknown): Promise<T> => {
   let token = await readToken()
   let response = await fetch(new URL(path, base), {

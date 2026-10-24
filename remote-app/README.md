@@ -16,7 +16,8 @@ pnpm android
 pnpm export:web
 ```
 
-Set `EXPO_PUBLIC_REMOTE_ORIGIN` to the connection service origin. Native builds
+Web uses the page's own origin for cookies and signaling. Serve its export with
+the connection service. Set `EXPO_PUBLIC_REMOTE_ORIGIN` for native builds, which
 need a separate EAS project ID in `EXPO_PUBLIC_EAS_PROJECT_ID`, its APNs/FCM
 credentials, and the app identifiers `cc.bmux.remote`. Do not reuse Clawtab's
 push project or signing identity.
