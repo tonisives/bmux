@@ -10,7 +10,7 @@ import { accessToken, signIn, signOut } from './auth'
 import { observeNotifications, registerPush, removePush } from './notifications'
 import { attentionIdFromUrl } from './links'
 import { attentionSelection } from './types'
-import { attentionMatches, createResumeRequests, mergeAttention, resumeAcknowledgement } from './attention'
+import { attentionMatches, createResumeRequests, mergeAttention, recordedResume, resumeAcknowledgement, selectedAttention } from './attention'
 import { operationMessage } from './operation-error'
 import { useStreamQuality } from './useStreamQuality'
 import { useIncludedBrowser } from './useIncludedBrowser'
@@ -155,16 +155,19 @@ let useRemoteState = () => {
     if (value.status !== 'pending') throw new Error(value.status === 'verifying' ? 'The agent is already verifying this request.' : 'This request is no longer active.')
     let requestId = await resumeRequest(currentOwner, value)
     if (checkControl().generation !== lease.generation) throw new Error('Control changed. Take control again before resuming.')
-    let acknowledgement
-    try { acknowledgement = resumeAcknowledgement(await request({ type: 'resume', generation: lease.generation, episode: value.episode, revision: value.revision }, requestId), value) }
+    let updated: Attention
+    try {
+      let acknowledgement = resumeAcknowledgement(await request({ type: 'resume', generation: lease.generation, episode: value.episode, revision: value.revision }, requestId), value)
+      updated = { ...value, revision: acknowledgement.revision, status: 'verifying', attempt: { id: acknowledgement.attemptId, request: requestId, acknowledgedAt: acknowledgement.acknowledgedAt } }
+    }
     catch (error) {
       let confirmed = await api<AttentionTarget>('/api/attention/' + encodeURIComponent(id)).catch(() => undefined)
-      if (!confirmed || !attentionMatches(confirmed, selected) || confirmed.episode !== value.episode || confirmed.status !== 'verifying' || confirmed.attempt?.request !== requestId) throw error
-      acknowledgement = resumeAcknowledgement({ resumed: true, status: 'verifying', episode: confirmed.episode, revision: confirmed.revision, attemptId: confirmed.attempt.id, acknowledgedAt: confirmed.attempt.acknowledgedAt }, value)
+      let recorded = recordedResume(confirmed, value, requestId)
+      if (!recorded) throw error
+      updated = recorded
     }
     if (owner.current !== currentOwner || operation.current !== attempt || activeViewer.current !== viewer) return
-    let updated: Attention = { ...value, revision: acknowledgement.revision, status: 'verifying', attempt: { id: acknowledgement.attemptId, request: requestId, acknowledgedAt: acknowledgement.acknowledgedAt } }
-    updateAttention(updated); setTarget(updated)
+    updateAttention(updated)
     viewer.send({ type: 'release', session: selected.session }); viewer.send({ type: 'state' })
     void refresh()
   }, [api, request, resumeRequest, refresh, updateAttention])
@@ -278,8 +281,7 @@ let useRemoteState = () => {
     return () => { active = false }
   }, [account?.owner, viewer, pendingAttention, api, watch, close, updateAttention, markAttention])
   let help = state?.attention?.find(item => item.pane === selection?.pane && item.session === selection?.session)
-  let listedTarget = selection && attention.find(item => attentionMatches(item, selection) && (!help || item.episode === help.episode))
-  let activeTarget = target && selection && attentionMatches(target, selection) && (!listedTarget || target.revision > listedTarget.revision) ? target : listedTarget
+  let activeTarget = selectedAttention(selection, help?.episode, attention, target)
   useEffect(() => {
     if (!account || !activeTarget || !['pending', 'verifying'].includes(activeTarget.status)) return
     let active = true, current = account.owner

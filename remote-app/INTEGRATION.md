@@ -56,6 +56,9 @@ Resume requires a current lease and fresh attention resolution. A persisted
 request UUID is reused after lost acknowledgements. Only a matching revisioned
 RemoteResumeAcknowledgement starts Verifying and releases the lease. A lost
 acknowledgement can be recovered from the matching persisted server attempt.
+Recovery retains a result that has already completed verification or returned
+to pending; it does not move it back to Verifying. The displayed attention must
+match the host's current episode, and revisions are compared within one event.
 The app polls the target for the originating agent's verification result;
 failure or timeout remains paused and permits a fresh revision to be retried.
 Leave paused releases the live view without changing the attention event.

@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { attentionIdFromData, attentionIdFromUrl } from '../src/links'
 import { attentionSelection, attentionStatus } from '../src/types'
 import type { AttentionTarget, Host } from '../src/types'
-import { createResumeRequests, mergeAttention, resumeAcknowledgement } from '../src/attention'
+import { createResumeRequests, mergeAttention, recordedResume, resumeAcknowledgement, selectedAttention } from '../src/attention'
 
 let host = { id: 'host', generation: 'generation', service: 'Laptop', permission: 'control', key: {}, sessions: [{ id: 'session', name: 'Work', panes: [{ id: 'pane', title: 'Page' }] }] } as Host
 let target: AttentionTarget = { id: 'opaque-id', revision: 1, reason: 'help', status: 'pending', createdAt: '2026-10-24T00:00:00Z', host: 'host', generation: 'generation', session: 'session', pane: 'pane', episode: 'stable-episode', resolved: false, online: true }
@@ -43,4 +43,26 @@ it('reuses the persisted request after a lost acknowledgement and scopes retries
   expect(await createResumeRequests(read, write, uuid)('owner', target)).toBe(first)
   expect(await request('owner', { ...target, revision: 3 })).not.toBe(first)
   expect(await request('other', target)).not.toBe(first)
+})
+it('recovers a recorded resume after verification finishes before a lost acknowledgement is retried', () => {
+  let attempt = { id: 'attempt', request: 'request', acknowledgedAt: Date.now() }
+  for (let result of [
+    { ...target, revision: 2, status: 'verifying' as const, attempt },
+    { ...target, revision: 3, status: 'resolved' as const, resolved: true, attempt: { ...attempt, outcome: 'verified' as const } },
+    { ...target, revision: 3, status: 'pending' as const, attempt: { ...attempt, outcome: 'verification-failed' as const } },
+    { ...target, revision: 3, status: 'pending' as const, attempt: { ...attempt, outcome: 'verification-timeout' as const } },
+  ]) expect(recordedResume(result, target, 'request')).toEqual(result)
+  let confirmed = { ...target, revision: 3, status: 'resolved' as const, attempt }
+  for (let result of [undefined, { ...confirmed, id: 'different' }, { ...confirmed, generation: 'old' }, { ...confirmed, pane: 'other' }, { ...confirmed, episode: 'new' }, { ...confirmed, revision: 1 }, { ...confirmed, attempt: { ...attempt, request: 'other' } }, { ...confirmed, attempt: { ...attempt, acknowledgedAt: NaN } }]) expect(recordedResume(result, target, 'request')).toBeUndefined()
+})
+it('keeps attention tied to the current help episode and compares revisions only within one event', () => {
+  let selection = { host: target.host, generation: target.generation, session: target.session, pane: target.pane }
+  let old = { ...target, revision: 20, status: 'resolved' as const, resolved: true }
+  let current = { ...target, id: 'new-id', episode: 'new-episode', createdAt: '2026-10-24T01:00:00Z' }
+  expect(selectedAttention(selection, current.episode, [current], old)).toEqual(current)
+  expect(selectedAttention(selection, undefined, [current], old)).toEqual(current)
+  expect(selectedAttention(selection, target.episode, [current], old)).toEqual(old)
+  expect(selectedAttention(selection, target.episode, [target], old)).toEqual(old)
+  expect(selectedAttention(selection, 'missing', [current], old)).toBeUndefined()
+  expect(selectedAttention({ ...selection, generation: 'other' }, undefined, [current], old)).toBeUndefined()
 })

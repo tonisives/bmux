@@ -7,6 +7,15 @@ export let mergeAttention = (current: Attention[], incoming: Attention[]) => {
   for (let item of incoming) if (!items.has(item.id) || item.revision >= items.get(item.id)!.revision) items.set(item.id, item)
   return [...items.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
 }
+export let selectedAttention = (selected: Selection | undefined, episode: string | undefined, items: Attention[], target?: Attention) => {
+  if (!selected) return
+  return mergeAttention(items, target ? [target] : []).find(item => attentionMatches(item, selected) && (!episode || item.episode === episode))
+}
+export let recordedResume = (value: Attention | undefined, target: Attention, request: string) => {
+  let attempt = value?.attempt
+  if (!value || value.id !== target.id || !attentionMatches(value, target) || value.episode !== target.episode || !Number.isSafeInteger(value.revision) || value.revision <= target.revision || !attempt || attempt.request !== request || !attempt.id || !Number.isFinite(attempt.acknowledgedAt)) return
+  return value
+}
 export let resumeAcknowledgement = (value: unknown, target: Attention): RemoteResumeAcknowledgement => {
   let item = value as Partial<RemoteResumeAcknowledgement> | undefined
   if (item?.resumed !== true || item.status !== 'verifying' || item.episode !== target.episode || !Number.isSafeInteger(item.revision) || item.revision! <= target.revision || typeof item.attemptId !== 'string' || !item.attemptId || !Number.isFinite(item.acknowledgedAt)) throw new Error('The host did not confirm a verification attempt.')
