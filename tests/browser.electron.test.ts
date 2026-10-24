@@ -3648,7 +3648,7 @@ test('window activity ignores viewing while visits and real input stay separate'
     await cli('activate-client', { client: client.id })
     await cli('dom', { tab: secondPane.id })
     await cli('eval', { tab: secondPane.id, expression: 'document.title' })
-    await cli('screenshot', { tab: legacy.panes[0].id })
+    await cli('screenshot', { tab: legacy.panes[0].id, output: test.info().outputPath('inspection.png') })
     expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
     expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
     let status = chrome.locator('[data-window-list]')
