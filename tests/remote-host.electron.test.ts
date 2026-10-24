@@ -363,7 +363,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       await test.step('A stream update preserves control and the desktop viewport', async () => {
-        let geometry = await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height') }))
+        let geometry = await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height'), mediaWidth: (video as HTMLVideoElement).videoWidth, mediaHeight: (video as HTMLVideoElement).videoHeight }))
+        expect(geometry.mediaWidth).toBeGreaterThan(0)
         await application!.evaluate(({ ipcMain }) => {
           ;(globalThis as any).remoteViewerUpdates = []
           ipcMain.on('remote-client-update', (_event, state) => (globalThis as any).remoteViewerUpdates.push({ connected: state.connected, controlling: state.controlling }))
@@ -374,7 +375,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
           await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
         })
         expect(await application!.evaluate(() => (globalThis as any).remoteViewerUpdates)).not.toContainEqual({ connected: false, controlling: false })
-        expect(await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height') }))).toEqual(geometry)
+        expect(await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height'), mediaWidth: (video as HTMLVideoElement).videoWidth, mediaHeight: (video as HTMLVideoElement).videoHeight }))).toEqual(geometry)
         await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       })
       await viewport.evaluate(element => { element.scrollLeft = 64; element.scrollTop = 64 })
