@@ -190,6 +190,7 @@
 .panel .listRow:is([data-active="true"], [aria-pressed="true"], [aria-current="true"]) { background: #344738; color: #e8f4df; font-weight: 600; }
 .panel .listRow:focus-visible { outline: 1px solid #83917b; outline-offset: -1px; }
 .panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
+.remoteService { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .remoteSession[data-active="true"] { background: #252d34; }
 .remotePreviewHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .remotePreviewHeading button { flex-shrink: 0; color: #aebca7; }

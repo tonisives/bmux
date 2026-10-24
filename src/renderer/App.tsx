@@ -2194,7 +2194,7 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
   let previewRow = (target: Element) => { let row = target.closest<HTMLElement>('[data-remote-session]'); if (row) { machineView.select(undefined); setPreviewId(row.dataset.remoteSession!) } }
   let previewFocus = (event: FocusEvent<HTMLDivElement>) => { focusMode(event); if (!event.target.closest('[data-picker-action]')) previewRow(event.target) }
   let previewHover = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof Element && !event.target.closest('[data-picker-action]')) previewRow(event.target) }
-  useLayoutEffect(() => { if (document.activeElement === input.current) setPreviewId(sessions[0] ? `${sessions[0].host.id}:${sessions[0].session.id}` : null) }, [query, recent])
+  useLayoutEffect(() => { if (document.activeElement === input.current) { machineView.select(undefined); setPreviewId(sessions[0] ? `${sessions[0].host.id}:${sessions[0].session.id}` : null) } }, [query, recent])
   let openRemote = (host: string, session: string, pane?: string) => { void bridge.openRemote(host, session, pane).then(() => { rememberRemoteSession(host, session, pane); setLastActive(`${host}:${session}`); dismiss() }).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let signIn = () => {
     if (openingSignIn) return
