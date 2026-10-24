@@ -6,9 +6,12 @@ Chromium headless-shell engine or claim a smaller browser bundle.
 
 ## Managed relay and rented boxes
 
-Open **Sessions > Remote sessions > Connect relay**, or **Settings > Account**.
+Open **Sessions > Remote > Relay**, or **Settings > Account**.
 Sign in and activate relay for **$10 USD per account per month**. Connect the
-running computer from the Account view; its sessions keep running throughout.
+running computer with a recognizable name; its sessions keep running throughout.
+The Relay button above the session list turns green while this computer is
+connected. Press **g** in the remote list to open Relay. The chevron returns to
+the list and restores focus to the button you opened.
 You can also manage the same account at <https://remote.bmux.cc/?view=account>.
 
 Relay includes two simultaneous live pane views across the account, including
@@ -23,6 +26,17 @@ includes the provider's server and required IPv4 cost plus a 20% service fee,
 rounded up to a cent. Tax is added at checkout. The accepted price stays fixed
 for that subscription; a later exchange-rate or catalog change does not change
 its renewal price.
+
+Add box starts with three recommendations near your time zone. **All sizes and
+regions** exposes the complete catalog and optional SSH public keys. Checkout
+opens in the same bmux window. Retries retain the order ID; changing the name,
+size or keys starts a new order. Pending boxes offer **Resume checkout** and
+show installation progress. A ready box offers **Open box** to watch its first
+available session. Live purchases follow the service's billing availability.
+
+Remote uses the same session/page rows, branch lines and chevrons as Local.
+Relay, Add box and preview settings sit above the left list. Agent information
+opens beside the list; its chevron or Escape returns to the preview.
 
 Each box has its own subscription, separate from relay. Canceling relay keeps
 boxes running and billed. Cancel a box at period end to keep access until then;

@@ -121,14 +121,16 @@ void app.whenReady().then(async () => {
   ipcMain.handle('remote-account', async (event, endpoint: string, body?: unknown) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof endpoint !== 'string') throw new Error('Invalid account endpoint')
-    if (endpoint === '/local/state') return { enabled: !!remoteHost, ...remoteHost?.status() }
+    if (endpoint === '/local/state') return { enabled: !!remoteHost, name: os.hostname(), ...remoteHost?.status() }
     if (endpoint === '/local/connect' || endpoint === '/local/disconnect') {
       if (enrolling) throw new Error('Connection update in progress')
       enrolling = true
       try {
         if (endpoint === '/local/connect') {
           if (remoteHost) return remoteHost.status()
-          let name = os.hostname().toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0,40).replace(/^-+|-+$/g,'') || 'computer'
+          let requested = (body as { name?: unknown } | undefined)?.name
+          if (requested !== undefined && (typeof requested !== 'string' || !requested.trim() || requested.length > 64 || /[\x00-\x1f\x7f]/.test(requested))) throw new Error('Enter a computer name')
+          let name = (typeof requested === 'string' ? requested : os.hostname()).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0,40).replace(/^-+|-+$/g,'') || 'computer'
           let service = `${name}-${randomUUID().slice(0,8)}`
           let created = await localRemote!.account('/api/services', { service }) as { service: string; key: string }
           let saved = false
@@ -145,7 +147,7 @@ void app.whenReady().then(async () => {
             remoteHost?.close(); remoteHost = undefined; fs.unlinkSync(enrollmentFile)
           }
         }
-        return { enabled: !!remoteHost, ...remoteHost?.status() }
+        return { enabled: !!remoteHost, name: os.hostname(), ...remoteHost?.status() }
       } finally { enrolling = false }
     }
     return localRemote!.account(endpoint,body)
