@@ -53,7 +53,7 @@ test('retains an HTTP2 navigation error and reconnects when Reload is clicked', 
       await browser.cookies.set({ url: origin, name: 'retained-fixture', value: 'present' })
     }, { profile: profile.id, origin })
     let open = async (pane: string, url: string) => {
-      await chrome.locator(`[data-pane-id="${pane}"]`).getByRole('button', { name: 'Address', exact: true }).click()
+      await chrome.locator(`[data-pane-id="${pane}"]`).getByRole('button', { name: 'Cmd+L to open a URL', exact: true }).click()
       let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
       await address.fill(url); await address.press('Enter')
       await expect(address).toHaveCount(0)
