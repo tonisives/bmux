@@ -4,3 +4,4 @@ export type RelayBilling = { enabled: boolean; relay: { active: boolean; monthly
 export type BoxQuote = { id: string; region: string; regionName: string; memoryGb: number; cores: number; diskGb: number; trafficBytes: number; monthlyCents: number; currency: string }
 export type RentedBox = { id: string; name: string; state: string; quote: BoxQuote; paidUntil?: string; recoveryDeadline?: string; deleteAt?: string; cancelRequested: boolean; trafficPaused: boolean; trafficRatio: number; ipv4?: string }
 export type LiveView = { connection: string; host: string; generation: string; pane: string }
+export type ReferenceRates = { base: 'USD'; source: 'ECB'; date: string; rates: Record<string, number> }

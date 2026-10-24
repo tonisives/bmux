@@ -22,6 +22,7 @@ test('paid remote account connects a running computer and opens regional box che
       if (route === '/api/hosts') { json([]); return }
       if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
+      if (route === '/api/billing/rates') { json({base:'USD',source:'ECB',date:'2026-10-23',rates:{USD:1,EUR:.9,GBP:.75,JPY:150,THB:35}}); return }
       if (route === '/api/rentals') { json([]); return }
       if (route === '/api/streams') { json(views); return }
       if (route === '/api/streams/disconnect') { views=[]; json({ok:true}); return }
@@ -67,6 +68,9 @@ test('paid remote account connects a running computer and opens regional box che
     await command.fill('settings'); await command.press('Enter')
     await expect(settings).toContainText('pilot@example.com')
     await expect(settings.getByRole('button',{name:'Confirm billing email with Google',exact:true})).toHaveCount(0)
+    await settings.getByRole('combobox',{name:'Estimates in'}).selectOption('EUR')
+    await expect(settings.getByLabel('Relay',{exact:true})).toContainText(/USD\s10\.00 \(≈ EUR\s9\.00\)/)
+    await expect(settings).toContainText('Your bank sets the conversion rate')
     await settings.getByRole('button',{name:'Disconnect view',exact:true}).click()
     await expect(settings.getByRole('button',{name:'Disconnect view',exact:true})).toHaveCount(0)
     await settings.getByRole('button',{name:'Connect this computer',exact:true}).click()
@@ -81,12 +85,14 @@ test('paid remote account connects a running computer and opens regional box che
     let picker = chrome.getByRole('dialog',{name:'Sessions',exact:true})
     await picker.getByRole('tab',{name:'Remote sessions'}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
     let form = picker.getByRole('form',{name:'Rent a box'})
+    await picker.getByRole('combobox',{name:'Estimates in'}).selectOption('JPY')
+    await expect(form.getByRole('combobox',{name:'Size and region'})).toContainText(/USD\s8\.51 \(≈ JPY\s1,277\)/)
     await expect(form).toContainText('Price includes IPv4 and our 20% service fee')
     await form.getByRole('textbox',{name:'Box name'}).fill('Research box')
     await form.getByRole('checkbox').check()
     await fs.mkdir(info.outputDir,{recursive:true}); await chrome.screenshot({path:info.outputPath('rent-box.png')})
     await application.context().route('https://checkout.stripe.com/**',route => route.fulfill({contentType:'text/html',body:'<!doctype html><title>Test checkout</title><h1>Test checkout</h1>'}))
-    await form.getByRole('button',{name:'Continue to checkout · $8.51/month'}).click()
+    await form.getByRole('button',{name:/Continue to checkout · USD\s8\.51\/month/}).click()
     await expect.poll(() => application!.context().pages().some(page => page.url().startsWith('https://checkout.stripe.com/'))).toBe(true)
     expect(requests.find(item => item.route === '/api/rentals/checkout')?.body).toMatchObject({name:'Research box',quoteId:'regional-quote',acceptedTerms:true,sshKeys:[]})
     expect(requests.filter(item => item.route === '/api/services')).toHaveLength(1)

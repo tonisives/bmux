@@ -11,6 +11,8 @@
 .account input, .account select, .account textarea { width: 100%; min-width: 0; box-sizing: border-box; }
 .account a { color: inherit; text-decoration: underline; }
 .account code { overflow-wrap: anywhere; }
+.currency { display: flex; align-items: center; gap: 10px; }
+.currency select { width: auto; }
 .form { display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid #8885; border-radius: 4px; }
 .form label { display: flex; flex-direction: column; gap: 6px; }
 .form .checkbox { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; line-height: 1.5; }
