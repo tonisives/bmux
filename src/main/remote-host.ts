@@ -66,7 +66,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       panes: session.windows.flatMap(window => window.panes.map(pane => {
         let { agentOrigin: _origin, ...actor } = pane.lastUsedBy === 'human' ? {} : agentInfo(pane)
         let fields = actor.agentType ? definitions[actor.agentType]?.fields : undefined
-        return { id: pane.id, title: pane.title, ...actor, ...(fields ? { agentFields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.label])) } : {}) }
+        return { id: pane.id, title: pane.title, lastActivityAt: pane.lastActivityAt, ...actor, ...(fields ? { agentFields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.label])) } : {}) }
       })),
     }))
     let serialized = JSON.stringify(sessions)

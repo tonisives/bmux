@@ -8,7 +8,7 @@ import './global.css'
 import css from './remote-client.module.css'
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
-type Selection = { origin: string; host: Host; session: string }
+type Selection = { origin: string; host: Host; session: string; pane?: string }
 let bridge = (window as unknown as { remoteClient: { preview: (pane: string, image: string) => Promise<void>; update: (state: RemoteViewUpdate) => Promise<void>; actions: (listener: (action: RemoteViewAction) => void) => () => void; close: () => Promise<void>; selection: () => Promise<Selection>; connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }> } }).remoteClient
 
 let useRemotePreview = (video: RefObject<HTMLVideoElement | null>, pane?: string) => {
@@ -37,6 +37,7 @@ let useRemotePreview = (video: RefObject<HTMLVideoElement | null>, pane?: string
 let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [retry, setRetry] = useState(0)
+  let lastSession = useRef<State['sessions'][number] | undefined>(undefined), [requestedPane, setRequestedPane] = useState<string>()
   let video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
   useEffect(() => {
     let closed = false
@@ -64,19 +65,21 @@ let App = () => {
     let session = host?.sessions.find(item => item.id === selection.session)
     if (!host || !session?.panes[0]) return
     watching.current = true
-    void viewer.watch(host, session.id, session.panes[0].id).catch(error => setError(error instanceof Error ? error.message : String(error)))
+    void viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id).catch(error => setError(error instanceof Error ? error.message : String(error)))
   }, [viewer, hosts, selection])
-  let session = state?.sessions.find(item => item.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
+  let currentSession = state?.sessions.find(item => item.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
+  if (currentSession) lastSession.current = currentSession
+  let session = currentSession ?? lastSession.current
   let lease = session && state?.controls[session.id], controlling = !!viewer && !!lease && lease.owner === viewer.id
   let viewport = state && state.viewports[state.pane]
   useRemotePreview(video, state?.pane)
   useEffect(() => {
     if (!selection) return
-    void bridge.update({ name: session?.name ?? selection.host.sessions.find(item => item.id === selection.session)?.name ?? 'Remote', connected: !!state, controlling, occupied: !!lease, pane: state?.pane, panes: session?.windows.flatMap(window => window.panes) ?? [], error }).catch(() => undefined)
-  }, [selection, session, state, controlling, lease, error])
+    void bridge.update({ name: session?.name ?? selection.host.sessions.find(item => item.id === selection.session)?.name ?? 'Remote', connected: !!state, controlling, occupied: !!lease, pane: state?.pane ?? requestedPane ?? selection.pane, panes: session?.windows.flatMap(window => window.panes) ?? selection.host.sessions.find(item => item.id === selection.session)?.panes.map(pane => ({ ...pane, url: '' })) ?? [], error }).catch(() => undefined)
+  }, [selection, session, state, controlling, lease, error, requestedPane])
   useEffect(() => bridge.actions(action => {
     if (!viewer) return
-    if (action.type === 'switch') { setState(undefined); if (video.current) video.current.srcObject = null; viewer.send({ type: 'switch', pane: action.pane }); return }
+    if (action.type === 'switch') { setRequestedPane(action.pane); setState(undefined); if (video.current) video.current.srcObject = null; viewer.send({ type: 'switch', pane: action.pane }); return }
     if (!session) return
     if (action.type === 'acquire') viewer.send({ type: 'acquire', session: session.id, takeover: !!lease })
     else if (action.type === 'release') viewer.send({ type: 'release', session: session.id })

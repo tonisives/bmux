@@ -202,7 +202,18 @@ Fetching a preview only reads that cache and leaves selection, control,
 and last-used timestamps unchanged. Unloaded pages keep their last saved preview
 until they run again. Clients retain the host's capture time and fall back to
 their last viewed frame for older hosts or unavailable previews. Private-session
-previews stay in memory. The selected preview refreshes while the popup is open.
+previews stay in memory. Saved previews appear immediately in the Remote tab. By default, opening that tab
+fetches missing images for its listed sessions. The settings button at the top
+right selects missing images, refreshes while open, or manual fetching, and controls
+whether non-private previews are saved on this device. The refresh icon fetches
+the selected session's latest images in any mode. These preferences also live in
+`remotePreviews.updates` (`missing`, `open`, or `manual`) and
+`remotePreviews.saveLocally` in `config.yaml`.
+
+The Local and Remote tabs share a session tree. Remote services contain sessions,
+and each session contains its pages. A page row opens that page directly in the
+existing viewer. The viewer retains every page as a status tab during switches,
+shows host activity ages, and keeps icon controls inside the status bar.
 
 Small streams are centered in the page area. Larger streams have scrollbars.
 Disconnect leaves the hosted session running and returns to the remaining local

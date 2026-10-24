@@ -7,6 +7,21 @@ import type { Host } from '../remote/web/client'
 
 let listing = (id: string, privateSession?: boolean): Host => ({ id, key: { x: `key-${id}` }, generation: 'generation', service: 'fixture', permission: 'watch', sessions: [{ id: 'session', name: 'main', private: privateSession, panes: [{ id: 'pane', title: 'Page' }] }] })
 let image = 'data:image/jpeg;base64,Zmlyc3Q='
+it('changes local persistence immediately while keeping the displayed frame in memory', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-preview-setting-')), save = true
+  try {
+    let host = listing('one', false), cache = createRemotePreviews(directory, () => save)
+    await cache.reconcile([host]); await cache.set(host, 'session', 'pane', image, 123456); await cache.flush()
+    expect(await fs.readdir(path.join(directory, 'previews'))).toHaveLength(1)
+    save = false; await cache.configure(); await cache.flush()
+    expect((await cache.get('one', 'session')).pane.image).toBe(image)
+    expect(await fs.readdir(path.join(directory, 'previews'))).toEqual([])
+    save = true; await cache.configure(); await cache.flush()
+    let reopened = createRemotePreviews(directory)
+    await reopened.reconcile([host])
+    expect((await reopened.get('one', 'session')).pane).toEqual({ image, capturedAt: 123456 })
+  } finally { await fs.rm(directory, { recursive: true, force: true }) }
+})
 it('restores viewed frames separately for hosts and removes closed or rekeyed sessions', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-previews-'))
   try {

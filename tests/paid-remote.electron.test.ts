@@ -83,7 +83,7 @@ test('paid remote account connects a running computer and opens regional box che
     await expect(page.getByRole('textbox')).toHaveValue('Still running')
     await chrome.getByRole('button',{name:'Sessions',exact:true}).click()
     let picker = chrome.getByRole('dialog',{name:'Sessions',exact:true})
-    await picker.getByRole('tab',{name:'Remote sessions'}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
+    await picker.getByRole('tab',{name:'Remote'}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
     let form = picker.getByRole('form',{name:'Rent a box'})
     await picker.getByRole('combobox',{name:'Estimates in'}).selectOption('JPY')
     await expect(form.getByRole('combobox',{name:'Size and region'})).toContainText(/USD\s8\.51 \(≈ JPY\s1,277\)/)

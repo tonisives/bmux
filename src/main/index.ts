@@ -96,8 +96,8 @@ void app.whenReady().then(async () => {
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]))
-  runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
-  localRemote = createLocalRemote(dataDirectory)
+  runtime = createRuntime(dataDirectory, () => { updateMenu?.refresh(); void localRemote?.refreshPreviewSettings().catch(() => undefined) })
+  localRemote = createLocalRemote(dataDirectory, () => runtime!.state().remotePreviews!)
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('clipboard', (event, text?: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
@@ -157,19 +157,21 @@ void app.whenReady().then(async () => {
     if (url.protocol !== 'https:' || !['checkout.stripe.com','billing.stripe.com'].includes(url.hostname) || url.username || url.password) throw new Error('Invalid billing URL')
     return runtime!.openRemotePage(clientId, { key: 'billing', title: 'Billing', url: url.href })
   })
-  ipcMain.handle('remote-session-previews', (event, host: string, session: string) => {
+  ipcMain.handle('remote-session-previews', (event, host: string, session: string, request: 'cache' | 'missing' | 'refresh' = 'missing') => {
+    if (!['cache', 'missing', 'refresh'].includes(request)) throw new Error('Invalid preview request')
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
-    return localRemote!.sessionPreviews(host, session)
+    return localRemote!.sessionPreviews(host, session, request)
   })
   ipcMain.handle('remote-close-session', (event, host: string, session: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
     return localRemote!.closeSession(host, session)
   })
-  ipcMain.handle('remote-open', async (event, host?: string, session?: string) => {
+  ipcMain.handle('remote-open', async (event, host?: string, session?: string, pane?: string) => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
+    if (pane !== undefined && typeof pane !== 'string') throw new Error('Invalid remote pane')
     if ((host !== undefined && typeof host !== 'string') || (session !== undefined && typeof session !== 'string')) throw new Error('Invalid remote session')
     if (!host && !session) {
       let client = runtime!.model.clients.find(item => item.id === clientId)!
@@ -180,7 +182,7 @@ void app.whenReady().then(async () => {
       await runtime!.openRemotePage(clientId, { key: 'sign-in', title: 'Sign in to remote', url: localRemote!.origin })
       return
     }
-    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page))
+    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page), pane)
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
