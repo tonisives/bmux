@@ -8,3 +8,10 @@ ios-build.log
 .env.*
 !.env.example
 *.tsbuildinfo
+credentials.json
+credentials/
+google-services.json
+*.jks
+*.keystore
+*.p8
+*.p12
