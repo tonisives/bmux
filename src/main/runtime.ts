@@ -2092,6 +2092,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let previousWindow = client?.windowId, previousPane = client?.paneId
     let paneId = command.args?.pane ?? command.args?.tab
     let targetPane = !sourceClientId && typeof paneId === 'string' && agentCommands.has(command.method) ? paneById(model, paneId).pane : undefined
+    if (targetPane) assertAgentTarget(targetPane.id)
     let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
     if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
     let result: unknown
