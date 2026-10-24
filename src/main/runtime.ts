@@ -35,7 +35,8 @@ import { createVirtualMouse } from './virtual-mouse'
 import { readsPage, withAgentReading } from './agent-reading'
 import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
 import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
-import { AGENT_INPUT_LOCK_MS, createAgentInputLock, scheduleAgentInputUnlock } from './agent-input-lock'
+import { createAgentInputLock, scheduleAgentInputUnlock } from './agent-input-lock'
+import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback } from '../shared/agent-feedback'
 import { agentCommandLabel } from './agent-command-feedback'
 import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
@@ -362,10 +363,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (target?.id === paneId && currentPane(paneId) !== target) throw new Error(`Pane '${paneId}' was closed or replaced`)
   }
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
-  let virtualMouse = createVirtualMouse()
-  let agentActions = createAgentActions()
-  let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < AGENT_INPUT_LOCK_MS) }
+  let agentFeedback = () => configuration?.agentFeedback ?? DEFAULT_AGENT_FEEDBACK
+  let virtualMouse = createVirtualMouse(undefined, undefined, agentFeedback)
+  let agentActions = createAgentActions(undefined, undefined, agentFeedback)
+  let agentUnlockTimers = new Map<string, () => void>()
+  let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < agentFeedback().inputUnlockMs) }
   let refreshAgentInputLock = (paneId: string) => tabs.get(paneId)?.inputLock?.setLocked(agentInputLocked(paneId))
+  let scheduleUnlock = (paneId: string, lastUsed: number) => {
+    agentUnlockTimers.get(paneId)?.()
+    agentUnlockTimers.set(paneId, scheduleAgentInputUnlock(lastUsed, () => {
+      agentUnlockTimers.delete(paneId)
+      let actor = activeAgents.get(paneId)
+      if (actor && !actor.pending && !agentInputLocked(paneId) && Date.now() - actor.lastUsed >= 60000) activeAgents.delete(paneId)
+      refreshAgentInputLock(paneId); publish()
+    }, agentFeedback().inputUnlockMs))
+  }
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
   let recordSessionActivity = (paneId: string) => {
     let session = model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === paneId)))
@@ -379,8 +391,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     recordSessionActivity(actor.paneId)
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
-    scheduleAgentInputUnlock(current.lastUsed, () => { refreshAgentInputLock(actor.paneId); publish() })
-    let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
+    scheduleUnlock(actor.paneId, current.lastUsed)
+    let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && !agentInputLocked(current.paneId) && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
     expire.unref()
   }
   let automatedNavigations = new Map<string, { paneId: string } & ReturnType<typeof agentInfo>>()
@@ -423,7 +435,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let settingsReady = readSettings()
 
-  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputLocked(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -910,6 +922,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     plugins?.reload()
     refreshMenu()
     settingsChanged()
+    if (configuration) {
+      for (let [paneId, actor] of activeAgents) { refreshAgentInputLock(paneId); scheduleUnlock(paneId, actor.lastUsed) }
+      for (let [paneId, live] of tabs) {
+        live.inputLock?.refreshFeedback()
+        if (!automationPointerTabs.has(paneId) || live.contents.isDestroyed() || live.contents.isCrashed()) continue
+        try {
+          let debuggerApi = live.contents.debugger
+          if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+          void virtualMouse.configure((method, params) => debuggerApi.sendCommand(method, params)).catch(() => undefined)
+        } catch { /* A closing page will use the settings when it is recreated. */ }
+      }
+    }
     if (configuration && configuration.accessibility !== accessibilityPreference) {
       accessibilityPreference = configuration.accessibility
       app.setAccessibilitySupportEnabled(accessibilityPreference)
@@ -1157,7 +1181,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     contents.on('render-process-gone', () => { delete findResults[tabId]; automatedNavigations.delete(tabId) })
     contents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => { if (mainFrame && code !== -3) automatedNavigations.delete(tabId) })
-    contents.on('destroyed', () => { if (tabs.get(tabId) === live) { automatedNavigations.delete(tabId); activeAgents.delete(tabId) } })
+    contents.on('destroyed', () => { if (tabs.get(tabId) === live) { automatedNavigations.delete(tabId); activeAgents.delete(tabId); agentUnlockTimers.get(tabId)?.(); agentUnlockTimers.delete(tabId) } })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
     contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame) { invalidate(); if (!inPlace) bookmarkPluginPages?.invalidate(tabId) } })
     contents.on('dom-ready', () => { if (!live.disposed && !internalBootstrap() && automationPointerTabs.has(tabId)) showAutomationPointer(tabId) })
@@ -1177,7 +1201,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!owner) return
       owner.chrome.webContents.focus()
       owner.chrome.webContents.send('focus-control', 'agent-info', tabId)
-    })
+    }, agentFeedback)
     refreshAgentInputLock(tabId)
     let recordActivity = () => {
       if (live.disposed || internalBootstrap() || automatedContents.has(contents.id)) return
@@ -1558,6 +1582,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let disposeTab = (tabId: string) => {
     previewRefresh.remove(tabId)
     activeAgents.delete(tabId)
+    agentUnlockTimers.get(tabId)?.(); agentUnlockTimers.delete(tabId)
     automatedNavigations.delete(tabId)
     let automationToken = tabAutomation.get(tabId)
     if (automationToken) { try { automation?.release(automationToken) } catch { /* Lease already expired. */ } }
@@ -2595,6 +2620,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!sourceClientId) throw new Error('Trusted UI required')
       if (!configuration) throw new Error('Configuration is not ready')
       let key = required(args, 'key')
+      if (key === 'agentFeedback') {
+        let next = parseAgentFeedback(args.value)
+        configuration.updateMany(Object.entries(next).map(([key, value]) => [['agentFeedback', key], value]))
+        return next
+      }
       let allowed = new Set(['accessibility', 'statusBar', 'showBuildId', 'showTabCloseButtons', 'showDarkModeButton', 'vimEditing', 'searchApps.normal', 'searchApps.private', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
       if (!allowed.has(key)) throw new Error('Unknown setting')
       configuration.update(key.split('.'), args.value)
@@ -3645,6 +3675,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let shutdown = () => {
     if (shuttingDown) return previewCache.flush()
     shuttingDown = true
+    for (let cancel of agentUnlockTimers.values()) cancel()
+    agentUnlockTimers.clear()
     proxyRecovery.close()
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)

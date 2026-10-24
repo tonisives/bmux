@@ -17,3 +17,16 @@ test('an early timer keeps native input expiry armed until the lock deadline', (
   vi.advanceTimersByTime(1)
   expect(unlock).toHaveBeenCalledTimes(1)
 })
+
+
+test('supports custom expiry, cancelling obsolete deadlines, and immediate unlock', () => {
+  vi.useFakeTimers(); vi.setSystemTime(0)
+  let unlock = vi.fn(), cancel = scheduleAgentInputUnlock(0, unlock, 100)
+  vi.advanceTimersByTime(50); cancel()
+  scheduleAgentInputUnlock(0, unlock, 200)
+  vi.advanceTimersByTime(149); expect(unlock).not.toHaveBeenCalled()
+  vi.advanceTimersByTime(1); expect(unlock).toHaveBeenCalledTimes(1)
+  scheduleAgentInputUnlock(Date.now(), unlock, 0)
+  expect(unlock).toHaveBeenCalledTimes(1)
+  vi.advanceTimersByTime(0); expect(unlock).toHaveBeenCalledTimes(2)
+})

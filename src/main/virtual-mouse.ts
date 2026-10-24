@@ -1,9 +1,14 @@
+import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
+import type { AgentFeedbackSettings } from '../shared/agent-feedback'
+
 type Point = { x: number; y: number }
 type Send = (method: string, params: Record<string, unknown>) => Promise<any>
 
-let pointerScript = `(() => {
+let pointerScript = (configuration: AgentFeedbackSettings) => `(() => {
   let id = 'bmux-virtual-mouse';
-  if (document.getElementById(id)) return;
+  let configuration = ${JSON.stringify(configuration)};
+  let existing = document.getElementById(id);
+  if (existing) { existing.dispatchEvent(new CustomEvent('bmux-agent-cursor-settings',{detail:configuration})); return; }
   let pointer = document.createElement('div');
   pointer.id = id;
   pointer.setAttribute('aria-hidden', 'true');
@@ -38,16 +43,41 @@ let pointerScript = `(() => {
   });
   shadow.append(trail, pulse, svg);
   document.documentElement.append(pointer);
-  let rotation = svg.animate([{transform:'rotate(-12deg)'},{transform:'rotate(12deg)'},{transform:'rotate(-12deg)'}], {duration:3600,iterations:Infinity,easing:'ease-in-out'});
-  let clickAnimation, trailAnimation, idleTimer, movementTimer, visible = false, moving = false, points = [], position, clickedAt;
+  let settings = {}, rotation, clickAnimation, trailAnimation, idleTimer, movementTimer, visible = false, moving = false, points = [], position, clickedAt, lastActivity = 0;
   let clearTrail = () => { clearTimeout(movementTimer); points = []; moving = false; trailAnimation?.cancel(); trail.style.opacity = '0'; };
   let updateMotion = () => {
     if (reducedMotion.matches || !visible) { clearTrail(); clickAnimation?.cancel(); }
-    if (reducedMotion.matches || !visible || moving) rotation.cancel(); else rotation.play();
+    if (reducedMotion.matches || !visible || moving) rotation?.cancel(); else rotation?.play();
   };
   let hide = () => { visible = false; pointer.style.setProperty('display','none','important'); updateMotion(); };
+  let scheduleHide = () => {
+    clearTimeout(idleTimer);
+    if (!visible || !settings.cursorHideMs) return;
+    let remaining = lastActivity + settings.cursorHideMs - Date.now();
+    if (remaining <= 0) hide(); else idleTimer = setTimeout(scheduleHide,remaining);
+  };
+  let configure = next => {
+    let previous = settings; settings = next;
+    pointer.style.setProperty('width',settings.cursorSize+'px','important');
+    pointer.style.setProperty('height',(settings.cursorSize*27/24)+'px','important');
+    svg.setAttribute('width',String(settings.cursorSize)); svg.setAttribute('height',String(settings.cursorSize*27/24));
+    arrow.setAttribute('fill',settings.color);
+    pulse.style.width = settings.haloSize+'px'; pulse.style.height = settings.haloSize+'px';
+    pulse.style.background = 'radial-gradient(circle,'+settings.color+'66 0 25%,'+settings.color+'2b 26% 60%,transparent 61%)';
+    pulse.style.borderColor = settings.color;
+    pulse.style.boxShadow = '0 0 0 6px '+settings.color+'22,0 0 28px '+settings.color+'55';
+    strokes.forEach((line,index) => { line.setAttribute('stroke',settings.color+(index ? 'cc' : '50')); line.setAttribute('stroke-width',String(settings.trailWidth*(index ? .3 : 1))); });
+    if (previous.idleRotationDegrees !== settings.idleRotationDegrees || previous.idleRotationMs !== settings.idleRotationMs) {
+      rotation?.cancel(); rotation = undefined;
+      if (settings.idleRotationDegrees) rotation = svg.animate([{transform:'rotate(-'+settings.idleRotationDegrees+'deg)'},{transform:'rotate('+settings.idleRotationDegrees+'deg)'},{transform:'rotate(-'+settings.idleRotationDegrees+'deg)'}], {duration:settings.idleRotationMs,iterations:Infinity,easing:'ease-in-out'});
+    }
+    if (!settings.haloSize || !settings.haloDurationMs) clickAnimation?.cancel(); else clickAnimation?.effect?.updateTiming({duration:settings.haloDurationMs});
+    if (!settings.trailWidth || !settings.trailFadeMs) clearTrail(); else trailAnimation?.effect?.updateTiming({duration:settings.trailFadeMs});
+    updateMotion(); scheduleHide();
+  };
+  pointer.addEventListener('bmux-agent-cursor-settings', event => configure(event.detail));
   reducedMotion.addEventListener('change', updateMotion);
-  updateMotion();
+  configure(configuration);
   pointer.addEventListener('bmux-agent-cursor', event => {
     let {x,y,hidden,click,moving:inputMoving} = event.detail;
     clearTimeout(idleTimer);
@@ -60,30 +90,32 @@ let pointerScript = `(() => {
         moving = true;
         clearTimeout(movementTimer);
         trailAnimation?.cancel();
-        points = [...points,{x,y}].slice(-16);
-        let coordinates = points.map(point => (point.x-x)+','+(point.y-y)).join(' ');
-        strokes.forEach(line => line.setAttribute('points',coordinates));
-        trail.style.opacity = '1';
+        if (settings.trailWidth && settings.trailFadeMs) {
+          points = [...points,{x,y}].slice(-16);
+          let coordinates = points.map(point => (point.x-x)+','+(point.y-y)).join(' ');
+          strokes.forEach(line => line.setAttribute('points',coordinates));
+          trail.style.opacity = '1';
+        }
         movementTimer = setTimeout(() => {
           points = []; moving = false; updateMotion();
-          trailAnimation = trail.animate([{opacity:1},{opacity:0}],{duration:350,fill:'forwards'});
+          if (settings.trailWidth && settings.trailFadeMs) trailAnimation = trail.animate([{opacity:1},{opacity:0}],{duration:settings.trailFadeMs,fill:'forwards'});
         },100);
       } else clearTrail();
     }
     visible = true;
     pointer.style.setProperty('display','block','important');
     updateMotion();
-    if (click && !reducedMotion.matches) {
+    if (click && !reducedMotion.matches && settings.haloSize && settings.haloDurationMs) {
       clickedAt = position;
       pulse.style.left = '0'; pulse.style.top = '0';
       clickAnimation?.cancel();
-      clickAnimation = pulse.animate([{transform:'translate(-50%,-50%) scale(.45)',opacity:.95},{transform:'translate(-50%,-50%) scale(.95)',opacity:.85},{transform:'translate(-50%,-50%) scale(1.65)',opacity:0}], {duration:1100,easing:'ease-out'});
+      clickAnimation = pulse.animate([{transform:'translate(-50%,-50%) scale(.45)',opacity:.95},{transform:'translate(-50%,-50%) scale(.95)',opacity:.85},{transform:'translate(-50%,-50%) scale(1.65)',opacity:0}], {duration:settings.haloDurationMs,easing:'ease-out'});
     }
-    idleTimer = setTimeout(hide,20000);
+    lastActivity = Date.now(); scheduleHide();
   });
 })()`
 
-export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random) => {
+export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random, settings = () => DEFAULT_AGENT_FEEDBACK) => {
   let positions = new Map<string, Point>()
   let hiddenTabs = new Set<string>()
   let update = async (tab: string, send: Send, detail: Record<string, unknown> = {}) => {
@@ -100,7 +132,7 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
   let show = async (tab: string, send: Send, validate: () => void, target?: Point) => {
     let { point, width, height } = await startPoint(tab, send, validate)
     if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) point = { x: Math.max(0, Math.min(width - 1, target.x)), y: Math.max(0, Math.min(height - 1, target.y)) }
-    await send('Runtime.evaluate', { expression: pointerScript })
+    await send('Runtime.evaluate', { expression: pointerScript(settings()) })
     validate()
     await update(tab, send, point)
     validate()
@@ -123,7 +155,7 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     let steps = Math.max(20, Math.min(38, Math.ceil(distance / 24)))
     let waits = Array.from({ length: steps }, () => 12 + Math.round(random() * 12))
     let duration = waits.reduce((total, wait) => total + wait, 0), elapsed = 0
-    await send('Runtime.evaluate', { expression: pointerScript })
+    await send('Runtime.evaluate', { expression: pointerScript(settings()) })
     for (let step = 0; step <= steps; step++) {
       validate()
       let progress = elapsed / duration, t = progress ** 3 * (10 - 15 * progress + 6 * progress ** 2)
@@ -142,6 +174,6 @@ export let createVirtualMouse = (sleep = (ms: number) => new Promise<void>(resol
     if (hidden) hiddenTabs.add(tab); else hiddenTabs.delete(tab)
     if (hidden) await update(tab, send)
   }
-  return { show, move, click: (tab: string, send: Send) => update(tab, send, { click: true }), setHidden, hiddenTabs,
+  return { show, move, configure: (send: Send) => send('Runtime.evaluate', { expression: `document.getElementById('bmux-virtual-mouse')?.dispatchEvent(new CustomEvent('bmux-agent-cursor-settings',{detail:${JSON.stringify(settings())}}))` }), click: (tab: string, send: Send) => update(tab, send, { click: true }), setHidden, hiddenTabs,
     forget: (tab: string) => { positions.delete(tab); hiddenTabs.delete(tab) } }
 }
