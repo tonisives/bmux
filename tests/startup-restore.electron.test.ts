@@ -121,7 +121,7 @@ test('headless background restore opt-in preserves state and wakes only addresse
       expect(f.requests.get(new URL(target.pane.url).pathname) ?? 0).toBe(0)
     }
 
-    expect(await f.rpc('dom', { tab: f.first.pane.id })).toContain('Restored fixture')
+    expect((await f.rpc('dom', { tab: f.first.pane.id })).content).toContain('Restored fixture')
     expect(await f.rpc('eval', { tab: f.first.pane.id, expression: 'document.cookie' })).toBe('restore=persisted')
     expect(f.cookies.get('/first')).toBe('restore=persisted')
     expect(await f.contents(f.first.pane.id)).not.toBeNull()
