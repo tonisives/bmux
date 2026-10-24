@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import { createContext, runInContext } from 'node:vm'
+import { DEFAULT_AGENT_FEEDBACK } from '../src/shared/agent-feedback'
 import { createVirtualMouse } from '../src/main/virtual-mouse'
 
 let randomSequence = (seed = 42) => () => {
@@ -60,11 +61,12 @@ test('shows click halos, fades bounded movement trails, rotates only while idle,
     let motion = Object.assign(new EventTarget(), { matches: false })
     class CursorEvent extends Event { detail: unknown; constructor(type: string, options: { detail: unknown }) { super(type); this.detail = options.detail } }
     let context = createContext({
-      innerWidth: 1000, innerHeight: 800, CustomEvent: CursorEvent, setTimeout, clearTimeout,
+      innerWidth: 1000, innerHeight: 800, CustomEvent: CursorEvent, Date, setTimeout, clearTimeout,
       matchMedia: () => motion,
       document: { getElementById: () => pointer, createElement: element, createElementNS: (_ns: string, tag: string) => element(tag), documentElement: { append: (node: any) => { pointer = node } } }
     })
-    let mouse = createVirtualMouse(async () => {}), send = async (method: string, params: Record<string, unknown>) => ({ result: { value: method === 'Runtime.evaluate' ? runInContext(String(params.expression), context) : undefined } })
+    let settings = { ...DEFAULT_AGENT_FEEDBACK }
+    let mouse = createVirtualMouse(async () => {}, undefined, () => settings), send = async (method: string, params: Record<string, unknown>) => ({ result: { value: method === 'Runtime.evaluate' ? runInContext(String(params.expression), context) : undefined } })
     await mouse.show('one', send, () => {})
     let pulse = elements.find(node => node.tag === 'span'), wedge = elements.find(node => node.tag === 'svg')
     expect(pointer.style.display).toBe('block')
@@ -87,19 +89,30 @@ test('shows click halos, fades bounded movement trails, rotates only while idle,
     expect(lines).toHaveLength(2)
     expect(lines[0].attributes.points.split(' ')).toHaveLength(16)
     expect(trail.style.opacity).toBe('1')
-    expect(wedge.animate.mock.results[0].value.play).toHaveBeenCalledTimes(rotations)
+    expect(wedge.animate.mock.results[0].value.play).toHaveBeenCalledTimes(rotations + 1)
     // The halo stays at the clicked point as the arrow moves away.
     expect(pulse.style.left).toBe('300px'); expect(pulse.style.top).toBe('100px')
     vi.advanceTimersByTime(100)
-    expect(wedge.animate.mock.results[0].value.play).toHaveBeenCalledTimes(rotations + 1)
+    expect(wedge.animate.mock.results[0].value.play).toHaveBeenCalledTimes(rotations + 2)
     expect(trail.animate).toHaveBeenCalledTimes(1)
+    settings = { ...settings, color: '#aabbcc', cursorSize: 40, haloSize: 90, cursorHideMs: 0 }
+    await mouse.configure(send)
+    expect(elements.find(node => node.tag === 'path').attributes.fill).toBe('#aabbcc')
+    expect(wedge.attributes.width).toBe('40'); expect(pulse.style.width).toBe('90px')
+    vi.advanceTimersByTime(30000); expect(pointer.style.display).toBe('block')
+    // Applying a shorter hide time respects the original activity deadline.
+    settings = { ...settings, cursorHideMs: 1000 }
+    await mouse.configure(send)
+    expect(pointer.style.display).toBe('none')
+    await mouse.show('one', send, () => {})
+    await mouse.click('one', send)
     motion.matches = true; motion.dispatchEvent(new Event('change'))
     expect(wedge.animate.mock.results[0].value.cancel).toHaveBeenCalled()
     expect(pulse.animate.mock.results[0].value.cancel).toHaveBeenCalled()
     expect(trail.animate.mock.results[0].value.cancel).toHaveBeenCalled()
     expect(trail.style.opacity).toBe('0')
     await mouse.click('one', send)
-    expect(pulse.animate).toHaveBeenCalledTimes(1)
+    expect(pulse.animate).toHaveBeenCalledTimes(2)
     await mouse.setHidden('one', true, send)
     await mouse.show('one', send, () => {})
     await mouse.click('one', send)

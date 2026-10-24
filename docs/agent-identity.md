@@ -146,3 +146,39 @@ verified origin. Send a browser command through the CLI with type `tmux` to
 refresh it. Focus runs only when requested through the UI.
 
 See [Browser automation](agent.md) for browser commands and protection settings.
+
+
+## Cursor and timing
+
+Open a pane's **Active agent** indicator, choose **Agent settings**, then
+**Cursor and timing**. Appearance controls include color, size, idle rotation,
+click halo, and movement trail. The Timing tab sets animation durations, cursor
+hide time, command-label duration, page unlock time, and the minimum/maximum
+pause between actions. **Apply** saves the settings and updates open panes live.
+**Reset defaults** restores the draft; choose **Apply** to save it.
+
+These settings also reload live from `~/.config/bmux/config.yaml`:
+
+```yaml
+agentFeedback:
+  color: "#f3a0cb"
+  cursorSize: 24
+  idleRotationDegrees: 12
+  idleRotationMs: 3600
+  haloSize: 64
+  haloDurationMs: 1100
+  trailWidth: 10
+  trailFadeMs: 350
+  cursorHideMs: 20000
+  commandDisplayMs: 5000
+  inputUnlockMs: 20000
+  actionDelayMinMs: 800
+  actionDelayMaxMs: 1200
+```
+
+Sizes are pixels, rotation is degrees, and config durations are milliseconds.
+A zero cursor hide time keeps the cursor visible until manually hidden. Zero
+rotation, halo size/duration, trail width/fade, or command duration disables that
+effect. Page unlock time starts after commands finish; pending commands retain
+the input lock even when the timeout is zero. Action pause limits may both be
+zero. Social-site delays remain configurable in **Profile limits**.

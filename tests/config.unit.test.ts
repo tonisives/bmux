@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_FEEDBACK } from '../src/shared/agent-feedback'
 import { it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -250,4 +251,23 @@ it('supports modified prefix bindings without losing literal punctuation or shif
   expect(prefixAction(keyboard.prefixBindings, { key: '|', code: 'Backslash', shift: true })).toBe('maximize-pane-width')
   expect(prefixAction(keyboard.prefixBindings, { key: 'E', shift: true })).toBe('renumber-windows')
   expect(prefixAction(keyboard.prefixBindings, { key: '=', control: true })).toBeUndefined()
+})
+
+
+it('validates cursor settings and atomically saves multiple fields while preserving user edits', () => {
+  expect(parseConfig('keyboard: {}').agentFeedback).toEqual(DEFAULT_AGENT_FEEDBACK)
+  expect(parseConfig('keyboard: {}\nagentFeedback: {color: "#ABCDEF", cursorHideMs: 0, inputUnlockMs: 0, actionDelayMinMs: 0, actionDelayMaxMs: 0}').agentFeedback).toMatchObject({ color: '#abcdef', cursorHideMs: 0, inputUnlockMs: 0, actionDelayMaxMs: 0 })
+  for (let settings of ['cursorSize: 0', 'color: pink', 'haloDurationMs: -1', 'trailWidth: 1.5', 'unknown: 1', 'inputUnlockMs: 600001', 'actionDelayMinMs: 1300']) expect(() => parseConfig(`keyboard: {}\nagentFeedback: {${settings}}`)).toThrow()
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-feedback-config-')), file = path.join(directory, 'config.yaml')
+  fs.writeFileSync(file, '# keep comment\nkeyboard: {prefix: Ctrl+A}\nagentFeedback: {actionDelayMinMs: 2000, actionDelayMaxMs: 3000}\n')
+  let config = createConfig(file, () => undefined)
+  try {
+    config.updateMany([[['agentFeedback', 'actionDelayMinMs'], 100], [['agentFeedback', 'actionDelayMaxMs'], 200]])
+    expect(config.agentFeedback).toMatchObject({ actionDelayMinMs: 100, actionDelayMaxMs: 200 })
+    expect(config.keyboard.prefix).toBe('Ctrl+A')
+    let saved = fs.readFileSync(file, 'utf8')
+    expect(saved).toContain('# keep comment')
+    expect(() => config.updateMany([[['agentFeedback', 'actionDelayMinMs'], 400]])).toThrow('Maximum action pause')
+    expect(fs.readFileSync(file, 'utf8')).toBe(saved)
+  } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })

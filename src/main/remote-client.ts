@@ -100,7 +100,7 @@ export let createLocalRemote = (directory: string) => {
   }
   let close = () => { for (let contents of viewers.keys()) if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); viewers.clear() }
   let account = async (endpoint: string, body?: unknown): Promise<unknown> => {
-    if (!/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
+    if (!/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|rates|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
     if (!activeToken) await list()
     if (!activeToken) throw new Error('Sign in to remote')
     let response = await fetch(`${origin}${endpoint}`, { method: body === undefined ? 'GET' : 'POST', headers: { Cookie: `bmux_session=${activeToken}`, Origin: origin, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(25000) })

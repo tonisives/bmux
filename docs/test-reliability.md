@@ -1,5 +1,22 @@
 # Focused test verification
 
+## Agent activity after pane ID reuse
+
+A queued agent command could outlive its closed pane and run on a newly opened
+human pane with the same numeric ID. The isolated lifecycle fixture reproduced
+this by holding a domain action in another pane, closing the queued target, and
+opening a replacement before releasing the domain. The original implementation
+returned success for the stale command.
+
+Agent commands now retain their original pane object across action queues,
+page queues, safety waits, and page creation. Closing the pane clears its active
+agent state, and late command completion cannot update the replacement's input
+lock. Navigation completion and native view destruction also check their owner.
+The regression requires the stale command to fail, leaves the replacement without
+agent ownership, verifies that metadata commands do not claim it, and types into
+its native page immediately. Repeat it with the existing numeric pane reopen case;
+retain the normal input lock, agent identity, scrolling, and plugin hook cases.
+
 ## Renderer closing and numeric pane reuse
 
 The full Check on `fdb5ce0f` found two closing-fixture failures. A popup could

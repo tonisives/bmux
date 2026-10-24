@@ -51,6 +51,7 @@ test('four panes show independent agent cursors and five-second command labels',
       Element.prototype.attachShadow = function (options) {
         let root = attach.call(this, options)
         if (this.id === 'bmux-virtual-mouse') (window as any).cursorShadow = root
+        if (this.id === 'bmux-agent-commands') (window as any).commandShadow = root
         return root
       }
     })
@@ -62,7 +63,7 @@ test('four panes show independent agent cursors and five-second command labels',
       ? cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', ...points[index], deltaX: 0, deltaY: 333 + index * 111 } })
       : cli('click', { pane, ...points[index] })))
     let expectedLabels = ['scroll down 333 px', 'scroll down 444 px', 'scroll down 555 px', 'click (130, 140)']
-    let overlays = () => application!.evaluate(async ({ BaseWindow }) => Promise.all(BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).filter((view: any) => view.getVisible() && view.webContents?.getTitle() === 'Agent input lock').map(async (view: any) => ({ bounds: view.getBounds(), labels: await view.webContents.executeJavaScript("Array.from(document.querySelectorAll('#agent-commands div'), node => node.textContent)") as string[] }))))
+    let overlays = async () => Promise.all(pages.map(async (page, index) => ({ bounds: (await nativeViews()).find(view => view.url === urls[index])!.bounds, labels: await page.evaluate(() => Array.from((window as any).commandShadow?.querySelectorAll('[role="log"] div') ?? [], (node: any) => node.textContent)) as string[] })))
     await expect.poll(async () => (await overlays()).flatMap(overlay => overlay.labels).sort()).toEqual([...expectedLabels].sort())
     let views = await nativeViews(), locks = await overlays()
     for (let index = 0; index < 4; index++) {
@@ -78,8 +79,7 @@ test('four panes show independent agent cursors and five-second command labels',
     await exec('/usr/sbin/screencapture', ['-x', testInfo.outputPath('four-pane-agent-feedback.png')])
     await expect.poll(async () => (await overlays()).flatMap(overlay => overlay.labels), { timeout: 6500 }).toEqual([])
     for (let page of pages) await expect(page.locator('#bmux-virtual-mouse')).toBeVisible()
-    // Command feedback belongs to bmux's overlay, outside the site's DOM.
-    for (let page of pages) await expect(page.locator('#agent-commands')).toHaveCount(0)
+    for (let page of pages) await expect(page.locator('#bmux-agent-commands')).toHaveCSS('pointer-events', 'none')
     let page = pages[3], target = await page.evaluate(() => ({ x: innerWidth - 60, y: innerHeight - 70 }))
     let clicking = cli('click', { pane: panes[3], ...target })
     try {

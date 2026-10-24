@@ -1,6 +1,8 @@
 import type { RemoteView } from '../shared/remote'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
+import { AgentFeedbackSettings } from './AgentFeedbackSettings'
+import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
@@ -1515,8 +1517,9 @@ let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requ
 }
 
 let GeneralAntiBotSettings = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
   let stack = usePanelStack(null, 'Back to general anti-bot settings')
+  if (stack.selected === 'cursor') return <AgentFeedbackSettings value={state.agentFeedback ?? DEFAULT_AGENT_FEEDBACK} save={value => run('settings.set', { key: 'agentFeedback', value })} />
   let profile = state.model.profiles.find(profile => profile.id === stack.selected)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
   let pane = profile && (panes.find(pane => pane.id === selection(state).pane?.id && pane.profileId === profile.id) ?? panes.find(pane => pane.profileId === profile.id))
@@ -1524,10 +1527,11 @@ let GeneralAntiBotSettings = () => {
   return <div className={css.agentInformation}>
     <AgentRequirementSwitch setting="requireId" label="Require agent ID" />
     <AgentRequirementSwitch setting="requireType" label="Require agent type" />
-    <section ref={stack.list} aria-label="Profile limits" tabIndex={-1}>
+    <section ref={stack.list} tabIndex={-1}><button type="button" className={css.listRow} data-details="cursor" onClick={stack.open}>Cursor and timing</button>
+    <section aria-label="Profile limits">
       <h2>Profile limits</h2><p>Choose a profile to edit its limits. Each website has its own session timer.</p>
       {state.model.profiles.map(profile => <button key={profile.id} type="button" className={css.listRow} data-details={profile.id} onClick={stack.open}>{profile.name}</button>)}
-    </section>
+    </section></section>
   </div>
 }
 

@@ -1,0 +1,15 @@
+.controls { display: flex; flex-direction: column; gap: 12px; }
+.controls h2 { margin: 0; font-size: 16px; }
+.preview { align-self: center; width: 180px; height: 100px; overflow: visible; }
+.idle { transform-origin: 112px 45px; animation: idle var(--cursor-cycle) ease-in-out infinite; }
+@keyframes idle { 0%, 100% { transform: rotate(calc(-1 * var(--cursor-angle))); } 50% { transform: rotate(var(--cursor-angle)); } }
+@media (prefers-reduced-motion: reduce) { .idle { animation: none; } }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; border-bottom: 1px solid #303640; }
+.row small { display: block; margin-top: 2px; color: #aab4bf; font-size: 11px; }
+.row input { box-sizing: border-box; width: 108px; padding: 5px 7px; border: 1px solid #444b59; background: #20242d; color: #eceef2; font: inherit; }
+.row input[type="color"] { padding: 2px; height: 30px; }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 8px; }
+.actions span { margin-right: auto; color: #aab4bf; font-size: 12px; }
+.actions button { color: #bdc9b4; }
+.error { color: #f0a4a4; font-size: 12px; }
+.hint { color: #aab4bf; font-size: 12px; }
