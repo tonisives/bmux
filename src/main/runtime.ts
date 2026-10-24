@@ -86,6 +86,7 @@ import { localMediaResponse } from './local-media'
 import { loadPage, settlePageNavigation } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createPreviewCache } from './preview-cache'
+import { createPreviewRefresh } from './preview-refresh'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
@@ -713,7 +714,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let current = live && !live.contents.isDestroyed() ? live.contents.getURL() : ''
     if (!current || current === 'about:blank' && tab.url !== 'about:blank') current = live?.pendingUrl ?? tab.url
     return [current, ...(live?.pendingUrl ? [live.pendingUrl] : []), ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])]
-  }, operation, agentActionInput(method, args, owner))
+  }, operation, agentActionInput(method, args, owner)).finally(() => { if (remotePreviewsEnabled) previewRefresh.request(pane) })
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
     let live = tabs.get(tabId), document = documents.get(tabId)
     if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return read()
@@ -1539,6 +1540,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return closing
   }
   let disposeTab = (tabId: string) => {
+    previewRefresh.remove(tabId)
     let automationToken = tabAutomation.get(tabId)
     if (automationToken) { try { automation?.release(automationToken) } catch { /* Lease already expired. */ } }
     tabAutomation.delete(tabId)
@@ -1656,7 +1658,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (live.camera) parent.contentView.addChildView(live.camera)
     live.parent = parent
   }
-  let requestPreview = (tabId: string, live: LiveTab) => {
+  let capturePreview = (tabId: string, live: LiveTab) => {
     // Preview work must never hold up detaching or attaching native views.
     if (snapshotPending.has(tabId)) return snapshotPending.get(tabId)
     if (shuttingDown || !isLiveTabOpen(live) || tabs.get(tabId) !== live || loading[tabId] || tabQueues.has(tabId) || snapshotPending.size >= 4) return
@@ -1682,6 +1684,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     snapshotPending.set(tabId, pending)
     return pending
   }
+  let previewRefresh = createPreviewRefresh({
+    exists: pane => { let live = tabs.get(pane); return !!live && isLiveTabOpen(live) && /^(https?:|file:)/.test(live.contents.getURL()) },
+    capturedAt: pane => snapshots[pane]?.capturedAt,
+    capture: pane => { let live = tabs.get(pane); return live ? capturePreview(pane, live) : undefined },
+  })
+  let requestPreview = (tabId: string, live: LiveTab) => remotePreviewsEnabled ? previewRefresh.request(tabId) : capturePreview(tabId, live)
   let singlePaneBounds = (tabId: string, live: LiveClient, exact?: Bounds) => {
     // Popup and session changes can reconcile before the renderer publishes the
     // selected pane. A single tiled pane fills the chrome, so its last content
@@ -3589,8 +3597,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     recordMemory()
     memoryTimer = setInterval(recordMemory, MEMORY_INTERVAL_MS)
     previewTimer = setInterval(() => {
+      if (remotePreviewsEnabled) return
       let oldestFirst = [...tabs].sort(([a], [b]) => (snapshots[a]?.capturedAt ?? 0) - (snapshots[b]?.capturedAt ?? 0))
-      for (let [paneId, live] of oldestFirst) if (!snapshots[paneId] || (remotePreviewsEnabled || live.parent.isVisible()) && Date.now() - snapshots[paneId].capturedAt >= 15000) requestPreview(paneId, live)
+      for (let [paneId, live] of oldestFirst) if (!snapshots[paneId] || live.parent.isVisible() && Date.now() - snapshots[paneId].capturedAt >= 15000) requestPreview(paneId, live)
     }, 5000)
     previewTimer.unref()
     memoryTimer.unref()
@@ -3613,6 +3622,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
     clearInterval(previewTimer)
+    previewRefresh.close()
     app.off('login', proxyLogin)
     void proxyRelays.closeAll()
     clickMode.cancel()
@@ -3648,17 +3658,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       automationSafety?.resume(target.pane.profileId,page)
       attention.resolve(pane,episode); publish(); return { resumed:true }
     },
-    enablePreviews: () => { remotePreviewsEnabled = true },
+    enablePreviews: () => { remotePreviewsEnabled = true; for (let pane of tabs.keys()) previewRefresh.request(pane) },
     previews: async (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) throw new Error('Remote session unavailable')
       let paneIds = session.windows.flatMap(window => window.panes.map(pane => pane.id))
-      // Capture loaded panes without selecting, restoring, or waking unloaded pages.
-      await Promise.all(paneIds.map(async paneId => {
-        let live = tabs.get(paneId)
-        if (live && (!snapshots[paneId] || Date.now() - snapshots[paneId].capturedAt >= 15000)) await requestPreview(paneId, live)
-      }))
-      if (!model.sessions.includes(session)) throw new Error('Remote session unavailable')
+      // Fetching a preview only reads the cache; agent actions schedule captures.
       return Object.fromEntries(paneIds.flatMap(paneId => {
         let snapshot = snapshots[paneId]
         if (!snapshot) return []
