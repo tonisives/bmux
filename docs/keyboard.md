@@ -73,7 +73,7 @@ Common direct shortcuts:
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
 
-Window tabs show a colored age since the last visit: `jn` for under a minute, then `13m`, `2h`, or `3d`. Ages update while idle: green under an hour, amber under a day, and red from one day onward. Hover the age for the full visit time. Pinned windows keep their compact icon.
+Window tabs show a colored age since the last agent action or page interaction (mouse movement, clicking, scrolling, or typing): `jn` for under a minute, then `13m`, `2h`, or `3d`. Ages update while idle: green under an hour, amber under a day, and red from one day onward. Opening, selecting, or focusing a window does not reset its activity age. Hover the age for the full activity time; the sessions picker retains separate last-visit times. Pinned windows keep their compact icon.
 
 Right-click a status bar tab and choose **Pin Window** to keep it on the left as an icon. Choose **Unpin Window** to restore its label after the pinned windows. Pins persist with the session, and window movement stays within the pinned or regular group. The shortcut action is `toggle-window-pin`.
 

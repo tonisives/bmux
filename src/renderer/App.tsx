@@ -11,7 +11,7 @@ import { usePanelStack } from './usePanelStack'
 import { PanelBackContext, PanelHeader } from './PanelHeader'
 import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
-import { activityAge, activityLabel, compactActivityLabel, windowVisitTime } from '../shared/pane-activity'
+import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
 import { paneAgents } from '../shared/pane-agents'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
@@ -671,7 +671,7 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let characters = Array.from(window.name)
   let name = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
   let label = `${index}:${name}${active ? '*' : ''}`
-  let visitedAt = windowVisitTime(window)
+  let visitedAt = windowActivityTime(window)
   let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
   let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
   let tooltipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -698,7 +698,7 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable>
       <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
-      {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
+      {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
     {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
     {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}

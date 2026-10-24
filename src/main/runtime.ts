@@ -387,7 +387,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>, pane: Pane) => {
     if (currentPane(actor.paneId) !== pane) return
-    pane.lastUsedBy = 'agent'; save()
+    pane.lastUsedBy = 'agent'; pane.lastActivityAt = Date.now(); save()
     recordSessionActivity(actor.paneId)
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
@@ -1215,7 +1215,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       save()
     }
     contents.on('before-input-event', (_event, input) => { if (input.type === 'keyDown') recordActivity() })
-    contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseWheel') recordActivity() })
+    contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseWheel' || input.type === 'mouseMove' && (input.movementX || input.movementY)) recordActivity() })
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
       // Bootstrap and new-window blanks must never become a Back destination.
@@ -2149,7 +2149,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     validateAgentInfo(args)
     if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to'].includes(method)) {
       automatedNavigations.delete(args.tab)
-      paneById(model, args.tab).pane.lastUsedBy = 'human'
+      let pane = paneById(model, args.tab).pane
+      pane.lastUsedBy = 'human'; pane.lastActivityAt = Date.now()
       save()
     }
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
