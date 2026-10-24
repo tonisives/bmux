@@ -412,7 +412,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.keyboard.press('y')
       await expect(picker.getByRole('button', { name: /^uncontrolled(?: |$)/ })).toHaveCount(0)
       await expect.poll(async () => (await command('status')).model.sessions.some((session: { id: string }) => session.id === other.id)).toBe(false)
-      await expect(lastActive).toBeFocused()
+      await expect(picker.locator('[data-remote-tree]:has([data-session-target] [aria-current="true"]) [data-remote-pane] [data-session-row]').last()).toBeFocused()
       await local.keyboard.press('Escape')
       let disposable = await command('new-session', '-s', 'close-from-viewer')
       await local.getByRole('button', { name: 'Sessions', exact: true }).click()
