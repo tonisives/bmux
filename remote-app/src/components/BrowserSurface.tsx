@@ -3,7 +3,7 @@ import { ActivityIndicator, PanResponder, StyleSheet, Text, View } from 'react-n
 import type { ViewProps, GestureResponderEvent } from 'react-native'
 import { Video } from './Video'
 import { colors } from '../theme'
-import { contentRect, identityTransform, pagePoint } from '../viewport'
+import { contentRect, identityTransform, pagePoint, pinchTransform } from '../viewport'
 import type { Frame, Transform } from '../viewport'
 import type { Viewport } from '../types'
 
@@ -55,10 +55,11 @@ export let BrowserSurface = ({ stream, viewport, controlling, busy, input, frame
         if (active.dragged) { cancel(); active.dragged = false; gesture.current = active }
         let a = touches[0], b = touches[1]
         let distance = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY)
-        let center = { x: (a.pageX + b.pageX) / 2, y: (a.pageY + b.pageY) / 2 }
+        if (distance === 0) return
+        let center = { x: (a.locationX + b.locationX) / 2, y: (a.locationY + b.locationY) / 2 }
         if (!active.distance) { active.distance = distance; active.center = center; active.transform = value.transform }
         active.moved = true
-        setTransform({ zoom: Math.max(1, Math.min(5, active.transform.zoom * distance / active.distance)), x: active.transform.x + center.x - active.center!.x, y: active.transform.y + center.y - active.center!.y })
+        setTransform(pinchTransform(value.frame, active.transform, active.center!, center, distance / active.distance))
         return
       }
       if (active.distance) return

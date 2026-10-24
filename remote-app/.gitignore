@@ -4,6 +4,7 @@ dist/
 ios/
 android/
 .env
+ios-build.log
 .env.*
 !.env.example
 *.tsbuildinfo

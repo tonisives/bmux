@@ -50,6 +50,9 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm exec expo prebuild --platform android --no-install
@@ -67,6 +70,9 @@ jobs:
         working-directory: remote-app
     steps:
       - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
       - uses: pnpm/action-setup@v4
         with:
           version: 11.18.0
