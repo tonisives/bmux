@@ -612,6 +612,76 @@ test('files and local sites bypass paused website automation and never show anti
   }
 })
 
+test('alert agents keep their focus target after another agent uses the pane and after restart', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-alert-agent-focus-'))
+  let marker = path.join(directory, 'focused.json')
+  let server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html')
+    response.end('<!doctype html><title>Agent focus</title><main>Agent focus fixture</main><h1>Verify you are human</h1>')
+  })
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    let url = `http://one.example.com:${(server.address() as { port: number }).port}/fixture`
+    let origin = { type: 'tmux', paneId: '%26', panePid: '12345' }
+    let data = { sessionId: '$7', windowId: '@116', paneId: '%26' }
+    let focusCommand = `node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_PANE_ID, JSON.parse(process.env.BMUX_AGENT_ORIGIN)]))' "${marker}"`
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { sessionId: { label: 'Terminal session', type: 'session' }, windowId: { label: 'Terminal window', type: 'window' }, paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand } } } } }))
+    let launch = () => electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await launch()
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let state = () => chrome.evaluate(() => (window as any).bmux.state())
+    let initial = await state(), pane = initial.model.clients.find((client: { id: string }) => client.id === initial.clientId).paneId
+    let cli = async (args: Record<string, unknown>) => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'dom', JSON.stringify({ pane, ...args })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: undefined, BMUX_AGENT_TYPE: undefined, BMUX_AGENT_DATA: undefined }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
+      return JSON.parse(result.stdout)
+    }
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.fill(''); await address.pressSequentially(url)
+    await expect(address).toHaveValue(url)
+    await address.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === url)).toBe(true)
+    let page = application.context().pages().find(page => page.url() === url)!
+    await expect(page.getByRole('heading')).toHaveText('Verify you are human')
+    expect(await cli({ agentId: 'original', agentName: 'Original agent', agentType: 'terminal', agentData: data, agentOrigin: origin })).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
+    await page.getByRole('heading').evaluate(element => element.remove())
+    await expect(page.getByRole('main')).toHaveText('Agent focus fixture')
+    let alert = () => chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation paused' })
+    await alert().getByRole('button', { name: 'Agent information', exact: true }).click()
+    let dialog = () => chrome.getByRole('dialog', { name: 'Agent information', exact: true })
+    await expect(dialog()).toContainText('Original agent')
+    expect(await cli({ agentId: 'replacement' })).toMatchObject({ ok: false, error: expect.stringContaining('Automation paused') })
+    for (let restored of [false, true]) {
+      if (restored) {
+        await closeTestApplication(application)
+        application = undefined
+        application = await launch()
+        await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+        chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+        await alert().getByRole('button', { name: 'Agent information', exact: true }).click()
+      }
+      let current = await state()
+      expect(current.model.sessions.flatMap((session: any) => session.windows.flatMap((window: any) => window.panes)).find((item: any) => item.id === pane).agentId).toBe('replacement')
+      await expect(dialog()).toContainText('Original agent')
+      await dialog().getByRole('button', { name: 'Focus agent', exact: true }).click()
+      await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['original', '%26', origin])
+      await expect(chrome.getByLabel('Notifications')).not.toContainText('has changed; reopen')
+      await fs.rm(marker)
+      let changedOrigin = await chrome.evaluate(args => (window as any).bmux.command({ method: 'agent.focus', args }).then(() => '').catch((error: Error) => error.message), { pane, agentId: 'original', agentOrigin: { ...origin, panePid: '99999' } })
+      expect(changedOrigin).toContain('agent terminal in this browser pane has changed')
+      await expect(fs.stat(marker)).rejects.toThrow()
+    }
+    let unknown = await chrome.evaluate(args => (window as any).bmux.command({ method: 'agent.focus', args }).then(() => '').catch((error: Error) => error.message), { pane, agentId: 'unknown' })
+    expect(unknown).toContain('agent in this browser pane has changed')
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('agent identity is required by default, typed context can focus its terminal, and the requirement can be disabled', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-identity-'))
   let marker = path.join(directory, 'focused.json')

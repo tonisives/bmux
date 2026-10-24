@@ -131,6 +131,8 @@ known context when BMUX restarts.
 
 **Focus agent** runs the selected type's `focusCommand`. It receives
 `BMUX_AGENT_ID`, `BMUX_AGENT_TYPE`, `BMUX_AGENT_DATA`, and `BMUX_AGENT_ORIGIN`.
+An automation alert keeps its recorded agent as the focus target when another
+agent later uses the same browser pane, including after a browser restart.
 Fields typed `session`, `window`, or `pane` also become
 `BMUX_AGENT_SESSION_ID`, `BMUX_AGENT_WINDOW_ID`, or `BMUX_AGENT_PANE_ID`.
 Text fields become `BMUX_AGENT_FIELD_<UPPER_SNAKE_CASE_NAME>`.
