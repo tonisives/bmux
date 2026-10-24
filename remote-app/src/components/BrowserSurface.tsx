@@ -4,6 +4,7 @@ import type { ViewProps, GestureResponderEvent } from 'react-native'
 import { Video } from './Video'
 import { colors } from '../theme'
 import { contentRect, identityTransform, pagePoint, pinchTransform } from '../viewport'
+import { createPointerDrag } from '../pointer-drag'
 import type { Frame, Transform } from '../viewport'
 import type { Viewport } from '../types'
 
@@ -19,34 +20,39 @@ export let BrowserSurface = ({ stream, viewport, controlling, busy, input, frame
     let value = current.current
     if (value.controlling && value.viewport?.generation === generation) value.input(event, generation)
   }
+  let pointer = useMemo(() => createPointerDrag(emit), [])
   let cancel = () => {
     let active = gesture.current
     if (!active) return
     clearTimeout(active.timer)
-    if (active.dragged && current.current.viewport) {
-      let point = pagePoint({ x: active.lastX, y: active.lastY }, current.current.frame, current.current.viewport, current.current.transform)
-      if (point) emit({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 }, active.generation)
-    }
+    pointer.end()
     gesture.current = undefined
   }
-  useEffect(() => { cancel(); setTransform(identityTransform) }, [viewport?.generation, controlling, stream])
+  useEffect(() => { cancel() }, [viewport?.generation, controlling, stream, frame.width, frame.height])
+  useEffect(() => { setTransform(identityTransform) }, [viewport?.generation, stream, frame.width, frame.height])
   useEffect(() => () => cancel(), [])
   let responder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (event: GestureResponderEvent) => {
+      event.preventDefault()
       cancel()
       let value = current.current
       let touch = event.nativeEvent
       let active = { x: touch.locationX, y: touch.locationY, lastX: touch.locationX, lastY: touch.locationY, generation: value.viewport?.generation ?? 0, dragged: false, moved: false, transform: value.transform } as NonNullable<typeof gesture.current>
       gesture.current = active
-      if (value.controlling && value.viewport && event.nativeEvent.touches.length < 2) active.timer = setTimeout(() => {
+      let startDrag = () => {
         if (gesture.current !== active || active.moved || !current.current.viewport) return
         let point = pagePoint({ x: active.x, y: active.y }, value.frame, value.viewport!, value.transform)
-        if (point) { active.dragged = true; emit({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 }, active.generation) }
-      }, 450)
+        if (point) { active.dragged = true; pointer.start(point, active.generation) }
+      }
+      if (value.controlling && value.viewport && event.nativeEvent.touches.length < 2) {
+        if ((event.nativeEvent as typeof event.nativeEvent & { type?: string }).type === 'mousedown') startDrag()
+        else active.timer = setTimeout(startDrag, 450)
+      }
     },
     onPanResponderMove: event => {
+      event.preventDefault()
       let active = gesture.current, value = current.current
       if (!active || !value.viewport) return
       let touches = event.nativeEvent.touches as unknown as Touch[]
@@ -69,7 +75,7 @@ export let BrowserSurface = ({ stream, viewport, controlling, busy, input, frame
       else if (active.moved || active.dragged) {
         let point = pagePoint({ x, y }, value.frame, value.viewport, value.transform)
         if (point) {
-          if (active.dragged) emit({ type: 'mouseMove', ...point, button: 'left' }, active.generation)
+          if (active.dragged) pointer.move(point)
           else {
             let rect = contentRect(value.frame, value.viewport)
             emit({ type: 'mouseWheel', ...point, deltaX: (active.lastX - x) / (rect.scale * value.transform.zoom), deltaY: (active.lastY - y) / (rect.scale * value.transform.zoom) }, active.generation)
