@@ -3,13 +3,15 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import type { Attention, Host } from '../types'
 import { attentionDetails, pendingAttention } from '../attention-presentation'
+import { useCompactHeight } from '../useSplitView'
 import { colors, radius, styles } from '../theme'
 import { Button } from './Button'
 
 export let AttentionSummary = ({ items, hosts, open, showAll }: { items: Attention[]; hosts: Host[]; open: (id: string) => void; showAll: () => void }) => {
+  let compact = useCompactHeight()
   let pending = pendingAttention(items)
   let item = pending[0]
-  if (!item) return null
+  if (!item || compact) return null
   let details = attentionDetails(item, hosts)
   return <View style={local.summary}>
     <View style={local.summaryHeading} accessibilityLiveRegion="polite"><Ionicons name={item.status === 'verifying' ? 'hourglass-outline' : 'hand-left-outline'} size={19} color={colors.warning} /><Text style={local.summaryTitle}>{pending.length === 1 ? item.status === 'verifying' ? 'Checking the result' : details.title : pending.length + ' requests need attention'}</Text></View>
