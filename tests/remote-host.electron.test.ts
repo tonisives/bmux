@@ -409,6 +409,16 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       expect((await command('status')).model.clients.find((client: { id: string }) => client.id === attachedClient.id).sessionId).toBe(status.model.sessions[0].id)
     },{timeout:40000})
     await test.step('Close hosted sessions from the desktop list and native status bar', async () => {
+      let focusControls = () => test.step('Focus the native controls after attaching the remote view', async () => {
+        let id = (await command('rpc', 'diagnostics', '{}')).windows.find((window: { id: string }) => window.id === attachedClient.id).nativeId
+        await focusWindow(id, 'remote session controls')
+        let contents = await application!.evaluate(({ BaseWindow }, { id, url }) => {
+          let view = BaseWindow.fromId(id)!.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url) as Electron.WebContentsView
+          setImmediate(() => view.webContents.focus())
+          return view.webContents.id
+        }, { id, url: local.url() })
+        await expect.poll(() => application!.evaluate(({ webContents }, id) => webContents.fromId(id)?.isFocused(), contents)).toBe(true)
+      })
       await focusWindow((await command('rpc', 'diagnostics', '{}')).windows.find((window: { id: string }) => window.id === attachedClient.id).nativeId, 'desktop session list')
       await local.getByRole('button', { name: 'Sessions', exact: true }).click()
       let picker = local.getByRole('group', { name: 'Choose remote session', exact: true })
@@ -439,6 +449,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(disposableRow).toBeVisible({ timeout: 10000 })
       await disposableRow.click()
       await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeEnabled({ timeout: 25000 })
+      await focusControls()
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       await local.getByRole('button', { name: 'Sessions', exact: true }).click()
@@ -456,6 +467,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.keyboard.press('Escape')
       await expect(local.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${fixtureUrl}/?remaining-page=1`, { timeout: 15000 })
       await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeEnabled({ timeout: 15000 })
+      await focusControls()
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       await local.getByRole('button', { name: 'Close session', exact: true }).click()
