@@ -7,6 +7,8 @@ import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { parseDocument } from 'yaml'
+import { defaultConfigText } from '../src/main/config'
 import { initialModel, newWindow, walkPanes } from '../src/main/model'
 import { writeModel } from '../src/main/store'
 import { closeTestApplication } from './electron-fixture'
@@ -36,7 +38,10 @@ let fixture = async (lazyRestore = true) => {
   }
   let first = add('first'), sibling = add('sibling'), kept = add('kept', bot.id, true), guard = add('guard', 'profile_guard')
   writeModel(directory, model)
-  await fs.writeFile(path.join(directory, 'config.yaml'), `browser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: ${lazyRestore}\n`)
+  let configuration = parseDocument(defaultConfigText())
+  configuration.setIn(['memory', 'lazyRestore'], lazyRestore)
+  configuration.set('browser', { autoUpdateFilters: false })
+  await fs.writeFile(path.join(directory, 'config.yaml'), configuration.toString())
   let application: ElectronApplication | undefined, child: ChildProcess | undefined
   let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
   // Address only the disposable application's socket; the CLI's auto-start fallback is unnecessary.
@@ -59,6 +64,9 @@ let fixture = async (lazyRestore = true) => {
     application = await electron.launch({ args: [process.cwd(), ...(background ? ['--background'] : []), '--host-resolver-rules=MAP restore.bmux.org 127.0.0.1', '--no-proxy-server'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: background ? '1' : '0', BROWMUX_BACKGROUND: '0', BMUX_LAZY_RESTORE_BACKGROUND: optIn ?? '', BMUX_REMOTE_CONFIG: '', BMUX_REQUIRED_PROXY: '' } })
     child = application.process()
     await expect.poll(() => rpc('diagnostics').then(value => value.pid).catch(() => null), { timeout: 20000 }).toBe(child.pid)
+    let state = await rpc('state')
+    expect(state.configError).toBeNull()
+    expect(state.memory.lazyRestore).toBe(lazyRestore)
     return application
   }
   let stop = async () => {
