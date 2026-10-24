@@ -78,11 +78,11 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     ensureLedger()
     let value = usage[usageKey(profileId, url)]
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning && automationWarningEnabled(options.settings(), profileId, item.warningHost!, now(), paneId))
-    if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Anti-bot to resolve, resume, or exclude this website`)
+    if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Bot to resolve, resume, or exclude this website`)
     if (value && now() >= sessionEnd(value) && !rested(value)) {
       if (!reachedLimit(value)) { value.limitReachedAt = now(); persist() }
       else options.changed?.()
-      throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(profileId, value)).toISOString()}. Open the UI alert or Profile > Anti-bot to reset the session`)
+      throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(profileId, value)).toISOString()}. Open the UI alert or Profile > Bot to reset the session`)
     }
   }
   let actorsFor = (value: Usage, actor: AutomationActor, url?: string) => {

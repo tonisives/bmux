@@ -36,7 +36,7 @@ import { readsPage, withAgentReading } from './agent-reading'
 import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
 import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
 import { createAgentInputLock, scheduleAgentInputUnlock } from './agent-input-lock'
-import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback } from '../shared/agent-feedback'
+import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback, resolveAgentFeedback } from '../shared/agent-feedback'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import { agentCommandLabel } from './agent-command-feedback'
 import { movePointer } from './pointer'
@@ -365,7 +365,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let agentFeedback = () => configuration?.agentFeedback ?? DEFAULT_AGENT_FEEDBACK
-  let virtualMouse = createVirtualMouse(undefined, undefined, agentFeedback)
+  let virtualMouse = createVirtualMouse(undefined, undefined, paneId => resolveAgentFeedback(agentFeedback(), currentPane(paneId)?.profileId))
   let agentActions = createAgentActions(undefined, undefined, agentFeedback)
   let agentUnlockTimers = new Map<string, () => void>()
   let agentInputLocked = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < agentFeedback().inputUnlockMs) }
@@ -936,7 +936,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         try {
           let debuggerApi = live.contents.debugger
           if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-          void virtualMouse.configure((method, params) => debuggerApi.sendCommand(method, params)).catch(() => undefined)
+          void virtualMouse.configure(paneId, (method, params) => debuggerApi.sendCommand(method, params)).catch(() => undefined)
         } catch { /* A closing page will use the settings when it is recreated. */ }
       }
     }
@@ -2229,21 +2229,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'automation.status') return automation?.status() ?? []
     if (method === 'automation.safety') return automationSafety?.status()
     if (method === 'pane.anti-bot.set') {
-      if (!sourceClientId) throw new Error('Change pane anti-bot protection in the bmux UI')
+      if (!sourceClientId) throw new Error('Change pane bot protection in the bmux UI')
       let { pane } = paneById(model, required(args, 'pane'))
       if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
       configuration?.update(['automation', 'safety', 'panes', pane.id], args.enabled)
       return { enabled: args.enabled }
     }
     if (method === 'automation.safety.set') {
-      if (!sourceClientId) throw new Error('Change anti-bot limits in the bmux UI')
+      if (!sourceClientId) throw new Error('Change bot limits in the bmux UI')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       let value = args.key === 'simulateMouseMovement' ? (() => { if (typeof args.value !== 'boolean') throw new Error('simulateMouseMovement must be true or false'); return args.value })() : updateAutomationSafetyLimit(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, args.key, args.value)
       configuration?.update(['automation', 'safety', 'profileLimits', profile.id, String(args.key)], value)
       return { value }
     }
     if (method === 'profile.anti-bot.set') {
-      if (!sourceClientId) throw new Error('Change anti-bot protection in the profile view')
+      if (!sourceClientId) throw new Error('Change bot protection in the profile view')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       if (typeof args.enabled !== 'boolean') throw new Error('enabled must be true or false')
       configuration?.update(['automation', 'safety', 'profiles', profile.id], args.enabled)
@@ -2260,12 +2260,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return { exclusion }
     }
     if (method === 'automation.reset-all-sessions') {
-      if (!sourceClientId) throw new Error('Reset anti-bot sessions in the bmux UI')
+      if (!sourceClientId) throw new Error('Reset bot sessions in the bmux UI')
       for (let profileId of new Set((automationSafety?.status().profiles ?? []).map(profile => profile.profileId))) automationSafety?.resetSession(profileId)
       return { reset: true }
     }
     if (method === 'automation.reset-session') {
-      if (!sourceClientId) throw new Error('Reset the automation session in the bmux UI alert or Profile > Anti-bot')
+      if (!sourceClientId) throw new Error('Reset the automation session in the bmux UI alert or Profile > Bot')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
       return automationSafety?.resetSession(profile.id, typeof args.host === 'string' ? args.host : undefined)
     }

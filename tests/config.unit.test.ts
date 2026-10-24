@@ -256,6 +256,7 @@ it('supports modified prefix bindings without losing literal punctuation or shif
 
 it('validates cursor settings and atomically saves multiple fields while preserving user edits', () => {
   expect(parseConfig('keyboard: {}').agentFeedback).toEqual(DEFAULT_AGENT_FEEDBACK)
+  expect(parseConfig('keyboard: {}\nagentFeedback: {color: profile}').agentFeedback.color).toBe('profile')
   expect(parseConfig('keyboard: {}\nagentFeedback: {color: "#ABCDEF", cursorHideMs: 0, inputUnlockMs: 0, actionDelayMinMs: 0, actionDelayMaxMs: 0}').agentFeedback).toMatchObject({ color: '#abcdef', cursorHideMs: 0, inputUnlockMs: 0, actionDelayMaxMs: 0 })
   for (let settings of ['cursorSize: 0', 'color: pink', 'haloDurationMs: -1', 'trailWidth: 1.5', 'unknown: 1', 'inputUnlockMs: 600001', 'actionDelayMinMs: 1300']) expect(() => parseConfig(`keyboard: {}\nagentFeedback: {${settings}}`)).toThrow()
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-feedback-config-')), file = path.join(directory, 'config.yaml')

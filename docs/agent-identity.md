@@ -103,7 +103,7 @@ automation:
         focusCommand: /absolute/path/to/bmux/scripts/focus-tmux-agent.sh
 ```
 
-Config changes reload live. The agent settings UI controls `requireId` and
+Config changes reload live. The Bot settings UI controls `requireId` and
 `requireType`; definitions and focus commands live in the config file.
 Required fields are checked whenever their type is supplied, even when
 `requireType` is off. With `requireType` on, the type must be configured.
@@ -150,7 +150,8 @@ See [Browser automation](agent.md) for browser commands and protection settings.
 
 ## Cursor and timing
 
-Open a pane's **Active agent** indicator, choose **Agent settings**, then
+Open **Profile > Bot** and expand **Cursor and timing**, or use a pane's
+**Active agent** indicator, choose **Bot settings**, then
 **Cursor and timing**. Appearance controls include color, size, idle rotation,
 click halo, and movement trail. The Timing tab sets animation durations, cursor
 hide time, command-label duration, page unlock time, and the minimum/maximum
@@ -161,7 +162,7 @@ These settings also reload live from `~/.config/bmux/config.yaml`:
 
 ```yaml
 agentFeedback:
-  color: "#f3a0cb"
+  color: profile
   cursorSize: 24
   idleRotationDegrees: 12
   idleRotationMs: 3600
@@ -176,7 +177,10 @@ agentFeedback:
   actionDelayMaxMs: 1200
 ```
 
-Sizes are pixels, rotation is degrees, and config durations are milliseconds.
+Cursor color defaults to `profile`, using the same color as each pane’s profile
+icon. Choose **Custom** to use a six-digit hex color across all profiles. Existing
+custom colors are preserved. Sizes are pixels, rotation is degrees, and config
+durations are milliseconds.
 A zero cursor hide time keeps the cursor visible until manually hidden. Zero
 rotation, halo size/duration, trail width/fade, or command duration disables that
 effect. Page unlock time starts after commands finish; pending commands retain
