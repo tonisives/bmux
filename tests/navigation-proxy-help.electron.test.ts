@@ -21,12 +21,13 @@ test('failed proxied panes explain local routes, retain their connection and cle
   try {
     await Promise.all([new Promise<void>(resolve => destination.listen(0, '127.0.0.1', resolve)), new Promise<void>(resolve => proxy.listen(0, '127.0.0.1', resolve))])
     let origin = `http://127.0.0.1:${(destination.address() as { port: number }).port}`
-    await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+    await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
     application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_PROXY_TEST_URL: `${origin}/ip` } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await chrome.evaluate(() => (window as any).bmux.state()), profile = state.model.profiles[0], session = state.model.sessions[0], direct = session.windows[0].panes[0]
+    expect(state.configError).toBeNull()
     await command('activate-client', { client: state.clientId })
     await command('profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: (proxy.address() as { port: number }).port, authenticated: false })
     let createdWindow = await command('new-window', { session: session.id, profile: profile.id, client: state.clientId })
@@ -57,6 +58,7 @@ test('failed proxied panes explain local routes, retain their connection and cle
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith(`#float=${pane.id}`))).toBe(true)
     let floating = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
     await expect(floating.getByRole('note', { name: 'Proxy connection help' })).toContainText('If unresolved.custom-domain.test is a local app')
+    await floating.screenshot({ path: info.outputPath('proxy-floating-help.png') })
     let address = floating.getByRole('textbox', { name: 'Address', exact: true })
     await address.fill(`${origin}/recovered`); await address.press('Enter')
     await expect.poll(() => command('eval', { pane: pane.id, expression: 'document.querySelector("main")?.textContent' })).toBe('Connection help fixture')
