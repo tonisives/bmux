@@ -327,6 +327,7 @@ test('automation and permission notices identify agent panes while personal brow
     await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(first.id)
     await alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true }).click({ position: { x: 2, y: 2 } })
     await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(second.id)
+    await expect(chrome.locator(`[data-pane-id="${second.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     await chrome.getByRole('group', { name: 'Bot settings', exact: true }).getByRole('button', { name: 'Bot settings', exact: true }).click()
     await chrome.getByRole('dialog', { name: 'Bot settings', exact: true }).getByRole('button', { name: 'default', exact: true }).click()
     await expect(antiBot).toContainText('Agent %46')
