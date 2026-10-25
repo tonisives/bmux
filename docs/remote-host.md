@@ -219,10 +219,10 @@ Watch reports a host rejection or timeout instead of showing an idle video area.
 
 Open the **Sessions** popup, then select **Remote** in its title bar. The
 popup remembers the selected tab. Sign-in and remote viewing reuse the current
-bmux window. Selecting a remote session replaces its tab strip and address bar
-with the remote pages and URL. The status bar offers **Take control**, **Release
-control**, **Close session**, and **Disconnect**. Navigation buttons, URL entry, and tab switching
-operate on the remote session; switching its tabs keeps your control lease.
+bmux window. Selecting a remote session shows its host windows, splits and floating
+panes with the same status bar as Local. Each pane header offers **Take control**,
+**Release control**, **Close session**, and **Disconnect**. Navigation buttons and
+URL entry operate on the remote pane; switching windows keeps your control lease.
 
 The remote list shows session and service names with the host's last used
 time. Hosts persist agent browser use and remote input, and advertise the latest
@@ -230,10 +230,10 @@ of that activity and local window visits. Watching, listing sessions, and lease
 renewal leave the timestamp unchanged. Returning to the list highlights and focuses the last opened session,
 including after restarting the app. Use the local Sessions navigation: j/k,
 counts, G, / to search, and x to close. Press g to open Relay. The close button and x ask for yes/no
-confirmation. Page rows also have a close button and support x with their own
-confirmation. Closing the final page ends its session. Page closing requires
-an updated host; older hosts report this immediately. Control access can close a hosted session from the list without
-opening its video, or from the viewer's status bar. Closing ends that hosted
+confirmation. Workspace window rows select host windows without editing their
+structure. Legacy hosts retain their page rows and page-close confirmation.
+Control access can close a hosted session from the list without
+opening its video, or from a pane header. Closing ends that hosted
 session and its control lease; Disconnect keeps it running. Hosts must run a
 version supporting remote session closing and activity metadata. An older host
 returns an update-required message before a close request is sent. The list uses
@@ -255,10 +255,10 @@ the selected session's latest images in any mode. These preferences also live in
 `remotePreviews.updates` (`missing`, `open`, or `manual`) and
 `remotePreviews.saveLocally` in `config.yaml`.
 
-The Local and Remote tabs share a session tree. Remote services contain sessions,
-and each session contains its pages. A page row opens that page directly in the
-existing viewer. The viewer retains every page as a status tab during switches,
-shows host activity ages, and keeps icon controls inside the status bar.
+The Local and Remote tabs share a session tree. Remote machines contain sessions,
+and each session contains its numbered windows. A window row opens that window
+in the existing viewer. The status bar retains the host's window numbers while
+pane headers keep connection and control actions beside their page.
 
 Small streams are centered in the page area. Larger streams have scrollbars.
 Disconnect leaves the hosted session running and returns to the remaining local
