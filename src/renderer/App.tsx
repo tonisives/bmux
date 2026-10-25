@@ -146,7 +146,8 @@ export let App = () => {
   let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
-  useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, run)
+  let keepPages = panel === 'profiles' && !sessionsBehind && !state?.pluginPrompt
+  useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, keepPages, run)
   useControlDismiss(control, state?.pluginPrompt ? dismiss : panelBack?.run ?? dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
@@ -164,7 +165,7 @@ export let App = () => {
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
   let context = { panelBack, settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
-  return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
+  return <Context.Provider value={context}><div className={css.app} data-page-overlay={!!state.dialogPrompt || keepPages || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
     {notices.length > 0 && <Notifications notices={notices} collapseAlerts={collapseAlerts} />}
@@ -191,7 +192,7 @@ let usePanelHistory = (current: PanelLocation, restore: (parent: PanelLocation) 
   return { panelBack, location, setPanelHistory, sessionsBehind: history.some(parent => parent.control === 'sessions'), closeToSessions: history.at(-1)?.control === 'sessions' }
 }
 
-let useOverlayFocus = (state: PublicState | null, control: Control | null, panel: Control | null, historyPopup: HistoryPopup | null, addressSuggestionsVisible: boolean, run: UIContext['run']) => {
+let useOverlayFocus = (state: PublicState | null, control: Control | null, panel: Control | null, historyPopup: HistoryPopup | null, addressSuggestionsVisible: boolean, keepPages: boolean, run: UIContext['run']) => {
   let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false), previousPluginPrompt = useRef(false)
   useEffect(() => {
     if (!state?.clientId) return
@@ -201,11 +202,11 @@ let useOverlayFocus = (state: PublicState | null, control: Control | null, panel
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!state.pluginPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible) }).then(() => {
+    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!state.pluginPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible), keepPages }).then(() => {
       if (!cancelled && !control && !state.dialogPrompt && !state.pluginPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, state?.pluginPrompt?.id, run])
+  }, [panel, control, historyPopup, addressSuggestionsVisible, keepPages, state?.clientId, state?.dialogPrompt?.id, state?.pluginPrompt?.id, run])
 }
 
 let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notification[]; expandAlerts: () => void }) => {

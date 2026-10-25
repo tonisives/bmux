@@ -6,7 +6,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
-import { stringify } from 'yaml'
+import { parse, stringify } from 'yaml'
 import { Server as ProxyServer } from 'proxy-chain'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -91,6 +91,11 @@ test.beforeAll(async () => {
       let respond = () => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ ip: '203.0.113.9', city: 'Amsterdam', region: 'North Holland', country: 'Netherlands' })) }
       if (holdProxyTest) pendingProxyTest = respond
       else respond()
+      return
+    }
+    if (request.url?.includes('/profile-split-')) {
+      response.writeHead(200, { 'Content-Type': 'text/html' })
+      response.end('<!doctype html><title>Split page fixture</title><style>html{background:#234567}body{height:2400px}aside{position:fixed;inset:0 0 0 auto;width:20px;background:#60c080}</style><h1>Split page fixture</h1><aside></aside>')
       return
     }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>')
@@ -678,6 +683,105 @@ test('profile Pane settings keeps only the selected pane loaded and reflects sav
     await chrome.keyboard.press('Escape')
     await rpc('pane.keep-alive', { pane: pane.id, enabled: false })
     await rpc('kill-pane', { pane: sibling.id, confirm: true })
+  }
+})
+
+test('profile settings keep split pages attached without changing their viewports', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
+  let original = client.paneId, siblings: string[] = []
+  let nativeBounds = () => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children.flatMap(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().startsWith(`${url}/profile-split`) ? [view.getBounds()] : [])), url)
+  let paneBounds = () => chrome.locator('[data-pane-content]').evaluateAll(elements => elements.map(element => { let { x, y, width, height } = element.getBoundingClientRect(); return { x, y, width, height } }))
+  try {
+    await rpc('navigate', { pane: original, url: `${url}/profile-split-0` })
+    let right = await rpc('split-window', { pane: original, client: client.id, url: `${url}/profile-split-2` }) as { id: string }
+    siblings.push(right.id)
+    for (let [pane, suffix] of [[original, '1'], [right.id, '3']]) {
+      let sibling = await rpc('split-window', { pane, client: client.id, url: `${url}/profile-split-${suffix}` }) as { id: string }
+      siblings.push(sibling.id)
+    }
+    await rpc('select-pane', { pane: original, client: client.id })
+    await expect.poll(async () => (await nativeBounds()).length).toBe(4)
+    let before = await paneBounds()
+    await expect.poll(async () => (await nativeBounds()).map(bounds => bounds.width)).toEqual(before.map(bounds => Math.round(bounds.width)))
+    for (let pane of [original, ...siblings]) {
+      await rpc('eval', { pane, expression: 'window.scrollTo(0, 180)' })
+      await rpc('wait', { pane, expression: 'scrollY === 180', timeout: 5000 })
+    }
+    let viewports = await Promise.all([original, ...siblings].map(pane => rpc('eval', { pane, expression: '({ width: innerWidth, height: innerHeight, scrollX, scrollY })' })))
+    let profile = current.model.profiles.find((item: any) => item.id === current.model.sessions.flatMap((session: any) => session.windows).flatMap((window: any) => window.panes).find((pane: any) => pane.id === original).profileId)!
+    let panel = await openProfilePanel(profile.name)
+    await expect.poll(async () => (await nativeBounds()).map(bounds => bounds.width)).toEqual(before.map(bounds => Math.round(bounds.width)))
+    await expect.poll(paneBounds).toEqual(before)
+    let windowInfo = JSON.parse((await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).find(window => window.kCGWindowOwnerPID === ${application.process().pid} && window.kCGWindowLayer === 0));`])).stdout)
+    let screenshotPath = test.info().outputPath('profile-split-pages.png')
+    await expect(async () => {
+      await promisify(execFile)('/usr/sbin/screencapture', ['-x', '-o', '-l', String(windowInfo.kCGWindowNumber), screenshotPath])
+      let colors = await application.evaluate(({ BaseWindow, nativeImage }, { screenshotPath, before, windowBounds }) => {
+        let image = nativeImage.createFromPath(screenshotPath), size = image.getSize(), pixels = image.toBitmap(), scale = size.width / windowBounds.Width
+        let origin = BaseWindow.getAllWindows().find(window => window.isVisible())!.getContentBounds()
+        return before.map(bounds => [8, bounds.width - 8].map(x => {
+          let offset = (Math.floor((origin.y + bounds.y + bounds.height - 8 - windowBounds.Y) * scale) * size.width + Math.floor((origin.x + bounds.x + x - windowBounds.X) * scale)) * 4
+          return [pixels[offset + 2], pixels[offset + 1], pixels[offset]]
+        }))
+      }, { screenshotPath, before, windowBounds: windowInfo.kCGWindowBounds })
+      // The dialog shade dims both the full-width page and its fixed right edge.
+      for (let [left, right] of colors) {
+        for (let [channel, expected] of [18, 31, 46].entries()) expect(Math.abs(left[channel] - expected)).toBeLessThanOrEqual(2)
+        for (let [channel, expected] of [39, 73, 54].entries()) expect(Math.abs(right[channel] - expected)).toBeLessThanOrEqual(2)
+      }
+    }).toPass({ timeout: 10000 })
+    await expect(panel.getByRole('tab', { name: 'Overview', exact: true })).toBeVisible()
+    await panel.getByRole('tab', { name: 'Pane', exact: true }).click()
+    await expect(panel.getByRole('switch', { name: 'Keep Page Loaded', exact: true })).toBeVisible()
+    expect(await Promise.all([original, ...siblings].map(pane => rpc('eval', { pane, expression: '({ width: innerWidth, height: innerHeight, scrollX, scrollY })' })))).toEqual(viewports)
+    await panel.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect.poll(async () => (await nativeBounds()).map(bounds => bounds.width)).toEqual(before.map(bounds => Math.round(bounds.width)))
+    await expect.poll(paneBounds).toEqual(before)
+  } finally {
+    await chrome.keyboard.press('Escape')
+    for (let pane of siblings.reverse()) await rpc('kill-pane', { pane, confirm: true })
+    await rpc('select-pane', { pane: original, client: client.id })
+    await rpc('navigate', { pane: original, url })
+  }
+})
+
+test('prefix split shortcuts reveal new panes while the current pane is zoomed', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
+  let originalConfig = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8'), config = parse(originalConfig)
+  let original = client.paneId, created: string[] = []
+  let selected = async () => (await state()).model.clients.find((item: any) => item.id === client.id)!
+  try {
+    config.keyboard.prefixBindings = { ...config.keyboard.prefixBindings, v: 'split-right', s: 'split-down' }
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(config))
+    await expect.poll(async () => (await state()).keyboard.prefixBindings.v).toBe('split-right')
+    for (let [key, axis] of [['v', 'horizontal'], ['s', 'vertical']]) {
+      await rpc('select-pane', { pane: original, client: client.id })
+      await rpc('toggle-pane-zoom', { client: client.id })
+      await expect(chrome.locator('[data-pane-id]')).toHaveCount(1)
+      await activate(); await rpc('focus-page', { client: client.id })
+      await sendNativeKeys(application, [{ keyCode: 'x', modifiers: ['control'] }, { keyCode: key }])
+      await expect.poll(async () => (await selected()).paneId).not.toBe(original)
+      let pane = (await selected()).paneId
+      created.push(pane)
+      await expect(chrome.locator(`[data-pane-id="${pane}"]`)).toBeVisible()
+      await expect(chrome.locator('[data-pane-id]')).toHaveCount(created.length + 1)
+      expect((await selected()).zoomedPaneId).toBeNull()
+      let layout = (await state()).model.sessions.flatMap((session: any) => session.windows).find((window: any) => window.id === client.windowId).layout
+      let split = key === 'v' ? layout : layout.first
+      expect(split).toMatchObject({ kind: 'split', axis })
+      let address = chrome.locator(`[data-pane-id="${pane}"]`).getByRole('textbox', { name: 'URL or search', exact: true })
+      await expect(address).toBeFocused()
+      await address.fill(`${url}/shortcut-${key}`); await address.press('Enter')
+      await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/shortcut-${key}`)).toBe(true)
+      await expect(application.context().pages().find(page => page.url() === `${url}/shortcut-${key}`)!.locator('h1')).toBeVisible()
+    }
+  } finally {
+    await fs.writeFile(path.join(directory, 'config.yaml'), originalConfig)
+    await expect.poll(async () => (await state()).keyboard.prefixBindings.v).toBeUndefined()
+    await chrome.keyboard.press('Escape')
+    for (let pane of created.reverse()) await rpc('kill-pane', { pane, confirm: true })
+    await rpc('select-pane', { pane: original, client: client.id })
+    if ((await selected()).zoomedPaneId) await rpc('toggle-pane-zoom', { client: client.id })
   }
 })
 

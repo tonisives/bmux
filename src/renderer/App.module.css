@@ -590,11 +590,11 @@
 .siteExclusionAdd input { width: 100%; margin: 0; }
 .siteExclusionAdd button, .siteExclusion button { padding: 6px 12px; border: 1px solid #505a66; color: #eceef2; }
 
-:global(body):has(.app[data-dialog-prompt]) { background: transparent; }
-.app[data-dialog-prompt] .content[data-live-page], .app[data-dialog-prompt] .content[data-live-page] .deviceScreen { background: transparent; }
-.app[data-dialog-prompt] .content[data-live-page] > .empty, .app[data-dialog-prompt] .content[data-live-page] > .preview, .app[data-dialog-prompt] .content[data-live-page] .deviceScreen > * { visibility: hidden; }
-.app[data-dialog-prompt] .floatingPreview { background: transparent; }
-.app[data-dialog-prompt] .floatingPreview img { visibility: hidden; }
+:global(body):has(.app[data-page-overlay]) { background: transparent; }
+.app[data-page-overlay] .content[data-live-page], .app[data-page-overlay] .content[data-live-page] .deviceScreen { background: transparent; }
+.app[data-page-overlay] .content[data-live-page] > .empty, .app[data-page-overlay] .content[data-live-page] > .preview, .app[data-page-overlay] .content[data-live-page] .deviceScreen > * { visibility: hidden; }
+.app[data-page-overlay] .floatingPreview { background: transparent; }
+.app[data-page-overlay] .floatingPreview img { visibility: hidden; }
 
 .cooldownTimer { display: flex; align-items: center; gap: 5px; flex: none; font-size: 10px; font-variant-numeric: tabular-nums; }
 .cooldownDial { position: relative; display: grid; place-items: center; width: 24px; height: 24px; }
