@@ -47,7 +47,7 @@ it('finishes linked Apple native sign-in through the canonical owner and the PKC
 it('rejects Apple nonce substitution before reading or issuing an owner login', async () => {
   let value = fixture(), state = 'a'.repeat(64)
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ id_token: 'fixture-identity-token' }) })))
-  vi.mocked(jwtVerify).mockResolvedValueOnce({ payload: { sub: 'apple-subject', nonce: 'different-nonce' } } as Awaited<ReturnType<typeof jwtVerify>>)
+  vi.mocked(jwtVerify).mockResolvedValueOnce({ payload: { sub: 'apple-subject', nonce: 'different-nonce' }, protectedHeader: { alg: 'RS256' } })
   let request = { method: 'POST', headers: { cookie: `bmux_apple_flow=${state}` }, async *[Symbol.asyncIterator]() { yield new URLSearchParams({ state, code: 'one-use-apple-code' }).toString() } }
   await expect(value.route(request, '/api/auth/apple/callback')).rejects.toThrow('Authentication flow unavailable')
   expect(value.query.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO bmux_logins'))).toBe(false)
