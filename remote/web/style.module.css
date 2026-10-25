@@ -46,7 +46,6 @@
 .emptyViewer { display: grid; min-width: 0; place-items: center; padding: 24px; color: #737373; }
 .viewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .viewerToolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 10px 14px; border-bottom: 1px solid #2a2a2a; }
-.mobileBack { display: none; }
 .paneSelect { flex: 1; min-width: 0; height: 36px; padding: 0 10px; background: #161616; border: 1px solid #333; border-radius: 8px; }
 .status { margin-left: auto; color: #a3a3a3; font-size: 12px; white-space: nowrap; }
 .controlButton, .primaryButton { min-height: 36px; padding: 0 14px; background: #ededed; color: #0a0a0a; border: 1px solid #ededed; border-radius: 8px; font-weight: 550; white-space: nowrap; }
@@ -58,6 +57,7 @@
 .controlGroup { display: flex; gap: 6px; }
 .iconButton { display: inline-grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; padding: 0; background: #161616; border: 1px solid #333; border-radius: 8px; }
 .iconButton:hover { background: #252525; }
+.iconButton.mobileBack { display: none; }
 .dialog { width: min(430px, calc(100vw - 32px)); padding: 20px; background: #161616; color: #ededed; border: 1px solid #444; border-radius: 12px; box-shadow: 0 20px 60px #000a; }
 .dialog::backdrop { background: #000a; }
 .dialog form { display: grid; gap: 18px; }
@@ -85,7 +85,7 @@
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .library { border-right: 0; }
   .emptyViewer, .workspaceActive .library { display: none; }
-  .mobileBack { display: inline-grid; }
+  .iconButton.mobileBack { display: inline-grid; }
   .header { padding-inline: 16px; }
 }
 @media (max-width: 640px) {
