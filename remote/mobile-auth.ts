@@ -83,7 +83,7 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = pr
       if (!state || !/^[A-Za-z0-9._~-]{16,256}$/.test(state) || !challenge || !/^[A-Za-z0-9_-]{43}$/.test(challenge) || url.searchParams.get('code_challenge_method') !== 'S256' || url.searchParams.get('redirect_uri') !== callback) throw invalid()
       let id = opaque()
       await pool.query("INSERT INTO bmux_mobile_flows(id_hash,state,challenge,redirect_uri,expires) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [authHash(id), state, challenge, callback])
-      setCookie(response, 'bmux_mobile_flow', id)
+      setCookie(response, 'bmux_mobile_flow', id, 600, true)
       redirect(response, '/api/auth/mobile/signin'); return true
     }
     if (method === 'GET' && path === '/api/auth/mobile/signin') { signIn(response); return true }
@@ -170,7 +170,7 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = pr
       if (!owner) { response.writeHead(403, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); response.end('Sign in with Google, then link Apple in account settings.'); return true }
       let loginToken = opaque()
       await pool.query("INSERT INTO bmux_logins(token_hash,owner,expires) VALUES($1,$2,now()+interval '30 days')", [authHash(loginToken), owner])
-      response.setHeader('Set-Cookie', `bmux_session=${loginToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000; Secure`)
+      response.setHeader('Set-Cookie', `bmux_session=${loginToken}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000; Secure`)
       redirect(response, cookie(request,'bmux_mobile_flow') ? '/api/auth/mobile/complete' : '/'); return true
     }
     return false
