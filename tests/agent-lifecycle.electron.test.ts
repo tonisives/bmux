@@ -46,6 +46,10 @@ test('closed panes never pass queued agent commands or input locks to a reused p
     // Hold the shared domain in another pane so closing this target cannot release the queue.
     queued = cli('eval', { pane: old.id, expression: 'window.staleAgentCommandRan = true', agentName: 'Original tab agent' })
     await expect.poll(async () => (await state()).activeAgents.find((actor: any) => actor.paneId === old.id)?.pending).toBe(1)
+    expect(await cli('agent.input-lock.override', { pane: old.id, enabled: true })).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
+    await rpc('agent.input-lock.override', { pane: old.id, enabled: true })
+    await expect.poll(async () => (await state()).lockedAgentPanes).not.toContain(old.id)
+    expect((await state()).agentLockOverrides[old.id]).toBeGreaterThan(Date.now())
     expect(await rpc('kill-pane', { pane: old.id })).toEqual({ closed: old.id })
     let replacement = await rpc('split-window', { pane: anchor, client: client.id, url: `${url}/replacement` })
     expect(replacement.id).toBe(old.id)
@@ -53,6 +57,7 @@ test('closed panes never pass queued agent commands or input locks to a reused p
     let page = application.context().pages().find(page => page.url() === `${url}/replacement`)!
     await expect(page.getByRole('heading')).toHaveText('Human tab')
     expect((await state()).lockedAgentPanes).not.toContain(replacement.id)
+    expect((await state()).agentLockOverrides[replacement.id]).toBeUndefined()
     expect((await cli('cdp', { ...input, params: { ...input.params, type: 'keyUp' } })).ok).toBe(true)
     expect(await queued).toMatchObject({ ok: false, error: expect.stringContaining('closed or replaced') })
     queued = undefined

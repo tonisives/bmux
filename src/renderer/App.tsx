@@ -38,6 +38,7 @@ import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatfor
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
+import bmuxIcon from './cdn/bmux-icon.png'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
 import galaxyFrame from './device-frames/galaxy-s24.png'
@@ -78,7 +79,9 @@ type UIContext = { panelBack: PanelBack | null; settingsTarget: 'build' | null; 
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
-  let { ignoredWarnings, setIgnoredWarnings } = useIgnoredAutomationWarnings(state)
+  let [alertsCollapsed, setAlertsCollapsed] = useState(() => localStorage.getItem('agent-alerts-collapsed') === 'true')
+  useAutomationExpiry(state?.automationSafety)
+  useEffect(() => { localStorage.setItem('agent-alerts-collapsed', String(alertsCollapsed)) }, [alertsCollapsed])
   let [control, setControl] = useState<Control | null>(null), [initialPlugin, setInitialPlugin] = useState<BuiltinTool | null>(null)
   let [historyPopup, setHistoryPopup] = useState<HistoryPopup | null>(null), [bookmarkDestination, setBookmarkDestination] = useState<BookmarkDestination | null>(null)
   let [addressFocusVersion, setAddressFocusVersion] = useState(0), [addressSuggestionsVisible, setAddressSuggestionsVisible] = useState(false)
@@ -152,18 +155,20 @@ export let App = () => {
   let { client, window } = selection(state)
   if (!client || !window) return <div className={css.empty}>Attaching…</div>
   let layout = client.zoomedPaneId && window.panes.some(pane => pane.id === client.zoomedPaneId) ? { kind: 'pane' as const, paneId: client.zoomedPaneId } : window.layout
+  let agentAlerts = automationWarningNotices(state, run)
+  let collapseAlerts = () => { setAlertsCollapsed(true); void run('focus-page', { client: state.clientId }) }
   let notices: Notification[] = [
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...automationWarningNotices(state, run).filter(notice => !ignoredWarnings.includes(notice.id)).map(notice => ({ ...notice, dismiss: () => setIgnoredWarnings(current => [...current, notice.id]) })),
+    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...(!alertsCollapsed ? agentAlerts : []),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
   let context = { panelBack, settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-dialog-prompt={!!state.dialogPrompt || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
-    <BrowserStatus />
-    {notices.length > 0 && <Notifications notices={notices} />}
+    <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
+    {notices.length > 0 && <Notifications notices={notices} collapseAlerts={collapseAlerts} />}
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
     {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
@@ -204,12 +209,13 @@ let useOverlayFocus = (state: PublicState | null, control: Control | null, panel
   }, [panel, control, historyPopup, addressSuggestionsVisible, state?.clientId, state?.dialogPrompt?.id, state?.pluginPrompt?.id, run])
 }
 
-let BrowserStatus = () => {
+let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notification[]; expandAlerts: () => void }) => {
   let { state, control, message } = useUI()
   let { client } = selection(state)
   if (!client) return null
   return <footer className={css.status} aria-label="Browser status">
     {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
+    {collapsedAlerts.length > 0 && <button type="button" className={css.agentAlertsButton} aria-label="Show agent alerts" aria-expanded="false" title={collapsedAlerts.map(notice => notice.text).join('\n')} onClick={expandAlerts}><AgentStatusIcon /><span>{collapsedAlerts.length} {collapsedAlerts.length === 1 ? 'alert' : 'alerts'}</span><AlertChevron collapsed /></button>}
     <BuildId />
   </footer>
 }
@@ -237,17 +243,6 @@ let useControlDismiss = (control: Control | null, dismiss: () => void, blocked: 
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
   }, [dismiss, blocked])
-}
-
-let useIgnoredAutomationWarnings = (state: PublicState | null) => {
-  let [ignoredWarnings, setIgnoredWarnings] = useState<string[]>([])
-  useAutomationExpiry(state?.automationSafety)
-  let warningKeys = (state?.automationSafety?.profiles ?? []).flatMap(item => [
-    ...(item.warning && automationNoticePanes(state!, item).some(pane => automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!, Date.now(), pane.id)) ? [`${item.profileId}:${item.warningHost}:${item.warning}`] : []),
-    ...(automationNoticePanes(state!, item).length && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:${item.siteHost ?? ''}:session:${item.retryAfter}`] : []),
-  ]).join('|')
-  useEffect(() => { setIgnoredWarnings(current => current.filter(key => warningKeys.split('|').includes(key))) }, [warningKeys])
-  return { ignoredWarnings, setIgnoredWarnings }
 }
 
 let frameAssets = {
@@ -434,7 +429,10 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
   </div>
 }
 
-let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
+let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><img className={css.bmuxIcon} src={bmuxIcon} alt="" data-bmux-icon /><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
+
+let AlertChevron = ({ collapsed = false }: { collapsed?: boolean }) => <svg className={css.alertChevron} viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'm4 6 4 4 4-4' : 'm4 10 4-4 4 4'} /></svg>
+let AgentStatusIcon = ({ locked = false }: { locked?: boolean }) => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg>
 
 let AgentInteractionTime = ({ when, compact = false, now }: { when: number; compact?: boolean; now?: number }) => <time className={compact ? css.windowActivity : undefined} data-age={compact ? activityAge(when, now) : undefined} dateTime={new Date(when).toISOString()} title={`Last agent interaction ${new Date(when).toLocaleString()}`}>{compact ? compactActivityLabel(when, now) : new Date(when).toLocaleString()}</time>
 let AgentInteractionField = ({ actor }: { actor: AutomationActor }) => 'lastUsed' in actor && typeof actor.lastUsed === 'number' ? <><dt>Last interaction</dt><dd><AgentInteractionTime when={actor.lastUsed} /></dd></> : null
@@ -454,7 +452,7 @@ let AgentButton = ({ agents, paneId, active = true, lastUsed }: { agents: Automa
   let title = paneId ? `${locked ? 'Agent controlling · page input locked · ' : active ? '' : 'Last agent · '}${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
   let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
   let identifier = agentIdentifier(actor, definition)
-  return <button type="button" className={paneId ? `${css.navigationButton} ${css.paneAgentButton}` : undefined} aria-label={label} title={title} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg>{paneId && <><span className={css.paneAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>{lastUsed !== undefined && <AgentInteractionTime when={lastUsed} compact now={now} />}</>}</button>
+  return <button type="button" className={paneId ? `${css.navigationButton} ${css.paneAgentButton}` : undefined} aria-label={label} title={title} onClick={open}><AgentStatusIcon locked={locked} />{paneId && <><span className={css.paneAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>{lastUsed !== undefined && <AgentInteractionTime when={lastUsed} compact now={now} />}</>}</button>
 }
 
 let PaneAgentButton = ({ paneId }: { paneId: string }) => {
@@ -480,7 +478,7 @@ let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
   </span>
 }
 
-let Notifications = ({ notices }: { notices: Notification[] }) => {
+let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; collapseAlerts: () => void }) => {
   let { state, run, show } = useUI()
   let [resetting, setResetting] = useState(false)
   let automation = notices.filter(notice => notice.profileId)
@@ -491,12 +489,13 @@ let Notifications = ({ notices }: { notices: Notification[] }) => {
   }
   return <div className={css.notifications} aria-label="Notifications">
     {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
-      {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
       {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+      {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
       {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
+      {notice.profileId && <button type="button" onClick={collapseAlerts} aria-label="Collapse agent alerts" title="Collapse agent alerts to status bar"><AlertChevron /></button>}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
     </div>)}
     {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="Bot settings">
@@ -1504,13 +1503,20 @@ let AgentInformation = () => {
     setBusy(actor.paneId)
     try { await run('agent.cursor.set', { pane: actor.paneId, agentId: actor.agentId, hidden: !state.hiddenAgentCursors?.includes(actor.paneId) }) } finally { setBusy(null) }
   }
+  let toggleLock = async (actor: AutomationActor) => {
+    setBusy(actor.paneId)
+    try { await run('agent.input-lock.override', { pane: actor.paneId, enabled: !state.agentLockOverrides?.[actor.paneId] }) } finally { setBusy(null) }
+  }
   let settings = () => show('anti-bot-settings')
   return <div className={css.agentInformation}>{!actors.length && <p>No agent interaction in this pane.</p>}{actors.map(actor => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
     let sessionField = Object.keys(actor.agentData ?? {}).find(key => definition?.fields[key]?.type === 'session' || key === 'sessionId')
     let fields = Object.entries(actor.agentData ?? {}).filter(([key]) => key !== 'sessionName' || !sessionField)
     let hidden = state.hiddenAgentCursors?.includes(actor.paneId)
+    let override = state.agentLockOverrides?.[actor.paneId]
+    let locked = state.lockedAgentPanes?.includes(actor.paneId)
     let toggleVisibility = () => { void toggleCursor(actor) }
+    let toggleInputLock = () => { void toggleLock(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
         <AgentInteractionField actor={actor} />
@@ -1520,6 +1526,7 @@ let AgentInformation = () => {
       <div className={css.agentActions}>
         {definition?.focusCommand && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}><FocusAgentIcon />Focus agent</button>}
         <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>
+        {(locked || override) && <button className={css.agentAction} type="button" disabled={busy !== null} title={override ? `Override ends at ${new Date(override).toLocaleTimeString()}` : 'Allow page input for 5 minutes'} onClick={toggleInputLock}><AgentLockIcon unlocked={!override} />{override ? 'Restore agent lock' : 'Override agent lock (5 min)'}</button>}
       </div>
     </section>
   })}<div className={`${css.agentActions} ${css.agentSettings}`}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Bot settings</button></div></div>
@@ -1527,6 +1534,7 @@ let AgentInformation = () => {
 
 let FocusAgentIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg>
 let AgentCursorIcon = ({ hidden }: { hidden?: boolean }) => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 2 1 11 3-3 2 4 2-1-2-4h4Z" />{hidden && <path d="m2 14 12-12" />}</svg>
+let AgentLockIcon = ({ unlocked }: { unlocked: boolean }) => <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1" /><path d={unlocked ? 'M5 7V5a3 3 0 0 1 6 0' : 'M5 7V5a3 3 0 0 1 6 0v2'} /></svg>
 
 let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requireType'; label: string }) => {
   let { state, run } = useUI()
@@ -2720,7 +2728,7 @@ let ExcludeWebsiteSelect = ({ profileId, host }: { profileId: string; host: stri
     setBusy(true)
     try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
   }
-  return <label className={css.notificationSiteExclusion}><span>{host}</span><select className={css.notificationAction} onChange={exclude} value="" disabled={busy} aria-label={`Disable Bot protection for ${host}`}><option value="" disabled>Disable Bot protection</option><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></select></label>
+  return <label className={css.notificationSiteExclusion}><span>{host}</span><span className={css.notificationSiteMenu}><select className={css.notificationAction} onChange={exclude} value="" disabled={busy} aria-label={`Disable Bot protection for ${host}`}><option value="" disabled hidden /><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></select><AlertChevron collapsed /></span></label>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
