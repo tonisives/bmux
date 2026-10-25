@@ -95,6 +95,7 @@ automation:
     requireType: true
     definitions:
       tmux:
+        identifierField: paneId
         fields:
           sessionId: { label: Session, type: session, required: true }
           windowId: { label: Window, type: window, required: true }
@@ -105,6 +106,12 @@ automation:
 
 Config changes reload live. The Bot settings UI controls `requireId` and
 `requireType`; definitions and focus commands live in the config file.
+`identifierField` selects a configured field to show beside the bot icon in
+automation alerts. By default, alerts show a field typed `pane`, then `paneId`,
+the terminal origin's pane ID, or the agent ID when no pane context is available.
+Each agent has its own segmented control: the bot icon opens its information,
+the middle segment shows its identifier, and the focus button opens its terminal
+or application when the type has a `focusCommand`.
 Required fields are checked whenever their type is supplied, even when
 `requireType` is off. With `requireType` on, the type must be configured.
 

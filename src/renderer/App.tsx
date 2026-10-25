@@ -19,6 +19,7 @@ import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
 import { paneAgents } from '../shared/pane-agents'
+import { agentIdentifier } from '../shared/agent-info'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -442,6 +443,22 @@ let PaneAgentButton = ({ paneId }: { paneId: string }) => {
   return actor ? <AgentButton agents={[actor]} paneId={paneId} /> : null
 }
 
+let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
+  let { state, run } = useUI()
+  let [focusing, setFocusing] = useState(false)
+  let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
+  let identifier = agentIdentifier(actor, definition)
+  let focus = async () => {
+    setFocusing(true)
+    try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId, agentOrigin: actor.agentOrigin }) } finally { setFocusing(false) }
+  }
+  return <span className={css.notificationAgent} role="group" aria-label={`Agent ${identifier.value}`}>
+    <AgentButton agents={[actor]} />
+    <span className={css.notificationAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>
+    {definition?.focusCommand && <button type="button" aria-label="Focus agent" title={`Focus agent ${identifier.value}`} disabled={focusing} onClick={() => { void focus() }}><FocusAgentIcon /></button>}
+  </span>
+}
+
 let Notifications = ({ notices }: { notices: Notification[] }) => {
   let { state, run, show } = useUI()
   let [resetting, setResetting] = useState(false)
@@ -457,7 +474,7 @@ let Notifications = ({ notices }: { notices: Notification[] }) => {
       {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
-      {!!notice.agents?.length && <AgentButton agents={notice.agents} />}
+      {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
     </div>)}

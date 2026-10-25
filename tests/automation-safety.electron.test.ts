@@ -178,6 +178,7 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
 
 test('automation and permission notices identify agent panes while personal browsing stays available', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-notice-'))
+  let marker = path.join(directory, 'focused.json')
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end('<!doctype html><title>Agent notice fixture</title><main>Manual browsing</main>')
@@ -187,7 +188,9 @@ test('automation and permission notices identify agent panes while personal brow
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as any).port}/fixture`
     let startedAt = Date.now() - 11 * 60_000
-    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
+    let focusCommand = `node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_PANE_ID]))' "${marker}"`
+    let settings = { keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { identifierField: 'paneId', fields: { sessionId: { label: 'Terminal session', type: 'session' }, paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand } } } } }
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(settings))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -202,7 +205,7 @@ test('automation and permission notices identify agent panes while personal brow
       return JSON.parse(result.stdout)
     }
     let agents = await command('new-session', { name: 'agents', profile: 'default' })
-    let first = (await cli(['new-window', '-t', agents.id, '-n', 'research', '--agent-id', '%45', '--agent-name', 'Research agent', '--agent-purpose', 'Review sources for the launch article'])).result.panes[0]
+    let first = (await cli(['new-window', '-t', agents.id, '-n', 'research', '--agent-id', '%45', '--agent-name', 'Research agent', '--agent-purpose', 'Review sources for the launch article', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', paneId: '%145' })])).result.panes[0]
     let second = (await cli(['new-window', '-t', agents.id, '-n', 'review', '--agent-id', '%46'])).result.panes[0]
     expect(first).toMatchObject({ agentId: '%45', agentName: 'Research agent', agentPurpose: 'Review sources for the launch article' })
     for (let pane of [first, second]) {
@@ -235,22 +238,45 @@ test('automation and permission notices identify agent panes while personal brow
       await expect(open.locator('span')).toHaveText('agents')
       await expect(open.locator('svg')).toBeVisible()
     }
-    await alert.getByRole('button', { name: 'Agent information', exact: true }).click()
+    let research = alert.getByRole('group', { name: 'Agent %145', exact: true })
+    let review = alert.getByRole('group', { name: 'Agent %46', exact: true })
+    await expect(research.getByTitle('Terminal pane: %145', { exact: true })).toHaveText('%145')
+    await expect(review.getByTitle('Agent ID: %46', { exact: true })).toHaveText('%46')
+    await expect(review.getByRole('button', { name: 'Focus agent', exact: true })).toHaveCount(0)
+    let infoButton = research.getByRole('button', { name: 'Agent information', exact: true })
+    let identifier = research.getByTitle('Terminal pane: %145', { exact: true })
+    let focusButton = research.getByRole('button', { name: 'Focus agent', exact: true })
+    let segments = await Promise.all([infoButton, identifier, focusButton].map(segment => segment.boundingBox()))
+    for (let index = 1; index < segments.length; index++) expect(segments[index]!.x).toBe(segments[index - 1]!.x + segments[index - 1]!.width)
+    await focusButton.click()
+    await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['%45', '$7', '%145'])
+    await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(personal.paneId)
+    settings.automation.agents.definitions.terminal.identifierField = 'sessionId'
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(settings))
+    await expect(alert.getByRole('group', { name: 'Agent $7', exact: true }).getByTitle('Terminal session: $7', { exact: true })).toHaveText('$7')
+    settings.automation.agents.definitions.terminal.identifierField = 'paneId'
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(settings))
+    await expect(research).toBeVisible()
+    await infoButton.click()
     let agentInfo = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
     await expect(agentInfo).toContainText('Research agent')
     await expect(agentInfo).toContainText('Review sources for the launch article')
     await expect(agentInfo).toContainText('%45')
-    await expect(agentInfo).toContainText('%46')
+    await expect(agentInfo).not.toContainText('%46')
     await expect(agentInfo).not.toContainText('Not provided')
     await expect(agentInfo).not.toContainText('Browser pane')
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-information.png') })
     await agentInfo.getByRole('button', { name: 'Close', exact: true }).click()
-    await expect(alert).not.toContainText(first.id)
-    await expect(alert).not.toContainText(second.id)
+    await review.getByRole('button', { name: 'Agent information', exact: true }).click()
+    await expect(agentInfo).toContainText('%46')
+    await expect(agentInfo).not.toContainText('Research agent')
+    await agentInfo.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(alert.getByText(first.id, { exact: true })).toHaveCount(0)
+    await expect(alert.getByText(second.id, { exact: true })).toHaveCount(0)
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice-compact.png') })
-    await expect(alert).not.toContainText(personal.paneId)
+    await expect(alert.getByText(personal.paneId, { exact: true })).toHaveCount(0)
     let usage = (await cli(['automation', 'safety'])).result.profiles[0]
     expect(usage).toMatchObject({ startedAt, lastUsed: startedAt + 1000 })
     expect(usage.actors.map((actor: { paneId: string }) => actor.paneId)).toEqual([first.id, second.id])
@@ -266,7 +292,7 @@ test('automation and permission notices identify agent panes while personal brow
     await expect(permission.getByRole('button', { name: 'Go to pane', exact: true })).toHaveCount(0)
     await expect(alert.getByRole('button', { name: `Go to pane agents:2 · ${first.id} (%45)`, exact: true })).toHaveCount(0)
     await expect(alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true })).toBeVisible()
-    await alert.getByRole('button', { name: 'Agent information', exact: true }).click()
+    await infoButton.click()
     await expect(agentInfo).toContainText('Research agent')
     await agentInfo.press('Escape')
     expect(await requester.evaluate(() => (window as any).permissionResult)).toBeUndefined()
@@ -280,7 +306,7 @@ test('automation and permission notices identify agent panes while personal brow
     await toggle.uncheck()
     await expect.poll(async () => (await cli(['dom', '-t', first.id, '--agent-id', '%45'])).ok).toBe(true)
     expect((await cli(['dom', '-t', second.id, '--agent-id', '%46'])).ok).toBe(false)
-    await expect(alert).not.toContainText('(%45)')
+    await expect(research).toHaveCount(0)
     expect((await cli(['rpc', 'pane.anti-bot.set', JSON.stringify({ pane: second.id, enabled: false })])).ok).toBe(false)
     await toggle.check()
     await expect.poll(async () => (await cli(['dom', '-t', first.id, '--agent-id', '%45'])).ok).toBe(false)

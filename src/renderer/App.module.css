@@ -81,6 +81,14 @@
 .notificationSiteExclusion .notificationAction { padding: 2px 6px; border: 0; border-left: 1px solid #76565a; }
 .notification .notificationPaneLink { display: inline-flex; align-items: center; gap: 4px; }
 .notificationPaneLink > span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notificationAgent { display: inline-flex; align-items: stretch; flex: 0 0 auto; max-width: 100%; border: 1px solid #76565a; }
+.notification .notificationAgent button { width: 24px; height: 22px; flex: 0 0 24px; border: 0; color: #f2c1bb; }
+.notification .notificationAgent button:hover:not(:disabled) { background: #463137; }
+.notification .notificationAgent button:focus-visible { outline: 2px solid #f2c1bb; outline-offset: 2px; }
+.notification .notificationAgent button:disabled { opacity: .5; cursor: default; }
+.notification .notificationAgent > * + * { border-left: 1px solid #76565a; }
+.notificationAgent svg { width: 14px; height: 14px; }
+.notificationAgentId { max-width: 160px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; user-select: text; }
 .notificationGeneral { min-height: 26px; padding-top: 3px; padding-bottom: 3px; background: #2a2022; border-color: #493638; color: #e6a69c; }
 .notificationGeneral .notificationAction { border-color: #735052; color: #e6a69c; }
 .notificationGeneral svg { width: 14px; height: 14px; }

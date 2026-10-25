@@ -2,7 +2,7 @@ import { test, expect } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { parseAgentSettings, updateAgentInfo, validateAgentInfo } from '../src/shared/agent-info'
+import { agentIdentifier, parseAgentSettings, updateAgentInfo, validateAgentInfo } from '../src/shared/agent-info'
 import type { AgentInfo } from '../src/shared/agent-info'
 import { focusAgent } from '../src/main/agent-focus'
 import { createAgentRegistry } from '../src/main/agent-registry'
@@ -25,6 +25,26 @@ test('changing agent identity or type clears the previous terminal context', () 
   updateAgentInfo(pane, { agentType: 'tmux', agentData: { paneId: '%2' } })
   updateAgentInfo(pane, { agentType: 'other' })
   expect(pane).toEqual({ agentId: 'new', agentType: 'other' })
+})
+
+test('agent identifiers use configured fields and fall back to terminal pane context', () => {
+  let actor: AgentInfo = { agentId: 'research', agentData: { terminalPane: '%42', paneId: '%43', project: 'launch' }, agentOrigin: { type: 'tmux', paneId: '%44', panePid: '12345' } }
+  let definition = { fields: { terminalPane: { label: 'Terminal pane', type: 'pane' as const }, project: { label: 'Project' } } }
+  expect(agentIdentifier(actor, { ...definition, identifierField: 'project' })).toEqual({ label: 'Project', value: 'launch' })
+  expect(agentIdentifier(actor, definition)).toEqual({ label: 'Terminal pane', value: '%42' })
+  expect(agentIdentifier({ ...actor, agentData: { terminalPane: '%42' } }, { ...definition, identifierField: 'project' }).value).toBe('%42')
+  expect(agentIdentifier(actor)).toEqual({ label: 'Pane ID', value: '%43' })
+  expect(agentIdentifier({ ...actor, agentData: {} })).toEqual({ label: 'Pane ID', value: '%44' })
+  expect(agentIdentifier({ agentId: 'research' })).toEqual({ label: 'Agent ID', value: 'research' })
+  expect(agentIdentifier({})).toEqual({ label: 'Agent ID', value: 'Unidentified agent' })
+})
+
+test('agent identifier configuration names an existing field', () => {
+  let definition = { fields: { pane: { label: 'Pane', type: 'pane' } }, identifierField: 'pane' }
+  expect(parseAgentSettings({ definitions: { terminal: definition } }).definitions.terminal.identifierField).toBe('pane')
+  for (let identifierField of ['', 'unknown', 'toString', 42, null, {}]) {
+    expect(() => parseAgentSettings({ definitions: { terminal: { ...definition, identifierField } } })).toThrow('identifierField must name a configured field')
+  }
 })
 
 test('identity errors describe configured required fields and follow settings changes', () => {
