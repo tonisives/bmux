@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from 'react'
 import type { AccountApi, BoxQuote, LiveView, ReferenceRates, RelayAccount, RelayBilling, RemoteComputer, RentedBox } from '../shared/remote-account'
 import { estimateCurrency, priceEstimate, usdPrice } from '../shared/remote-prices'
 import { recommendedBoxQuotes, sortedBoxQuotes } from '../shared/remote-box-quotes'
+import { SelfHostedBox, useHostEnrollment } from './SelfHostedBox'
 import styles from './RemoteAccount.module.css'
 
 type Props = { api: AccountApi; visit: (url: string) => void | Promise<void>; signIn: () => void | Promise<void>; openBox?: (service: string) => Promise<void>; rent?: boolean; local?: boolean; view?: 'account' | 'relay' | 'boxes' }
@@ -11,6 +12,7 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   let [boxes, setBoxes] = useState<RentedBox[]>([]), [views, setViews] = useState<LiveView[]>([]), [computer, setComputer] = useState<RemoteComputer>()
   let [error, setError] = useState(''), [busy, setBusy] = useState(false), [loaded, setLoaded] = useState(false)
   let [adding, setAdding] = useState(rent), [catalog, setCatalog] = useState<{ enabled: boolean; quotes: BoxQuote[] }>()
+  let [boxKind, setBoxKind] = useState<'rental' | 'self-hosted'>('rental')
   let [deleting, setDeleting] = useState<RentedBox>(), [confirmation, setConfirmation] = useState('')
   let [rates, setRates] = useState<ReferenceRates>(), [selectedCurrency, setSelectedCurrency] = useState<string>()
   let pending = useRef(false)
@@ -51,11 +53,11 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   useEffect(() => { setAdding(rent) }, [rent])
   let loadCatalog = async () => setCatalog(await api<{ enabled: boolean; quotes: BoxQuote[] }>('/api/rentals/catalog'))
   useEffect(() => {
-    if (!adding || !account) return
+    if (!adding || boxKind !== 'rental' || !account) return
     let active = true
     void api<{ enabled: boolean; quotes: BoxQuote[] }>('/api/rentals/catalog').then(value => { if (active) setCatalog(value) }).catch(error => { if (active) report(error) })
     return () => { active = false }
-  }, [adding, account?.owner, api])
+  }, [adding, boxKind, account?.owner, api])
   let act = async (operation: () => Promise<unknown>) => {
     if (pending.current) return
     pending.current = true; setBusy(true); setError('')
@@ -63,10 +65,11 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
     finally { pending.current = false; setBusy(false) }
   }
   let checkout = (path: string, body: unknown = {}) => act(async () => { let result = await api<{ url: string }>(path, body); await visit(result.url) })
+  let host = useHostEnrollment(api, act, account?.owner)
   let activate = () => { void checkout('/api/billing/checkout') }
   let manage = () => { void checkout('/api/billing/portal') }
   let authenticate = () => { void act(async () => { await signIn() }) }
-  let retry = () => { void act(async () => { if (adding) await loadCatalog() }) }
+  let retry = () => { void act(async () => { if (adding && boxKind === 'rental') await loadCatalog() }) }
   let cancelRelay = () => { if (window.confirm('Cancel relay at the end of its paid period? Your boxes have separate subscriptions and will keep being charged.')) void act(() => api('/api/billing/cancel', {})) }
   let connect = (name: string) => { void act(() => api('/local/connect', { name })) }
   let disconnect = () => { if (window.confirm('Disconnect this computer from relay? Its browser sessions will keep running.')) void act(() => api('/local/disconnect', {})) }
@@ -75,7 +78,8 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   let cancelBox = (box: RentedBox) => { if (window.confirm(`Cancel ${box.name}? The box and its files will be deleted at the end of its paid period.`)) void act(() => api(`/api/rentals/${box.id}/cancel`, {})) }
   let showDelete = (box: RentedBox) => { setConfirmation(''); setDeleting(box) }
   let deleteBox = (event: FormEvent) => { event.preventDefault(); if (deleting) void act(async () => { await api(`/api/rentals/${deleting.id}/delete`, { confirmName: confirmation }); setDeleting(undefined) }) }
-  let add = () => setAdding(true), hideAdd = () => setAdding(false), hideDelete = () => setDeleting(undefined)
+  let add = () => { host.reset(); setAdding(true) }, hideAdd = () => setAdding(false), hideDelete = () => setDeleting(undefined)
+  let chooseBoxKind = (event: ChangeEvent<HTMLInputElement>) => { setBoxKind(event.target.value as 'rental' | 'self-hosted'); setError('') }
   let changeCurrency = (event: ChangeEvent<HTMLSelectElement>) => setSelectedCurrency(event.target.value)
   let changeConfirmation = (event: ChangeEvent<HTMLInputElement>) => setConfirmation(event.target.value)
   let resumeCheckout = (url: string) => { void act(async () => { await visit(url) }) }
@@ -83,7 +87,7 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   if (!loaded) return <p role="status">Loading account…</p>
   if (!account) return <section className={styles.account}><p>{error || 'Sign in to manage relay and boxes.'}</p><div className={styles.actions}><button onClick={authenticate} disabled={busy}>Sign in with Google</button><button onClick={retry} disabled={busy}>Retry</button></div></section>
   return <div className={styles.account} aria-label="Remote account" data-setting-id="remote-account">
-    <div className={styles.heading}><span>{account.email || account.owner}</span>{!account.email && <button onClick={authenticate} disabled={busy}>Confirm billing email with Google</button>}{rates && <label className={styles.currency}>Estimates in <select value={currency} onChange={changeCurrency}>{Object.keys(rates.rates).sort().map(code => <option key={code} value={code}>{code}</option>)}</select></label>}</div>
+    <div className={styles.heading}><span>{account.email || account.owner}</span>{!account.email && <button onClick={authenticate} disabled={busy}>Confirm billing email with Google</button>}{rates && (view !== 'boxes' || boxKind === 'rental') && <label className={styles.currency}>Estimates in <select value={currency} onChange={changeCurrency}>{Object.keys(rates.rates).sort().map(code => <option key={code} value={code}>{code}</option>)}</select></label>}</div>
     {error && <div className={styles.error} role="alert">{error} <button onClick={retry} disabled={busy}>Retry</button></div>}
     {view !== 'boxes' && <section className={styles.section} aria-label="Relay"><div className={styles.heading}><h3>Relay</h3><span>{money(billing?.relay.monthlyCents ?? 1000)} / month</span></div>
       <p>Connect your computers and view two panes at once.</p>
@@ -92,13 +96,14 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
       {views.length > 0 && <div className={styles.views}><h4>Live views · {views.length}/{billing?.relay.maxStreams || 2}</h4>{views.map(view => <LiveViewRow key={view.connection} view={view} disconnect={disconnectView} busy={busy} />)}</div>}
     </section>}
     {view !== 'relay' && <section className={styles.section} aria-label="Rented boxes">
-      <div className={styles.heading}><h3>{boxes.length ? 'Your boxes' : 'Rent a box'}</h3>{!adding && <button onClick={add} disabled={busy}>Add box</button>}</div>
-      {!billing?.relay.active && <div className={styles.actions}><span>Activate relay to add a box.</span><button onClick={activate} disabled={busy || !billing?.enabled}>Activate relay · $10/month</button></div>}
-      {adding && (catalog ? <RentBoxForm quotes={catalog.quotes} active={!!billing?.relay.active} enabled={catalog.enabled} busy={busy} submit={rentBox} close={hideAdd} money={money} /> : <p role="status">Loading box sizes…</p>)}
+      <div className={styles.heading}><h3>{adding ? 'Add box' : boxes.length ? 'Your boxes' : 'Boxes'}</h3>{!adding && <button onClick={add} disabled={busy}>Add box</button>}</div>
+      {adding && <fieldset className={styles.boxKinds} disabled={busy}><legend>Box type</legend><label><input type="radio" name="box-kind" value="rental" checked={boxKind === 'rental'} onChange={chooseBoxKind} />Rent a box</label><label><input type="radio" name="box-kind" value="self-hosted" checked={boxKind === 'self-hosted'} onChange={chooseBoxKind} />Self-hosted</label></fieldset>}
+      {adding && boxKind === 'rental' && !billing?.relay.active && <div className={styles.actions}><span>Activate relay to rent a box.</span><button onClick={activate} disabled={busy || !billing?.enabled}>Activate relay · $10/month</button></div>}
+      {adding && (boxKind === 'self-hosted' ? <><SelfHostedBox enrollment={host.enrollment} active={account.entitlement?.canStream ?? !!billing?.relay.active} busy={busy} create={host.create} revoke={host.revoke} close={hideAdd} />{local && <ComputerConnection computer={computer} active={account.entitlement?.canStream ?? !!billing?.relay.active} busy={busy} connect={connect} disconnect={disconnect} />}</> : catalog ? <RentBoxForm quotes={catalog.quotes} active={!!billing?.relay.active} enabled={catalog.enabled} busy={busy} submit={rentBox} close={hideAdd} money={money} /> : <p role="status">Loading box sizes…</p>)}
       {boxes.filter(box => !['failed', 'deleted'].includes(box.state)).map(box => <RentalCard key={box.id} box={box} cancel={cancelBox} remove={showDelete} visit={resumeCheckout} open={openService} busy={busy} money={money} />)}
       {deleting && <form className={styles.form} onSubmit={deleteBox}><h4>Delete {deleting.name}</h4><p>This deletes the box and all its files immediately and cancels its subscription, with no prorated refund.</p><label>Type {deleting.name} to delete<input value={confirmation} onChange={changeConfirmation} autoComplete="off" required /></label><div className={styles.actions}><button disabled={busy || confirmation !== deleting.name}>Delete box and files</button><button type="button" onClick={hideDelete}>Keep box</button></div></form>}
     </section>}
-    <p className={styles.billingNote}>Billed in USD. Your bank sets the conversion rate.{rates && currency !== 'USD' && <> Estimates use ECB rates from {rates.date}.</>}</p>
+    {(view !== 'boxes' || boxKind === 'rental') && <p className={styles.billingNote}>Billed in USD. Your bank sets the conversion rate.{rates && currency !== 'USD' && <> Estimates use ECB rates from {rates.date}.</>}</p>}
   </div>
 }
 let ComputerConnection = ({ computer, active, busy, connect, disconnect }: { computer?: RemoteComputer; active: boolean; busy: boolean; connect: (name: string) => void; disconnect: () => void }) => {
@@ -137,14 +142,15 @@ let RentBoxForm = ({ quotes, active, enabled, busy, submit, close, money }: { qu
     submit({ requestId: order.current, quoteId: quote.id, name: name.trim(), sshKeys: keys.split('\n').map(key => key.trim()).filter(Boolean), acceptedTerms: accepted })
   }
   return <form className={styles.form} onSubmit={rentBox} aria-label="Rent a box">
-    {!enabled ? <p>Box rentals coming soon.</p> : !quotes.length ? <p>No boxes are available right now.</p> : <>
+    {!enabled && <p>Rental checkout is currently unavailable.</p>}
+    {!quotes.length ? <p>No boxes are available right now.</p> : <>
       {!customize ? <RecommendedBoxes quotes={recommended} selected={selected} choose={choose} busy={busy} money={money} /> : <BoxOptions quotes={quotes} selected={selected} choose={choose} busy={busy} money={money} keys={keys} changeKeys={changeKeys} />}
       <button type="button" className={styles.disclosure} aria-expanded={customize} onClick={toggleCustomize}>{customize ? 'Show recommendations' : 'All sizes and regions'}</button>
       {quote && <p role="status">Selected: {quote.memoryGb} GB · {quote.regionName} · {money(quote.monthlyCents)} / month</p>}
       <label>Box name<input value={name} onChange={changeName} maxLength={64} required disabled={busy} /></label>
       <details className={styles.terms}><summary>Rental and deletion terms</summary><p>bmux, Node, Python and Git are installed. Files persist in <code>/home/bmux/workspace</code>. Bring your own agent tools and credentials.</p><p>Price includes IPv4 and our 20% service fee. Tax is added at checkout. Relay is billed separately. Canceling relay keeps your box running and billed. Cancellation deletes the box and files at the end of its paid period; immediate deletion has no prorated refund. Backups and resizing are not included.</p>{quote && <p>{(quote.trafficBytes / 1e12).toLocaleString('en-US', { maximumFractionDigits: 2 })} TB outgoing traffic per provider month. Networking pauses at 90% until the next provider traffic month.</p>}</details>
       <label className={styles.checkbox}><input type="checkbox" checked={accepted} onChange={changeAccepted} required disabled={busy} /><span>I accept the <a href="https://bmux.cc/terms" target="_blank" rel="noreferrer">rental and deletion terms</a>.</span></label>
-      <button disabled={busy || !accepted || !quote || !active || !name.trim()}>{busy ? 'Opening checkout…' : `Continue to checkout${quote ? ` · ${usdPrice(quote.monthlyCents, navigator.language)}/month` : ''}`}</button>
+      <button disabled={busy || !enabled || !accepted || !quote || !active || !name.trim()}>{busy ? 'Opening checkout…' : `Continue to checkout${quote ? ` · ${usdPrice(quote.monthlyCents, navigator.language)}/month` : ''}`}</button>
     </>}
     <button type="button" onClick={close} disabled={busy}>Close</button>
   </form>

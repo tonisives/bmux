@@ -14,7 +14,7 @@ test('paid remote account connects a running computer and opens regional box che
   let directory = await fs.mkdtemp(path.join(os.tmpdir(),'bmux-paid-remote-')), config = path.join(directory,'config.yaml')
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let billingEmail: string | undefined
-  let catalogFailed = false, expired = false, rentals: RentedBox[] = []
+  let catalogFailed = false, expired = false, rentalEnabled = true, relayActive = true, rentals: RentedBox[] = []
   let quote = {id:'regional-quote',region:'fsn1',regionName:'Falkenstein',memoryGb:4,cores:2,diskGb:40,trafficBytes:20e12,monthlyCents:851,currency:'usd'}
   let checkoutUrl = 'https://checkout.stripe.com/c/pay/bmux-fixture'
   let readyHost = false, publicKey = generateKeyPairSync('ed25519').publicKey.export({format:'jwk'})
@@ -28,15 +28,15 @@ test('paid remote account connects a running computer and opens regional box che
       if (request.method === 'POST') requests.push({route,body})
       if (expired && route === '/api/billing/portal') { json({error:'Sign in expired'},401); return }
       if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',workspace:1,name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
-      if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
-      if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
+      if (route === '/api/me') { json({owner:'123456789',email:billingEmail,entitlement:{canStream:true,streamLimit:100,activeStreams:0,status:'unmanaged'}}); return }
+      if (route === '/api/billing/status') { json({enabled:true,relay:{active:relayActive,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:relayActive?'active':'inactive'}}); return }
       if (route === '/api/billing/rates') { json({base:'USD',source:'ECB',date:'2026-10-23',rates:{USD:1,EUR:.9,GBP:.75,JPY:150,THB:35}}); return }
       if (route === '/api/rentals') { json(rentals); return }
       if (route === '/api/streams') { json(views); return }
       if (route === '/api/streams/disconnect') { views=[]; json({ok:true}); return }
       if (route === '/api/rentals/catalog') {
         if (!catalogFailed) { catalogFailed = true; json({error:'Catalog temporarily unavailable'},503); return }
-        json({enabled:true,quotes:[quote,{...quote,id:'large-quote',memoryGb:8,monthlyCents:1500},{...quote,id:'us-quote',region:'ash',regionName:'Ashburn',monthlyCents:1000}]}); return
+        json({enabled:rentalEnabled,quotes:[quote,{...quote,id:'large-quote',memoryGb:8,monthlyCents:1500},{...quote,id:'us-quote',region:'ash',regionName:'Ashburn',monthlyCents:1000}]}); return
       }
       if (route === '/api/rentals/checkout') {
         if (requests.filter(item => item.route === route).length < 3) { json({error:'Checkout temporarily unavailable'},503); return }
@@ -44,7 +44,7 @@ test('paid remote account connects a running computer and opens regional box che
         json({url:checkoutUrl,rentalId:body.requestId}); return
       }
       if (/^\/api\/rentals\/[a-f0-9-]{36}\/delete$/.test(route)) { rentals=[]; json({ok:true}); return }
-      if (route === '/api/services') { json({service:body.service,key:'a'.repeat(64)}); return }
+      if (route === '/api/services') { json({service:body.service,key:'a'.repeat(64),url:origin}); return }
       if (route === '/api/services/revoke') { json({ok:true}); return }
       response.writeHead(200,{'Content-Type':'text/html'}); response.end('<!doctype html><title>Paid remote fixture</title><style>body{background:#dce7ef;font:24px system-ui;padding:30px}</style><h1>Persistent browser workspace</h1><input aria-label="Retained value" value="work continues">')
     })().catch(() => { response.writeHead(500); response.end() })
@@ -178,6 +178,45 @@ test('paid remote account connects a running computer and opens regional box che
     await deleteName.fill('Research box final'); await picker.getByRole('button',{name:'Delete box and files'}).click()
     await expect(picker.getByRole('button',{name:'Delete now'})).toHaveCount(0)
     expect(requests.find(item => /\/delete$/.test(item.route))?.body.confirmName).toBe('Research box final')
+    rentalEnabled = false; relayActive = false
+    await picker.getByRole('button',{name:'Back to remote sessions'}).click(); await picker.getByRole('button',{name:'Add box',exact:true}).click()
+    form = picker.getByRole('form',{name:'Rent a box'})
+    await expect(form).toContainText('Rental checkout is currently unavailable')
+    await expect(form.getByRole('radio')).toHaveCount(3)
+    await form.getByRole('checkbox').check()
+    await expect(form.getByRole('button',{name:/Continue to checkout/})).toBeDisabled()
+    await picker.getByRole('radio',{name:'Self-hosted',exact:true}).check()
+    let selfHosted = picker.getByRole('region',{name:'Self-hosted box',exact:true})
+    await selfHosted.getByRole('textbox',{name:'Box name',exact:true}).fill('My Linux box')
+    await expect(selfHosted.getByRole('button',{name:'Create host config'})).toBeEnabled()
+    await selfHosted.getByRole('button',{name:'Create host config'}).click()
+    let download = selfHosted.getByRole('link',{name:'Download config',exact:true})
+    await expect(download).toHaveAttribute('href',/^blob:/)
+    await expect(selfHosted).not.toContainText('a'.repeat(64))
+    let hostConfig = path.join(directory,'self-hosted.json')
+    await application.evaluate(({session},destination) => {
+      ;(globalThis as any).hostConfigDownload = undefined
+      session.defaultSession.once('will-download',(_event,item) => {
+        item.setSavePath(destination)
+        item.once('done',(_event,state) => { (globalThis as any).hostConfigDownload = state })
+      })
+    },hostConfig)
+    await download.click()
+    await expect.poll(() => application!.evaluate(() => (globalThis as any).hostConfigDownload)).toBe('completed')
+    expect(JSON.parse(await fs.readFile(hostConfig,'utf8'))).toEqual({url:origin,token:'a'.repeat(64)})
+    await chrome.screenshot({path:info.outputPath('self-hosted-box.png')})
+    await selfHosted.getByText('Run with Docker',{exact:true}).click()
+    await expect(selfHosted.locator('pre')).toContainText('chown 1000:1000 /data/remote.json')
+    await expect(selfHosted.locator('pre')).toContainText('--security-opt seccomp=')
+    await expect(selfHosted.locator('pre')).not.toContainText('a'.repeat(64))
+    let selfHostedService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
+    expect(selfHostedService).toMatch(/^my-linux-box-[a-f0-9]{8}$/)
+    await expect(selfHosted.locator('pre')).toContainText(`docker volume create bmux-${selfHostedService}-data`)
+    await expect(selfHosted.locator('pre')).toContainText(`--name bmux-${selfHostedService} --hostname ${selfHostedService}`)
+    await selfHosted.getByRole('button',{name:'Revoke key',exact:true}).click()
+    await expect(selfHosted.getByRole('button',{name:'Create host config'})).toBeVisible()
+    expect(requests.filter(item => item.route === '/api/services/revoke').at(-1)?.body.service).toBe(selfHostedService)
+    rentalEnabled = true; relayActive = true
     await picker.getByRole('button',{name:'Back to remote sessions'}).click(); await picker.getByRole('button',{name:'Relay',exact:true}).click()
     await expect(picker.getByRole('button',{name:'Manage billing'})).toBeVisible()
     expired = true
@@ -188,8 +227,8 @@ test('paid remote account connects a running computer and opens regional box che
     await expect(picker).toHaveCount(0)
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/`)).toBe(true)
     expect(await application.evaluate(({BaseWindow}) => BaseWindow.getAllWindows().length)).toBe(nativeWindows)
-    expect(requests.filter(item => item.route === '/api/services')).toHaveLength(1)
-    expect(requests.filter(item => item.route === '/api/services/revoke')).toHaveLength(1)
+    expect(requests.filter(item => item.route === '/api/services')).toHaveLength(2)
+    expect(requests.filter(item => item.route === '/api/services/revoke')).toHaveLength(2)
   } finally {
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate(); sockets.close(); server.closeAllConnections()
