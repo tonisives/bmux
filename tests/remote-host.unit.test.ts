@@ -31,7 +31,7 @@ beforeEach(async () => {
 afterEach(async () => { host?.close(); host = undefined; await fs.rm(directory, { recursive: true, force: true }) })
 
 let setup = (request?: string, open = true, streamPermits = false) => {
-  let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn() }
+  let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn(), quality:vi.fn(async value => value) }
   let resolveCapture!: (value: typeof peer) => void
   let pending = new Promise<typeof peer>(resolve => { resolveCapture = resolve })
   let offer = { type: 'offer' as const, sdp: 'fixture' }
@@ -43,7 +43,7 @@ let setup = (request?: string, open = true, streamPermits = false) => {
     signalOffer()
     return pending
   })
-  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capabilities:{version:1,management:true}, sessionRevision:()=>'revision', attentionHistory: () => [], attentions: () => [], capture, enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
@@ -76,7 +76,7 @@ it('reports an occupied account without starting video capture', async () => {
   let { socket, capture, offers } = setup('managed',true,true)
   let acquire = socket.sent.find(message => message.type === 'stream-acquire')!
   socket.emit('message',JSON.stringify({type:'stream-permit',request:acquire.request,error:'Both live views are in use. Disconnect a view in Account settings.'}))
-  await vi.waitFor(() => expect(offers()).toContainEqual({type:'error',error:'Both live views are in use. Disconnect a view in Account settings.'}),{interval:1})
+  await vi.waitFor(() => expect(offers()).toContainEqual({type:'error',request:'managed',error:'Both live views are in use. Disconnect a view in Account settings.'}),{interval:1})
   expect(capture).not.toHaveBeenCalled()
 })
 

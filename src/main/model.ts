@@ -292,6 +292,7 @@ export let validateModel = (value: unknown): Model => {
   for (let session of model.sessions) { assignWindowNumbers(session); orderPinnedWindows(session) }
   if (model.closedSessionProfiles !== undefined && (typeof model.closedSessionProfiles !== 'object' || model.closedSessionProfiles === null || Array.isArray(model.closedSessionProfiles) || Object.entries(model.closedSessionProfiles).some(([name, profileId]) => !name || typeof profileId !== 'string' || !model.profiles.some(profile => profile.id === profileId)))) throw new Error('Invalid closed session profiles')
   if (model.newSessionProfileId !== undefined && !model.profiles.some(profile => profile.id === model.newSessionProfileId)) throw new Error('Invalid new session profile')
+  if (model.remoteOperations !== undefined && (!Array.isArray(model.remoteOperations) || model.remoteOperations.length > 1000 || model.remoteOperations.some(item => !item || typeof item.owner !== 'string' || !/^[a-f0-9-]{36}$/.test(item.request) || !/^[a-f0-9]{64}$/.test(item.hash) || !Number.isFinite(item.at)))) throw new Error('Invalid remote operation ledger')
   return model
 }
 

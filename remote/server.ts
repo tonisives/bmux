@@ -1,12 +1,15 @@
 import http from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { notifyDisconnected } from './peer-disconnect'
 import { createStreamLeases } from './stream-leases'
+import { createMobileAuth, type LoginContext } from './mobile-auth'
+import type { RemoteCapabilities } from '../src/shared/remote-management'
+import { recordHostAttention } from './attention-records'
 
 let required = (name: string) => { let value = process.env[name]; if (!value) throw new Error(`${name} is required`); return value }
 let publicOrigin = new URL(required('BMUX_PUBLIC_ORIGIN')).origin
@@ -19,7 +22,7 @@ let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)
 let ready = false, stopped = false
 let initialize = async () => {
-  let schema = await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8')
+  let schema = await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8') + await fs.readFile(new URL('./mobile-auth.sql', import.meta.url), 'utf8')
   let retryable = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ENETUNREACH', 'EHOSTUNREACH', '57P03', '53300'])
   while (!stopped) {
     try { await pool.query(schema); ready = true; return }
@@ -36,12 +39,17 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   return digest(key.x)
 }
 type ListedSession = { canClose?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
-type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[] }
+type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
 let peers = new Map<string, Peer>()
-let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean }>()
+let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean; tokenHash: string; nativeSession?: string }>()
+let mobileAuth = createMobileAuth({ pool, origin: publicOrigin, googleClientId: audience, revoked: session => {
+  for (let [ticket, value] of tickets) if (value.nativeSession === session) tickets.delete(ticket)
+  for (let peer of peers.values()) if (peer.nativeSession === session) peer.socket.close(1008, 'Session revoked')
+} })
 let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
 let permission = async (user: string, host: Peer): Promise<'watch' | 'control' | undefined> => {
   if (user === host.owner) return 'control'
+  if (host.kind === 'included') return undefined
   let result = await pool.query('SELECT permission FROM bmux_grants WHERE service=$1 AND user_id=$2', [host.service, user])
   return result.rows[0]?.permission
 }
@@ -51,8 +59,9 @@ let visibleHosts = async (owner: string) => {
   let hosts = []
   for (let host of peers.values()) {
     if (host.role !== 'host') continue
+    if (host.kind === 'included' && (!host.capabilities?.management || host.capabilities.sessionCreate || host.capabilities.pageCreate)) continue
     let access = owner === host.owner ? 'control' : accessByService.get(host.service!)
-    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [] })
+    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [], capabilities: host.capabilities ?? {} })
   }
   return hosts
 }
@@ -64,13 +73,6 @@ let body = async (request: http.IncomingMessage) => {
   for await (let chunk of request) { text += chunk; if (text.length > 131072) throw new Error('Request too large') }
   return JSON.parse(text || '{}')
 }
-let login = async (request: http.IncomingMessage) => {
-  let token = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.authorization ?? '')?.[1] ?? /(?:^|;\s*)bmux_session=([a-f0-9]{64})(?:;|$)/.exec(request.headers.cookie ?? '')?.[1]
-  if (!token) throw new Error('Login required')
-  let result = await pool.query('SELECT owner FROM bmux_logins WHERE token_hash=$1 AND expires>now()', [digest(token)])
-  if (!result.rowCount) throw new Error('Login expired')
-  return result.rows[0].owner as string
-}
 let ice = (id: string) => { let username = `${Math.floor(Date.now() / 1000) + 600}:${id}`; return [{ urls: turnUrls, username, credential: createHmac('sha1', turnSecret).update(username).digest('base64') }] }
 let server = http.createServer((request, response) => {
   let json = (status: number, value: unknown) => { response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)) }
@@ -78,13 +80,20 @@ let server = http.createServer((request, response) => {
     let url = new URL(request.url ?? '/', publicOrigin)
     if (!ready) { json(503, { error: 'Service starting' }); return }
     if (request.method === 'GET' && url.pathname === '/health') { await pool.query('SELECT 1'); json(200, { ok: true }); return }
-    if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience }); return }
-    if (request.method === 'POST' && request.headers.origin !== publicOrigin && !/^Bearer [a-f0-9]{64}$/.test(request.headers.authorization ?? '')) throw new Error('Invalid origin')
+    if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience, appleEnabled: mobileAuth.appleEnabled }); return }
+    let authentication: LoginContext | undefined
+    let protectedFlow = request.method === 'POST' && ['/api/auth/mobile/exchange','/api/auth/mobile/refresh','/api/auth/apple/callback'].includes(url.pathname)
+    if (!['GET','HEAD'].includes(request.method ?? '') && request.headers.origin !== publicOrigin && !protectedFlow) {
+      authentication = await mobileAuth.authenticate(request)
+      if (!authentication.nativeSession) throw new Error('Invalid origin')
+    }
+    if (await mobileAuth.route(request,response,url,()=>body(request))) return
     if (request.method === 'POST' && url.pathname === '/api/login') {
       let { credential, accessToken } = await body(request)
-      let owner: string | undefined, email: string | undefined, name = ''
+      let owner: string | undefined, email: string | undefined, name = '', reauthenticated = false
       if (typeof credential === 'string') {
         let { payload } = await jwtVerify(credential, googleKeys, { issuer: ['https://accounts.google.com', 'accounts.google.com'], audience, maxTokenAge: '1h' })
+        reauthenticated = await mobileAuth.googleReauthentication(request,payload)
         if (payload.email_verified === true && typeof payload.sub === 'string' && typeof payload.email === 'string') { owner = payload.sub; email = payload.email; name = typeof payload.name === 'string' ? payload.name : '' }
       } else if (typeof accessToken === 'string' && accessToken.length <= 4096) {
         let verified = await fetch('https://oauth2.googleapis.com/tokeninfo', { method: 'POST', body: new URLSearchParams({ access_token: accessToken }), signal: AbortSignal.timeout(10000) })
@@ -101,14 +110,17 @@ let server = http.createServer((request, response) => {
       if (!owner || !email) throw new Error('Invalid login')
       await pool.query('INSERT INTO bmux_accounts(owner,email,name) VALUES($1,$2,$3) ON CONFLICT(owner) DO UPDATE SET email=excluded.email,name=excluded.name,updated_at=now()', [owner,email,name])
       let token = randomBytes(32).toString('hex')
-      await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '30 days')", [digest(token), owner])
+      await pool.query("INSERT INTO bmux_logins(token_hash,owner,expires) VALUES ($1,$2,now()+interval '30 days')", [digest(token), owner])
+      await mobileAuth.recordGoogleLogin(digest(token),owner,reauthenticated)
       response.setHeader('Set-Cookie', `bmux_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${publicOrigin.startsWith('https:') ? '; Secure' : ''}`)
+      mobileAuth.clearGoogleReauthentication(response)
       json(200, { ok: true }); return
     }
     if (url.pathname.startsWith('/api/')) {
-      let owner = await login(request)
-      if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user }); return }
-      if (request.method === 'GET' && url.pathname === '/api/streams') { json(200, await leases.list(owner)); return }
+      let auth = authentication ?? await mobileAuth.authenticate(request), owner = auth.owner
+      if (auth.nativeSession && !['/api/me','/api/hosts','/api/connect','/api/streams','/api/streams/disconnect'].includes(url.pathname)) throw new Error('Native operation unavailable')
+      if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user, entitlement:await leases.status(owner) }); return }
+      if (request.method === 'GET' && url.pathname === '/api/streams') { json(200, (await leases.list(owner)).map(view => ({...view,session:peers.get(view.host)?.sessions?.find(session=>session.panes.some(pane=>pane.id===view.pane))?.id}))); return }
       if (request.method === 'POST' && url.pathname === '/api/streams/disconnect') {
         let { connection } = await body(request)
         if (typeof connection !== 'string') throw new Error('Invalid connection')
@@ -118,7 +130,7 @@ let server = http.createServer((request, response) => {
       }
       if (request.method === 'GET' && url.pathname === '/api/hosts') { json(200, await visibleHosts(owner)); return }
       if (request.method === 'GET' && url.pathname === '/api/services') {
-        let result = await pool.query('SELECT id,revoked FROM bmux_services WHERE owner=$1 ORDER BY id', [owner])
+        let result = await pool.query("SELECT id,revoked FROM bmux_services WHERE owner=$1 AND kind='standard' ORDER BY id", [owner])
         json(200, result.rows); return
       }
       if (request.method === 'POST' && url.pathname === '/api/services') {
@@ -132,13 +144,14 @@ let server = http.createServer((request, response) => {
       }
       if (request.method === 'POST' && url.pathname === '/api/services/revoke') {
         let { service } = await body(request)
-        await pool.query('UPDATE bmux_services SET revoked=true WHERE id=$1 AND owner=$2', [service, owner])
+        let changed = await pool.query("UPDATE bmux_services SET revoked=true WHERE id=$1 AND owner=$2 AND kind='standard' RETURNING id", [service, owner])
+        if (!changed.rowCount) throw new Error('Service unavailable')
         for (let peer of peers.values()) if (peer.role === 'host' && peer.service === service && peer.owner === owner) peer.socket.close(1008, 'Revoked')
         json(200, { ok: true }); return
       }
       if (request.method === 'POST' && url.pathname === '/api/services/rotate') {
         let { service } = await body(request), key = randomBytes(32).toString('hex')
-        let changed = await pool.query('UPDATE bmux_services SET token_hash=$1 WHERE id=$2 AND owner=$3 AND NOT revoked RETURNING id', [digest(key), service, owner])
+        let changed = await pool.query("UPDATE bmux_services SET token_hash=$1 WHERE id=$2 AND owner=$3 AND NOT revoked AND kind='standard' RETURNING id", [digest(key), service, owner])
         if (!changed.rowCount) { json(404, { error: 'Service not found' }); return }
         for (let peer of peers.values()) if (peer.role === 'host' && peer.service === service && peer.owner === owner) peer.socket.close(1008, 'Key rotated')
         json(200, { service, key }); return
@@ -150,7 +163,7 @@ let server = http.createServer((request, response) => {
       if (request.method === 'POST' && url.pathname === '/api/grants') {
         let { service, user, permission: access } = await body(request)
         if (typeof user !== 'string' || !/^[0-9]{1,32}$/.test(user) || !['watch', 'control', null].includes(access)) { json(400, { error: 'Enter a valid account ID and permission' }); return }
-        let found = await pool.query('SELECT revoked FROM bmux_services WHERE id=$1 AND owner=$2', [service, owner])
+        let found = await pool.query("SELECT revoked FROM bmux_services WHERE id=$1 AND owner=$2 AND kind='standard'", [service, owner])
         if (!found.rowCount || user === owner || (access && found.rows[0].revoked)) { json(400, { error: 'Choose an active service and another account' }); return }
         if (access) await pool.query('INSERT INTO bmux_grants (service,user_id,permission) VALUES ($1,$2,$3) ON CONFLICT (service,user_id) DO UPDATE SET permission=excluded.permission', [service, user, access])
         else await pool.query('DELETE FROM bmux_grants WHERE service=$1 AND user_id=$2', [service, user])
@@ -163,9 +176,10 @@ let server = http.createServer((request, response) => {
         let found = await pool.query('SELECT owner,revoked FROM bmux_devices WHERE id=$1', [id])
         if (found.rowCount && (found.rows[0].owner !== owner || found.rows[0].revoked)) throw new Error('Device revoked')
         await pool.query('INSERT INTO bmux_devices (id,owner,public_key) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [id, owner, { kty: publicKey.kty, crv: publicKey.crv, x: publicKey.x }])
+        await mobileAuth.bindDevice(auth,id)
         let ticket = randomBytes(32).toString('hex')
         if (tickets.size >= 10000) throw new Error('Connection capacity reached')
-        tickets.set(ticket, { owner, id, key: publicKey, expires: Date.now() + 30000, desktop: request.headers['x-bmux-desktop'] === '1' })
+        tickets.set(ticket, { owner, id, key: publicKey, expires: Date.now() + 30000, tokenHash: auth.tokenHash, nativeSession: auth.nativeSession, desktop: !auth.nativeSession && request.headers['x-bmux-desktop'] === '1' })
         json(200, { ticket, iceServers: ice(id) }); return
       }
       if (request.method === 'GET' && url.pathname === '/api/usage') {
@@ -202,7 +216,7 @@ server.on('upgrade', (request, socket, head) => {
     let peer: Omit<Peer, 'socket'>
     let token = request.headers.authorization?.replace(/^Bearer /, '')
     if (token) {
-      let found = await pool.query('SELECT id,owner,public_key FROM bmux_services WHERE token_hash=$1 AND NOT revoked', [digest(token)])
+      let found = await pool.query('SELECT id,owner,public_key,kind FROM bmux_services WHERE token_hash=$1 AND NOT revoked', [digest(token)])
       if (!found.rowCount) throw new Error('Invalid enrollment')
       let id = url.searchParams.get('host'), generation = url.searchParams.get('generation')
       if (!id || !generation || !/^[a-f0-9-]{36}$/.test(id) || !/^[a-f0-9-]{36}$/.test(generation) || peers.has(id)) throw new Error('Invalid host identity')
@@ -210,18 +224,24 @@ server.on('upgrade', (request, socket, head) => {
       let key = supplied ? JSON.parse(Buffer.from(supplied, 'base64url').toString()) : found.rows[0].public_key
       if (!key) throw new Error('Host key required')
       keyId(key)
-      peer = { owner: found.rows[0].owner, id, role: 'host', service: found.rows[0].id, generation, key, alive: true }
+      let instance = url.searchParams.get('instance')
+      if (instance !== null && !/^[a-f0-9-]{36}$/.test(instance) || found.rows[0].kind === 'included' && !instance) throw new Error('Invalid runtime instance')
+      peer = { owner: found.rows[0].owner, id, role: 'host', service: found.rows[0].id, generation, key, alive: true, kind:found.rows[0].kind }
       if (managed && url.searchParams.get('protocol') !== '2') throw new Error('Update this host to connect to managed relay')
-      await pool.query('INSERT INTO bmux_host_presence(host,service,generation) VALUES($1,$2,$3) ON CONFLICT(host) DO UPDATE SET service=excluded.service,generation=excluded.generation,connected=true,seen=now()', [id,peer.service,generation])
+      await pool.query("INSERT INTO bmux_host_presence(host,service,generation,instance) VALUES($1,$2,$3,$4) ON CONFLICT(host) DO UPDATE SET service=excluded.service,generation=excluded.generation,instance=excluded.instance,sessions='[]',capabilities='{}',connected=true,seen=now()", [id,peer.service,generation,instance])
     } else {
       let ticket = url.searchParams.get('ticket') ?? '', enrollment = tickets.get(ticket)
       tickets.delete(ticket)
       if (!enrollment || enrollment.expires <= Date.now()) throw new Error('Invalid ticket')
-      if (request.headers.origin !== publicOrigin && !(enrollment.desktop && (request.headers.origin === 'null' || request.headers.origin === 'file://'))) throw new Error('Invalid origin')
+      if (request.headers.origin !== publicOrigin && !(enrollment.desktop && (request.headers.origin === 'null' || request.headers.origin === 'file://')) && !(enrollment.nativeSession && request.headers.origin === undefined)) throw new Error('Invalid origin')
+      let authenticated = await pool.query('SELECT l.owner,a.session_id,s.revoked,s.expires FROM bmux_logins l LEFT JOIN bmux_mobile_access a ON a.token_hash=l.token_hash LEFT JOIN bmux_mobile_sessions s ON s.id=a.session_id WHERE l.token_hash=$1 AND l.owner=$2 AND l.expires>now()', [enrollment.tokenHash,enrollment.owner])
+      let session = authenticated.rows[0]
+      if (!session || enrollment.nativeSession && (session.session_id !== enrollment.nativeSession || session.revoked || new Date(session.expires).getTime() <= Date.now())) throw new Error('Session revoked')
+      if (enrollment.nativeSession && !(await pool.query('SELECT 1 FROM bmux_mobile_devices WHERE device_id=$1 AND session_id=$2', [enrollment.id,enrollment.nativeSession])).rowCount) throw new Error('Device unbound')
       let device = await pool.query('SELECT id FROM bmux_devices WHERE id=$1 AND owner=$2 AND NOT revoked', [enrollment.id, enrollment.owner])
       if (!device.rowCount) throw new Error('Device revoked')
       peers.get(enrollment.id)?.socket.close(1000, 'Reconnected')
-      peer = { owner: enrollment.owner, id: enrollment.id, role: 'viewer', key: enrollment.key, alive: true }
+      peer = { owner: enrollment.owner, id: enrollment.id, role: 'viewer', key: enrollment.key, alive: true, nativeSession: enrollment.nativeSession }
     }
     sockets.handleUpgrade(request, socket, head, connection => {
       let current: Peer = { ...peer, socket: connection }
@@ -240,18 +260,14 @@ server.on('upgrade', (request, socket, head) => {
               if (viewer?.role !== 'viewer' || !await permission(viewer.owner, current)) throw new Error('Access revoked')
               let permit = await leases.acquire({ owner: current.owner, host: current.id, generation: current.generation!, viewer: viewer.id, connection: message.connection, pane: message.pane },message.type === 'stream-renew')
               send(current, { type: 'stream-permit', request: message.request, ...permit })
-            } catch (error) { send(current, { type: 'stream-permit', request: message.request, error: error instanceof Error && /^(Both live|Connect relay|Access revoked|Invalid stream)/.test(error.message) ? error.message : 'Stream permit unavailable' }) }
+            } catch (error) { let text=error instanceof Error ? error.message : ''; send(current, { type: 'stream-permit', request: message.request, code:text.startsWith('Both live')?'STREAM_LIMIT_REACHED':text.startsWith('Connect relay')?'RELAY_REQUIRED':'STREAM_UNAVAILABLE', error: /^(Both live|Connect relay|Access revoked|Invalid stream)/.test(text) ? text : 'Stream permit unavailable' }) }
             return
           }
           if (message.type === 'stream-release' && current.role === 'host') { if (typeof message.connection !== 'string') throw new Error('Invalid connection'); await leases.release(current.id,current.generation!,message.connection); return }
           if (message.type === 'attention' && current.role === 'host') {
-            let { session, pane, episode, reason } = message
-            if (![session,pane,episode].every(value => typeof value === 'string' && value.length > 0 && value.length <= 128) || !['help','challenge','account-warning','rate-limit'].includes(reason) || !current.sessions?.some(item => item.id === session && item.panes.some(item => item.id === pane))) throw new Error('Invalid attention target')
-            let created = await pool.query('INSERT INTO bmux_attention(id,owner,service,host,generation,session,pane,episode,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(service,host,generation,episode) DO UPDATE SET episode=excluded.episode RETURNING id', [randomUUID(),current.owner,current.service,current.id,current.generation,session,pane,episode,reason])
-            await pool.query('INSERT INTO bmux_push_outbox(attention_id,owner,device) SELECT $1,owner,device FROM bmux_push_devices WHERE owner=$2 AND enabled ON CONFLICT DO NOTHING', [created.rows[0].id,current.owner])
-            send(current, { type: 'attention-recorded', episode, id: created.rows[0].id }); return
+            send(current,await recordHostAttention(pool,{...current,service:current.service!,generation:current.generation!},message)); return
           }
-          if (message.type === 'attention-resolved' && current.role === 'host') { await pool.query('UPDATE bmux_attention SET resolved_at=now() WHERE service=$1 AND host=$2 AND generation=$3 AND episode=$4', [current.service,current.id,current.generation,message.episode]); send(current,{ type:'attention-resolved', episode:message.episode }); return }
+          if (message.type === 'attention-resolved' && current.role === 'host') { if (current.capabilities?.verifiedAttention) throw new Error('Use verified attention outcomes'); await pool.query("UPDATE bmux_attention SET resolved_at=now(),status='resolved',revision=revision+1 WHERE service=$1 AND host=$2 AND generation=$3 AND episode=$4 AND resolved_at IS NULL", [current.service,current.id,current.generation,message.episode]); send(current,{ type:'attention-resolved', episode:message.episode }); return }
           if (message.type === 'signal') {
             let target = peers.get(message.to)
             if (!target || target.role === current.role) throw new Error('Invalid route')
@@ -263,6 +279,10 @@ server.on('upgrade', (request, socket, head) => {
             send(target, { type: 'signal', from: current.id, envelope: message.envelope }); return
           }
           if (message.type === 'sessions' && current.role === 'host') {
+            if (message.capabilities !== undefined) {
+              if (!message.capabilities || typeof message.capabilities !== 'object' || Object.keys(message.capabilities).some(key => !['management','sessionCreate','pageCreate','profiles','proxy','streamQuality','verifiedAttention'].includes(key)) || Object.values(message.capabilities).some(value => value !== 1)) throw new Error('Invalid capabilities')
+              current.capabilities = message.capabilities
+            }
             let sessions = message.sessions
             if (!Array.isArray(sessions) || sessions.length > 100 || !sessions.every((session: ListedSession) =>
               typeof session.id === 'string' && session.id.length <= 128 && typeof session.name === 'string' && session.name.length <= 256 &&
@@ -271,6 +291,8 @@ server.on('upgrade', (request, socket, head) => {
               Array.isArray(session.panes) && session.panes.length <= 100 && session.panes.every(pane =>
                 typeof pane.id === 'string' && pane.id.length <= 128 && typeof pane.title === 'string' && pane.title.length <= 512))) throw new Error('Invalid sessions')
             current.sessions = sessions
+            if (current.kind === 'included' && (sessions.length!==1 || sessions[0].panes.length!==1 || !current.capabilities?.management || current.capabilities.sessionCreate || current.capabilities.pageCreate)) throw new Error('Invalid included browser capabilities')
+            await pool.query('UPDATE bmux_host_presence SET sessions=$3,capabilities=$4 WHERE host=$1 AND generation=$2',[current.id,current.generation,JSON.stringify(sessions),JSON.stringify(current.capabilities ?? {})])
             await publish(); return
           }
           if (message.type === 'usage' && current.role === 'host') {
@@ -302,6 +324,8 @@ let timer = setInterval(() => {
   void leases.expire().then(rows => { for (let lease of rows) { let host = peers.get(lease.host); if (host?.generation === lease.generation) send(host, { type: 'stream-revoked', connection: lease.connection }) } }).catch(() => { for (let peer of peers.values()) if (peer.role === 'host') peer.socket.close(1011, 'Stream permits unavailable') })
   void pool.query("DELETE FROM bmux_usage WHERE recorded<now()-interval '30 days'; DELETE FROM bmux_logins WHERE expires<now()").catch(() => undefined)
   void pool.query('SELECT id FROM bmux_services WHERE revoked').then(result => { for (let row of result.rows) for (let peer of peers.values()) if (peer.service === row.id) peer.socket.close(1008, 'Revoked') }).catch(() => { for (let peer of peers.values()) peer.socket.close(1011, 'Authorization unavailable') })
+  let nativePeers=[...peers.values()].filter(peer=>peer.nativeSession)
+  if(nativePeers.length)void pool.query('SELECT m.session_id,m.device_id FROM bmux_mobile_devices m JOIN bmux_mobile_sessions s ON s.id=m.session_id JOIN bmux_devices d ON d.id=m.device_id WHERE NOT s.revoked AND s.expires>now() AND NOT d.revoked').then(result=>{for(let peer of nativePeers)if(!result.rows.some(row=>row.session_id===peer.nativeSession&&row.device_id===peer.id))peer.socket.close(1008,'Session revoked')}).catch(()=>{for(let peer of nativePeers)peer.socket.close(1011,'Authorization unavailable')})
 }, 15000)
 server.listen(Number(process.env.PORT ?? 8788), '0.0.0.0')
 void initialize().catch(error => { console.error(`Database initialization failed: ${(error as { code?: string }).code ?? 'unknown'}`); process.exit(1) })

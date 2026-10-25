@@ -5,6 +5,7 @@ import { api, createViewer } from './client'
 import type { Host, State } from './client'
 import styles from './style.module.css'
 import { RemoteAccount } from '../../src/renderer/RemoteAccount'
+import type { RemoteResumeAcknowledgement } from '../../src/shared/remote-attention'
 let visitBilling = (url: string) => { let target = new URL(url); if (target.protocol !== 'https:' || !['checkout.stripe.com','billing.stripe.com'].includes(target.hostname)) throw new Error('Invalid checkout URL'); location.assign(target.href) }
 
 type Viewer = Awaited<ReturnType<typeof createViewer>>
@@ -50,6 +51,7 @@ let App = () => {
   let [knownAccount, setKnownAccount] = useState(() => localStorage.getItem('bmux-known-account') === '1')
   let [googleReady, setGoogleReady] = useState(false)
   let [hostsLoaded, setHostsLoaded] = useState(false)
+  let [resuming,setResuming]=useState(false)
   let listed = hosts.flatMap(host => host.sessions.flatMap(session => session.panes.length ? [{ host, session, pane: session.panes[0] }] : []))
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
   let video = useRef<HTMLVideoElement>(null), googleClient = useRef<{ requestAccessToken: () => void } | undefined>(undefined), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
@@ -130,7 +132,14 @@ let App = () => {
   let acquire = () => { if (session) viewer?.send({ type: 'acquire', session: session.id, takeover: !!lease }) }
   let release = () => { if (session) viewer?.send({ type: 'release', session: session.id }) }
   let help = state?.attention?.find(item => item.pane === state.pane)
-  let resume = () => { if (controlling && help) viewer?.send({ type:'resume', generation:lease?.generation, episode:help.episode }) }
+  let resume = () => {
+    if (!controlling || !help || !viewer || !session || resuming || help.status==='verifying') return
+    setResuming(true)
+    void viewer.request<RemoteResumeAcknowledgement>({type:'resume',generation:lease?.generation,episode:help.episode,...(help.revision ? {revision:help.revision} : {})}).then(result=>{
+      if(result.resumed!==true)throw new Error('Resume was not acknowledged')
+      viewer.send({type:'release',session:session.id})
+    }).catch(report).finally(()=>setResuming(false))
+  }
   let command = (method: string, args: Record<string, unknown> = {}) => { if (controlling && state) viewer?.send({ type: 'command', generation: lease?.generation, command: { method, args: { tab: state.pane, ...args } } }) }
   let navigate = (event: FormEvent) => { event.preventDefault(); if (address.trim()) command('navigate', { url: address.trim() }); inputDialog.current?.close() }
   let back = () => command('back'), forward = () => command('forward'), reload = () => command('reload')
@@ -179,7 +188,7 @@ let App = () => {
         <span className={styles.status}>{watching ? 'Connecting' : controlling ? 'Controlling' : 'Watching'}</span>
         {selected.host.permission === 'control' && state && (controlling ? <button className={styles.controlButton} onClick={release}>Release control</button> : <button className={styles.controlButton} onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
       </div>
-      {help && <div className={styles.row}><span>{help.reason === 'help' ? 'Agent needs your help. Resolve the issue, then resume.' : 'Automation paused for verification. Resolve the issue, then resume.'}</span>{controlling && <button onClick={resume}>Resume automation</button>}</div>}
+      {help && <div className={styles.row}><span>{help.status==='verifying' ? 'Verifying' : help.reason === 'help' ? 'Agent needs your help. Resolve the issue, then resume.' : 'Automation paused for verification. Resolve the issue, then resume.'}</span>{controlling && help.status!=='verifying' && <button onClick={resume} disabled={resuming}>Resume automation</button>}</div>}
       <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} data-viewport-width={viewport?.width} data-viewport-height={viewport?.height} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
       {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
     </section>}</div>}

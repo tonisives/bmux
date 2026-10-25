@@ -3,6 +3,11 @@ import type { Pool } from 'pg'
 export type StreamLease = { connection: string; owner: string; host: string; generation: string; viewer: string; pane: string; expires: Date }
 export let createStreamLeases = (pool: Pool, managed: boolean) => {
   let active = async (owner: string) => !managed || !!(await pool.query('SELECT 1 FROM bmux_entitlements WHERE owner=$1 AND expires>now()', [owner])).rowCount
+  let status = async (owner: string) => {
+    let entitlement = managed ? (await pool.query('SELECT max_streams FROM bmux_entitlements WHERE owner=$1 AND expires>now()', [owner])).rows[0] : {max_streams:100}
+    let count = Number((await pool.query('SELECT count(*) FROM bmux_stream_leases WHERE owner=$1 AND expires>now()', [owner])).rows[0].count)
+    return {status:entitlement ? 'active' : 'inactive',canStream:!!entitlement,streamLimit:entitlement?.max_streams ?? 2,activeStreams:count}
+  }
   let acquire = async (lease: Omit<StreamLease, 'expires'>, renew = false) => {
     let client = await pool.connect()
     try {
@@ -22,8 +27,8 @@ export let createStreamLeases = (pool: Pool, managed: boolean) => {
     } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
   }
   let release = (host: string, generation: string, connection?: string, viewer?: string) => pool.query('DELETE FROM bmux_stream_leases WHERE host=$1 AND generation=$2 AND ($3::text IS NULL OR connection=$3) AND ($4::text IS NULL OR viewer=$4) RETURNING *', [host,generation,connection ?? null,viewer ?? null])
-  let list = async (owner: string) => (await pool.query('SELECT connection,host,generation,pane,expires FROM bmux_stream_leases WHERE owner=$1 AND expires>now() ORDER BY expires', [owner])).rows
+  let list = async (owner: string) => (await pool.query('SELECT connection,host,generation,pane,viewer,started_at AS "startedAt",expires FROM bmux_stream_leases WHERE owner=$1 AND expires>now() ORDER BY started_at,connection', [owner])).rows
   let revoke = async (owner: string, connection: string) => (await pool.query('DELETE FROM bmux_stream_leases WHERE owner=$1 AND connection=$2 RETURNING *', [owner,connection])).rows[0] as StreamLease | undefined
   let expire = async () => (await pool.query(`DELETE FROM bmux_stream_leases l WHERE expires<=now() ${managed ? "OR NOT EXISTS(SELECT 1 FROM bmux_entitlements e WHERE e.owner=l.owner AND e.expires>now())" : ''} RETURNING *`)).rows as StreamLease[]
-  return { active, acquire, release, list, revoke, expire }
+  return { active, status, acquire, release, list, revoke, expire }
 }
