@@ -89,7 +89,7 @@ export let writeModel = (directory: string, model: Model, bookmarkFile = path.jo
   let restored = model.clients.map(client => {
     if (!model.sessions.some(session => session.id === client.sessionId && session.remote)) return client
     let session = latestLocalSession({ ...model, sessions }, client) ?? sessions[0]
-    let window = session.windows.find(window => client.windowHistory?.includes(window.id)) ?? session.windows[0]
+    let window = client.windowHistory?.map(id => session.windows.find(window => window.id === id)).find(window => !!window) ?? session.windows[0]
     return { ...client, sessionId: session.id, windowId: window.id, paneId: window.panes[0]?.id ?? null, zoomedPaneId: null }
   })
   let clients = restored.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)), windowHistory: client.windowHistory?.filter(id => sessions.some(session => session.windows.some(window => window.id === id))) }))

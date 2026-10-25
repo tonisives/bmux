@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { initialModel, newPane, newSession, repairClientSelections } from '../src/main/model'
+import { initialModel, newPane, newSession, newWindow, repairClientSelections } from '../src/main/model'
 import { readModel, writeModel } from '../src/main/store'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../src/shared/remote-workspace'
 import type { RemoteWorkspaceSnapshot } from '../src/shared/remote'
@@ -47,9 +47,11 @@ it('returns OS links to the latest surviving local session, including a local se
 })
 it('restores a remote client to Local on restart without persisting any host IDs or panes', () => {
   let { model, snapshot, source } = fixture(), local = model.sessions[0]
+  let latestWindow = newWindow('Latest local window', local.defaultProfileId, false, model)
+  local.windows.push(latestWindow)
   let remote = projectRemoteWorkspace(snapshot, source, model.profiles[0].id)
   model.sessions.push(remote)
-  model.clients.push({ id: source.clientId, sessionId: remote.id, sessionHistory: [remote.id, local.id], windowId: remote.windows[0].id, windowHistory: [remote.windows[0].id, local.windows[0].id], paneId: remote.windows[0].panes[0].id, width: 1000, height: 700 })
+  model.clients.push({ id: source.clientId, sessionId: remote.id, sessionHistory: [remote.id, local.id], windowId: remote.windows[0].id, windowHistory: [remote.windows[0].id, latestWindow.id, local.windows[0].id], paneId: remote.windows[0].panes[0].id, width: 1000, height: 700 })
   model.lastFocusedClientId = source.clientId
   repairClientSelections(model)
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-remote-workspace-unit-'))
@@ -57,7 +59,7 @@ it('restores a remote client to Local on restart without persisting any host IDs
     writeModel(directory, model)
     let restored = readModel(directory)
     expect(restored.sessions).toHaveLength(1)
-    expect(restored.clients[0]).toMatchObject({ id: source.clientId, sessionId: local.id, windowId: local.windows[0].id })
+    expect(restored.clients[0]).toMatchObject({ id: source.clientId, sessionId: local.id, windowId: latestWindow.id })
     expect(restored.lastFocusedClientId).toBe(source.clientId)
     expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).not.toContain('remote:viewer-one:')
   } finally { fs.rmSync(directory, { recursive: true, force: true }) }

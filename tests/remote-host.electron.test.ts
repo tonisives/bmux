@@ -33,7 +33,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let savedModel = initialModel(), previousUse = Date.now() - 86400000
   savedModel.sessions[0].lastActivityAt = previousUse
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(savedModel))
-  await fs.writeFile(path.join(directory,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory,'config.yaml'),'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let applicationProcess: ChildProcess | undefined

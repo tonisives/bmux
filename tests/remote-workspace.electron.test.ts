@@ -23,7 +23,7 @@ test('remote workspace shares local layout, keeps client selection independent, 
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Local research</title><style>body{background:#d8eac2}</style><h1>Local research</h1>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let application = await electron.launch({ args: [path.join(fixtureDirectory, 'main/fixture.js')], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -40,6 +40,12 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await expect(chrome.locator('[data-pane-id]')).toHaveCount(3)
     await expect(chrome.getByRole('contentinfo', { name: 'Browser status' }).getByRole('group', { name: 'Remote session controls' })).toHaveCount(0)
     await expect(chrome.locator('[data-remote-address]')).toHaveCount(3)
+    await expect.poll(() => application.context().pages().some(page => page.url().includes('#float='))).toBe(true)
+    let floating = application.context().pages().find(page => page.url().includes('#float='))!
+    await expect(floating.locator('[data-floating-pane]')).toHaveAttribute('data-floating-pane', `remote:${local.id}:pane:${host.session.windows[0].panes[3].id}`)
+    await expect(floating.getByRole('button', { name: 'Move floating pane', exact: true })).toBeDisabled()
+    await expect(floating.getByRole('group', { name: 'Remote session controls' })).toHaveCount(1)
+    await floating.screenshot({ path: info.outputPath('remote-floating-pane.png') })
     await expect.poll(() => application.evaluate(() => (globalThis as any).workspaceFixture.media.size)).toBe(2)
     let third = `remote:${local.id}:pane:${host.session.windows[0].panes[2].id}`
     await chrome.evaluate(pane => (window as any).bmux.command({ method: 'select-pane', args: { pane } }), third)
@@ -55,7 +61,7 @@ test('remote workspace shares local layout, keeps client selection independent, 
     expect(current(await state()).paneId).toBe(third)
     await expect.poll(async () => Object.keys((await state()).remoteViews).filter(id => id.startsWith(`remote:${local.id}:pane:`)).length).toBe(5)
     await expect.poll(async () => Object.keys((await state()).remoteViews).filter(id => id.startsWith(`remote:${secondClient}:pane:`)).length).toBe(5)
-    await info.attach('shared-remote-layout', { body: await chrome.screenshot(), contentType: 'image/png' })
+    await chrome.screenshot({ path: info.outputPath('shared-remote-layout.png') })
     expect(await application.evaluate(() => (globalThis as any).workspaceFixture.snapshot.selection.paneId)).toBe(host.selection.paneId)
     await application.evaluate(async (_electron, client) => { let runtime = (globalThis as any).workspaceFixture.runtime; await runtime.execute({ method: 'detach-client', args: { client } }, client) }, secondClient)
     await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
@@ -78,7 +84,8 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await address.fill(`${url}?typed=1`); await address.press('Enter')
     await expect.poll(() => page.url()).toBe(`${url}?typed=1`)
     await expect(page.getByRole('heading')).toBeVisible()
-    await info.attach('local-after-remote', { body: await page.screenshot(), contentType: 'image/png' })
+    await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url && view.getBounds().width > 0 && view.getBounds().height > 0)), `${url}?typed=1`)).toBe(true)
+    await page.screenshot({ path: info.outputPath('local-after-remote.png') })
     await application.evaluate((_electron, client) => { let fixture = (globalThis as any).workspaceFixture; fixture.hold = true; (globalThis as any).pendingWorkspaceOpen = fixture.open(client).catch((error: Error) => error.message) }, local.id)
     await expect.poll(() => application.evaluate(() => (globalThis as any).workspaceFixture.held.length)).toBe(1)
     await application.evaluate(({ app }, url) => app.emit('open-url', { preventDefault() {} }, url), `${url}?during-connect=1`)
