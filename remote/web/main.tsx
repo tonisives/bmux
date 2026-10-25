@@ -42,6 +42,7 @@ let App = () => {
   let [selectedId, setSelectedId] = useState(''), [usage, setUsage] = useState<{ service: string; started: number; succeeded: number; failed: number; browser_ms: number }[]>([])
   let [target, setTarget] = useState(sessionFromUrl)
   let [owner, setOwner] = useState(''), [services, setServices] = useState<{ id: string; revoked: boolean }[]>([])
+  let [providers, setProviders] = useState<{ appleEnabled: boolean; appleLinked: boolean }>()
   let [serviceName, setServiceName] = useState(''), [createdKey, setCreatedKey] = useState(''), [keyService, setKeyService] = useState('')
   let [grantService, setGrantService] = useState(''), [grantUser, setGrantUser] = useState(''), [grantPermission, setGrantPermission] = useState<'watch' | 'control'>('watch')
   let [grants, setGrants] = useState<{ service: string; user_id: string; permission: string }[]>([])
@@ -69,6 +70,7 @@ let App = () => {
     active.current = next; setViewer(next); setAuth('ready')
     let [account, listed, access, counts] = await Promise.all([api('/api/me'), api('/api/services'), api('/api/grants'), api('/api/usage')])
     setOwner(account.owner); setServices(listed); setGrants(access); setUsage(counts)
+    setProviders(await api('/api/auth/providers'))
   }
   useEffect(() => {
     let cancelled = false
@@ -193,7 +195,7 @@ let App = () => {
       {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
     </section>}</div>}
     <dialog ref={inputDialog} className={styles.dialog} aria-label={inputMode === 'address' ? 'Open address' : 'Type into page'}><form onSubmit={inputMode === 'address' ? navigate : sendText}><div className={styles.dialogHeading}><strong>{inputMode === 'address' ? 'Open address' : 'Type into page'}</strong><button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close"><Icon name="close" /></button></div><input ref={inputField} aria-label={inputMode === 'address' ? 'Address' : 'Text'} type={inputMode === 'address' ? 'url' : 'text'} value={inputMode === 'address' ? address : text} onChange={inputMode === 'address' ? changeAddress : changeText} placeholder={inputMode === 'address' ? 'https://example.com' : 'Enter text'} required /><button className={styles.primaryButton}>{inputMode === 'address' ? 'Go' : 'Type'}</button></form></dialog>
-    {view === 'service' && viewer && <section className={styles.serviceView}><div className={styles.sectionHeading}><span>ACCOUNT</span><button onClick={showSessions}>Sessions</button></div><h2>Account</h2><RemoteAccount api={api} visit={visitBilling} signIn={signIn} rent={rent} /><p>Account ID: <code>{owner}</code></p><details><summary>Services and access</summary>
+    {view === 'service' && viewer && <section className={styles.serviceView}><div className={styles.sectionHeading}><span>ACCOUNT</span><button onClick={showSessions}>Sessions</button></div><h2>Account</h2><RemoteAccount api={api} visit={visitBilling} signIn={signIn} rent={rent} /><p>Account ID: <code>{owner}</code></p>{providers?.appleEnabled && <p>{providers.appleLinked ? 'Apple linked' : <a href="/api/auth/providers/apple/link">Link Apple</a>}</p>}<details><summary>Services and access</summary>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
       {createdKey && <p>Save the key for {keyService} now. It is shown once: <code>{createdKey}</code><button onClick={() => setCreatedKey('')}>Dismiss</button></p>}
       {services.filter(service => !service.revoked).map(service => <p key={service.id}>{service.id} <button onClick={() => rotateService(service.id)}>Rotate key</button> <button onClick={() => revokeService(service.id)}>Revoke</button></p>)}
