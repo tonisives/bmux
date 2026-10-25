@@ -78,7 +78,11 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByText('Apple linked', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Link Apple', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Sessions', exact: true }).click()
-    let windowId = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.id)
+    let windowId = await application.evaluate(({ BaseWindow }) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
+      window.setMinimumSize(0, 0)
+      return window.id
+    })
     let content = chrome.locator('[data-content-pane-id]')
     let resize = async (width: number, height: number) => {
       await application!.evaluate(({ BaseWindow }, { windowId, width, height }) => {
