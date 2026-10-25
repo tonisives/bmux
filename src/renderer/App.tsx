@@ -1,3 +1,4 @@
+import { RemotePaneControls } from './RemotePaneControls'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
 import type { RemoteView } from '../shared/remote'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
@@ -93,7 +94,7 @@ export let App = () => {
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
     if (previous.current && previous.current !== target) { setPanelHistory([]); setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
+    if (!selection(next).session?.remote && client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
       setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
@@ -574,46 +575,8 @@ let useWindowDrag = () => {
   return { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
 }
 
-let Status = () => {
-  let { state } = useUI()
-  let { client } = selection(state)
-  let remote = client?.paneId ? state.remoteViews?.[client.paneId] : undefined
-  return remote ? <RemoteStatus remote={remote} paneId={client!.paneId!} /> : <LocalStatus />
-}
-let RemoteStatus = ({ remote, paneId }: { remote: RemoteView; paneId: string }) => {
-  let { show, run } = useUI(), tabs = useRef<HTMLDivElement>(null)
-  let [now, setNow] = useState(Date.now)
-  let closing = useRemoteSessionClosing(remote.hostId, remote.sessionId)
-  useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
-  useEffect(() => { rememberRemoteSession(remote.hostId, remote.sessionId, remote.pane) }, [remote.hostId, remote.sessionId, remote.pane])
-  useLayoutEffect(() => {
-    let item = tabs.current?.querySelector<HTMLElement>('[data-selected="true"]')
-    if (item) item.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [remote.pane, remote.panes.length])
-  let sessions = () => show('sessions')
-  let control = () => { void run('remote.action', { pane: paneId, action: remote.controlling ? 'release' : 'acquire' }) }
-  let disconnect = () => { void run('kill-pane', { pane: paneId, confirm: true }) }
-  let connection = remote.error || (!remote.connected ? 'Connecting' : remote.controlling ? 'Controlling' : 'Watching')
-  let controlLabel = remote.controlling ? 'Release control' : remote.occupied ? 'Take over' : 'Take control'
-  return <>
-    <button onClick={sessions} aria-label="Sessions" title={`${remote.name} on ${remote.service}`} className={`${css.session} ${css.remoteSessionName}`}>{remote.name}</button>
-    <div ref={tabs} className={css.windows} data-remote-window-list role="tablist" aria-label="Remote pages">{remote.panes.map((pane, index) => <RemoteStatusPane key={pane.id} pane={pane} index={index + 1} selected={pane.id === remote.pane} viewerPane={paneId} now={now} />)}</div>
-    <span className={css.drag} />
-    <div className={css.remoteStatusActions} role="group" aria-label="Remote session controls">
-      <span className={css.remoteConnection} role="status" title={connection} aria-label={connection} data-connected={remote.connected} data-error={!!remote.error}><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4" /></svg><span>{connection}</span></span>
-      {remote.canControl && <button type="button" onClick={control} disabled={!remote.connected} aria-label={controlLabel} title={controlLabel} aria-pressed={remote.controlling}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 2 12 9-6 1-3 6Z" />{remote.controlling && <path d="m11 15 2 2 4-5" />}</svg></button>}
-      {remote.canControl && (closing.confirming ? <RemoteSessionConfirmation name={remote.name} closing={closing} /> : <button type="button" ref={closing.row} onClick={closing.ask} aria-label="Close session" title="Close remote session"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" /><path d="m7 7 6 6m0-6-6 6" /></svg></button>)}
-      <button type="button" onClick={disconnect} aria-label="Disconnect" title="Disconnect"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M9 3H3v14h6m-1-7h10m-4-4 4 4-4 4" /></svg></button>
-    </div>
-  </>
-}
-let RemoteStatusPane = ({ pane, index, selected, viewerPane, now }: { pane: RemoteView['panes'][number]; index: number; selected: boolean; viewerPane: string; now: number }) => {
-  let { run } = useUI()
-  let choose = () => { void run('remote.action', { pane: viewerPane, action: 'switch', target: pane.id }) }
-  let visitedAt = pane.lastActivityAt
-  return <div className={css.windowTab} data-selected={selected} data-remote-tab={pane.id}><button type="button" role="tab" className={css.windowSelect} onClick={choose} aria-selected={selected} aria-pressed={selected} title={pane.url || pane.title}><span className={css.windowLabel}>{index}:{pane.title || pane.url || 'Blank page'}</span>{visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}</button></div>
-}
-let LocalStatus = () => {
+let Status = () => <SessionStatus />
+let SessionStatus = () => {
   let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
   let [now, setNow] = useState(Date.now)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
@@ -625,7 +588,7 @@ let LocalStatus = () => {
   let activity = () => show('activity')
   let downloads = () => show('downloads')
   let newTab = () => { void run('new-window', { session: session!.id, client: state.clientId }) }
-  let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
+  let unhandledDownloads = session?.remote ? [] : state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
   let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused)
   let progressTotal = progressingDownloads.reduce((total, item) => total + item.total, 0)
   let downloadProgress = progressingDownloads.length > 0 && progressingDownloads.every(item => item.total > 0)
@@ -663,7 +626,7 @@ let LocalStatus = () => {
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} now={now} />)}</div>
-    <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
+    <button type="button" onClick={newTab} className={css.newTab} disabled={!!session?.remote} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
@@ -680,6 +643,7 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
 let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
+  let remote = !!selection(state).session?.remote
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
   let tabId = pane?.id
   let characters = Array.from(window.name)
@@ -707,15 +671,15 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let select = () => { hideTooltip(); void run('select-window', { client: state.clientId, window: window.id }) }
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
-  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
+  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); if (!remote) void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
-    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable>
+    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable={!remote}>
       <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
       {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
     {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
-    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} disabled={remote} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
 
@@ -1175,7 +1139,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   return remote ? <RemoteAddress paneId={paneId!} remote={remote} /> : <LocalPaneAddress paneId={paneId} />
 }
 let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView }) => {
-  let { run, show, control } = useUI()
+  let { state, run, show, control, onMessage } = useUI()
   let url = remote.panes.find(pane => pane.id === remote.pane)?.url ?? ''
   let open = () => show('address', paneId)
   let { beginSelection, editSelection, takeAddressSelection } = useDisplayedAddressSelection(open)
@@ -1192,7 +1156,9 @@ let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView })
       <button className={css.navigationButton} aria-label="Refresh" title="Refresh" disabled={!remote.controlling} onClick={reload}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
     </div>
     <div className={css.urlBar}>{control === 'address' ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={editFromClick} onKeyDown={editFromKeyboard} onMouseDown={selectAddress} onPointerDown={beginSelection} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} />}</div>
+    <span className={css.remoteProfile} title={remote.profileName}>{remote.profileName}</span>
     <PaneAgentButton paneId={paneId} />
+    <RemotePaneControls remote={remote} paneId={paneId} focused={selection(state).client?.paneId === paneId} run={run} onError={onMessage} />
   </div>
 }
 let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {
@@ -1940,10 +1906,11 @@ let SessionPicker = () => {
   let [now, setNow] = useState(Date.now)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   let client = selection(state).client
-  let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
+  let previousSession = state.model.sessions.find(session => !session.ephemeral && session.id === client?.sessionHistory?.find(id => id !== client.sessionId && state.model.sessions.some(session => session.id === id && !session.ephemeral)))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let backFirst = !!backSession && !!query.trim() && (!!fuzzyMatch(query, 'back') || query.trim().toLowerCase() === 'go back')
-  let sessions = searchSessions(state.model.sessions, query)
+  let localSessions = state.model.sessions.filter(session => !session.ephemeral)
+  let sessions = searchSessions(localSessions, query)
   if (reordering) sessions.sort((a, b) => state.model.sessions.indexOf(a.session) - state.model.sessions.indexOf(b.session))
   let dragPosition = (event: DragEvent<HTMLElement>): SessionDrop['position'] => event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2 ? 'before' : 'after'
   let dragOver = (event: DragEvent<HTMLElement>, id: string) => {
@@ -1957,7 +1924,7 @@ let SessionPicker = () => {
     void run('session.move', { session: dragSource.current, target: id, position: dragPosition(event) })
     endDrag()
   }
-  let windows = recent ? searchRecentWindows(state.model.sessions, query, client) : []
+  let windows = recent ? searchRecentWindows(localSessions, query, client) : []
   let previewWindow = state.model.sessions.flatMap(session => session.windows).find(window => window.id === previewId)
   let previewRow = (target: Element) => {
     let row = target.closest<HTMLElement>('[data-preview-window], [data-preview-session]')
@@ -1977,7 +1944,7 @@ let SessionPicker = () => {
   let create = async (privateSession: boolean) => {
     if (busy) return
     setBusy(true)
-    await run('new-session', { client: state.clientId, private: privateSession })
+    await run('new-session', { client: state.clientId, private: privateSession, workspace: 'local' })
     setBusy(false)
   }
   let createRegular = () => { void create(false) }

@@ -11,6 +11,7 @@ import type { Snapshot } from '../shared/types'
 import type { RemoteSession } from '../shared/remote-sessions'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings, RemotePreviewRequest } from '../shared/remote-preview-settings'
+import { createRemoteDesktopConnection } from './remote-desktop-connection'
 
 export type LocalRemoteSession = RemoteSession
 export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
@@ -24,7 +25,7 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
   let previews = createRemotePreviews(path.join(directory, 'remote'), () => previewSettings().saveLocally)
   let origin = new URL(process.env.BMUX_REMOTE_URL ?? 'https://remote.bmux.cc').origin
   if (!origin.startsWith('https://') && !origin.startsWith('http://127.0.0.1:')) throw new Error('Remote service requires HTTPS')
-  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; pane?: string; token: string; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
+  let viewers = new Map<WebContents, { host: LocalRemoteHost; session: string; pane?: string; metadata: boolean; view: string; connection: ReturnType<typeof createRemoteDesktopConnection>; close: () => Promise<unknown>; update: (state: RemoteViewUpdate) => void }>()
   let preferredProfileId: string | undefined, activeToken: string | undefined
   let profiles: () => string[] = () => []
   let useProfiles = (available: () => string[]) => { profiles = available }
@@ -61,9 +62,13 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
   }
   ipcMain.handle('remote-client-selection', event => {
     let selected = selection(event.sender)
-    return { origin, host: selected.host, session: selected.session, pane: selected.pane }
+    return { origin, host: selected.host, session: selected.session, pane: selected.pane, metadata: selected.metadata, view: selected.view, publicKey: selected.connection.publicKey }
   })
-  ipcMain.handle('remote-client-connect', (event, publicKey: JsonWebKey) => connect(publicKey, selection(event.sender).token))
+  ipcMain.handle('remote-client-connect', event => selection(event.sender).connection.open())
+  ipcMain.handle('remote-client-seal', (event, payload: Record<string, unknown>) => selection(event.sender).connection.seal(event.sender, payload))
+  ipcMain.handle('remote-client-socket-open', event => selection(event.sender).connection.initial())
+  ipcMain.handle('remote-client-socket-send', (event, data: string) => selection(event.sender).connection.send(event.sender, data))
+  ipcMain.handle('remote-client-socket-close', event => selection(event.sender).connection.release(event.sender))
   ipcMain.handle('remote-client-update', (event, state: RemoteViewUpdate) => selection(event.sender).update(state))
   ipcMain.handle('remote-client-preview', async (event, pane: string, image: string) => {
     let selected = selection(event.sender)
@@ -79,13 +84,18 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     if (!host) throw new Error('Remote session unavailable')
     let selected = host.sessions.find(item => item.id === sessionId)!
     if (paneId && !selected.panes.some(pane => pane.id === paneId)) throw new Error('Remote pane unavailable')
+    if (selected.workspace !== 1) throw new Error('Update this remote host to use the desktop session view')
     let token = activeToken
+    let connection = createRemoteDesktopConnection(origin, host, key => connect(key, token))
     await show({
       key: `${hostId}:${sessionId}`,
       title: host.sessions.find(item => item.id === sessionId)!.name,
-      view: { hostId, sessionId, name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, pane: paneId, panes: selected.panes.map(pane => ({ ...pane, url: '' })) },
-      attach: (contents, close, update) => {
-        viewers.set(contents, { host, session: sessionId, pane: paneId, token, close, update })
+      workspace: true,
+      previews: () => sessionPreviews(hostId, sessionId, 'refresh'),
+      view: { hostId, generation: host.generation, sessionId, name: host.sessions.find(item => item.id === sessionId)!.name, service: host.service, canControl: host.permission === 'control', connected: false, controlling: false, occupied: false, pane: paneId, panes: selected.panes.map(pane => ({ ...pane, url: '' })) },
+      attach: (contents, close, update, pane) => {
+        let metadata = pane === undefined, view = connection.attach(contents, metadata)
+        viewers.set(contents, { host, session: sessionId, pane: pane ?? paneId, metadata, view, connection, close, update })
         contents.once('destroyed', () => viewers.delete(contents))
       },
     })
@@ -98,7 +108,7 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
       if (host.permission !== 'control') throw new Error('Watch only access')
       let token = activeToken
       await requestRemoteSessionClose(origin, { ...host, canClose: host.sessions.find(session => session.id === sessionId)?.canClose }, sessionId, identity, key => connect(key, token))
-      for (let [contents, viewer] of viewers) if (viewer.host.id === hostId && viewer.session === sessionId && !contents.isDestroyed()) await viewer.close()
+      for (let [contents, viewer] of viewers) if (viewer.metadata && viewer.host.id === hostId && viewer.session === sessionId && !contents.isDestroyed()) await viewer.close()
     })
     closing = result.catch(() => undefined)
     return result

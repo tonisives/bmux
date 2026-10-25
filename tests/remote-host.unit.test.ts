@@ -76,7 +76,7 @@ it('reports an occupied account without starting video capture', async () => {
   let { socket, capture, offers } = setup('managed',true,true)
   let acquire = socket.sent.find(message => message.type === 'stream-acquire')!
   socket.emit('message',JSON.stringify({type:'stream-permit',request:acquire.request,error:'Both live views are in use. Disconnect a view in Account settings.'}))
-  await vi.waitFor(() => expect(offers()).toContainEqual({type:'error',error:'Both live views are in use. Disconnect a view in Account settings.'}),{interval:1})
+  await vi.waitFor(() => expect(offers()).toContainEqual({type:'error',request:'managed',error:'Both live views are in use. Disconnect a view in Account settings.'}),{interval:1})
   expect(capture).not.toHaveBeenCalled()
 })
 

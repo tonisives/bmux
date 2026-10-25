@@ -54,7 +54,7 @@ let receiveLink = (url: string, allowFile = false) => {
     let browser = runtime!
     let client = await existingClient()
     // OS-opened links are human navigation, like entering a URL in this client.
-    await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } }, client.id)
+    await browser.openExternalLink(client.id, url)
     await browser.execute({ method: 'activate-client', args: { client: client.id } })
   }).catch(() => { console.error('Could not open external browser link') })
 }

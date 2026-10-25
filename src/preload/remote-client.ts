@@ -13,4 +13,13 @@ contextBridge.exposeInMainWorld('remoteClient', {
   close: (): Promise<void> => ipcRenderer.invoke('remote-client-close'),
   selection: (): Promise<{ origin: string; host: Host; session: string; pane?: string }> => ipcRenderer.invoke('remote-client-selection'),
   connect: (publicKey: JsonWebKey): Promise<{ ticket: string; iceServers: RTCIceServer[] }> => ipcRenderer.invoke('remote-client-connect', publicKey),
+  seal: (_host: unknown, payload: Record<string, unknown>) => ipcRenderer.invoke('remote-client-seal', payload),
+  socketOpen: (): Promise<string[]> => ipcRenderer.invoke('remote-client-socket-open'),
+  socketSend: (data: string): Promise<void> => ipcRenderer.invoke('remote-client-socket-send', data),
+  socketClose: (): Promise<void> => ipcRenderer.invoke('remote-client-socket-close'),
+  socketEvents: (listener: (event: { type: 'message'; data: string } | { type: 'close' }) => void) => {
+    let handler = (_event: Electron.IpcRendererEvent, value: Parameters<typeof listener>[0]) => listener(value)
+    ipcRenderer.on('remote-client-socket', handler)
+    return () => ipcRenderer.removeListener('remote-client-socket', handler)
+  },
 })

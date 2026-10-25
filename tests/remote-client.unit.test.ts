@@ -48,7 +48,14 @@ it('retains a saved image if a refresh fails and rejects a page outside the sele
   expect(await remote.sessionPreviews('host', 'one', 'refresh')).toEqual({ 'pane-one': snapshot })
   await expect(remote.open('host', 'one', async () => {}, 'pane-two')).rejects.toThrow('Remote pane unavailable')
   let page: any
+  hosts[0].sessions[0].workspace = 1
   await remote.open('host', 'one', async value => { page = value }, 'pane-one')
   expect(page.view).toMatchObject({ pane: 'pane-one', panes: [{ id: 'pane-one' }] })
+  await remote.flush()
+})
+it('requires workspace support before replacing the local view', async () => {
+  let remote = createLocalRemote(directory), show = vi.fn()
+  await expect(remote.open('host', 'one', show)).rejects.toThrow('Update this remote host')
+  expect(show).not.toHaveBeenCalled()
   await remote.flush()
 })

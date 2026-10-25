@@ -3,14 +3,7 @@ import fs from 'node:fs'
 import { envelopeText, validEnvelope } from '../shared/remote'
 import type { RemoteEnvelope } from '../shared/remote'
 
-export let remoteIdentity = (file: string) => {
-  if (!fs.existsSync(file)) {
-    let keys = generateKeyPairSync('ed25519')
-    fs.writeFileSync(file, keys.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600, flag: 'wx' })
-  }
-  // Windows reports synthetic POSIX modes; access follows the user directory's ACL.
-  if (process.platform !== 'win32' && fs.statSync(file).mode & 0o077) throw new Error('Remote identity must have mode 600')
-  let privateKey = createPrivateKey(fs.readFileSync(file))
+let identityFromKey = (privateKey: ReturnType<typeof createPrivateKey>) => {
   let publicKey = createPublicKey(privateKey).export({ format: 'jwk' })
   let id = createHash('sha256').update(publicKey.x!).digest('hex')
   let seal = (to: string, generation: string, payload: unknown): RemoteEnvelope => {
@@ -18,6 +11,18 @@ export let remoteIdentity = (file: string) => {
     return { ...envelope, signature: sign(null, Buffer.from(envelopeText(envelope)), privateKey).toString('base64') }
   }
   return { id, publicKey, seal }
+}
+
+export let createRemoteIdentity = () => identityFromKey(generateKeyPairSync('ed25519').privateKey)
+
+export let remoteIdentity = (file: string) => {
+  if (!fs.existsSync(file)) {
+    let keys = generateKeyPairSync('ed25519')
+    fs.writeFileSync(file, keys.privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600, flag: 'wx' })
+  }
+  // Windows reports synthetic POSIX modes; access follows the user directory's ACL.
+  if (process.platform !== 'win32' && fs.statSync(file).mode & 0o077) throw new Error('Remote identity must have mode 600')
+  return identityFromKey(createPrivateKey(fs.readFileSync(file)))
 }
 
 export let createEnvelopeVerifier = (destination: string, generation: string, keys: () => Record<string, { kty: string; crv: string; x: string }>) => {

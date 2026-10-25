@@ -1,11 +1,11 @@
 import { envelopeText, validEnvelope } from '../../src/shared/remote'
-import type { RemoteEnvelope } from '../../src/shared/remote'
+import type { RemoteEnvelope, RemoteWorkspaceSnapshot } from '../../src/shared/remote'
 import { observeViewerFocus, receiveViewerMessage } from './viewer-updates'
 import { prepareIceAnswer } from '../../src/shared/remote-ice'
 import type { RemoteHost } from '../../src/shared/remote-sessions'
 export type Host = RemoteHost & { generation: string; key: JsonWebKey }
 export type Session = { id: string; name: string; windows: { panes: { id: string; title: string; url: string; lastActivityAt?: number }[] }[] }
-export type State = { viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }>; attention?: { pane: string; session: string; episode: string; reason: string }[] }
+export type State = { workspace?: RemoteWorkspaceSnapshot; viewports: Record<string, { width: number; height: number; generation: number }>; pane: string; sessions: Session[]; controls: Record<string, { owner: string; generation: number }>; attention?: { pane: string; session: string; episode: string; reason: string }[] }
 export type ViewerIdentity = {
   publicKey: JsonWebKey
   fingerprint: (key: JsonWebKey) => Promise<string>
@@ -14,6 +14,8 @@ export type ViewerIdentity = {
 }
 export type ViewerEvents = { hosts: (hosts: Host[]) => void; stream: (stream: MediaStream) => void; state: (state: State) => void; error: (text: string) => void; disconnected: () => void; message?: (message: Record<string, unknown>) => void }
 export type ViewerOptions = {
+  view?: string
+  seal?: (host: Host, payload: Record<string, unknown>) => Promise<RemoteEnvelope>
   origin?: string
   connect?: (publicKey: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }>
   identity?: ViewerIdentity
@@ -76,11 +78,11 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
   let signal = (payload: unknown) => {
     if (!host || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Disconnected'))
     let selected = host
-    let envelope = { version: 1 as const, from: id, to: selected.id, generation: selected.generation, nonce: uuid(), expires: Date.now() + 60000, payload: JSON.stringify(payload) }
+    let envelope = { version: 1 as const, from: id, to: selected.id, generation: selected.generation, nonce: uuid(), expires: Date.now() + 60000, payload: JSON.stringify({ ...(payload as object), ...(options.view ? { view: options.view } : {}) }) }
     let sending = outgoing.then(async () => {
-      let signature = await identity.sign(envelopeText(envelope))
+      let sealed = options.seal ? await options.seal!(selected, JSON.parse(envelope.payload)) : { ...envelope, signature: await identity.sign(envelopeText(envelope)) }
       if (socket.readyState !== WebSocket.OPEN) throw new Error('Disconnected')
-      socket.send(JSON.stringify({ type: 'signal', to: selected.id, envelope: { ...envelope, signature } }))
+      socket.send(JSON.stringify({ type: 'signal', to: selected.id, envelope: sealed }))
     })
     outgoing = sending.catch(() => {})
     return sending
@@ -106,6 +108,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
       if (currentRequest !== request) return
       seen.add(envelope.nonce)
       let payload = JSON.parse(envelope.payload)
+      if (payload.view !== options.view) return
       if (payload.request && payload.request !== request) return
       if (payload.type === 'error') { finish(new Error(payload.error)); return }
       if (payload.type === 'candidate' && typeof payload.connection === 'string') {
@@ -131,13 +134,13 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
       current.ondatachannel = event => {
         if (peer !== current) return
         channel = event.channel
-        let opened = () => { if (peer === current) { if (mode === 'manage') finish(); else send({ type: 'state' }) } }
+        let opened = () => { if (peer === current) { if (mode === 'manage') finish(); if (mode === 'open' || options.view) send({ type: 'state' }) } }
         channel.onopen = opened
         if (channel.readyState === 'open') opened()
         channel.onmessage = event => {
           if (peer !== current) return
           let message = JSON.parse(event.data)
-          if (mode === 'open') receiveViewerMessage(message, { ...events, ready: finish, refresh })
+          receiveViewerMessage(message, { ...events, ready: finish, refresh })
           events.message?.(message)
         }
       }
@@ -161,7 +164,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
   })
   await ready
   stopRefresh = options.observe ? options.observe(refresh) : observeViewerFocus(refresh, window, document)
-  let open = async (selected: Host, payload: { type: 'manage' } | { type: 'open'; session: string; pane: string }) => {
+  let open = async (selected: Host, payload: { type: 'manage'; session?: string } | { type: 'open'; session: string; pane: string }) => {
     let attempt = ++operation
     if (host) await signal({ type: 'close' })
     if (attempt !== operation || closed) throw new Error('Connection replaced')
@@ -177,8 +180,8 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
   return {
     id, publicKey, send,
     watch: (selected: Host, session: string, pane: string) => open(selected, { type: 'open', session, pane }),
-    manage: (selected: Host) => open(selected, { type: 'manage' }),
+    manage: (selected: Host, session?: string) => open(selected, { type: 'manage', ...(session ? { session } : {}) }),
     stop: () => { operation++; clearTimeout(connectionLoss); connectionLoss = undefined; if (host) void signal({ type: 'close' }).catch(() => undefined); finish(new Error('View stopped')); peer?.close(); peer = undefined; channel = undefined; host = undefined; mode = undefined; request = undefined; connection = undefined; candidates.clear() },
-    close: () => { operation++; clearTimeout(connectionLoss); stopRefresh(); closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
+    close: () => { operation++; clearTimeout(connectionLoss); stopRefresh(); if (host) void signal({ type: 'close' }).catch(() => undefined); closed = true; finish(new Error('Connection closed')); peer?.close(); socket.close() },
   }
 }

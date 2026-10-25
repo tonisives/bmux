@@ -1,6 +1,6 @@
 import { publishIceOffer } from '../shared/remote-ice'
 
-type TransportMessage = { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; iceServers?: RTCIceServer[]; data?: string; width?: number; height?: number; relayOnly?: boolean; trickle?: boolean }
+type TransportMessage = { type: string; media?: boolean; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; iceServers?: RTCIceServer[]; data?: string; width?: number; height?: number; relayOnly?: boolean; trickle?: boolean }
 let bridge = (window as unknown as { remoteBridge: { receive: (listener: (message: TransportMessage) => void) => void; send: (message: unknown) => void } }).remoteBridge
 let canvas = document.querySelector('canvas')!
 let context = canvas.getContext('2d')!
@@ -27,9 +27,11 @@ bridge.receive(message => {
       latestFrame = undefined
       peer = new RTCPeerConnection({ iceServers: message.iceServers, iceTransportPolicy: message.relayOnly ? 'relay' : 'all' })
       canvas.width = message.width ?? 1280; canvas.height = message.height ?? 800
-      let stream = canvas.captureStream(10)
-      track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
-      peer.addTrack(track, stream)
+      if (message.media !== false) {
+        let stream = canvas.captureStream(10)
+        track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
+        peer.addTrack(track, stream)
+      }
       channel = peer.createDataChannel('bmux')
       channel.onmessage = event => { if (typeof event.data === 'string' && event.data.length <= 65536) bridge.send({ type: 'data', data: event.data }) }
       peer.onconnectionstatechange = connected

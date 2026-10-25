@@ -18,7 +18,7 @@ import { app, BaseWindow, BrowserWindow, View, WebContentsView, session as elect
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, WorkspaceSession } from '../shared/types'
+import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
@@ -95,10 +95,11 @@ import { createPreviewRefresh } from './preview-refresh'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
+import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation } from '../shared/remote-workspace'
 
 type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
-export type RemotePage = { key: string; title: string; url?: string; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void) => void }
+export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
 let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.contents.isDestroyed()
@@ -1048,6 +1049,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let reportError = (error: unknown) => { console.error(`bmux: ${errorText(error)}`) }
   let remotePages = new Map<string, RemotePage>()
+  let remoteWorkspaces = new Map<string, { page: RemotePage; metadata: WebContentsView; sessionId?: string; profileId: string; visited: string[]; blocked: Set<string>; previewAt: number; fetching: boolean }>()
   let createLiveRemoteTab = (tabId: string, remote: RemotePage) => {
     let { pane } = tabById(model, tabId)
     let view = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
@@ -1060,13 +1062,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('will-navigate', event => event.preventDefault())
     contents.on('will-redirect', event => event.preventDefault())
     contents.on('focus', () => {
-      let owner = [...clients.values()].find(client => client.window === live.parent)
-      if (owner) owner.pageFocused = true
+      let owner = [...clients].find(([, client]) => client.window === live.parent)
+      if (owner) {
+        owner[1].pageFocused = true
+        let client = model.clients.find(client => client.id === owner[0])
+        if (client && client.paneId !== tabId) void execute({ method: 'select-pane', args: { client: client.id, pane: tabId, focus: false } }, client.id).catch(reportError)
+      }
     })
     installKeys(contents)
-    remote.attach!(contents, () => execute({ method: 'kill-pane', args: { pane: tabId } }), update => {
+    remote.attach!(contents, async () => { let source = tabById(model, tabId).session.remote; if (source) disconnectRemoteWorkspace(source.clientId); else await execute({ method: 'kill-pane', args: { pane: tabId } }) }, update => {
       if (live.disposed || !remote.view) return
       remote.view = { ...remote.view, ...update }
+      let source = tabById(model, tabId).session.remote
+      let workspace = source && remoteWorkspaces.get(source.clientId)
+      if (workspace && /Both live|Stream permit|capacity reached/i.test(update.error ?? '')) { workspace.blocked.add(tabId); void scheduleVisuals() }
       let selected = update.panes.find(pane => pane.id === update.pane)
       pane.title = selected?.title || update.name
       publish()
@@ -1626,7 +1635,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       virtualMouse.forget(tabId)
       automationPointerTabs.delete(tabId)
     }
-    remotePages.delete(tabId)
+    if (!model.sessions.some(session => session.remote && session.windows.some(window => window.panes.some(pane => pane.id === tabId)))) remotePages.delete(tabId)
     for (let [requestId, request] of permissions) if (request.paneId === tabId) { request.reply(false); permissions.delete(requestId) }
     delete security[tabId]
     clearNavigationError(tabId)
@@ -1773,7 +1782,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
     let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
     let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
-    for (let tabId of liveIds) if (!tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
+    let remoteMedia = new Set<string>()
+    for (let [clientId, workspace] of remoteWorkspaces) {
+      let client = model.clients.find(client => client.id === clientId && client.sessionId === workspace.sessionId)
+      if (!client) continue
+      if (client.paneId && workspace.visited[0] !== client.paneId) { workspace.visited = [client.paneId, ...workspace.visited.filter(id => id !== client.paneId)]; workspace.blocked.delete(client.paneId) }
+      let visible = visiblePaneIds(client).filter(id => visibleSelected.has(id))
+      let order = [...new Set([...workspace.visited, ...visible])].filter(id => visible.includes(id) && !workspace.blocked.has(id)).slice(0, 2)
+      for (let pane of order) remoteMedia.add(pane)
+    }
+    for (let { pane, session } of walkPanes(model)) if (session.remote) {
+      let remote = remotePages.get(pane.id)
+      if (remote?.view) remote.view.preview = !remoteMedia.has(pane.id)
+      if (tabs.has(pane.id) && !remoteMedia.has(pane.id)) disposeTab(pane.id)
+    }
+    for (let tabId of liveIds) if ((!tabById(model, tabId).session.remote || remoteMedia.has(tabId)) && !tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
     for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) lastTabUse.set(tabId, Date.now())
     for (let tabId of visibleSelected) lastTabUse.set(tabId, Date.now())
     previouslyVisibleTabs = visibleSelected
@@ -1953,9 +1976,85 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let changed = () => {
     clickMode.cancel(); doubleTap.reset(); repairClients()
     for (let session of [...model.sessions]) if (session.ephemeral && !model.clients.some(client => client.sessionId === session.id)) removeSession(model, session)
+    for (let [clientId, workspace] of remoteWorkspaces) if (workspace.sessionId && !model.sessions.some(session => session.id === workspace.sessionId)) { remoteWorkspaces.delete(clientId); workspace.metadata.webContents.close({ waitForBeforeUnload: false }) }
     save(); void scheduleVisuals()
   }
+  let disconnectRemoteWorkspace = (clientId: string) => {
+    let workspace = remoteWorkspaces.get(clientId)
+    if (!workspace) return
+    remoteWorkspaces.delete(clientId)
+    let session = model.sessions.find(session => session.id === workspace.sessionId)
+    if (session) removeSession(model, session)
+    workspace.metadata.webContents.close({ waitForBeforeUnload: false })
+    changed()
+  }
+  let openRemoteWorkspace = async (clientId: string, page: RemotePage) => {
+    let client = resolve(model.clients, clientId, 'Client')
+    let existing = remoteWorkspaces.get(clientId)
+    if (existing?.page.key === page.key && existing.sessionId) {
+      let pane = page.view?.pane && remoteWorkspaceId(clientId, 'pane', page.view.pane)
+      if (pane) await execute({ method: 'select-pane', args: { client: clientId, pane } }, clientId)
+      return
+    }
+    disconnectRemoteWorkspace(clientId)
+    let local = resolve(model.sessions, client.sessionId, 'Session')
+    let requestedPane = page.view?.pane
+    let metadata = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    let workspace = { page, metadata, profileId: local.defaultProfileId, sessionId: undefined as string | undefined, visited: [] as string[], blocked: new Set<string>(), previewAt: 0, fetching: false }
+    remoteWorkspaces.set(clientId, workspace)
+    let initialized = false
+    let ready = new Promise<void>((resolveReady, reject) => {
+      let timer = setTimeout(() => { if (remoteWorkspaces.get(clientId) === workspace) disconnectRemoteWorkspace(clientId); reject(new Error('Remote session connection timed out')) }, 25000)
+      page.attach!(metadata.webContents, async () => { clearTimeout(timer); disconnectRemoteWorkspace(clientId); if (!initialized) reject(new Error('Remote session closed')) }, update => {
+        if (remoteWorkspaces.get(clientId) !== workspace) return
+        page.view = { ...page.view!, ...update }
+        if (!update.workspace) {
+          for (let remote of remotePages.values()) if (remote.view?.hostId === page.view.hostId && remote.view.sessionId === page.view.sessionId) remote.view = { ...remote.view, controlling: update.controlling, occupied: update.occupied, connected: update.connected }
+          if (!initialized && update.error) { clearTimeout(timer); disconnectRemoteWorkspace(clientId); reject(new Error(update.error)) }
+          publish(); return
+        }
+        let snapshot = update.workspace
+        if (snapshot.session.id !== page.view.sessionId || !snapshot.session.windows.length) return
+        let source = { clientId, hostId: page.view.hostId, sessionId: page.view.sessionId, generation: page.view.generation ?? '' }
+        let projection = projectRemoteWorkspace(snapshot, source, workspace.profileId)
+        let index = model.sessions.findIndex(session => session.id === workspace.sessionId)
+        if (index < 0) model.sessions.push(projection); else model.sessions[index] = projection
+        workspace.sessionId = projection.id
+        let panes = new Set(projection.windows.flatMap(window => window.panes.map(pane => pane.id)))
+        for (let [id, remote] of remotePages) if (remote.key.startsWith(`${page.key}:`) && !panes.has(id)) remotePages.delete(id)
+        for (let window of snapshot.session.windows) for (let pane of window.panes) {
+          let id = remoteWorkspaceId(clientId, 'pane', pane.id)
+          let existing = remotePages.get(id)
+          let view = { ...page.view, workspace: undefined, pane: pane.id, preview: existing?.view?.preview ?? true, profileName: snapshot.profiles.find(profile => profile.id === pane.profileId)?.name, error: existing?.view?.error }
+          if (existing) existing.view = view
+          else remotePages.set(id, { key: `${page.key}:${pane.id}`, title: pane.title, view, attach: (contents, close, update) => page.attach!(contents, close, update, pane.id) })
+        }
+        if (!initialized) {
+          let initialPane = requestedPane && panes.has(remoteWorkspaceId(clientId, 'pane', requestedPane)) ? requestedPane : snapshot.selection?.paneId
+          let pane = initialPane && remoteWorkspaceId(clientId, 'pane', initialPane)
+          let window = projection.windows.find(window => window.panes.some(item => item.id === pane)) ?? projection.windows[0]
+          client.sessionId = projection.id; client.windowId = window.id; client.paneId = pane && window.panes.some(item => item.id === pane) ? pane : window.panes[0].id
+          client.zoomedPaneId = snapshot.selection?.zoomedPaneId ? remoteWorkspaceId(clientId, 'pane', snapshot.selection.zoomedPaneId) : null
+          initialized = true; clearTimeout(timer); resolveReady()
+        }
+        if (page.previews && !workspace.fetching && Date.now() - workspace.previewAt >= 15000) {
+          workspace.previewAt = Date.now(); workspace.fetching = true
+          void page.previews().then(images => {
+            if (remoteWorkspaces.get(clientId) !== workspace) return
+            for (let [pane, image] of Object.entries(images)) snapshots[remoteWorkspaceId(clientId, 'pane', pane)] = image
+            publish()
+          }).catch(() => undefined).finally(() => { workspace.fetching = false })
+        }
+        changed()
+      })
+    })
+    metadata.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    metadata.webContents.on('will-navigate', event => event.preventDefault())
+    let load = process.env.ELECTRON_RENDERER_URL ? metadata.webContents.loadURL(new URL('remote-client.html', process.env.ELECTRON_RENDERER_URL).href) : metadata.webContents.loadFile(path.join(import.meta.dirname, '../renderer/remote-client.html'))
+    try { await Promise.all([load, ready]) } catch (error) { disconnectRemoteWorkspace(clientId); throw error }
+  }
   let openRemotePage = async (clientId: string, page: RemotePage) => {
+    if (page.workspace && page.view && page.attach) return openRemoteWorkspace(clientId, page)
     let client = resolve(model.clients, clientId, 'Client')
     let workspace = resolve(model.sessions, client.sessionId, 'Session')
     let profileId = workspace.windows.flatMap(window => window.panes).find(pane => pane.id === client.paneId)?.profileId ?? workspace.defaultProfileId
@@ -1980,6 +2079,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     changed(); await visualQueue
     if (reused && page.view?.pane) tabs.get(client.paneId)?.contents.send('remote-client-action', { type: 'switch', pane: page.view.pane } satisfies RemoteViewAction)
   }
+  let openExternalLink = async (clientId: string, url: string) => {
+    let client = resolve(model.clients, clientId, 'Client')
+    let target = latestLocalSession(model, client)
+    if (!target) { target = newSession('main', model.profiles[0].id, false, model); model.sessions.push(target) }
+    if (client.sessionId !== target.id) await execute({ method: 'switch-client', args: { client: clientId, session: target.id } }, clientId)
+    return execute({ method: 'new-window', args: { client: clientId, session: target.id, url } }, clientId)
+  }
   let closeTabsBeforeRemoval = async (tabIds: string[]) => {
     for (let tabId of tabIds) {
       if (!await closeLiveTab(tabId)) return false
@@ -1990,6 +2096,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let trace = (stage: string) => { if (process.env.BMUX_TRACE_CLIENT_STARTUP === '1') console.error(`bmux client startup: ${stage}`) }
     trace('creating window')
     let session = resolve(model.sessions, sessionId, 'Session')
+    if (session.remote) throw new Error('Switch to Local to open another client')
     let selectedWindow = session.windows.find(window => window.id === windowId) ?? session.windows[0]
     let client: Client = restored ?? { id: id('client'), sessionId, windowId: selectedWindow.id, paneId: selectedWindow.panes[0]?.id ?? null, width: 1280, height: 850 }
     if (!restored) model.clients.push(client)
@@ -2161,6 +2268,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     validateAgentInfo(args)
+    let sourceClient = model.clients.find(client => client.id === sourceClientId)
+    let target = typeof args.pane === 'string' || typeof args.tab === 'string' ? model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === (args.pane ?? args.tab))))
+      : typeof args.window === 'string' ? model.sessions.find(session => session.windows.some(window => window.id === args.window))
+      : typeof args.session === 'string' ? model.sessions.find(session => session.id === args.session)
+      : sourceClient ? model.sessions.find(session => session.id === sourceClient.sessionId) : undefined
+    if (target?.remote && (remoteWorkspaceMutation(method) || !sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method))) throw new Error('This command is unavailable in remote view')
+    if (target?.remote && sourceClientId && target.remote.clientId !== sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method)) throw new Error('Select the remote session in this client first')
+    if (sourceClient && model.sessions.find(session => session.id === sourceClient.sessionId)?.ephemeral && ['new-session', 'new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.workspace !== 'local') throw new Error('Switch to Local to create sessions, windows, or panes')
     if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to'].includes(method)) {
       automatedNavigations.delete(args.tab)
       let pane = paneById(model, args.tab).pane
@@ -2170,25 +2285,29 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
     let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
-    if (remoteTab && remoteView && ['cycle-window', 'cycle-pane'].includes(method) && remoteView.panes.length) {
+    if (remoteTab && remoteView && !target?.remote && ['cycle-window', 'cycle-pane'].includes(method) && remoteView.panes.length) {
       let index = remoteView.panes.findIndex(pane => pane.id === remoteView.pane)
       let next = remoteView.panes[(index + (Number(args.direction) < 0 ? -1 : 1) + remoteView.panes.length) % remoteView.panes.length]
       tabs.get(remoteTab)?.contents.send('remote-client-action', { type: 'switch', pane: next.id } satisfies RemoteViewAction)
       return { remote: true }
     }
     if (remoteTab && remoteView && (method === 'remote.action' || ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'stop'].includes(method))) {
+      let workspace = target?.remote && remoteWorkspaces.get(target.remote.clientId)
+      if (method === 'remote.action' && args.action === 'disconnect' && workspace) { disconnectRemoteWorkspace(target!.remote!.clientId); return { disconnected: true } }
+      if (method === 'remote.action' && args.action === 'watch' && workspace) { await execute({ method: 'select-pane', args: { client: sourceClientId, pane: remoteTab, focus: false } }, sourceClientId); workspace.blocked.delete(remoteTab); if (remotePages.get(remoteTab)?.view) remotePages.get(remoteTab)!.view!.error = undefined; void scheduleVisuals(); return { remote: true } }
       let action: RemoteViewAction
       if (method === 'remote.action') {
-        if (!sourceClientId || model.clients.find(client => client.id === sourceClientId)?.paneId !== remoteTab) throw new Error('Select the remote session first')
+        if (!sourceClientId || !workspace && model.clients.find(client => client.id === sourceClientId)?.paneId !== remoteTab) throw new Error('Select the remote session first')
         if (args.action === 'switch' && typeof args.target === 'string' && remoteView.panes.some(pane => pane.id === args.target)) action = { type: 'switch', pane: args.target }
         else if (args.action === 'acquire' && remoteView.canControl) action = { type: 'acquire' }
         else if (args.action === 'release') action = { type: 'release' }
         else throw new Error('Unknown remote action')
       } else {
         if (!remoteView.controlling) throw new Error('Take control to navigate the remote session')
-        action = { type: 'command', method, args: method === 'navigate' ? { url: normalizeUrl(required(args, 'url'), searchAppForSession(tabById(model, remoteTab).session)) } : {} }
+        action = { type: 'command', method, args: { ...(method === 'navigate' ? { url: normalizeUrl(required(args, 'url'), searchAppForSession(tabById(model, remoteTab).session)) } : {}), ...(workspace ? { tab: remoteView.pane } : {}) } }
       }
-      tabs.get(remoteTab)?.contents.send('remote-client-action', action)
+      if (workspace) workspace.metadata.webContents.send('remote-client-action', action)
+      else tabs.get(remoteTab)?.contents.send('remote-client-action', action)
       return { remote: true }
     }
     checkControl(method, args)
@@ -2713,7 +2832,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       else overlays.delete(client.id)
       await scheduleVisuals(); return { visible: !!args.visible }
     }
-    if (method === 'list-sessions') return model.sessions
+    if (method === 'list-sessions') return model.sessions.filter(session => !session.ephemeral)
     if (method === 'list-clients') return model.clients
     if (method === 'import-brave') {
       if (hostProxy) throw new Error('Profile import is unavailable on a managed proxy host')
@@ -3697,6 +3816,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let shutdown = () => {
     if (shuttingDown) return previewCache.flush()
     shuttingDown = true
+    for (let workspace of remoteWorkspaces.values()) workspace.metadata.webContents.close({ waitForBeforeUnload: false })
+    remoteWorkspaces.clear()
     for (let cancel of agentUnlockTimers.values()) cancel()
     agentUnlockTimers.clear()
     proxyRecovery.close()
@@ -3765,7 +3886,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       controls.release(session.id)
       return await execute({ method: 'kill-session', args: { session: session.id, confirm: true } }) as { closed?: string; cancelled?: string }
     },
-    state: () => { clearRemoteSizes(); return { sessions: model.sessions, viewports: Object.fromEntries([...tabs.keys()].map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
+    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral); return { sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
+    workspace: (sessionId: string) => {
+      let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
+      if (!session) return undefined
+      let client = model.clients.find(client => client.sessionId === sessionId && client.id === (focusedClientId ?? model.lastFocusedClientId)) ?? model.clients.find(client => client.sessionId === sessionId)
+      let window = session.windows.find(window => window.id === client?.windowId) ?? session.windows.slice().sort((a, b) => (b.lastVisitedAt ?? 0) - (a.lastVisitedAt ?? 0))[0]
+      return { session, profiles: model.profiles.map(({ id, name }) => ({ id, name })), selection: { windowId: window.id, paneId: client?.paneId ?? window.panes[0]?.id ?? null, zoomedPaneId: client?.zoomedPaneId } }
+    },
+    manage: (options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture(options),
     capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents }),
     acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },
     renew: controls.renew,
@@ -3815,5 +3944,5 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return remoteViewport(pane)
     },
   }
-  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

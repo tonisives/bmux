@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import { capturePageFrame, createFrameCapture } from './frame-capture'
 
-type CaptureOptions = { contents: Electron.WebContents; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void; data: (message: string) => void; closed: () => void }
+type CaptureOptions = { contents?: Electron.WebContents; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void; data: (message: string) => void; closed: () => void }
 let frameSize = (frame: Electron.NativeImage) => {
   let size = frame.getSize(), scale = Math.min(1, 1920 / size.width, 1080 / size.height)
   return { width: Math.round(size.width * scale), height: Math.round(size.height * scale) }
@@ -30,8 +30,8 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   }
   let start = (frame?: Electron.NativeImage) => {
     if (disposed) return
-    send({ type: 'start', iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...(frame && !frame.isEmpty() ? frameSize(frame) : {}) })
-    unsubscribe = subscribe(options.contents, sendFrame)
+    send({ type: 'start', media: !!options.contents, iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...(frame && !frame.isEmpty() ? frameSize(frame) : {}) })
+    if (options.contents) unsubscribe = subscribe(options.contents, sendFrame)
     let data = frame && encodeFrame(frame)
     if (data) sendFrame(data)
   }
@@ -39,7 +39,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     if (disposed) return
     disposed = true
     ipcMain.off('remote-message', receive)
-    options.contents.off('destroyed', close)
+    options.contents?.off('destroyed', close)
     unsubscribe?.()
     if (!window.isDestroyed()) window.destroy()
     options.closed()
@@ -47,9 +47,10 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   let receive = (event: Electron.IpcMainEvent, message: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; data?: string; state?: string }) => {
     if (event.sender !== window.webContents || !message || typeof message.type !== 'string') return
     if (message.type === 'ready') {
-      void capturePageFrame(options.contents).then(start).catch(() => start())
+      if (options.contents) void capturePageFrame(options.contents).then(start).catch(() => start())
+      else start()
     } else if (message.type === 'frame-ack') framePending = false
-    else if (message.type === 'connection' && message.state === 'connected') {
+    else if (message.type === 'connection' && message.state === 'connected' && options.contents) {
       void capturePageFrame(options.contents).then(frame => { let data = encodeFrame(frame); if (data) sendFrame(data) }).catch(() => undefined)
     }
     else if (message.type === 'offer' && message.sdp) options.signal(message.sdp)
@@ -58,7 +59,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     else if (message.type === 'error' || message.type === 'connection' && ['failed', 'closed'].includes(message.state ?? '')) close()
   }
   ipcMain.on('remote-message', receive)
-  options.contents.once('destroyed', close)
+  options.contents?.once('destroyed', close)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
   try { await window.loadFile(path.join(import.meta.dirname, '../renderer/remote-peer.html')) } catch (error) { close(); throw error }
