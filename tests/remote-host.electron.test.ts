@@ -263,6 +263,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     expect(await command('eval','-t',pane,'window.memory')).toBe('retained')
     await viewer.getByRole('button',{name:'Take control',exact:true}).click()
     await expect(viewer.getByText('Controlling')).toBeVisible()
+    let controlGeneration = (await command('status')).remoteControl[status.model.sessions[0].id].generation
+    expect(controlGeneration).toBeGreaterThan(0)
+    await sessionRow.click()
+    await expect(viewer.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+    expect((await command('status')).remoteControl[status.model.sessions[0].id].generation).toBe(controlGeneration)
     await viewer.getByRole('button',{name:'Open address'}).click()
     await expect(viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'})).toBeFocused()
     let typedUrl = `${fixtureUrl}/?address=1`

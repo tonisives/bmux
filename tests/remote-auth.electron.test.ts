@@ -41,11 +41,12 @@ test('remote web Account preserves Apple linking and the responsive session work
       }
       if (route.startsWith('/api/')) {
         let result = route === '/api/auth/providers' ? providers
-          : route === '/api/me' ? { owner: 'fixture-owner' }
+          : route === '/api/me' ? { owner: 'fixture-owner', entitlement: { canStream: true } }
           : route === '/api/connect' ? { ticket: 'fixture-ticket', iceServers: [] }
           : route === '/api/config' ? { googleClientId: 'fixture' }
           : route === '/api/billing/status' ? { enabled: false, relay: { active: false, monthlyCents: 1000, currency: 'usd', maxStreams: 2, cancelRequested: false, status: 'inactive' } }
-          : route === '/api/billing/rates' ? { base: 'USD', date: '2026-10-25', source: 'fixture', rates: { USD: 1 } } : []
+          : route === '/api/billing/rates' ? { base: 'USD', date: '2026-10-25', source: 'fixture', rates: { USD: 1 } }
+          : route === '/api/rentals/catalog' ? { enabled: false, quotes: [] } : []
         response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result)); return
       }
       let file = route === '/' ? 'index.html' : route.slice(1)
@@ -169,6 +170,20 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(row).not.toHaveAttribute('aria-current', 'true')
     await page.screenshot({ path: info.outputPath('remote-web-portrait.png') })
     await resize(1280, 800)
+    await library.getByRole('button', { name: 'Add box', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Add box', level: 2, exact: true })).toBeVisible()
+    await page.getByRole('radio', { name: 'Self-hosted', exact: true }).check()
+    await expect(page.getByRole('region', { name: 'Self-hosted box', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create host config', exact: true })).toBeEnabled()
+    await expect(page.getByRole('combobox', { name: 'Estimates in', exact: true })).toHaveCount(0)
+    await expect(page.getByText('Account ID:', { exact: false })).toHaveCount(0)
+    await expect(page.getByText('Billed in USD.', { exact: false })).toHaveCount(0)
+    let chooser = (await page.getByRole('region', { name: 'Self-hosted box', exact: true }).boundingBox())!
+    expect(chooser.width).toBeLessThanOrEqual(640)
+    await page.screenshot({ path: info.outputPath('remote-web-add-box.png') })
+    await page.getByRole('button', { name: 'Account', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Account', level: 2, exact: true })).toBeVisible()
+    await expect(page.getByText('Account ID:', { exact: false })).toBeVisible()
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await address.fill(`${origin}/expired-apple-link`); await address.press('Enter')
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/api/auth/apple/callback`)).toBe(true)
