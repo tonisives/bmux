@@ -108,11 +108,11 @@ let numericFields = [
   ['idleRotationDegrees', 'Idle rotation', 'degrees · 0 is off', 'appearance'],
   ['haloSize', 'Click halo size', 'px · 0 is off', 'appearance'],
   ['trailWidth', 'Movement trail width', 'px · 0 is off', 'appearance'],
-  ['idleRotationMs', 'Idle rotation cycle', 'ms', 'timing'],
-  ['haloDurationMs', 'Click halo duration', 'ms · 0 is off', 'timing'],
-  ['trailFadeMs', 'Movement trail fade', 'ms · 0 is off', 'timing'],
-  ['cursorHideMs', 'Hide cursor after', 'seconds · 0 keeps it visible', 'timing'],
-  ['commandDisplayMs', 'Command label duration', 'seconds · 0 is off', 'timing'],
+  ['idleRotationMs', 'Idle rotation cycle', 'ms', 'appearance'],
+  ['haloDurationMs', 'Click halo duration', 'ms · 0 is off', 'appearance'],
+  ['trailFadeMs', 'Movement trail fade', 'ms · 0 is off', 'appearance'],
+  ['cursorHideMs', 'Hide cursor after', 'seconds · 0 keeps it visible', 'appearance'],
+  ['commandDisplayMs', 'Command label duration', 'seconds · 0 is off', 'appearance'],
   ['inputUnlockMs', 'Unlock page after', 'seconds after commands finish', 'timing']
 ] as const
 
