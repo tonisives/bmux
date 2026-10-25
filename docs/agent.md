@@ -278,7 +278,8 @@ The Profile tabs have icons and titled sections. Bot shows **Enable Bot protecti
 with profile and pane switches and their On/Off states, then **Limits** and
 **Excluded websites**. **Paused automation** appears above those sections only
 when a warning, break, or safety error needs attention. Its action resumes after
-a resolved warning or resets a session to end a break.
+a resolved warning or resets a session to end a break. It lists paused websites
+across the profile, including websites in other panes or closed tabs.
 Session minutes, break minutes, and social site delay are editable for the
 selected profile. Press Enter or leave the field to save. Changes apply
 immediately and preserve existing usage. Existing config values remain the
@@ -289,9 +290,12 @@ warning pause or change these settings. Resuming does not clear session usage or
 bypass a cooldown.
 
 Reaching the session limit shows a UI alert with the retry time. Wait for that
-time, or choose **Reset all bot sessions** in the general row to restart
-timers and end cooldowns across every profile. **Reset session** in a profile's
-**Bot** tab resets the selected website in that profile. Both keep account warnings and site exclusions. The CLI cannot reset a session.
+time, or choose **Reset session** on the alert to end that website's break.
+**Reset all bot sessions** in the general row ends cooldowns across every profile.
+The profile's **Bot** tab lists each paused website with its own **Reset session**
+control. **Reset profile sessions** stays available there after alerts are dismissed
+or expire. Reset sessions begin timing with their next admitted automation command
+or committed navigation. All resets keep account warnings and site exclusions. The CLI cannot reset a session.
 Dismissal hides the current alert without resetting the session.
 
 ```sh

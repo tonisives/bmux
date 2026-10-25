@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { parse, stringify } from 'yaml'
 
-for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit alert supports ${action} without allowing a CLI reset`, async () => {
+for (let action of ['alert', 'website', 'settings', 'expiry', 'idle', 'profile']) test(`session-limit alert supports ${action} without allowing a CLI reset`, async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-session-limit-'))
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
@@ -21,7 +21,7 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
     let url = `http://one.example.com:${(server.address() as any).port}/fixture`
     let startedAt = Date.now() - (action === 'expiry' ? 30 * 60_000 - 15_000 : action === 'idle' ? 29 * 60_000 : 11 * 60_000)
     let savedUsage = { siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, ...(action === 'idle' ? {} : { limitReachedAt: startedAt + 10 * 60_000 }) }
-    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { ...savedUsage, profileId: 'profile_default' }, profile_other: { ...savedUsage, profileId: 'profile_other' } }))
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ profile_default: { ...savedUsage, profileId: 'profile_default' }, profile_other: { ...savedUsage, profileId: 'profile_other' }, ...(action === 'profile' ? { second: { ...savedUsage, profileId: 'profile_default', siteHost: 'two.example.com', actors: [{ paneId: '%closed', agentId: 'closed-agent', hosts: ['two.example.com'] }] } } : {}) }))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -43,6 +43,34 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
     let page = application.context().pages().find(page => page.url() === url)!
     await expect(page.getByRole('main')).toHaveText('Visible session limit fixture')
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'Automation session limit reached for default' })
+    if (action === 'profile') {
+      await expect(alert).toHaveCount(2)
+      let unrelatedUrl = url.replace('one.example.com', 'three.example.com')
+      await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: unrelatedUrl })
+      await expect.poll(() => application!.context().pages().some(page => page.url() === unrelatedUrl)).toBe(true)
+      await expect(application.context().pages().find(page => page.url() === unrelatedUrl)!.getByRole('main')).toHaveText('Visible session limit fixture')
+      await expect(alert).toHaveCount(2)
+      await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
+      let antiBot = chrome.getByRole('tabpanel', { name: 'Bot settings' })
+      let paused = antiBot.getByRole('region', { name: 'Paused automation' })
+      await expect(paused.getByRole('button', { name: 'Reset session', exact: true })).toHaveCount(2)
+      await paused.getByRole('group', { name: 'one.example.com', exact: true }).getByRole('button', { name: 'Reset session', exact: true }).click()
+      await expect(paused.getByRole('group', { name: 'one.example.com', exact: true })).toHaveCount(0)
+      await expect(paused.getByRole('group', { name: 'two.example.com', exact: true })).toBeVisible()
+      let remaining = alert.filter({ has: chrome.getByRole('combobox', { name: 'Disable Bot protection for two.example.com', exact: true }) })
+      await remaining.getByRole('button', { name: 'Dismiss notification' }).click()
+      await expect(alert).toHaveCount(0)
+      await expect(paused).toContainText('two.example.com')
+      await antiBot.getByRole('button', { name: 'Reset profile sessions', exact: true }).click()
+      await expect(paused).toHaveCount(0)
+      await expect(antiBot.getByRole('button', { name: 'Reset profile sessions', exact: true })).toBeVisible()
+      let usages = (await cli(['automation', 'safety'])).result.profiles.filter((usage: { profileId: string }) => usage.profileId === 'profile_default')
+      expect(usages).toHaveLength(2)
+      expect(usages.every((usage: { retryAfter: string | null }) => usage.retryAfter === null)).toBe(true)
+      await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+      await chrome.screenshot({ path: path.resolve('artifacts/session-limit-profile.png') })
+      return
+    }
     if (action === 'idle') {
       await expect(alert).toHaveCount(0)
       let otherUrl = url.replace('one.example.com', 'two.example.com')
@@ -108,7 +136,8 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
     expect(await cli(['dom', '-t', client.paneId])).toMatchObject({ ok: false, error: expect.stringContaining('Profile > Bot') })
     expect(await cli(['rpc', 'automation.reset-session', JSON.stringify({ profile: 'profile_default' })])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
     expect(await cli(['rpc', 'automation.reset-all-sessions', '{}'])).toMatchObject({ ok: false, error: expect.stringContaining('bmux UI') })
-    if (action === 'alert') {
+    if (action === 'website') await alert.getByRole('button', { name: 'Reset session', exact: true }).click()
+    else if (action === 'alert') {
       let otherUrl = url.replace('one.example.com', 'two.example.com')
       let otherPane = await chrome.evaluate(args => (window as any).bmux.command({ method: 'split-window', args }), { pane: client.paneId, client: state.clientId, url: otherUrl })
       await expect.poll(() => application!.context().pages().some(page => page.url() === otherUrl)).toBe(true)
@@ -127,8 +156,8 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
       await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: manualUrl })
       await expect.poll(() => application!.context().pages().some(page => page.url() === manualUrl)).toBe(true)
       await expect(application.context().pages().find(page => page.url() === manualUrl)!.getByRole('main')).toHaveText('Visible session limit fixture')
-      await expect(firstRow).toHaveCount(0)
-      await expect(alert).toHaveCount(0)
+      await expect(firstRow).toBeVisible()
+      await expect(alert).toHaveCount(1)
       await expect(alert.getByRole('combobox', { name: 'Disable Bot protection for three.example.com', exact: true })).toHaveCount(0)
       await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url })
       await expect(firstRow).toBeVisible()
@@ -650,7 +679,7 @@ test('files and local sites bypass paused website automation and never show anti
       await expect(alerts).toHaveCount(0)
       await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
       await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('tab', { name: 'Bot', exact: true }).click()
-      await expect(chrome.getByRole('region', { name: 'Paused automation' })).toHaveCount(0)
+      await expect(chrome.getByRole('region', { name: 'Paused automation' })).toContainText('Account warning on one.example.com')
       await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('button', { name: 'Close', exact: true }).click()
     }
     let after = Object.values(JSON.parse(await fs.readFile(ledgerFile, 'utf8'))).find((value: any) => value.profileId === 'profile_default') as typeof ledger.profile_default

@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { AutomationActor, AutomationSafety, AutomationSafetyState, AutomationWarning } from '../shared/automation'
 import { automationProfileLimits, automationSafetyEnabled, automationSiteEnabled, automationWarningEnabled, automationWebsiteHost, isSocialUrl } from '../shared/automation'
 
-type Usage = { profileId: string; siteHost: string; startedAt: number; lastUsed: number; limitReachedAt?: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; warningAt?: number }
+type Usage = { profileId: string; siteHost: string; startedAt: number; lastUsed: number; pendingSession?: boolean; limitReachedAt?: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; warningAt?: number }
 type Page = { url: string; warning?: AutomationWarning }
 let warnings = ['account-warning', 'challenge', 'rate-limit']
 let safetyError = (message: string) => Object.assign(new Error(message), { code: 'AUTOMATION_SAFETY' })
@@ -38,6 +38,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded) || Object.values(loaded).some(value => !value || !Number.isFinite(value.startedAt) || !Number.isFinite(value.lastUsed) || value.lastUsed < value.startedAt || value.limitReachedAt !== undefined && (!Number.isFinite(value.limitReachedAt) || value.limitReachedAt < value.startedAt) || value.warning !== undefined && (!warnings.includes(value.warning) || typeof value.warningHost !== 'string' || !value.warningHost))) throw new Error('Invalid safety ledger')
     for (let [key, raw] of Object.entries(loaded as Record<string, Usage>)) {
       let value = raw as Usage
+      if (value.pendingSession !== undefined && typeof value.pendingSession !== 'boolean') throw new Error('Invalid pending session')
       for (let actor of value.actors ?? []) {
         if (!actor || typeof actor.paneId !== 'string' || !actor.paneId || actor.hosts !== undefined && (!Array.isArray(actor.hosts) || actor.hosts.some(host => typeof host !== 'string' || automationWebsiteHost(`https://${host}`) !== host))) throw new Error('Invalid automation actors')
         validateAgentInfo(actor)
@@ -71,8 +72,8 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     return Math.max(value.startedAt + limits.maxSessionMinutes * 60_000, value.lastUsed) + limits.cooldownMinutes * 60_000
   }
   let sessionEnd = (value: Usage) => value.startedAt + automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
-  let reachedLimit = (value: Usage) => Math.max(value.limitReachedAt ?? 0, value.lastUsed) >= sessionEnd(value)
-  let rested = (value: Usage) => now() >= retryAt(value.profileId, value) || !reachedLimit(value) && now() - value.lastUsed >= automationProfileLimits(options.settings(), value.profileId).cooldownMinutes * 60_000
+  let reachedLimit = (value: Usage) => !value.pendingSession && Math.max(value.limitReachedAt ?? 0, value.lastUsed) >= sessionEnd(value)
+  let rested = (value: Usage) => value.pendingSession || now() >= retryAt(value.profileId, value) || !reachedLimit(value) && now() - value.lastUsed >= automationProfileLimits(options.settings(), value.profileId).cooldownMinutes * 60_000
   let assertAvailable = (profileId: string, paneId?: string, url?: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
     ensureLedger()
@@ -125,7 +126,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
         assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url)
         let value = usage[key], current = now()
         if (!value || rested(value)) value = { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, startedAt: current, lastUsed: current, ...(value?.warning ? { warning: value.warning, warningHost: value.warningHost } : {}) }
-        let lastUsed = Math.max(lastAdmitted.get(key) ?? 0, usage[key]?.lastUsed ?? 0)
+        let lastUsed = Math.max(lastAdmitted.get(key) ?? 0, usage[key]?.pendingSession ? 0 : usage[key]?.lastUsed ?? 0)
         let delay = pace && lastUsed && (isSocialUrl(page.url) || isSocialUrl(targetUrl ?? '')) ? Math.max(0, lastUsed + automationProfileLimits(options.settings(), profileId).socialDelayMs - current) : 0
         if (delay) {
           await sleep(delay)
@@ -159,7 +160,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   let after = (profileId: string, paneId: string, url: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
     let value = usage[usageKey(profileId, url)]
-    if (value) { value.lastUsed = now(); persist() }
+    if (value) { if (value.pendingSession) { value.startedAt = now(); delete value.pendingSession }; value.lastUsed = now(); persist() }
   }
   let resume = (profileId: string, page: Page) => {
     ensureLedger()
@@ -173,7 +174,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.values(usage).map(value => ({ ...value, retryAfter: reachedLimit(value) && now() < retryAt(value.profileId, value) ? new Date(retryAt(value.profileId, value)).toISOString() : null })) })
   let resetSession = (profileId: string, siteHost?: string) => {
     ensureLedger()
-    for (let value of Object.values(usage).filter(value => value.profileId === profileId && (!siteHost || value.siteHost === siteHost))) { value.startedAt = now(); value.lastUsed = value.startedAt; delete value.limitReachedAt; value.actors = []; persist() }
+    for (let value of Object.values(usage).filter(value => value.profileId === profileId && (!siteHost || value.siteHost === siteHost))) { value.startedAt = now(); value.lastUsed = value.startedAt; value.pendingSession = true; delete value.limitReachedAt; value.actors = []; persist() }
     return { reset: true }
   }
   return { before, complete, after, assertAvailable, resume, resetSession, status, track }
