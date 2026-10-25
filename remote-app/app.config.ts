@@ -26,6 +26,7 @@ let config: ExpoConfig = {
     'expo-router',
     'expo-secure-store',
     'expo-web-browser',
+    ['expo-build-properties', { ios: { enableSceneSupport: true } }],
     ['expo-notifications', { color: '#7986cb', defaultChannel: 'attention' }],
     ['@config-plugins/react-native-webrtc', { cameraPermission: false, microphonePermission: false }],
   ],

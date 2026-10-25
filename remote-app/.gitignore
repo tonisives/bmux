@@ -5,6 +5,7 @@ ios/
 android/
 .env
 ios-build.log
+ios-smoke/
 .env.*
 !.env.example
 *.tsbuildinfo

@@ -28,6 +28,12 @@ The native viewer uses react-native-webrtc and requires a development or release
 build. Expo Go does not include that module. Generated native projects are
 ignored; app.config.ts and the lockfile are the sources of configuration.
 
+iOS uses Expo's scene lifecycle through `expo-build-properties` for Xcode 27 and
+iOS 27. Generate a fresh native project with
+`pnpm exec expo prebuild --clean --platform ios --no-install`, then run
+`pnpm verify:ios` before installing pods or building. This checks the scene
+manifest, React Native window startup and app/development-client URL schemes.
+
 ## Client behavior
 
 - Machines, sessions, windows and pages use the same tree layout across platforms.
@@ -76,7 +82,9 @@ Store uploads require the separate production credentials and app records.
 `pnpm check` covers coordinate conversion, stale attention targets, push/link
 parsing and native/browser signing interoperability. The parent viewer unit
 tests cover platform injection, signed offers and watch-only opening. The Remote
-app workflow exports web and compiles both native projects. Shared browser
-changes additionally require Check and Portable hosts on the final commit.
+app workflow exports web, checks the generated iOS scene setup and compiles both
+native projects. Its iOS 27 simulator smoke test launches the Release app, checks
+that its process stays alive and saves a screenshot. Shared browser changes
+additionally require Check and Portable hosts on the final commit.
 
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.
