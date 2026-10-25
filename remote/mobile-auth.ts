@@ -22,6 +22,12 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = pr
   }
   let redirect = (response: http.ServerResponse, location: string) => { response.writeHead(303, { Location: location, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }); response.end() }
   let json = (response: http.ServerResponse, value: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)) }
+  let expiredApple = (response: http.ServerResponse) => {
+    let nonce = randomBytes(18).toString('base64')
+    setCookie(response, 'bmux_apple_flow', '', 0)
+    response.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'` })
+    response.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Apple sign-in expired | bmux</title><style nonce="${nonce}">body{font:16px system-ui;margin:12vh auto;padding:24px;max-width:360px;color:#eee;background:#161616}a{color:inherit}p{line-height:1.5}</style></head><body><h1>Apple sign-in expired</h1><p>Start again to confirm your account and link Apple.</p><a href="/api/auth/providers/apple/link">Link Apple</a></body></html>`)
+  }
   let transaction = async <T>(operation: (client: PoolClient) => Promise<T>) => { let client = await pool.connect(); try { await client.query('BEGIN'); let result = await operation(client); await client.query('COMMIT'); return result } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() } }
   let authenticate = async (request: http.IncomingMessage, webOnly = false): Promise<LoginContext> => {
     let bearer = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.authorization ?? '')?.[1]
@@ -146,9 +152,10 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = pr
       let raw = ''
       for await (let chunk of request) { raw += chunk; if (raw.length > 32768) throw invalid() }
       let input = new URLSearchParams(raw), state = input.get('state'), code = input.get('code')
-      if (!state || !/^[a-f0-9]{64}$/.test(state) || cookie(request, 'bmux_apple_flow') !== state || !code || code.length > 4096) throw invalid()
+      if (!state || !/^[a-f0-9]{64}$/.test(state) || !code || code.length > 4096) throw invalid()
+      if (cookie(request, 'bmux_apple_flow') !== state) { expiredApple(response); return true }
       let flow = (await pool.query("DELETE FROM bmux_provider_flows WHERE id_hash=$1 AND purpose IN ('apple-login','apple-link') AND expires>now() RETURNING *", [authHash(state)])).rows[0]
-      if (!flow) throw invalid()
+      if (!flow) { expiredApple(response); return true }
       let key = await importPKCS8(applePrivateKey!, 'ES256')
       let secret = await new SignJWT({}).setProtectedHeader({ alg: 'ES256', kid: appleKeyId! }).setIssuer(appleTeam!).setSubject(appleClientId!).setAudience('https://appleid.apple.com').setIssuedAt().setExpirationTime('5m').sign(key)
       let token = await fetch('https://appleid.apple.com/auth/token', { method: 'POST', body: new URLSearchParams({ client_id: appleClientId!, client_secret: secret, code, grant_type: 'authorization_code', redirect_uri: `${origin}/api/auth/apple/callback` }), signal: AbortSignal.timeout(10000) })
@@ -160,9 +167,10 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = pr
       if (flow.purpose === 'apple-link') {
         let linked = await transaction(async client => {
           let valid = await client.query("SELECT 1 FROM bmux_web_auth a JOIN bmux_logins l ON l.token_hash=a.token_hash WHERE a.token_hash=$1 AND a.owner=$2 AND l.expires>now() AND a.google_reauthenticated_at>now()-interval '5 minutes'", [flow.login_hash, flow.owner])
-          if (!valid.rowCount) throw invalid()
+          if (!valid.rowCount) return undefined
           return client.query("INSERT INTO bmux_provider_identities(provider,subject,owner) VALUES('apple',$1,$2) ON CONFLICT(provider,subject) DO UPDATE SET subject=excluded.subject WHERE bmux_provider_identities.owner=excluded.owner RETURNING owner", [payload.sub, flow.owner])
         })
+        if (!linked) { expiredApple(response); return true }
         if (!linked.rowCount) throw invalid()
         redirect(response, '/'); return true
       }

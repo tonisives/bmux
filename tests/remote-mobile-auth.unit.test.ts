@@ -13,13 +13,13 @@ afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 let fixture = () => {
   let headers = new Map<string, unknown>(), status = 0
   let response = { getHeader: (key: string) => headers.get(key), setHeader: (key: string, value: unknown) => headers.set(key, value), writeHead: vi.fn((value: number, values: Record<string, unknown>) => { status = value; for (let [key, value] of Object.entries(values)) headers.set(key, value) }), end: vi.fn() }
-  let query = vi.fn(async (sql: string, _params?: unknown[]) => {
+  let query = vi.fn(async (sql: string, _params?: unknown[]): Promise<{ rows: Record<string, unknown>[]; rowCount: number }> => {
     if (sql.startsWith('DELETE FROM bmux_provider_flows')) return { rows: [{ purpose: 'apple-login', nonce: 'expected-nonce' }], rowCount: 1 }
     if (sql.startsWith('SELECT owner FROM bmux_provider_identities')) return { rows: [{ owner: 'canonical-google-owner' }], rowCount: 1 }
     return { rows: [], rowCount: 0 }
   })
   let privateKey = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
-  let options = { origin: 'https://remote.example', googleClientId: 'fixture', pool: { query }, revoked: vi.fn(), env: { BMUX_APPLE_CLIENT_ID: 'fixture-client', BMUX_APPLE_TEAM_ID: 'fixture-team', BMUX_APPLE_KEY_ID: 'fixture-key', BMUX_APPLE_PRIVATE_KEY: privateKey } }
+  let options = { origin: 'https://remote.example', googleClientId: 'fixture', pool: { query, connect: async () => ({ query, release: vi.fn() }) }, revoked: vi.fn(), env: { BMUX_APPLE_CLIENT_ID: 'fixture-client', BMUX_APPLE_TEAM_ID: 'fixture-team', BMUX_APPLE_KEY_ID: 'fixture-key', BMUX_APPLE_PRIVATE_KEY: privateKey } }
   let auth = createMobileAuth(options as unknown as Parameters<typeof createMobileAuth>[0])
   let route = (request: unknown, path: string) => auth.route(request as http.IncomingMessage, response as unknown as http.ServerResponse, new URL(path, options.origin), async () => ({}))
   return { headers, response, query, route, status: () => status }
@@ -51,4 +51,28 @@ it('rejects Apple nonce substitution before reading or issuing an owner login', 
   let request = { method: 'POST', headers: { cookie: `bmux_apple_flow=${state}` }, async *[Symbol.asyncIterator]() { yield new URLSearchParams({ state, code: 'one-use-apple-code' }).toString() } }
   await expect(value.route(request, '/api/auth/apple/callback')).rejects.toThrow('Authentication flow unavailable')
   expect(value.query.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO bmux_logins'))).toBe(false)
+})
+
+it.each(['cookie', 'flow'])('offers a fresh Apple link when the callback %s has expired', async expired => {
+  let value = fixture(), state = 'a'.repeat(64), fetch = vi.fn()
+  vi.stubGlobal('fetch', fetch)
+  if (expired === 'flow') value.query.mockResolvedValueOnce({ rows: [], rowCount: 0 })
+  let request = { method: 'POST', headers: { cookie: expired === 'cookie' ? '' : `bmux_apple_flow=${state}` }, async *[Symbol.asyncIterator]() { yield new URLSearchParams({ state, code: 'expired-apple-code' }).toString() } }
+  await value.route(request, '/api/auth/apple/callback')
+  expect(value.status()).toBe(401)
+  expect(value.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
+  expect(value.response.end).toHaveBeenCalledWith(expect.stringContaining('href="/api/auth/providers/apple/link"'))
+  expect(fetch).not.toHaveBeenCalled()
+  expect(value.query.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO bmux_logins'))).toBe(false)
+})
+
+it('requires fresh Google confirmation again when it expires during Apple linking', async () => {
+  let value = fixture(), state = 'a'.repeat(64)
+  value.query.mockResolvedValueOnce({ rows: [{ purpose: 'apple-link', nonce: 'expected-nonce', owner: 'canonical-google-owner', login_hash: 'fixture-login' }], rowCount: 1 })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ id_token: 'fixture-identity-token' }) })))
+  let request = { method: 'POST', headers: { cookie: `bmux_apple_flow=${state}` }, async *[Symbol.asyncIterator]() { yield new URLSearchParams({ state, code: 'one-use-apple-code' }).toString() } }
+  await value.route(request, '/api/auth/apple/callback')
+  expect(value.status()).toBe(401)
+  expect(value.response.end).toHaveBeenCalledWith(expect.stringContaining('Apple sign-in expired'))
+  expect(value.query.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO bmux_provider_identities'))).toBe(false)
 })
