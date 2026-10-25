@@ -2289,6 +2289,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (target?.remote && (!sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method))) throw new Error('This command is unavailable in remote view')
     if (target?.remote && sourceClientId && target.remote.clientId !== sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method)) throw new Error('Select the remote session in this client first')
     if (sourceClient && model.sessions.find(session => session.id === sourceClient.sessionId)?.ephemeral && ['new-session', 'new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.workspace !== 'local') throw new Error('Switch to Local to create sessions, windows, or panes')
+    if (target?.remote && ['select-window', 'cycle-window', 'select-pane', 'cycle-pane', 'select-pane-direction', 'toggle-pane-zoom', 'focus-page'].includes(method)) args = { ...args, client: args.client ?? sourceClientId, session: target.id }
     if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to'].includes(method)) {
       automatedNavigations.delete(args.tab)
       let pane = paneById(model, args.tab).pane

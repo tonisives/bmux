@@ -47,6 +47,13 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await expect(floating.getByRole('group', { name: 'Remote session controls' })).toHaveCount(1)
     await floating.screenshot({ path: info.outputPath('remote-floating-pane.png') })
     await expect.poll(() => application.evaluate(() => (globalThis as any).workspaceFixture.media.size)).toBe(2)
+    await application.evaluate((_electron, session) => (globalThis as any).workspaceFixture.runtime.remote.acquire(session, 'fixture-control', false), local.sessionId)
+    await chrome.evaluate(() => (window as any).bmux.command({ method: 'cycle-window', args: { direction: 1 } }))
+    await expect.poll(async () => current(await state()).windowId).toBe(`remote:${local.id}:window:${host.session.windows[1].id}`)
+    await chrome.evaluate(() => (window as any).bmux.command({ method: 'cycle-window', args: { direction: 1 } }))
+    await expect.poll(async () => current(await state()).windowId).toBe(`remote:${local.id}:window:${host.session.windows[0].id}`)
+    expect((await state()).remoteControl[local.sessionId].owner).toBe('fixture-control')
+    await application.evaluate((_electron, session) => (globalThis as any).workspaceFixture.runtime.remote.release(session, 'fixture-control'), local.sessionId)
     let third = `remote:${local.id}:pane:${host.session.windows[0].panes[2].id}`
     await chrome.evaluate(pane => (window as any).bmux.command({ method: 'select-pane', args: { pane } }), third)
     await expect.poll(() => application.evaluate((_electron, pane) => [...(globalThis as any).workspaceFixture.media.values()].includes(pane), host.session.windows[0].panes[2].id)).toBe(true)
