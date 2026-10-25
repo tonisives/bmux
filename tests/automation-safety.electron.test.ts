@@ -189,7 +189,11 @@ for (let action of ['alert', 'website', 'settings', 'expiry', 'idle', 'profile']
       await expect(collapsed).toHaveText('1 alert')
       await expect(chrome.getByRole('group', { name: 'Bot settings', exact: true })).toHaveCount(0)
       await expect.poll(nativeHeight).toBeGreaterThan(expandedHeight)
-      await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+      await expect.poll(async () => {
+        let state = await chrome.evaluate(() => (window as any).bmux.state())
+        let focused = await application!.evaluate(({ webContents }) => { let contents = webContents.getFocusedWebContents(); return { url: contents?.getURL(), title: contents?.getTitle() } })
+        return state.lockedAgentPanes.includes(client.paneId) ? focused.title === 'Agent input lock' : focused.url === url
+      }).toBe(true)
       await expect.poll(() => chrome.evaluate(() => localStorage.getItem('agent-alerts-collapsed'))).toBe('true')
       await chrome.reload()
       await expect(collapsed).toHaveText('1 alert')
