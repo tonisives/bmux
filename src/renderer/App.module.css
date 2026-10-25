@@ -135,7 +135,8 @@
 .navigationButton:hover:not(:disabled) { background: #303844; color: #f0f2f5; }
 .navigationButton:disabled { opacity: .35; cursor: default; }
 .navigationButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.adblockButton { flex: 0 0 auto; }
+.paneTools { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.adblockButton { width: auto; flex: 0 0 auto; }
 .adblockButton[data-enabled="true"] { color: #b4d49a; }
 .paneAgentButton { display: flex; width: auto; min-width: 24px; flex: 0 1 auto; gap: 4px; padding: 0 4px; }
 .paneAgentButton svg { flex-shrink: 0; }
@@ -163,8 +164,9 @@
 .profileRouteControls { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
 .paneProfilePicker { position: absolute; z-index: 20; top: 27px; right: 0; display: grid; gap: 6px; min-width: 180px; padding: 10px; border: 1px solid #444b59; background: #191d23; box-shadow: 0 8px 22px #0008; color: #d6dcd2; }
 .paneProfilePicker select { height: 30px; padding: 0 7px; border: 1px solid #505a66; background: #111318; color: #eceef2; font: inherit; }
-.profileRoute { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 2px 5px; border: 0; border-radius: 0; background: transparent; color: #8e98a4; }
-.profileRouteControls .profileRoute + .profileRoute { padding-left: 2px; }
+.profileRoute { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; border: 0; border-radius: 0; background: transparent; color: #8e98a4; }
+.profileRoute, .adblockButton { padding: 2px 5px; }
+.profileRouteControls .profileRoute + .profileRoute, .paneTools > .adblockButton { padding-left: 2px; }
 .profileRoute[data-proxy-failed="true"] { color: #e6a69c; }
 .profileRoute:hover { color: #f0f2f5; background: #303844; }
 .profileRoute .profileAvatar { width: 16px; height: 16px; flex-basis: 16px; }
