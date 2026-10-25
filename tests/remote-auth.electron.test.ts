@@ -84,7 +84,10 @@ test('remote web Account preserves Apple linking and the responsive session work
       await application!.evaluate(({ BaseWindow }, { windowId, width, height }) => {
         setImmediate(() => BaseWindow.fromId(windowId)?.setContentSize(width, height))
       }, { windowId, width, height })
-      await expect.poll(() => chrome.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width, height })
+      await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(width)
+      // macOS limits tall test windows to the runner's available screen height.
+      let native = await application!.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.getContentBounds(), windowId)
+      await expect.poll(() => chrome.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: native.width, height: native.height })
       // The native page excludes the pane border, address field, and status bar.
       let bounds = (await content.boundingBox())!
       await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: Math.round(bounds.width), height: Math.round(bounds.height) })
