@@ -1074,9 +1074,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     installKeys(contents)
     remote.attach!(contents, async () => { let source = tabById(model, tabId).session.remote; if (source) disconnectRemoteWorkspace(source.clientId); else await execute({ method: 'kill-pane', args: { pane: tabId } }) }, update => {
       if (live.disposed || !remote.view) return
-      remote.view = { ...remote.view, ...update }
       let source = tabById(model, tabId).session.remote
       let workspace = source && remoteWorkspaces.get(source.clientId)
+      // The workspace channel owns control state; media channels can arrive later.
+      remote.view = workspace ? { ...remote.view, error: update.error } : { ...remote.view, ...update }
       if (workspace && /Both live|Stream permit|capacity reached/i.test(update.error ?? '')) { workspace.blocked.add(tabId); void scheduleVisuals() }
       let selected = update.panes.find(pane => pane.id === update.pane)
       pane.title = selected?.title || update.name

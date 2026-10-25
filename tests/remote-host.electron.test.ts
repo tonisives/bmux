@@ -409,6 +409,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       let hostPaneIds = (await command('status')).model.sessions.find((session: { id: string }) => session.id === status.model.sessions[0].id).windows.flatMap((window: { panes: { id: string }[] }) => window.panes.map(pane => pane.id))
+      await expect.poll(async () => (await command('status')).remoteControl[status.model.sessions[0].id]?.owner).toBeTruthy()
       desktopOwner = (await command('status')).remoteControl[status.model.sessions[0].id].owner
       await test.step('OS Open URL leaves the remote host running and opens a normal local window', async () => {
         await application!.evaluate(({ app }, url) => app.emit('open-url', { preventDefault() {} }, url), `${fixtureUrl}/?external-local=1`)
@@ -501,6 +502,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let selected = local.locator('[data-pane-id][data-focused-pane="true"]')
       await expect(selected.getByRole('button', { name: 'Take control', exact: true })).toBeEnabled({ timeout: 15000 })
       await selected.getByRole('button', { name: 'Take control', exact: true }).click()
+      await expect.poll(async () => (await command('status')).remoteControl[hosted.id]?.owner).toBe(desktopOwner)
       await expect(selected.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       let lease = (await command('status')).remoteControl[hosted.id]
       expect(lease.owner).toBe(desktopOwner)
