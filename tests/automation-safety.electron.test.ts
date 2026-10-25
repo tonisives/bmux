@@ -681,7 +681,7 @@ test('files and local sites bypass paused website automation and never show anti
       await expect(alerts).toHaveCount(0)
       await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
       await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('tab', { name: 'Bot', exact: true }).click()
-      await expect(chrome.getByRole('region', { name: 'Paused automation' })).toContainText('Account warning on one.example.com')
+      await expect(chrome.getByRole('region', { name: 'Paused automation' }).getByRole('group', { name: 'one.example.com', exact: true })).toBeVisible()
       await chrome.getByRole('dialog', { name: 'Profile' }).getByRole('button', { name: 'Close', exact: true }).click()
     }
     let after = Object.values(JSON.parse(await fs.readFile(ledgerFile, 'utf8'))).find((value: any) => value.profileId === 'profile_default') as typeof ledger.profile_default
