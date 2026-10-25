@@ -1,10 +1,11 @@
 import { WebSocket } from 'ws'
+import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { createRemoteIdentity } from './remote-identity'
 import type { Host } from '../../remote/web/client'
 
-export let createRemoteDesktopConnection = (origin: string, host: Host, connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }>) => {
-  let identity = createRemoteIdentity()
+export let createRemoteDesktopConnection = (origin: string, host: Host, connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }>, identity = createRemoteIdentity()) => {
+  let workspaceView = `workspace:${randomUUID()}`
   let socket: WebSocket | undefined, pending: Promise<{ ticket: string; iceServers: RTCIceServer[] }> | undefined
   let receivers = new Map<WebContents, string>(), hosts: string | undefined, closed = false
   let broadcast = (event: { type: 'message'; data: string } | { type: 'close' }) => {
@@ -42,7 +43,7 @@ export let createRemoteDesktopConnection = (origin: string, host: Host, connect:
   }
   return {
     publicKey: identity.publicKey, open, seal,
-    attach: (contents: WebContents, metadata: boolean) => { let view = metadata ? 'workspace' : `pane:${contents.id}`; receivers.set(contents, view); contents.once('destroyed', () => { stop(contents); if (metadata) { closed = true; socket?.close() } }); return view },
+    attach: (contents: WebContents, metadata: boolean) => { let view = metadata ? workspaceView : `pane:${contents.id}`; receivers.set(contents, view); contents.once('destroyed', () => { stop(contents); if (metadata) { closed = true; socket?.close() } }); return view },
     initial: () => hosts ? [hosts] : [],
     send: (contents: WebContents, data: string) => {
       if (!receivers.has(contents) || socket?.readyState !== WebSocket.OPEN || data.length > 262144) throw new Error('Remote connection closed')

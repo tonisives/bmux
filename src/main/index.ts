@@ -189,7 +189,7 @@ void app.whenReady().then(async () => {
       await runtime!.openRemotePage(clientId, { key: 'sign-in', title: 'Sign in to remote', url: localRemote!.origin })
       return
     }
-    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page), pane)
+    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page), pane, clientId)
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)

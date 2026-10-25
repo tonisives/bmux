@@ -303,6 +303,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     }, { timeout: 30000 })
     let remoteTab = await command('rpc', 'new-window', JSON.stringify({ session: status.model.sessions[0].id, url: `${fixtureUrl}/?remote-tab=2` }))
     await command('wait', '-t', remoteTab.panes[0].id, '--selector', 'input')
+    let desktopOwner: string | undefined
     let attachedClient = await test.step('Attach and focus the desktop session',async()=>{
       let client = await command('attach-session','-t',status.model.sessions[0].id)
       await command('rpc','activate-client',JSON.stringify({client:client.id}))
@@ -408,6 +409,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       let hostPaneIds = (await command('status')).model.sessions.find((session: { id: string }) => session.id === status.model.sessions[0].id).windows.flatMap((window: { panes: { id: string }[] }) => window.panes.map(pane => pane.id))
+      desktopOwner = (await command('status')).remoteControl[status.model.sessions[0].id].owner
       await test.step('OS Open URL leaves the remote host running and opens a normal local window', async () => {
         await application!.evaluate(({ app }, url) => app.emit('open-url', { preventDefault() {} }, url), `${fixtureUrl}/?external-local=1`)
         await expect.poll(async () => (await command('status')).model.clients.find((client: { id: string }) => client.id === attachedClient.id).sessionId).toBe(status.model.sessions[0].id)
@@ -500,6 +502,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await selected.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(selected.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       let lease = (await command('status')).remoteControl[hosted.id]
+      expect(lease.owner).toBe(desktopOwner)
       let slots = async () => Number((await pool.query('SELECT count(*) FROM bmux_stream_leases WHERE viewer=$1 AND expires>now()', [lease.owner])).rows[0].count)
       await expect.poll(slots).toBe(2)
       let pane = `remote:${attachedClient.id}:pane:${third.id}`

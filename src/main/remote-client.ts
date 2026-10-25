@@ -3,6 +3,7 @@ import { ipcMain, session } from 'electron'
 import type { WebContents } from 'electron'
 import type { RemotePage } from './runtime'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { requestRemoteSessionClose, requestRemotePageClose, requestRemoteSessionPreviews } from './remote-request'
 import { remoteIdentity } from './remote-identity'
@@ -76,7 +77,7 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     return previews.set(selected.host, selected.session, pane, image)
   })
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
-  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>, paneId?: string) => {
+  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>, paneId?: string, clientId = 'default') => {
     let listing = await list()
     if (!listing.authenticated || !activeToken) throw new Error('Sign in to remote')
     if (!hostId || !sessionId) throw new Error('Remote session required')
@@ -86,7 +87,8 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     if (paneId && !selected.panes.some(pane => pane.id === paneId)) throw new Error('Remote pane unavailable')
     if (selected.workspace !== 1) throw new Error('Update this remote host to use the desktop session view')
     let token = activeToken
-    let connection = createRemoteDesktopConnection(origin, host, key => connect(key, token))
+    let clientKey = remoteIdentity(path.join(directory, `remote-desktop-${createHash('sha256').update(clientId).digest('hex')}.pem`))
+    let connection = createRemoteDesktopConnection(origin, host, key => connect(key, token), clientKey)
     await show({
       key: `${hostId}:${sessionId}`,
       title: host.sessions.find(item => item.id === sessionId)!.name,
