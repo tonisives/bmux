@@ -141,7 +141,7 @@ let server = http.createServer((request, response) => {
         let key = randomBytes(32).toString('hex')
         let created = await pool.query('INSERT INTO bmux_services (id,owner,token_hash) VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING RETURNING id', [service, owner, digest(key)])
         if (!created.rowCount) { json(409, { error: 'Service name unavailable' }); return }
-        json(200, { service, key }); return
+        json(200, { service, key, url: publicOrigin }); return
       }
       if (request.method === 'POST' && url.pathname === '/api/services/revoke') {
         let { service } = await body(request)
