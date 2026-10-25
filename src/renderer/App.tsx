@@ -243,8 +243,8 @@ let useIgnoredAutomationWarnings = (state: PublicState | null) => {
   let [ignoredWarnings, setIgnoredWarnings] = useState<string[]>([])
   useAutomationExpiry(state?.automationSafety)
   let warningKeys = (state?.automationSafety?.profiles ?? []).flatMap(item => [
-    ...(item.warning && (automationActors(state!, item).some(actor => automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!, Date.now(), actor.paneId)) || !item.actors?.length && automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!)) ? [`${item.profileId}:${item.warningHost}:${item.warning}`] : []),
-    ...((automationActors(state!, item).length > 0 || !item.actors?.length && automationSafetyEnabled(state!.automationSafety!.limits, item.profileId)) && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:${item.siteHost ?? ''}:session:${item.retryAfter}`] : []),
+    ...(item.warning && automationNoticePanes(state!, item).some(pane => automationWarningEnabled(state!.automationSafety!.limits, item.profileId, item.warningHost!, Date.now(), pane.id)) ? [`${item.profileId}:${item.warningHost}:${item.warning}`] : []),
+    ...(automationNoticePanes(state!, item).length && item.retryAfter && Date.parse(item.retryAfter) > Date.now() ? [`${item.profileId}:${item.siteHost ?? ''}:session:${item.retryAfter}`] : []),
   ]).join('|')
   useEffect(() => { setIgnoredWarnings(current => current.filter(key => warningKeys.split('|').includes(key))) }, [warningKeys])
   return { ignoredWarnings, setIgnoredWarnings }
@@ -341,11 +341,18 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   })
 }
 
+let automationNoticePanes = (state: PublicState, usage: AutomationSafetyState['profiles'][number]) => state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).filter(pane => pane.profileId === usage.profileId && automationSiteEnabled(state.automationSafety!.limits, usage.profileId, pane.url, Date.now(), pane.id) && (!usage.siteHost || automationWarningEnabled(state.automationSafety!.limits, usage.profileId, usage.siteHost, Date.now(), pane.id)))
+
+let automationProfilePauses = (state: PublicState, profileId: string) => (state.automationSafety?.profiles ?? []).filter(usage => {
+  if (usage.profileId !== profileId || !usage.warning && (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now())) return false
+  let host = usage.warningHost ?? usage.siteHost
+  return !host || automationWarningEnabled(state.automationSafety!.limits, profileId, host) || state.model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.profileId === profileId && automationWarningEnabled(state.automationSafety!.limits, profileId, host, Date.now(), pane.id))))
+})
+
 let automationWarningNotices = (state: PublicState, run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
-  let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
-  let eligiblePanes = actors.length ? actors.map(actor => actor.pane) : usage.actors?.length ? [] : panes.filter(item => item.profileId === usage.profileId && (!usage.siteHost || automationWebsiteHost(item.url) === usage.siteHost) && automationSiteEnabled(limits, usage.profileId, item.url, Date.now(), item.id))
+  let eligiblePanes = automationNoticePanes(state, usage)
   if (!eligiblePanes.length) return []
   let profile = state.model.profiles.find(item => item.id === usage.profileId)
   let selectedPane = selection(state).pane
@@ -355,13 +362,13 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
     return { session: session?.name ?? actor.paneId, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
   })
   let name = profile?.name ?? usage.profileId
-  let warningEnabled = host && (actors.some(actor => automationWarningEnabled(limits, usage.profileId, host, Date.now(), actor.paneId)) || !usage.actors?.length && automationWarningEnabled(limits, usage.profileId, host))
+  let warningEnabled = host && eligiblePanes.some(pane => automationWarningEnabled(limits, usage.profileId, host, Date.now(), pane.id))
   if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
   let siteHosts = usage.siteHost ? [usage.siteHost] : [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [{ label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId, host: siteHost }) } }], paneLinks: paneLinks(siteHost) }))
 })
 
 let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
@@ -2828,26 +2835,26 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
   useEffect(() => { setEnabled(savedEnabled) }, [savedEnabled, profile?.id])
   useEffect(() => { setPaneEnabled(savedPaneEnabled) }, [savedPaneEnabled, pane?.id])
   if (!profile) return null
-  let usage = safety?.profiles.find(item => item.profileId === profile.id && (!item.siteHost || item.siteHost === automationWebsiteHost(pane?.url)))
-  let warning = usage?.warning && automationWarningEnabled(limits, profile.id, usage.warningHost!, Date.now(), pane?.id) ? usage : undefined
+  let pauses = automationProfilePauses(state, profile.id)
+  let profilePanes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).filter(pane => pane.profileId === profile.id)
   let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
-  let cooldown = !!usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()
-  let paused = paneEnabled && automationSiteEnabled(limits, profile.id, pane?.url, Date.now(), pane?.id) && (!!warning || cooldown || !!safety?.error)
-  let status = safety?.error ? safety.error : warning ? `${labels[warning.warning!]} on ${warning.warningHost}` : cooldown ? `Session limit reached · Break ends at ${new Date(usage!.retryAfter!).toLocaleTimeString()}` : ''
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setEnabled(next); setBusy(true)
     try { if (!await run('profile.anti-bot.set', { profile: profile.id, enabled: next })) setEnabled(savedEnabled) } finally { setBusy(false) }
   }
-  let resume = async () => {
-    if (!pane) return
+  let resume = async (paneId: string) => {
     setBusy(true)
-    try { await run('automation.resume', { pane: pane.id }) } finally { setBusy(false) }
+    try {
+      if (selection(state).pane?.id !== paneId) await run('select-pane', { client: state.clientId, pane: paneId })
+      await run('automation.resume', { pane: paneId })
+    } finally { setBusy(false) }
   }
-  let resetSession = async () => {
+  let resetSession = async (host?: string) => {
     setBusy(true)
-    try { await run('automation.reset-session', { profile: profile.id, host: usage?.siteHost }) } finally { setBusy(false) }
+    try { await run('automation.reset-session', { profile: profile.id, host }) } finally { setBusy(false) }
   }
+  let resetProfileSessions = () => { void resetSession() }
   let togglePane = async (event: ChangeEvent<HTMLInputElement>) => {
     if (!pane) return
     let next = event.target.checked
@@ -2855,15 +2862,25 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
     try { if (!await run('pane.anti-bot.set', { pane: pane.id, enabled: next })) setPaneEnabled(savedPaneEnabled) } finally { setBusy(false) }
   }
   let protection = <>
-    {paused && <ProfileSection title="Paused automation">
-      <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
-      {paneEnabled && cooldown && <p>Reset starts a new session for this website.</p>}
-      {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
+    {(pauses.length > 0 || safety?.error) && <ProfileSection title="Paused automation">
+      {safety?.error && <p role="status">{safety.error}</p>}
+      {pauses.map(usage => {
+        let host = usage.warningHost ?? usage.siteHost ?? profile.name
+        let cooldown = !!usage.retryAfter && Date.parse(usage.retryAfter) > Date.now()
+        let affectedPane = usage.warning && profilePanes.find(pane => automationWebsiteHost(pane.url)?.replace(/^www\./, '') === usage.warningHost?.replace(/^www\./, ''))
+        let resetWebsite = () => { void resetSession(usage.siteHost) }
+        let resumeWarning = () => { if (affectedPane) void resume(affectedPane.id) }
+        return <div key={host} role="group" aria-label={host}>
+          <div className={css.antiBotStatus} role="status"><span>{usage.warning ? `${labels[usage.warning]} on ${host}` : `${host} · Break ends at ${new Date(usage.retryAfter!).toLocaleTimeString()}`}</span>{cooldown && <button type="button" onClick={resetWebsite} disabled={busy}>Reset session</button>}{affectedPane && <button type="button" onClick={resumeWarning} disabled={busy}>Resume automation</button>}</div>
+          {usage.warning && <p>Resolve the warning on the website, then resume automation.</p>}
+        </div>
+      })}
     </ProfileSection>}
     <ProfileSection title="Enable Bot protection">
       <p>Applies to automation on public websites. Files and local addresses are excluded.</p>
       <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Bot protection for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
       {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Bot protection for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
+      <button type="button" onClick={resetProfileSessions} disabled={busy}>Reset profile sessions</button>
     </ProfileSection>
     <AutomationLimitsEditor key={`limits:${profile.id}`} profile={profile} />
     <ProfileExcludedWebsites key={`exclusions:${profile.id}`} profile={profile} pane={pane} />
@@ -2991,10 +3008,7 @@ let ProfileSelectActions = () => {
 let ProfileInfo = () => {
   let { state, run } = useUI()
   let { session, pane, profile } = selection(state)
-  let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => {
-    let usage = state.automationSafety?.profiles.find(item => item.profileId === profile?.id && (!item.siteHost || item.siteHost === automationWebsiteHost(pane?.url)))
-    return profile && automationSiteEnabled(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id, pane?.url, Date.now(), pane?.id) && (usage?.warning || usage?.retryAfter && Date.parse(usage.retryAfter) > Date.now()) ? 'anti-bot' : 'overview'
-  }, false)
+  let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => profile && (state.automationSafety?.error || automationProfilePauses(state, profile.id).length) ? 'anti-bot' : 'overview', false)
   useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length

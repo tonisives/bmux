@@ -269,6 +269,7 @@ test('actual limit attempts persist once and successful long commands can reach 
   expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(limited)
   next.resetSession('bot')
   expect(next.status().profiles[0].retryAfter).toBeNull()
+  await next.before('bot', instagram)
   advance(10 * 60_000)
   next.after('bot', '%1', 'https://www.instagram.com/')
   expect(next.status().profiles[0].retryAfter).toBe('2026-10-01T00:59:00.000Z')
@@ -287,6 +288,39 @@ test('a human session reset persists fresh usage for only that profile and prese
   await expect(next.before('bot', async () => ({ url: 'https://instagram.com/', warning: 'account-warning' }))).rejects.toThrow('Automation paused')
   next.resetSession('bot')
   await expect(restart().before('bot', instagram)).rejects.toThrow('Automation paused')
+})
+
+test('a reset session starts with the next admitted command after an agent waits', async () => {
+  let { policy, advance, restart } = fixture()
+  let actor = { paneId: '%1', agentId: 'waiting-agent' }
+  await policy.before('bot', instagram, undefined, true, actor)
+  advance(10 * 60_000)
+  await expect(policy.before('bot', instagram)).rejects.toThrow('session limit')
+  policy.resetSession('bot')
+  policy.after('bot', actor.paneId, 'https://www.instagram.com/')
+  advance(9 * 60_000)
+  let next = restart()
+  await next.before('bot', instagram, undefined, true, actor)
+  advance(2 * 60_000)
+  await expect(next.before('bot', instagram, undefined, true, actor)).resolves.toBeUndefined()
+  expect(next.status().profiles[0]).toMatchObject({ startedAt: Date.parse('2026-10-01T00:19:00Z'), retryAfter: null })
+})
+
+test('a reset navigation session starts on commit and survives an unused preflight and restart', async () => {
+  let { policy, advance, restart } = fixture()
+  let url = 'https://www.instagram.com/', actor = { paneId: '%1', agentId: 'navigation-agent' }
+  await policy.before('bot', instagram, undefined, true, actor)
+  advance(10 * 60_000)
+  policy.resetSession('bot')
+  advance(9 * 60_000)
+  await policy.before('bot', instagram, url, true, actor, false)
+  advance(2 * 60_000)
+  let next = restart()
+  await next.before('bot', instagram, url, true, actor, false)
+  next.complete('bot', actor, url)
+  advance(2 * 60_000)
+  await expect(next.before('bot', instagram, undefined, true, actor)).resolves.toBeUndefined()
+  expect(next.status().profiles[0]).toMatchObject({ startedAt: Date.parse('2026-10-01T00:21:00Z'), retryAfter: null })
 })
 
 test('a page change during the delay is checked again before dispatch', async () => {
