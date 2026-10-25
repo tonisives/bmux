@@ -77,12 +77,14 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await expect(picker.locator('[data-session-tree]')).toHaveCount(1)
     await expect(picker.locator('[data-session-tree]')).not.toContainText('Hosted work')
     await chrome.keyboard.press('Escape')
+    await application.evaluate((_electron, session) => (globalThis as any).workspaceFixture.runtime.remote.acquire(session, 'fixture-control', false), local.sessionId)
     await application.evaluate(({ app }, url) => app.emit('open-url', { preventDefault() {} }, url), url)
     await expect.poll(async () => current(await state()).sessionId).toBe(local.sessionId)
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
     let page = application.context().pages().find(page => page.url() === url)!
     await expect(page.getByRole('heading')).toHaveText('Local research')
     await expect(chrome.locator('[data-remote-address]')).toHaveCount(0)
+    expect((await state()).remoteControl[local.sessionId]).toBeUndefined()
     expect((await state()).model.sessions.some((session: any) => session.ephemeral)).toBe(false)
     await expect.poll(() => application.evaluate(() => (globalThis as any).workspaceFixture.media.size)).toBe(0)
     // A typed URL must still display a visible native local page after the switch.

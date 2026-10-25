@@ -2093,6 +2093,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let client = resolve(model.clients, clientId, 'Client')
     let target = latestLocalSession(model, client)
     if (!target) { target = newSession('main', model.profiles[0].id, false, model); model.sessions.push(target) }
+    reclaimDesktopControl(target.id)
     if (client.sessionId !== target.id) await execute({ method: 'switch-client', args: { client: clientId, session: target.id } }, clientId)
     return execute({ method: 'new-window', args: { client: clientId, session: target.id, url } }, clientId)
   }
