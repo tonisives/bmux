@@ -160,7 +160,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   let after = (profileId: string, paneId: string, url: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
     let value = usage[usageKey(profileId, url)]
-    if (value) { if (value.pendingSession) { value.startedAt = now(); delete value.pendingSession }; value.lastUsed = now(); persist() }
+    if (value && !value.pendingSession) { value.lastUsed = now(); persist() }
   }
   let resume = (profileId: string, page: Page) => {
     ensureLedger()

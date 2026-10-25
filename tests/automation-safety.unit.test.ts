@@ -297,6 +297,7 @@ test('a reset session starts with the next admitted command after an agent waits
   advance(10 * 60_000)
   await expect(policy.before('bot', instagram)).rejects.toThrow('session limit')
   policy.resetSession('bot')
+  policy.after('bot', actor.paneId, 'https://www.instagram.com/')
   advance(9 * 60_000)
   let next = restart()
   await next.before('bot', instagram, undefined, true, actor)
