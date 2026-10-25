@@ -79,11 +79,15 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByRole('link', { name: 'Link Apple', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Sessions', exact: true }).click()
     let windowId = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.id)
+    let content = chrome.locator('[data-content-pane-id]')
     let resize = async (width: number, height: number) => {
       await application!.evaluate(({ BaseWindow }, { windowId, width, height }) => {
         setImmediate(() => BaseWindow.fromId(windowId)?.setContentSize(width, height))
       }, { windowId, width, height })
-      await expect.poll(() => page.evaluate(height => ({ width: innerWidth, height: innerHeight > 0 && innerHeight <= height }), height)).toEqual({ width, height: true })
+      await expect.poll(() => chrome.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width, height })
+      // The native page excludes the pane border, address field, and status bar.
+      let bounds = (await content.boundingBox())!
+      await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: Math.round(bounds.width), height: Math.round(bounds.height) })
     }
     await resize(1280, 800)
     let library = page.getByRole('complementary', { name: 'Sessions', exact: true })

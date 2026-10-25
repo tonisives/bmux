@@ -300,8 +300,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.getByRole('button',{name:'Type',exact:true}).click()
     await expect(page.getByLabel('Fixture input')).toHaveValue('remote text')
     await resizeViewer(700)
+    let fittedViewport = await video.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))
+    expect(fittedViewport.width).toBe(700)
+    expect(fittedViewport.height).toBeGreaterThan(200)
     await viewer.getByRole('button',{name:'Fit viewport'}).click()
-    await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(700)
+    await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(fittedViewport)
+    await expect.poll(() => video.evaluate(element => ({ width: Number(element.dataset.viewportWidth), height: Number(element.dataset.viewportHeight) }))).toEqual(fittedViewport)
     await expect(command('attach-session','-t',status.model.sessions[0].id)).rejects.toThrow('CONTROL_HELD')
     await expect(command('rpc','activate-client',JSON.stringify({client:localClient.id}))).rejects.toThrow('CONTROL_HELD')
     // A human focusing the native desktop window reclaims control without an RPC.
