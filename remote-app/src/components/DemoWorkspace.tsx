@@ -36,7 +36,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
       <View style={styles.row}><Pressable accessibilityRole="button" accessibilityLabel={'Attention, ' + (resumed ? 0 : 1) + ' pending'} style={local.bell} onPress={openInbox}><Ionicons name="notifications-outline" size={21} color={colors.secondary} />{!resumed && <View style={local.badge}><Text style={local.badgeText}>1</Text></View>}</Pressable><Button title="Exit demo" onPress={close} /></View>
     </View>
     <View style={local.workspace}>
-      {(split || !selection) && <View style={split ? local.sidebar : local.list}>
+      {(split || (!selection && !inbox)) && <View style={split ? local.sidebar : local.list}>
         <SessionList hosts={[demoHost]} attention={[attention]} selection={selection} select={value => { setSelection(value); setInbox(false) }} header={<AttentionSummary items={[attention]} hosts={[demoHost]} open={openAttention} showAll={openInbox} />} footer={<View style={local.guide}>
           <Text style={local.guideTitle}>Your browser, in one step</Text><Text style={local.description}>Sign in to open your included browser or connect your computer.</Text><Button title="Use my browser" onPress={connect} />
         </View>} />
