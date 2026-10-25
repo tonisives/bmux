@@ -69,7 +69,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     let icon = page.getByRole('button', { name: 'BMUX home', exact: true }).locator('img')
     await expect.poll(() => icon.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
     await expect(page.getByRole('link', { name: 'Link Apple', exact: true })).toHaveAttribute('href', '/api/auth/providers/apple/link')
-    await info.attach('apple-link-account', { body: await page.screenshot(), contentType: 'image/png' })
+    await page.screenshot({ path: info.outputPath('apple-link-account.png') })
     providers = { appleEnabled: true, appleLinked: true }; await page.reload()
     await expect(page.getByText('Apple linked', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Link Apple', exact: true })).toHaveCount(0)
@@ -80,7 +80,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     await page.getByRole('button', { name: 'Sessions', exact: true }).click()
     let windowId = await application.evaluate(({ BaseWindow }) => {
       let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
-      window.setMinimumSize(0, 0)
+      window.setMinimumSize(320, 240)
       return window.id
     })
     let content = chrome.locator('[data-content-pane-id]')
@@ -106,7 +106,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     let appearance = await row.evaluate(element => { let style = getComputedStyle(element); return { radius: parseFloat(style.borderRadius), color: style.backgroundColor.match(/\d+/g)!.map(Number) } })
     expect(appearance.radius).toBeGreaterThan(0)
     expect(new Set(appearance.color).size).toBe(1)
-    await info.attach('remote-web-unselected', { body: await page.screenshot(), contentType: 'image/png' })
+    await page.screenshot({ path: info.outputPath('remote-web-unselected.png') })
     await row.click()
     await expect(row).toHaveAttribute('aria-current', 'true')
     await expect(page.getByRole('region', { name: 'Session viewer', exact: true })).toBeVisible()
@@ -117,14 +117,14 @@ test('remote web Account preserves Apple linking and the responsive session work
     expect(landscapeRow!.x + landscapeRow!.width).toBeLessThan(landscapeViewer!.x)
     expect(landscapeViewer!.height).toBeGreaterThan(150)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await info.attach('remote-web-landscape', { body: await page.screenshot(), contentType: 'image/png' })
+    await page.screenshot({ path: info.outputPath('remote-web-landscape.png') })
     await resize(390, 844)
     await expect(library).toBeHidden()
     await page.getByRole('button', { name: 'Sessions', exact: true }).click()
     await expect(library).toBeVisible()
     await expect(page.getByLabel('Remote browser')).toHaveCount(0)
     await expect(row).not.toHaveAttribute('aria-current', 'true')
-    await info.attach('remote-web-portrait', { body: await page.screenshot(), contentType: 'image/png' })
+    await page.screenshot({ path: info.outputPath('remote-web-portrait.png') })
     await resize(1280, 800)
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await address.fill(`${origin}/expired-apple-link`); await address.press('Enter')
@@ -132,7 +132,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     let expired = application.context().pages().find(page => page.url() === `${origin}/api/auth/apple/callback`)!
     await expect(expired.getByRole('heading', { name: 'Apple sign-in expired', exact: true })).toBeVisible()
     await expect(expired.getByRole('link', { name: 'Link Apple', exact: true })).toHaveAttribute('href', '/api/auth/providers/apple/link')
-    await info.attach('expired-apple-link', { body: await expired.screenshot(), contentType: 'image/png' })
+    await expired.screenshot({ path: info.outputPath('expired-apple-link.png') })
   } finally {
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate()
