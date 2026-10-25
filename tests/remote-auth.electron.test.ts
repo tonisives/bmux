@@ -3,9 +3,15 @@ import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { WebSocketServer } from 'ws'
 import { closeTestApplication } from './electron-fixture'
 import { installDesktopWorkspaceFixture } from './desktop-workspace-fixture'
+
+test.beforeAll(async () => {
+  await promisify(execFile)(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--config', 'remote/vite.config.ts'], { timeout: 30000 })
+})
 
 test('remote web Account exposes Apple linking and the linked provider status', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-auth-web-'))
