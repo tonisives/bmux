@@ -14,7 +14,7 @@ test('paid remote account connects a running computer and opens regional box che
   let directory = await fs.mkdtemp(path.join(os.tmpdir(),'bmux-paid-remote-')), config = path.join(directory,'config.yaml')
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let billingEmail: string | undefined
-  let catalogFailed = false, expired = false, rentalEnabled = true, relayActive = true, rentals: RentedBox[] = []
+  let catalogFailed = false, expired = false, rentalEnabled = true, relayActive = true, enrollmentOrigin = true, rentals: RentedBox[] = []
   let quote = {id:'regional-quote',region:'fsn1',regionName:'Falkenstein',memoryGb:4,cores:2,diskGb:40,trafficBytes:20e12,monthlyCents:851,currency:'usd'}
   let checkoutUrl = 'https://checkout.stripe.com/c/pay/bmux-fixture'
   let readyHost = false, publicKey = generateKeyPairSync('ed25519').publicKey.export({format:'jwk'})
@@ -44,7 +44,7 @@ test('paid remote account connects a running computer and opens regional box che
         json({url:checkoutUrl,rentalId:body.requestId}); return
       }
       if (/^\/api\/rentals\/[a-f0-9-]{36}\/delete$/.test(route)) { rentals=[]; json({ok:true}); return }
-      if (route === '/api/services') { json({service:body.service,key:'a'.repeat(64),url:origin}); return }
+      if (route === '/api/services') { json({service:body.service,key:'a'.repeat(64),...(enrollmentOrigin ? {url:origin} : {})}); return }
       if (route === '/api/services/revoke') { json({ok:true}); return }
       response.writeHead(200,{'Content-Type':'text/html'}); response.end('<!doctype html><title>Paid remote fixture</title><style>body{background:#dce7ef;font:24px system-ui;padding:30px}</style><h1>Persistent browser workspace</h1><input aria-label="Retained value" value="work continues">')
     })().catch(() => { response.writeHead(500); response.end() })
@@ -217,6 +217,15 @@ test('paid remote account connects a running computer and opens regional box che
     await selfHosted.getByRole('button',{name:'Revoke key',exact:true}).click()
     await expect(selfHosted.getByRole('button',{name:'Create host config'})).toBeVisible()
     expect(requests.filter(item => item.route === '/api/services/revoke').at(-1)?.body.service).toBe(selfHostedService)
+    enrollmentOrigin = false
+    await selfHosted.getByRole('button',{name:'Create host config'}).click()
+    let legacyService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
+    await expect(selfHosted.getByRole('status')).toHaveText('Update this relay to download a host config.')
+    await expect(selfHosted.getByRole('link',{name:'Download config',exact:true})).toHaveCount(0)
+    await expect(selfHosted.getByText('Run with Docker',{exact:true})).toHaveCount(0)
+    await selfHosted.getByRole('button',{name:'Revoke key',exact:true}).click()
+    await expect(selfHosted.getByRole('button',{name:'Create host config'})).toBeVisible()
+    expect(requests.filter(item => item.route === '/api/services/revoke').at(-1)?.body.service).toBe(legacyService)
     rentalEnabled = true; relayActive = true
     await picker.getByRole('button',{name:'Back to remote sessions'}).click(); await picker.getByRole('button',{name:'Relay',exact:true}).click()
     await expect(picker.getByRole('button',{name:'Manage billing'})).toBeVisible()
@@ -228,8 +237,8 @@ test('paid remote account connects a running computer and opens regional box che
     await expect(picker).toHaveCount(0)
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/`)).toBe(true)
     expect(await application.evaluate(({BaseWindow}) => BaseWindow.getAllWindows().length)).toBe(nativeWindows)
-    expect(requests.filter(item => item.route === '/api/services')).toHaveLength(2)
-    expect(requests.filter(item => item.route === '/api/services/revoke')).toHaveLength(2)
+    expect(requests.filter(item => item.route === '/api/services')).toHaveLength(3)
+    expect(requests.filter(item => item.route === '/api/services/revoke')).toHaveLength(3)
   } finally {
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate(); sockets.close(); server.closeAllConnections()

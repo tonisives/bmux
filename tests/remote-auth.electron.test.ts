@@ -40,6 +40,7 @@ test('remote web Account preserves Apple linking and the responsive session work
         await auth.route(request, response, new URL(request.url!, origin), async () => ({})); return
       }
       if (route.startsWith('/api/')) {
+        if (route === '/api/services' && request.method === 'POST') { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ service: 'self-hosted-fixture', key: 'c'.repeat(64) })); return }
         let result = route === '/api/auth/providers' ? providers
           : route === '/api/me' ? { owner: 'fixture-owner', entitlement: { canStream: true } }
           : route === '/api/connect' ? { ticket: 'fixture-ticket', iceServers: [] }
@@ -180,6 +181,10 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByText('Billed in USD.', { exact: false })).toHaveCount(0)
     let chooser = (await page.getByRole('region', { name: 'Self-hosted box', exact: true }).boundingBox())!
     expect(chooser.width).toBeLessThanOrEqual(640)
+    await page.getByRole('button', { name: 'Create host config', exact: true }).click()
+    let download = page.getByRole('link', { name: 'Download config', exact: true })
+    await expect(download).toHaveAttribute('href', /^blob:/)
+    expect(await download.evaluate(async element => (await fetch((element as HTMLAnchorElement).href).then(response => response.json())).url)).toBe(origin)
     await page.screenshot({ path: info.outputPath('remote-web-add-box.png') })
     await page.getByRole('button', { name: 'Account', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Account', level: 2, exact: true })).toBeVisible()

@@ -20,13 +20,13 @@ export let useHostEnrollment = (api: AccountApi, act: (operation: () => Promise<
 
 export let SelfHostedBox = ({ enrollment, active, busy, create, revoke, close }: Props) => {
   let [name, setName] = useState('My box'), [download, setDownload] = useState('')
+  let origin = enrollment?.url ?? (['http:', 'https:'].includes(location.protocol) ? location.origin : undefined)
   useEffect(() => {
-    if (!enrollment) { setDownload(''); return }
-    let origin = enrollment.url ?? (location.protocol === 'https:' || location.hostname === '127.0.0.1' ? location.origin : 'https://remote.bmux.cc')
+    if (!enrollment || !origin) { setDownload(''); return }
     let url = URL.createObjectURL(new Blob([JSON.stringify({ url: origin, token: enrollment.key }, null, 2) + '\n'], { type: 'application/json' }))
     setDownload(url)
     return () => URL.revokeObjectURL(url)
-  }, [enrollment])
+  }, [enrollment, origin])
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
   let submit = (event: FormEvent) => { event.preventDefault(); if (name.trim() && active && !busy) create(name.trim()) }
   return <section className={styles.form} aria-label="Self-hosted box">
@@ -37,14 +37,18 @@ export let SelfHostedBox = ({ enrollment, active, busy, create, revoke, close }:
       <button disabled={busy || !active || !name.trim()}>{busy ? 'Creating…' : 'Create host config'}</button>
     </form> : <>
       <strong>{enrollment.name}</strong>
-      <p>Save this file. It contains your host's access key.</p>
-      <a className={styles.download} href={download || undefined} download={configFile(enrollment.service)} aria-disabled={!download}>Download config</a>
-      <details className={styles.setup}><summary>Run with Docker</summary><p>Copy the config to your host, then run these commands in the same folder.</p><pre tabIndex={0}><code>{dockerSetup(enrollment.service)}</code></pre></details>
+      {origin ? <HostConfigDownload service={enrollment.service} download={download} /> : <p role="status">Update this relay to download a host config.</p>}
       <button onClick={revoke} disabled={busy}>Revoke key</button>
     </>}
     <div className={styles.actions}><a href="https://github.com/tonisives/bmux/blob/main/docs/remote-host.md#run-a-host" target="_blank" rel="noreferrer">Open-source setup</a><button onClick={close} disabled={busy}>Close</button></div>
   </section>
 }
+
+let HostConfigDownload = ({ service, download }: { service: string; download: string }) => <>
+  <p>Save this file. It contains your host's access key.</p>
+  <a className={styles.download} href={download || undefined} download={configFile(service)} aria-disabled={!download}>Download config</a>
+  <details className={styles.setup}><summary>Run with Docker</summary><p>Copy the config to your host, then run these commands in the same folder.</p><pre tabIndex={0}><code>{dockerSetup(service)}</code></pre></details>
+</>
 
 let configFile = (service: string) => `bmux-${service}.json`
 let dockerSetup = (service: string) => {
