@@ -265,10 +265,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByText('Controlling')).toBeVisible()
     await viewer.getByRole('button',{name:'Open address'}).click()
     await expect(viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'})).toBeFocused()
-    await viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'}).fill(fixtureUrl)
+    let typedUrl = `${fixtureUrl}/?address=1`
+    await viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'}).fill(typedUrl)
     await viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'}).press('Enter')
     await expect(viewer.getByRole('dialog',{name:'Open address'})).not.toBeVisible()
-    await expect.poll(() => application!.context().pages().some(page => page.url() === fixtureUrl + '/')).toBe(true)
+    await expect.poll(() => application!.context().pages().some(page => page.url() === typedUrl)).toBe(true)
     let video = viewer.getByLabel('Remote browser')
     await video.scrollIntoViewIfNeeded()
     let videoPosition = (x: number, y: number) => video.evaluate((element, { x, y }) => {
@@ -288,7 +289,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await video.click({ position: await videoPosition(80, 130) })
     await expect(video).toBeFocused()
     await viewer.keyboard.press('ArrowDown')
-    let page = application.context().pages().find(page=>page.url()===fixtureUrl+'/')!
+    let page = application.context().pages().find(page=>page.url()===typedUrl)!
     await expect.poll(() => page.evaluate(() => document.body.dataset.key)).toBe('ArrowDown')
     await expect(command('eval','-t',pane,'window.memory')).rejects.toThrow()
     expect(await command('eval','-t',otherPane,'1+1')).toBe(2)
