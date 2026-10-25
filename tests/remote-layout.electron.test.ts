@@ -59,6 +59,14 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
       let rect = (await content.boundingBox())!, bounds = await nativeBounds()
       return Math.abs(bounds.page.width - rect.width) <= 1 && Math.abs(bounds.page.height - rect.height) <= 1
     }).toBe(true)
+    await test.step('Focus the native layout fixture before acquiring control', async () => {
+      let windowId = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.id)
+      await application.evaluate(({ app, BaseWindow }, id) => {
+        setImmediate(() => { app.focus({ steal: true }); let window = BaseWindow.fromId(id)!; window.show(); window.focus() })
+      }, windowId)
+      await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.isFocused(), windowId)).toBe(true)
+      await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).focusedClientId)).toBe(ids.client)
+    })
     let lease = await application.evaluate((_electron, session) => (globalThis as any).remoteLayoutRuntime.remote.acquire(session, 'layout-test', false), ids.session)
     for (let size of [{ width: 480, height: 240 }, { width: 1920, height: 1080 }]) {
       await application.evaluate(async (_electron, { pane, generation, size }) => (globalThis as any).remoteLayoutRuntime.remote.resize('layout-test', generation, pane, size.width, size.height), { pane: ids.pane, generation: lease.generation, size })
@@ -70,7 +78,17 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
         return bounds.clip.x >= rect.x - 1 && bounds.clip.y >= rect.y - 1 && bounds.clip.x + bounds.clip.width <= rect.x + rect.width + 1 && bounds.clip.y + bounds.clip.height <= rect.y + rect.height + 1
       }).toBe(true)
       if (size.width > 1000) {
-        await expect.poll(() => content.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
+        try {
+          await expect.poll(() => content.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
+        } catch (error) {
+          let renderer = await content.evaluate(async (element, ids) => {
+            let state = await (window as any).bmux.state(), style = getComputedStyle(element)
+            return { focusedClient: state.focusedClientId, control: state.remoteControl?.[ids.session], size: state.remoteSizes?.[ids.pane], width: element.clientWidth, height: element.clientHeight, scrollWidth: element.scrollWidth, scrollHeight: element.scrollHeight, overflow: style.overflow, remoteWidth: style.getPropertyValue('--remote-width'), remoteHeight: style.getPropertyValue('--remote-height') }
+          }, ids)
+          let windows = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(window => ({ id: window.id, focused: window.isFocused(), visible: window.isVisible(), bounds: window.getContentBounds() })))
+          await fs.writeFile(info.outputPath('overflow-state.json'), JSON.stringify({ renderer, windows, native: await nativeBounds() }, null, 2))
+          throw error
+        }
         await content.evaluate(element => { element.scrollLeft = 100; element.scrollTop = 120 })
         await expect.poll(async () => {
           let rect = (await content.boundingBox())!, bounds = await nativeBounds()
