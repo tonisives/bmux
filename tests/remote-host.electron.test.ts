@@ -353,10 +353,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let windows = (await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)
       await remotePicker.locator(`[data-remote-pane="${pane}"] [data-session-row]`).click()
       await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
+      // The metadata connection must project the remote workspace before its
+      // native pane viewers exist. Local tabs do not acknowledge that attachment.
+      await expect(local.locator(`[data-window-list] [data-window-id^="remote:${attachedClient.id}:window:"]`)).toHaveCount(2, { timeout: 25000 })
       await expect.poll(async () => (await Promise.all(application!.context().pages().filter(page => page.url().endsWith('/remote-client.html')).map(async page => ({ page, selection: await page.evaluate(() => (window as any).remoteClient.selection()) })))).some(item => !item.selection.metadata)).toBe(true)
       let attached = (await Promise.all(application!.context().pages().filter(page => page.url().endsWith('/remote-client.html')).map(async page => ({ page, selection: await page.evaluate(() => (window as any).remoteClient.selection()) })))).find(item => !item.selection.metadata)!.page
       // The video element mounts before the attached viewer finishes signaling.
-      await expect(local.locator('[data-window-list] button')).not.toHaveCount(0, { timeout: 25000 })
       await expect(local.locator('[data-window-list] [data-window-id]')).toHaveCount(2)
       await expect(local.getByRole('contentinfo', { name: 'Browser status' }).getByRole('group', { name: 'Remote session controls' })).toHaveCount(0)
       await expect(attached.locator('header, form, button')).toHaveCount(0)
@@ -572,15 +574,26 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let state = await Promise.race([
         Promise.all([
           application.evaluate(() => (globalThis as any).bmuxTestRemoteMessages),
-          Promise.all(application.context().pages().map(page => page.evaluate(() => ({
-            page: location.pathname.endsWith('/remote-peer.html') ? 'transport' : location.protocol === 'http:' ? 'viewer-or-fixture' : 'chrome',
-            peers: ((window as any).bmuxTestRemotePeers ?? []).map((peer: RTCPeerConnection) => ({ connection: peer.connectionState, ice: peer.iceConnectionState, gathering: peer.iceGatheringState, signaling: peer.signalingState, local: peer.localDescription?.type, remote: peer.remoteDescription?.type })),
-          })).catch(() => ({ error: 'Renderer unavailable' })))),
+          Promise.all(application.context().pages().map(page => page.evaluate(async () => {
+            let selection = (window as any).remoteClient ? await (window as any).remoteClient.selection() : undefined
+            let state = (window as any).bmux?.state()
+            let client = state?.model.clients.find((client: { id: string }) => client.id === state.clientId)
+            return {
+              page: location.pathname.endsWith('/remote-peer.html') ? 'transport' : location.pathname.endsWith('/remote-client.html') ? 'remote-client' : location.protocol === 'http:' ? 'viewer-or-fixture' : 'chrome',
+              selection: selection && { metadata: selection.metadata, session: selection.session, pane: selection.pane, view: selection.view },
+              workspace: state && { focusedClientId: state.focusedClientId, client, remote: state.model.sessions.find((session: { id: string }) => session.id === client?.sessionId)?.remote },
+              remoteAddress: document.querySelector('[data-remote-address]')?.getAttribute('value'),
+              remoteWindows: [...document.querySelectorAll('[data-window-list] [data-window-id]')].map(element => element.getAttribute('data-window-id')),
+              peers: ((window as any).bmuxTestRemotePeers ?? []).map((peer: RTCPeerConnection) => ({ connection: peer.connectionState, ice: peer.iceConnectionState, gathering: peer.iceGatheringState, signaling: peer.signalingState, sctp: peer.sctp?.state, local: peer.localDescription?.type, remote: peer.remoteDescription?.type })),
+            }
+          }).catch(() => ({ error: 'Renderer unavailable' })))),
         ]),
         new Promise(resolve => { let timer = setTimeout(() => resolve({ error: 'Remote state capture timed out' }), 5000); timer.unref() }),
       ]).catch(() => ({ error: 'Remote state unavailable' }))
       console.log('REMOTE_TRANSPORT_DIAGNOSTICS', JSON.stringify(state))
-      await test.info().attach('remote-transport', { body: JSON.stringify(state, null, 2), contentType: 'application/json' })
+      let output = test.info().outputPath('remote-transport.json')
+      await fs.writeFile(output, JSON.stringify(state, null, 2))
+      await test.info().attach('remote-transport', { path: output, contentType: 'application/json' })
     }
     if (failed && applicationProcess) console.log('REMOTE_PROCESS_DIAGNOSTICS', { pid:applicationProcess.pid,exitCode:applicationProcess.exitCode,signalCode:applicationProcess.signalCode })
     if (failed && process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && applicationProcess?.exitCode === null) {
