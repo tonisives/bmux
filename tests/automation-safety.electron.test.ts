@@ -480,8 +480,12 @@ test('a saved verification alert shows its detection time after manual browsing 
     let before = await state(), original = before.model.sessions[0].windows[0].panes.find((item: { id: string }) => item.id === pane)
     expect(original.lastUsedBy).toBe('human')
     await expect(alert.locator('time')).toHaveAttribute('datetime', new Date(detectedAt).toISOString())
-    let personal = await command('new-window', { session: before.model.sessions[0].id, name: 'personal', url: `${base.replace('one.example.com', 'two.example.com')}/safe` })
+    let personalUrl = `${base.replace('one.example.com', 'two.example.com')}/safe`
+    let personal = await command('new-window', { session: before.model.sessions[0].id, name: 'personal', url: personalUrl })
     await command('select-pane', { client: before.clientId, pane: personal.panes[0].id })
+    await expect(chrome.locator(`[data-pane-id="${personal.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === personalUrl)).toBe(true)
+    await expect(application!.context().pages().find(page => page.url() === personalUrl)!.getByRole('main')).toHaveText('Manual browsing after verification')
     await expect(alert).toBeVisible()
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-warning-history.png') })
