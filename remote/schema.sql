@@ -99,3 +99,15 @@ CREATE TABLE IF NOT EXISTS bmux_usage (
   PRIMARY KEY (service, host, generation, day)
 );
 CREATE INDEX IF NOT EXISTS bmux_usage_recorded ON bmux_usage(recorded);
+ALTER TABLE bmux_attention ADD COLUMN IF NOT EXISTS revision integer NOT NULL DEFAULT 1;
+ALTER TABLE bmux_attention ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending';
+ALTER TABLE bmux_attention ADD COLUMN IF NOT EXISTS attempt jsonb;
+ALTER TABLE bmux_attention ADD COLUMN IF NOT EXISTS read_at timestamptz;
+ALTER TABLE bmux_attention ADD COLUMN IF NOT EXISTS dismissed_at timestamptz;
+UPDATE bmux_attention SET status='resolved' WHERE resolved_at IS NOT NULL AND status='pending';
+ALTER TABLE bmux_push_outbox ADD COLUMN IF NOT EXISTS event_revision integer NOT NULL DEFAULT 1;
+ALTER TABLE bmux_stream_leases ADD COLUMN IF NOT EXISTS started_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE bmux_services ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'standard';
+ALTER TABLE bmux_host_presence ADD COLUMN IF NOT EXISTS instance text;
+ALTER TABLE bmux_host_presence ADD COLUMN IF NOT EXISTS sessions jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE bmux_host_presence ADD COLUMN IF NOT EXISTS capabilities jsonb NOT NULL DEFAULT '{}';

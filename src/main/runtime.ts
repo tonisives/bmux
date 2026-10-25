@@ -1,6 +1,8 @@
 import { arrangePanes, maximizePane } from './pane-layout'
 import { createAttentionRequests } from './remote-attention'
-import { createHash } from 'node:crypto'
+import { createRemoteManagement } from './remote-management'
+import { hostCredentialEncryption } from './host-credentials'
+import { createHash, randomUUID } from 'node:crypto'
 import type { PaneLayout } from './pane-layout'
 import { buildInfo } from '../shared/build-info'
 import { focusAgent } from './agent-focus'
@@ -137,6 +139,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
+  let interactiveOnly = process.env.BMUX_INTERACTIVE_ONLY === 'true'
+  if (interactiveOnly && (model.sessions.length !== 1 || model.sessions[0].windows.length !== 1 || model.sessions[0].windows[0].panes.length !== 1)) throw new Error('Included browser requires one session and one pane')
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
   let controls = createControlLeases()
   let attention = createAttentionRequests(path.join(dataDirectory,'remote-attention.json'))
@@ -169,7 +173,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     publish()
   }
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
-  let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot'])
+  let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait'])
   let checkControl = (method: string, args: Record<string, unknown>) => {
     if (controlObservation.has(method)) return
     let actor = remoteActor.getStore()
@@ -187,7 +191,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
   let startupNotice = crashRecovery.startupNotice
-  let proxyCredentials = createProxyCredentialStore({ directory: path.join(dataDirectory, 'proxy-credentials'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data) })
+  let credentialEncryption = process.env.BMUX_HOST_CREDENTIAL_KEY_FILE ? hostCredentialEncryption(process.env.BMUX_HOST_CREDENTIAL_KEY_FILE) : { available:() => safeStorage.isEncryptionAvailable(), encrypt:(text: string) => safeStorage.encryptString(text), decrypt:(data: Buffer) => safeStorage.decryptString(data) }
+  let proxyCredentials = createProxyCredentialStore({ directory: path.join(dataDirectory, 'proxy-credentials'), ...credentialEncryption })
   let proxyRelays = createProfileProxyRelays(proxyCredentials)
   let profileNetworkReady = new Map<string, Promise<void>>()
   let blockedProfileNetworks = new Map<string, { wait: Promise<void>; continue: () => void }>()
@@ -1163,6 +1168,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let lastCountedUrl = initialUrl, requestedHistoryUrl: string | undefined
     let route = (url: string) => { try { let parsed = new URL(url); return `${parsed.origin}${parsed.pathname}${parsed.search}` } catch { return url } }
     let manualTab = () => [...clients].some(([clientId, owner]) => clientId === focusedClientId && owner.window.isFocused() && model.clients.find(client => client.id === clientId)?.paneId === pane.id && pane.id === tabId)
+    if (interactiveOnly) {
+      let restrictNavigation = (event: Electron.Event, url: string) => { if (url !== 'about:blank' && !/^https?:\/\//i.test(url)) event.preventDefault() }
+      contents.on('will-navigate',restrictNavigation)
+      contents.on('will-redirect',restrictNavigation)
+    }
     contents.on('will-navigate', (event, url) => {
       if ((manualTab() && !tabAutomation.has(tabId)) || !automation || !matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, pane.profileId, url)) return
       try { automation.authorize({ profileId: pane.profileId, tabId, url, token: tabAutomation.get(tabId), kind: 'navigation', record: false }) }
@@ -1355,6 +1365,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return popup.contents
     }
     contents.setWindowOpenHandler(details => {
+      if (interactiveOnly) return { action:'deny' }
       // Chromium loads allowed background popups before their tab is selected.
       // Keep only their destination until activation creates the page instead.
       if (details.disposition === 'background-tab' || pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
@@ -2326,6 +2337,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       else tabs.get(remoteTab)?.contents.send('remote-client-action', action)
       return { remote: true }
     }
+    if (method === 'remote.attention-verify') {
+      if (sourceClientId || remoteActor.getStore()) throw new Error('Only the originating task can verify help')
+      validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
+      let pane = paneById(model,required(args,'pane')).pane
+      let outcome = required(args,'outcome')
+      if (!['verified','verification-failed'].includes(outcome)) throw new Error('Use verified or verification-failed')
+      let result = attention.verify(pane.id,required(args,'episode'),required(args,'attempt'),required(args,'agentId'),outcome as 'verified' | 'verification-failed',typeof args.code === 'string' ? args.code : undefined)
+      publish(); return result
+    }
     checkControl(method, args)
     if (!sourceClientId && !remoteActor.getStore() && typeof args.tab === 'string' && ['navigate','back','forward','reload','hard-reload','stop','eval','click','type','key','cdp','forms.fill','plugin.run','kill-pane','kill-window','kill-session'].includes(method)) attention.assert(args.tab)
     if (method === 'remote.attention') {
@@ -2333,8 +2353,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let { pane, session } = paneById(model, required(args,'pane'))
       if (session.ephemeral) throw new Error('Use a persistent session for remote help')
       updateAgentInfo(pane,args)
-      let result = attention.request(pane.id,session.id,required(args,'episode'))
-      save(); publish(); return result
+      let originator = typeof args.agentId === 'string' ? args.agentId : pane.agentId
+      let result = attention.request(pane.id,session.id,required(args,'episode'),originator)
+      save(); publish()
+      return args.wait === true && originator ? attention.wait(result.episode,originator,Number(args.timeout) || 300000) : result
+    }
+    if (method === 'remote.attention-wait') {
+      if (sourceClientId || remoteActor.getStore()) throw new Error('Only the originating task can wait for help')
+      validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
+      let pane = paneById(model,required(args,'pane')).pane, episode = required(args,'episode'), originator = required(args,'agentId')
+      if (!attention.active().some(item => item.pane === pane.id && item.episode === episode && item.originator === originator)) throw new Error('ATTENTION_CHANGED')
+      return attention.wait(episode,originator,Number(args.timeout) || 300000)
     }
     if (method === 'agent.cursor.set') {
       if (!sourceClientId) throw new Error('Change agent cursor visibility in the bmux UI')
@@ -2420,7 +2449,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let page = await inspectAutomationPage(tabId)
       if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
       let result = automationSafety?.resume(pane.profileId, page)
-      attention.resolve(pane.id); publish(); return result
+      let episode = attention.active().find(item => item.pane === pane.id)
+      let acknowledgement = episode?.originator ? attention.acknowledge(pane.id,episode.episode,episode.revision,randomUUID()) : undefined
+      if (!acknowledgement) attention.resolve(pane.id)
+      publish(); return acknowledgement ?? result
     }
     if (method === 'automation.acquire') {
       if (!sourceClientId && (configuration?.automation.agents.requireId ?? true) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
@@ -3863,20 +3895,55 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
     return previewCache.flush()
   }
+  let management = createRemoteManagement({
+    model, interactiveOnly, hostProxy,
+    credentials:{ ...proxyCredentials, available:credentialEncryption.available },
+    assertControl:controls.assert,
+    saveProxy:saveDefaultConnection,
+    testProxy:async (proxy, credentials) => {
+      let probe = id('profile')
+      try { let relay = await proxyRelays.create(probe,proxy,credentials); return await testProxyRelay(relay,process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') }
+      finally { await proxyRelays.close(probe) }
+    },
+    persist:() => {
+      clearTimeout(persistTimer); writeModel(dataDirectory,model,bookmarkFile)
+      if (process.platform !== 'win32') { let descriptor = fsSync.openSync(dataDirectory,'r'); try { fsSync.fsyncSync(descriptor) } finally { fsSync.closeSync(descriptor) } }
+    },
+    changed,
+    reopen:async pane => { disposeTab(pane); await scheduleVisuals() },
+  })
   let remote = {
-    attentions: () => [
-      ...attention.active(),
-      ...(automationSafety?.status().profiles ?? []).flatMap(profile => profile.warning ? (profile.actors ?? []).filter(actor => actor.hosts?.includes(profile.warningHost!) && walkPanes(model).some(item => item.pane.id === actor.paneId)).slice(-1).map(actor => ({ pane: actor.paneId, session: paneById(model,actor.paneId).session.id, episode: `warning-${createHash('sha256').update(JSON.stringify([profile.profileId,profile.warningHost,profile.warning,profile.warningAt ?? profile.startedAt])).digest('hex')}`, reason: profile.warning! })) : []),
-    ],
-    resume: async (owner: string, generation: number, pane: string, episode?: string) => {
+    capabilities:management.capabilities,
+    rpc:management.rpc,
+    sessionRevision:management.sessionRevision,
+    attentions: () => {
+      attention.cancelMissing(new Set(walkPanes(model).map(item => item.pane.id)))
+      for (let profile of automationSafety?.status().profiles ?? []) if (profile.warning) {
+        let actor = (profile.actors ?? []).filter(actor => actor.hosts?.includes(profile.warningHost!) && walkPanes(model).some(item => item.pane.id === actor.paneId)).at(-1)
+        if (!actor || attention.active().some(item => item.pane === actor.paneId)) continue
+        let episode = `warning-${createHash('sha256').update(JSON.stringify([profile.profileId,profile.warningHost,profile.warning,profile.warningAt ?? profile.startedAt])).digest('hex')}`
+        attention.request(actor.paneId,paneById(model,actor.paneId).session.id,episode,actor.agentId,profile.warning)
+      }
+      return attention.active().map(({ originator: _originator, attempts, ...item }) => ({ ...item, ...(attempts.length ? { attempt: attempts.at(-1) } : {}) }))
+    },
+    attentionHistory: () => attention.all().map(({ originator: _originator, attempts, ...item }) => ({ ...item, ...(attempts.length ? { attempt: attempts.at(-1) } : {}) })),
+    resume: async (owner: string, generation: number, pane: string, episode?: string, request?: string, revision?: number) => {
       let target = paneById(model,pane)
       controls.assert(target.session.id,owner,generation)
-      if (episode && !remote.attentions().some(item => item.pane === pane && item.episode === episode)) throw new Error('The help request changed. Refresh before resuming.')
+      if (episode && request) { let duplicate = attention.receipt(pane,episode,request); if (duplicate) return duplicate }
+      let current = remote.attentions().find(item => item.pane === pane && (!episode || item.episode === episode))
+      if (episode && !current || current && request && (current.revision !== revision || current.status !== 'pending')) throw new Error('ATTENTION_CHANGED')
+      if (current && attention.active().find(item => item.episode === current.episode)?.originator && (!request || !Number.isInteger(revision))) throw new Error('VERIFIED_RESUME_REQUIRED')
       let page = await inspectAutomationPage(pane)
       if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
       controls.assert(target.session.id,owner,generation)
-      if (episode && !remote.attentions().some(item => item.pane === pane && item.episode === episode)) throw new Error('The help request changed. Refresh before resuming.')
+      if (paneById(model,pane).pane !== target.pane || current && !remote.attentions().some(item => item.pane === pane && item.episode === current.episode && item.revision === current.revision && item.status === 'pending')) throw new Error('ATTENTION_CHANGED')
       automationSafety?.resume(target.pane.profileId,page)
+      if (current && request && Number.isInteger(revision)) {
+        let result = attention.acknowledge(pane,current.episode,revision!,request)
+        if (!attention.active().find(item => item.episode === current.episode)?.originator) attention.verify(pane,current.episode,result.attemptId,undefined,'verified')
+        publish(); return result
+      }
       attention.resolve(pane,episode); publish(); return { resumed:true }
     },
     enablePreviews: () => { remotePreviewsEnabled = true; for (let pane of tabs.keys()) previewRefresh.request(pane) },
@@ -3900,18 +3967,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }))
     },
     closeSession: async (sessionId: string) => {
+      if (interactiveOnly) throw new Error('INCLUDED_PANE_LIMIT')
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) throw new Error('Remote session unavailable')
       controls.release(session.id)
       return await execute({ method: 'kill-session', args: { session: session.id, confirm: true } }) as { closed?: string; cancelled?: string }
     },
     closePage: async (sessionId: string, paneId: string) => {
+      if (interactiveOnly) throw new Error('INCLUDED_PANE_LIMIT')
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session?.windows.some(window => window.panes.some(pane => pane.id === paneId))) throw new Error('Remote page unavailable')
       controls.release(session.id)
       return await execute({ method: 'kill-pane', args: { pane: paneId, confirm: true } }) as { closed?: string; cancelled?: string }
     },
-    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral); return { sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
+    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...session, revision: management.sessionRevision(session.id) })); return { capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     workspace: (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) return undefined
@@ -3927,6 +3996,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     disconnect: (owner: string) => { controls.disconnect(owner); clearRemoteSizes(); publish() },
     command: (owner: string, generation: number, command: Command) => {
       if (!['navigate', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'click', 'type', 'key', 'permission.respond'].includes(command.method)) throw new Error('Remote command is not allowed')
+      if (interactiveOnly && command.method === 'navigate') { let url = String(command.args?.url ?? ''); if (url !== 'about:blank' && !/^https?:\/\//.test(url)) throw new Error('INVALID_URL') }
       return remoteActor.run({ owner, generation }, () => execute(command))
     },
     input: async (owner: string, generation: number, pane: string, viewportGeneration: number, event: Electron.MouseInputEvent | Electron.MouseWheelInputEvent | Electron.KeyboardInputEvent) => {

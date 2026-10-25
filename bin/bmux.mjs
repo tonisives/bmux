@@ -61,7 +61,9 @@ Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
 Automation: automation status | automation safety | automation acquire -t PANE --url URL | automation release
-            remote attention -t PANE --episode STABLE_ID (pause for human help and notify your remote devices)
+            remote attention -t PANE --episode STABLE_ID [--wait] (pause for human help)
+            remote attention-wait -t PANE --episode STABLE_ID [--timeout 300000]
+            remote attention-verify -t PANE --episode STABLE_ID --attempt ID --outcome verified|verification-failed
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
             Browser commands require --agent-id ID or BMUX_AGENT_ID by default.
             Add --agent-name NAME, --agent-purpose REASON, --agent-type TYPE and --agent-data JSON for agent details.
@@ -86,7 +88,7 @@ let parse = () => {
   let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
   let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
-  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
+  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
@@ -121,7 +123,7 @@ let parseCommand = () => {
   let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'agent', 'pane'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
-  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled'])
+  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait'])
   let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output', W: 'floating' }
   while (argv.length) {
     let item = argv.shift()
@@ -176,6 +178,7 @@ let parseCommand = () => {
 }
 
 let request = (command, socket = socketPath, timeout = 90_000) => new Promise((resolve, reject) => {
+  if (command.method === 'remote.attention-wait' || command.method === 'remote.attention' && command.args?.wait) timeout = Math.min(Math.max(Number(command.args?.timeout) || 300000,1),3600000) + 10000
   let connection = net.createConnection(socket)
   let result = ''
   connection.setEncoding('utf8')

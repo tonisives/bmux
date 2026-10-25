@@ -10,10 +10,11 @@ import { sessionActivityTime } from '../shared/pane-activity'
 import { agentInfo } from '../shared/agent-info'
 import { encryptRemotePreview } from '../shared/remote-preview'
 import { buildInfo } from '../shared/build-info'
+import { remoteStreamQuality, type RemoteStreamQuality, type RemoteRPCRequest } from '../shared/remote-management'
 
 type PublicKey = { kty: string; crv: string; x: string }
 type Config = { url: string; token: string; identityFile?: string; service?: string }
-type Stream = { close: () => void; answer: (sdp: RTCSessionDescriptionInit) => void; candidate: (value: RTCIceCandidateInit) => void; send: (data: string) => void }
+type Stream = { close: () => void; answer: (sdp: RTCSessionDescriptionInit) => void; candidate: (value: RTCIceCandidateInit) => void; send: (data: string) => void; quality: (quality: RemoteStreamQuality) => Promise<RemoteStreamQuality> }
 export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directory: string, configFile: string) => {
   let config = (): Config => {
     if (fs.statSync(configFile).mode & 0o077) throw new Error('Remote configuration must have mode 600')
@@ -28,21 +29,24 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let hostFile = path.join(directory, 'remote-host-id')
   if (!fs.existsSync(hostFile)) fs.writeFileSync(hostFile, randomUUID(), { mode: 0o600, flag: 'wx' })
   let hostId = fs.readFileSync(hostFile, 'utf8').trim(), generation = randomUUID()
-  let authorized = new Map<string, { key: PublicKey; permission: 'watch' | 'control' }>()
+  let authorized = new Map<string, { key: PublicKey; permission: 'watch' | 'control'; owner: boolean }>()
   let allowed = (id: string) => authorized.get(id)?.permission
   let verify = createEnvelopeVerifier(hostId, generation, () => Object.fromEntries([...authorized].map(([id, value]) => [id, value.key])))
   let socket: WebSocket | undefined, stopped = false, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
   let opening = new Map<string, symbol>()
   let previewing = new Set<string>()
-  let streams = new Map<string, { owner: string; view?: string; metadata: boolean; session: string; peer: Stream; pane: string; request?: string; connection: string; expires?: number; expiry?: ReturnType<typeof setTimeout>; renewing?: boolean }>(), iceServers: RTCIceServer[] = []
+  let streams = new Map<string, { owner: string; view?: string; metadata: boolean; session?: string; peer: Stream; pane?: string; request?: string; connection: string; expires?: number; expiry?: ReturnType<typeof setTimeout>; renewing?: boolean }>(), iceServers: RTCIceServer[] = []
   let streamPermits = false
-  let attention = new Map<string, { target: { pane: string; session: string; episode: string; reason: string }; resolved: boolean; acknowledged: boolean }>()
+  let attention = new Map<string, { target: ReturnType<typeof runtime.remote.attentionHistory>[number]; acknowledged: boolean }>()
   let reportAttention = () => {
-    let active = runtime.remote.attentions()
-    for (let target of active) if (!attention.has(target.episode)) attention.set(target.episode,{ target, resolved:false, acknowledged:false })
+    runtime.remote.attentions()
+    for (let target of runtime.remote.attentionHistory()) {
+      if (target.status === 'resolved' && target.attempt?.outcome !== 'verified') continue
+      let item = attention.get(target.episode)
+      if (!item || item.target.revision !== target.revision) attention.set(target.episode, { target, acknowledged: false })
+    }
     for (let item of attention.values()) {
-      if (!item.resolved && !active.some(target => target.episode === item.target.episode)) { item.resolved = true; item.acknowledged = false }
-      if (!item.acknowledged) send({ type:item.resolved ? 'attention-resolved' : 'attention', ...item.target })
+      if (!item.acknowledged) send({ type:'attention', ...item.target })
     }
   }
   let permits = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
@@ -64,7 +68,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let advertise = () => {
     let definitions = runtime.state().automationAgents?.definitions ?? {}
     let sessions = runtime.model.sessions.filter(session => !session.ephemeral).map(session => ({
-      id: session.id, name: session.name, private: session.private === true, workspace: 1, canClose: true, canClosePages: true, canPreview: true, lastActivityAt: sessionActivityTime(session),
+      id: session.id, name: session.name, revision: runtime.remote.sessionRevision(session.id), defaultProfileId: session.defaultProfileId, private: session.private === true, workspace: 1, canClose: process.env.BMUX_INTERACTIVE_ONLY !== 'true', canClosePages: process.env.BMUX_INTERACTIVE_ONLY !== 'true', canPreview: true, lastActivityAt: sessionActivityTime(session),
       windows: session.windows.map(window => ({ id: window.id, number: window.number, name: window.name, automaticName: window.automaticName, pinned: window.pinned, layout: window.layout, floating: window.floating, lastActivityAt: Math.max(0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)), panes: window.panes.map(pane => ({ id: pane.id, title: pane.title, lastActivityAt: pane.lastActivityAt })) })),
       panes: session.windows.flatMap(window => window.panes.map(pane => {
         let { agentOrigin: _origin, ...actor } = pane.lastUsedBy === 'human' ? {} : agentInfo(pane)
@@ -73,7 +77,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       })),
     }))
     let serialized = JSON.stringify(sessions)
-    if (serialized !== lastSessions) { send({ type: 'sessions', sessions, machine: { name: os.hostname(), platform: process.platform, arch: process.arch, version: buildInfo?.version, revision: buildInfo?.revision } }); lastSessions = serialized }
+    if (serialized !== lastSessions) { send({ type: 'sessions', sessions, capabilities: runtime.remote.capabilities, machine: { name: os.hostname(), platform: process.platform, arch: process.arch, version: buildInfo?.version, revision: buildInfo?.revision } }); lastSessions = serialized }
   }
   let streamKey = (id: string, view?: string) => view ? `${id}:${view}` : id
   let disconnect = (key: string, release = true) => {
@@ -93,10 +97,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let state = (key: string) => {
     let stream = streams.get(key)
     if (!stream) return
-    let workspace = stream.metadata ? runtime.remote.workspace(stream.session) : undefined
+    let workspace = stream.metadata && stream.session ? runtime.remote.workspace(stream.session) : undefined
     stream.peer.send(JSON.stringify({ type: 'state', ...runtime.remote.state(), pane: stream.pane, ...(workspace ? { workspace } : {}) }))
   }
-  let open = async (id: string, pane?: string, request?: string, switching = false, view?: string, sessionId?: string, metadata = false) => {
+  let open = async (id: string, pane?: string, request?: string, switching = false, view?: string, sessionId?: string, metadata = false, quality?: RemoteStreamQuality) => {
     if (!allowed(id)) throw new Error('Access revoked')
     let key = streamKey(id, view)
     if (!streams.has(key) && !opening.has(key) && (metadata ? [...streams.values()].filter(stream => stream.metadata).length >= 8 : [...streams.values()].filter(stream => !stream.metadata).length + opening.size >= 8)) throw new Error('Viewer capacity reached')
@@ -104,9 +108,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let sameSession = switching && runtime.model.sessions.some(session => { let panes = session.windows.flatMap(window => window.panes); return panes.some(item => item.id === previousPane) && panes.some(item => item.id === pane) })
     disconnect(key, !view && !sameSession)
     let attempt = Symbol(); opening.set(key, attempt)
-    let selected = pane ?? (sessionId ? runtime.remote.workspace(sessionId)?.selection?.paneId : undefined) ?? runtime.model.sessions.find(session => !session.ephemeral)?.windows[0]?.panes[0]?.id
+    let managingHost = metadata && !sessionId
+    let selected = managingHost ? undefined : pane ?? (sessionId ? runtime.remote.workspace(sessionId)?.selection?.paneId : undefined) ?? runtime.model.sessions.find(session => !session.ephemeral)?.windows[0]?.panes[0]?.id
     let session = runtime.model.sessions.find(session => !session.ephemeral && session.windows.some(window => window.panes.some(pane => pane.id === selected)))
-    if (!selected || !session || sessionId && session.id !== sessionId) { opening.delete(key); throw new Error('Session is no longer available') }
+    if (!managingHost && (!selected || !session || sessionId && session.id !== sessionId)) { opening.delete(key); throw new Error('Session is no longer available') }
     let peer: Stream | undefined
     let connection = randomUUID()
     let offer: RTCSessionDescriptionInit | undefined
@@ -114,10 +119,11 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     let publishOffer = (sdp: RTCSessionDescriptionInit) => signal(id, { type: 'offer', sdp, ...(request ? { request, connection, trickle: true } : {}) }, view)
     let incoming = Promise.resolve()
     try {
-      if (streamPermits && !metadata) await permit(id, connection, selected)
+      if (streamPermits && !metadata && selected) await permit(id, connection, selected)
       if (opening.get(key) !== attempt || !allowed(id) || stopped) { if (!metadata) releasePermit(connection); return }
       let options = {
       iceServers,
+      quality,
       signal: (sdp: RTCSessionDescriptionInit) => {
         // Capture can produce an offer before its promise returns the stream.
         // Publish only after answer routing can find that stream.
@@ -129,28 +135,43 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
         else if (peer && streams.get(key)?.peer === peer) signal(id, { type: 'candidate', candidate, request, connection }, view)
       } } : {}),
       data: (raw: string) => {
+        let correlation: string | undefined
         incoming = incoming.then(async () => {
           if (streams.get(key)?.peer !== peer) return
           if (!allowed(id)) { disconnectViewer(id); return }
           let message = JSON.parse(raw)
           if (!message || typeof message !== 'object' || typeof message.type !== 'string') throw new Error('Invalid command')
+          correlation = typeof message.request === 'string' && message.request.length <= 64 ? message.request : undefined
           let result: unknown
           if (message.type === 'state') { state(key); return }
-          if (!metadata && message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane, request, true, view, view ? session.id : undefined); return }
+          if (!metadata && message.type === 'switch' && typeof message.pane === 'string') { await open(id, message.pane, request, true, view, view ? session?.id : undefined); return }
+          if (message.type === 'quality') {
+            if (metadata || !selected) throw new Error('LIVE_VIEW_REQUIRED')
+            if (!['auto', 'data-saver', 'quality'].includes(message.mode) || !['unknown', 'cellular', 'wifi'].includes(message.network)) throw new Error('INVALID_REQUEST')
+            let result = await peer!.quality(remoteStreamQuality(message.mode, message.network))
+            if (streams.get(key)?.peer === peer) peer!.send(JSON.stringify({ type: 'result', request: correlation, result }))
+            return
+          }
           if (allowed(id) !== 'control') throw new Error('Watch only access')
-          if (view && ['acquire', 'renew', 'release'].includes(message.type) && message.session !== session.id) throw new Error('Session is no longer available')
-          if (view && message.type === 'command') {
+          if (view && session && ['acquire', 'renew', 'release'].includes(message.type) && message.session !== session.id) throw new Error('Session is no longer available')
+          if (view && session && message.type === 'command') {
             let target = message.command?.args?.pane ?? message.command?.args?.tab
             if (!runtime.model.sessions.some(item => item.id === session.id && item.windows.some(window => window.panes.some(pane => pane.id === target)))) throw new Error('Session is no longer available')
           }
-          if (message.type === 'acquire') result = runtime.remote.acquire(String(message.session), id, message.takeover === true)
+          if (message.type === 'rpc') {
+            if (!authorized.get(id)?.owner) throw new Error('OWNER_REQUIRED')
+            result = await runtime.remote.rpc(id, message as RemoteRPCRequest)
+            advertise()
+          }
+          else if (message.type === 'acquire') result = runtime.remote.acquire(String(message.session), id, message.takeover === true)
           else if (message.type === 'renew') result = runtime.remote.renew(String(message.session), id, Number(message.generation))
           else if (message.type === 'release') { runtime.remote.release(String(message.session), id); result = { released: true } }
-          else if (message.type === 'resume') { result = await runtime.remote.resume(id,Number(message.generation),selected,typeof message.episode === 'string' ? message.episode : undefined); reportAttention() }
+          else if (message.type === 'resume') { if (!selected) throw new Error('LIVE_VIEW_REQUIRED'); result = await runtime.remote.resume(id,Number(message.generation),selected,typeof message.episode === 'string' ? message.episode : undefined,correlation,Number(message.revision)); reportAttention() }
           else if (message.type === 'command') result = await runtime.remote.command(id, Number(message.generation), message.command)
-          else if (message.type === 'text') await runtime.remote.text(id, Number(message.generation), selected, message.text)
-          else if (message.type === 'resize') result = await runtime.remote.resize(id, Number(message.generation), selected, message.width, message.height)
+          else if (message.type === 'text') { if (!selected) throw new Error('LIVE_VIEW_REQUIRED'); await runtime.remote.text(id, Number(message.generation), selected, message.text) }
+          else if (message.type === 'resize') { if (!selected) throw new Error('LIVE_VIEW_REQUIRED'); result = await runtime.remote.resize(id, Number(message.generation), selected, message.width, message.height) }
           else if (message.type === 'input') {
+            if (!selected) throw new Error('LIVE_VIEW_REQUIRED')
             let event = message.event
             if (!event || typeof event !== 'object') throw new Error('Invalid input')
             if (event.type?.startsWith('mouse')) {
@@ -160,18 +181,24 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
             } else if (typeof event.keyCode !== 'string' || event.keyCode.length > 64) throw new Error('Invalid key')
             await runtime.remote.input(id, Number(message.generation), selected, Number(message.viewportGeneration), event)
           } else throw new Error('Remote command is not allowed')
-          streams.get(key)?.peer.send(JSON.stringify({ type: 'result', request: message.request, result }))
+          if (streams.get(key)?.peer !== peer) return
+          peer!.send(JSON.stringify({ type: 'result', request: correlation, result }))
           for (let [otherKey, stream] of streams) if (stream.owner === id) state(otherKey)
-        }).catch(error => streams.get(key)?.peer.send(JSON.stringify({ type: 'error', error: error instanceof Error && ['CONTROL_HELD','CONTROL_EXPIRED','Watch only access'].includes(error.message) ? error.message : 'Remote operation failed' })))
+        }).catch(error => {
+          if (streams.get(key)?.peer !== peer) return
+          let message = error instanceof Error ? error.message : ''
+          let code = /^[A-Z][A-Z0-9_]{1,63}$/.test(message) ? message : message === 'Watch only access' ? 'WATCH_ONLY' : 'REMOTE_OPERATION_FAILED'
+          peer!.send(JSON.stringify({ type: 'error', request: correlation, code, error: code === 'REMOTE_OPERATION_FAILED' ? 'Remote operation failed' : message, retryable: ['STALE_REVISION', 'CONTROL_HELD', 'CONTROL_EXPIRED', 'MANAGEMENT_UNAVAILABLE'].includes(code) }))
+        })
       },
       closed: () => { if (streams.get(key)?.peer === peer) disconnect(key) },
       }
-      peer = metadata ? await runtime.remote.manage(options) : await runtime.remote.capture(selected, options)
+      peer = metadata ? await runtime.remote.manage(options) : await runtime.remote.capture(selected!, options)
     } catch (error) { if (!metadata) releasePermit(connection); if (opening.get(key) === attempt) opening.delete(key); throw error }
-    try { if (streamPermits && !metadata) await permit(id,connection,selected,true) } catch (error) { peer.close(); releasePermit(connection); if (opening.get(key) === attempt) opening.delete(key); throw error }
+    try { if (streamPermits && !metadata && selected) await permit(id,connection,selected,true) } catch (error) { peer.close(); releasePermit(connection); if (opening.get(key) === attempt) opening.delete(key); throw error }
     if (opening.get(key) !== attempt || !allowed(id) || stopped || socket?.readyState !== WebSocket.OPEN) { if (!metadata) releasePermit(connection); peer.close(); return }
     opening.delete(key)
-    streams.set(key, { owner: id, view, metadata, session: session.id, peer, pane: selected, request, connection })
+    streams.set(key, { owner: id, view, metadata, session: session?.id, peer, pane: selected, request, connection })
     extendPermit(key)
     if (offer) publishOffer(offer)
     for (let candidate of candidates) signal(id, { type: 'candidate', candidate, request, connection }, view)
@@ -182,6 +209,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('host', hostId); url.searchParams.set('generation', generation)
     url.searchParams.set('protocol', '2')
+    if (process.env.BMUX_HOST_INSTANCE) url.searchParams.set('instance',process.env.BMUX_HOST_INSTANCE)
     url.searchParams.set('key', Buffer.from(JSON.stringify(identity.publicKey)).toString('base64url'))
     socket = new WebSocket(url, { headers: { Authorization: `Bearer ${current.token}` }, maxPayload: 262144, handshakeTimeout: 10000 })
     socket.on('error', () => undefined)
@@ -189,14 +217,13 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       void (async () => {
         let message = JSON.parse(raw.toString())
         if (message.type === 'ready') { iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
-        if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && !item.resolved) item.acknowledged = true; return }
-        if (message.type === 'attention-resolved') { if (attention.get(message.episode)?.resolved) attention.delete(message.episode); return }
-        if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(new Error(String(message.error))); else pending.resolve() } return }
+        if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && item.target.revision === message.revision) item.acknowledged = true; return }
+        if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(Object.assign(new Error(String(message.error)),{code:message.code})); else pending.resolve() } return }
         if (message.type === 'stream-revoked') { for (let [id, stream] of streams) if (stream.connection === message.connection) disconnect(id); return }
         if (message.type === 'authorized') {
           if (message.permission !== 'watch' && message.permission !== 'control') return
           if (authorized.get(message.id)?.permission === 'control' && message.permission === 'watch') runtime.remote.disconnect(message.id)
-          authorized.set(message.id, { key: message.key, permission: message.permission }); return
+          authorized.set(message.id, { key: message.key, permission: message.permission, owner: message.owner === true }); return
         }
         if (message.type === 'revoked' || message.type === 'disconnected') { authorized.delete(message.id); disconnectViewer(message.id); return }
         if (message.type !== 'signal') return
@@ -255,10 +282,19 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           } catch (error) { signal(message.from, { type: 'error', request: payload.request, error: error instanceof Error ? error.message : 'Unable to close session' }) }
         }
         else if (payload.type === 'open' || payload.type === 'manage') { try {
+          let managing = payload.type === 'manage'
           let session = runtime.model.sessions.find(session => !session.ephemeral && session.id === payload.session)
           let pane = payload.type === 'open' ? session?.windows.flatMap(window => window.panes).find(pane => pane.id === payload.pane) : undefined
-          if (!session || payload.type === 'open' && !pane || payload.type === 'manage' && !view) throw new Error('Session is no longer available')
-          await open(message.from, pane?.id, typeof payload.request === 'string' && payload.request.length <= 64 ? payload.request : undefined, false, view, session.id, payload.type === 'manage')
+          if (payload.session !== undefined && !session || !managing && !pane) throw new Error('Session is no longer available')
+          if (managing && !session && !authorized.get(message.from)?.owner) throw new Error('OWNER_REQUIRED')
+          if (managing && !session && (typeof payload.request !== 'string' || !/^[a-f0-9-]{36}$/.test(payload.request))) throw new Error('INVALID_REQUEST')
+          let quality: RemoteStreamQuality | undefined
+          if (payload.quality !== undefined) {
+            let requested = payload.quality as { mode?: unknown; network?: unknown }
+            if (!requested || !['auto', 'data-saver', 'quality'].includes(String(requested.mode)) || !['unknown', 'cellular', 'wifi'].includes(String(requested.network))) throw new Error('INVALID_REQUEST')
+            quality = remoteStreamQuality(requested.mode as RemoteStreamQuality['mode'], requested.network as RemoteStreamQuality['network'])
+          }
+          await open(message.from, pane?.id, typeof payload.request === 'string' && payload.request.length <= 64 ? payload.request : undefined, false, view, session?.id, managing, quality)
         } catch (error) { signal(message.from, { type: 'error', request: payload.request, error: error instanceof Error ? error.message : 'Unable to watch' }, view) } }
         else if (payload.type === 'answer' || payload.type === 'candidate') {
           let stream = streams.get(streamKey(message.from, view))
@@ -294,7 +330,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     try { for (let [id, stream] of streams) {
       if (!allowed(stream.owner)) { disconnectViewer(stream.owner); continue }
       state(id)
-      if (streamPermits && !stream.metadata && !stream.renewing) {
+      if (streamPermits && !stream.metadata && stream.pane && !stream.renewing) {
         stream.renewing = true
         void permit(stream.owner,stream.connection,stream.pane,true).then(() => { if (streams.get(id) === stream) extendPermit(id) }).catch(() => { if (streams.get(id) === stream) disconnect(id) }).finally(() => { stream.renewing = false })
       }

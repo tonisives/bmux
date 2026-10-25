@@ -2,9 +2,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { remoteIdentity } from '../src/main/remote-identity'
 import { startRemoteHost } from '../src/main/remote-host'
 import { createRemotePreviewReceiver } from '../src/shared/remote-preview'
+
+type AttentionTarget = ReturnType<Parameters<typeof startRemoteHost>[0]['remote']['attentionHistory']>[number]
 
 let sockets = vi.hoisted(() => [] as { emit: (event: string, data: string) => void; sent: { type: string; envelope?: { payload: string }; request?: string; connection?: string }[] }[])
 vi.mock('ws', async () => {
@@ -31,7 +34,7 @@ beforeEach(async () => {
 afterEach(async () => { host?.close(); host = undefined; await fs.rm(directory, { recursive: true, force: true }) })
 
 let setup = (request?: string, open = true, streamPermits = false) => {
-  let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn() }
+  let peer = { answer: vi.fn(), candidate: vi.fn(), send: vi.fn(), close: vi.fn(), quality:vi.fn(async value => value) }
   let resolveCapture!: (value: typeof peer) => void
   let pending = new Promise<typeof peer>(resolve => { resolveCapture = resolve })
   let offer = { type: 'offer' as const, sdp: 'fixture' }
@@ -43,12 +46,12 @@ let setup = (request?: string, open = true, streamPermits = false) => {
     signalOffer()
     return pending
   })
-  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, manage: vi.fn(async (_options: unknown) => peer), workspace: vi.fn(() => ({ selection: { paneId: 'pane' }, session: { id: 'session', windows: [] }, profiles: [] })), state: vi.fn(() => ({ sessions: [], controls: {}, viewports: {} })), acquire: vi.fn(), renew: vi.fn(), release: vi.fn(), enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capabilities: { management: 1, streamQuality: 1 }, sessionRevision: () => 'fixture-revision', rpc: vi.fn(async (_owner: string, _request: unknown) => ({ profiles: [] })), attentions: vi.fn((): AttentionTarget[] => []), attentionHistory: vi.fn((): AttentionTarget[] => []), capture, manage: vi.fn(async (_options: unknown) => peer), workspace: vi.fn(() => ({ selection: { paneId: 'pane' }, session: { id: 'session', windows: [] }, profiles: [] })), state: vi.fn(() => ({ sessions: [], controls: {}, viewports: {} })), acquire: vi.fn(), renew: vi.fn(), release: vi.fn(), enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
   if (streamPermits) socket.emit('message',JSON.stringify({type:'ready',iceServers:[],streamPermits:true}))
-  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control' }))
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control', owner: true }))
   let deliver = (payload: unknown) => socket.emit('message', JSON.stringify({ type: 'signal', from: viewer.id, envelope: viewer.seal(host!.status().hostId, host!.status().generation, payload) }))
   let offers = () => socket.sent.filter(message => message.type === 'signal').map(message => JSON.parse(message.envelope!.payload))
   if (open) deliver({ type: 'open', session: 'session', pane: 'pane', request })
@@ -230,4 +233,57 @@ it('opens desktop metadata without a media permit and routes independent panes u
   deliver({ type: 'close', view: 'workspace' })
   expect(metadata.close).toHaveBeenCalledOnce()
   expect(runtime.remote.disconnect).toHaveBeenCalledOnce()
+})
+
+it('manages an empty host without acquiring video capacity', async () => {
+  let { deliver, runtime, peer, socket, capture, viewer } = setup(undefined, false, true)
+  runtime.model.sessions.length = 0
+  deliver({ type: 'manage', request: randomUUID() })
+  await vi.waitFor(() => expect(runtime.remote.manage).toHaveResolved(), { interval: 1 })
+  let data = (runtime.remote.manage.mock.calls[0][0] as { data: (raw: string) => void }).data
+  let operation = { type: 'rpc', request: randomUUID(), method: 'profiles.list', params: {} }
+  data(JSON.stringify(operation))
+  await vi.waitFor(() => expect(runtime.remote.rpc).toHaveBeenCalledWith(viewer.id, operation), { interval: 1 })
+  expect(peer.send).toHaveBeenCalledWith(JSON.stringify({ type: 'result', request: operation.request, result: { profiles: [] } }))
+  expect(capture).not.toHaveBeenCalled()
+  expect(socket.sent.some(message => message.type === 'stream-acquire')).toBe(false)
+})
+
+it('requires host ownership for management even when a shared viewer can control pages', async () => {
+  let { deliver, runtime, peer, socket, viewer, offers } = setup(undefined, false)
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control', owner: false }))
+  let request = randomUUID()
+  deliver({ type: 'manage', request })
+  expect(offers()).toContainEqual({ type: 'error', request, error: 'OWNER_REQUIRED' })
+  expect(runtime.remote.manage).not.toHaveBeenCalled()
+  deliver({ type: 'manage', session: 'session', view: 'workspace', request: 'desktop' })
+  await vi.waitFor(() => expect(runtime.remote.manage).toHaveResolved(), { interval: 1 })
+  let data = (runtime.remote.manage.mock.calls[0][0] as { data: (raw: string) => void }).data
+  data(JSON.stringify({ type: 'rpc', request, method: 'profiles.list', params: {} }))
+  await vi.waitFor(() => expect(peer.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', request, code: 'OWNER_REQUIRED', error: 'OWNER_REQUIRED', retryable: false })), { interval: 1 })
+  expect(runtime.remote.rpc).not.toHaveBeenCalled()
+})
+
+it('allows watch viewers to cap their video quality and correlates operation failures', async () => {
+  let { capture, resolveCapture, peer, offers, socket, viewer } = setup('media')
+  resolveCapture(peer)
+  await vi.waitFor(() => expect(offers()).toHaveLength(1), { interval: 1 })
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'watch', owner: false }))
+  let data = capture.mock.calls[0][1].data, request = randomUUID()
+  data(JSON.stringify({ type: 'quality', request, mode: 'auto', network: 'cellular', maxBitrate: 99999999 }))
+  await vi.waitFor(() => expect(peer.quality).toHaveBeenCalledWith(expect.objectContaining({ effective: 'data-saver', maxFps: 5, maxBitrate: 400000 })), { interval: 1 })
+  data(JSON.stringify({ type: 'acquire', request, session: 'session' }))
+  await vi.waitFor(() => expect(peer.send).toHaveBeenCalledWith(JSON.stringify({ type: 'error', request, code: 'WATCH_ONLY', error: 'Watch only access', retryable: false })), { interval: 1 })
+})
+
+it('replays terminal attention history after a restart and after relay reconnect', () => {
+  let { socket, runtime } = setup(undefined, false)
+  let target: AttentionTarget = { pane: 'pane', session: 'session', episode: 'completed', reason: 'help', createdAt: 1, resolvedAt: 2, revision: 3, status: 'resolved', attempt: { id: randomUUID(), request: randomUUID(), acknowledgedAt: 1, completedAt: 2, revision: 2, outcome: 'verified' } }
+  runtime.remote.attentionHistory.mockReturnValue([target])
+  let ready = () => socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
+  ready()
+  expect(socket.sent.filter(message => message.type === 'attention')).toEqual([{ type: 'attention', ...target }])
+  socket.emit('message', JSON.stringify({ type: 'attention-recorded', episode: target.episode, revision: target.revision }))
+  ready()
+  expect(socket.sent.filter(message => message.type === 'attention')).toHaveLength(2)
 })

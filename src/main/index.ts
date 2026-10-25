@@ -215,6 +215,7 @@ void app.whenReady().then(async () => {
         try {
           let command = JSON.parse(request) as Command
           if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
+          if (process.env.BMUX_INTERACTIVE_ONLY === 'true' && command.method !== 'status') throw new Error('This browser supports interactive access only')
           command = socketAgent(command, process.env.BMUX_DEFAULT_AGENT_ID)
           let result = command.method === 'remote.status' ? remoteHost?.status() ?? { enabled: false }
             : command.method === 'remote.job' ? (() => {
