@@ -97,6 +97,12 @@ test('paid remote account connects a running computer and opens regional box che
     let relay = picker.getByRole('button',{name:'Relay',exact:true})
     await relay.focus(); await chrome.keyboard.press('g')
     await expect(picker.getByRole('button',{name:'Back to remote sessions',exact:true})).toBeVisible()
+    let remoteBack = (await picker.getByRole('button',{name:'Back to remote sessions',exact:true}).boundingBox())!, tabs = (await picker.getByRole('tablist',{name:'Sessions',exact:true}).boundingBox())!
+    expect(remoteBack.y).toBeGreaterThan(tabs.y + tabs.height)
+    let accountBounds = (await picker.locator('[data-setting-id="remote-account"]').boundingBox())!
+    expect(accountBounds.width).toBeLessThanOrEqual(560)
+    expect(remoteBack.y + remoteBack.height).toBeLessThan(accountBounds.y)
+    await expect(picker.locator('header button[aria-label="Back to remote sessions"]')).toHaveCount(0)
     await expect(picker.getByRole('region',{name:'Rented boxes',exact:true})).toHaveCount(0)
     await picker.getByRole('textbox',{name:'Computer name',exact:true}).fill('Research Mac')
     await picker.getByRole('button',{name:'Connect this computer',exact:true}).click()

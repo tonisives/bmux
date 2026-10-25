@@ -65,6 +65,14 @@ change inbox metadata only. Expo push data contains only attentionId. Opening a
 notification resolves the authenticated exact host generation, session, pane
 and episode, then starts in Watch. It never acquires control or resumes.
 
+Sessions show an open-request summary and markers for the matching page and
+host generation. The inbox shows the computer, session, page and task status;
+metadata from a replacement runtime is not used to label an old request. Demo
+mode uses the same inbox and opens its sample request on Field Notes in Watch.
+Native notification setup appears below connected sessions until registration
+succeeds. Registration state is scoped to the current account/request and is
+rechecked on foreground return without asking for permission again.
+
 Resume requires a current lease and fresh attention resolution. A persisted
 request UUID is reused after lost acknowledgements. Only a matching revisioned
 RemoteResumeAcknowledgement starts Verifying and releases the lease. A lost

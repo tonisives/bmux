@@ -31,6 +31,7 @@ let useRemoteState = () => {
   let [attention, setAttention] = useState<Attention[]>([])
   let [attentionCursor, setAttentionCursor] = useState<string | null>(null)
   let [loadingAttention, setLoadingAttention] = useState(false)
+  let [notificationsEnabled, setNotificationsEnabled] = useState(false)
   let [pendingAttention, setPendingAttention] = useState<string>()
   let [target, setTarget] = useState<AttentionTarget>()
   let [billing, setBilling] = useState<RelayBilling>()
@@ -47,6 +48,7 @@ let useRemoteState = () => {
   let lastWatch = useRef<{ viewer: Viewer; key: string } | undefined>(undefined)
   let management = useRef<{ viewer: Viewer; key: string; ready: Promise<void> } | undefined>(undefined)
   let operation = useRef(0)
+  let notificationRequest = useRef(0)
   let attentionPaging = useRef(false)
   let pending = useRef(new Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>())
   let [resumeRequest] = useState(() => createResumeRequests(AsyncStorage.getItem, AsyncStorage.setItem, Crypto.randomUUID))
@@ -54,6 +56,19 @@ let useRemoteState = () => {
   activeSelection.current = selection
   hostList.current = hosts
   owner.current = account?.owner
+
+  let registerNotifications = useCallback(async (requestPermission = false) => {
+    let current = owner.current, request = ++notificationRequest.current
+    if (!current) return false
+    try {
+      let enabled = await registerPush(api, requestPermission)
+      if (owner.current === current && notificationRequest.current === request) setNotificationsEnabled(enabled)
+      return enabled
+    } catch (error) {
+      if (owner.current === current && notificationRequest.current === request) setNotificationsEnabled(false)
+      throw error
+    }
+  }, [api])
 
   let refresh = useCallback(async () => {
     let current = owner.current
@@ -204,7 +219,7 @@ let useRemoteState = () => {
       attentionPaging.current = false
       await clearSession()
       await AsyncStorage.removeItem(pendingKey)
-      setAccount(undefined); setHosts([]); setAttention([]); setAttentionCursor(null); setBilling(undefined); setViews([]); setPendingAttention(undefined)
+      setAccount(undefined); setHosts([]); setAttention([]); setAttentionCursor(null); setBilling(undefined); setViews([]); setPendingAttention(undefined); setNotificationsEnabled(false)
     }
   }, [api, close])
 
@@ -249,19 +264,20 @@ let useRemoteState = () => {
   }, [account?.owner, api, epoch, stop])
   useEffect(() => {
     if (!account) return
+    setNotificationsEnabled(false)
     void refresh()
     let timer = setInterval(() => { if (AppState.currentState !== 'background') void refresh() }, 15000)
     let unsubscribe = observeNotifications(rememberAttention, () => { void refresh() }, api)
-    void registerPush(api).catch(() => {})
-    return () => { clearInterval(timer); unsubscribe() }
-  }, [account?.owner, api, refresh, rememberAttention])
+    void registerNotifications().catch(() => {})
+    return () => { notificationRequest.current++; clearInterval(timer); unsubscribe() }
+  }, [account?.owner, api, refresh, rememberAttention, registerNotifications])
   useEffect(() => {
     let listener = AppState.addEventListener('change', value => {
       if (value === 'background') stop()
-      else if (value === 'active') { if (account) { void refresh(); setEpoch(value => value + 1) } }
+      else if (value === 'active') { if (account) { void refresh(); void registerNotifications().catch(() => {}); setEpoch(value => value + 1) } }
     })
     return () => listener.remove()
-  }, [account, refresh, stop])
+  }, [account, refresh, stop, registerNotifications])
   useEffect(() => {
     if (!account || !viewer || !pendingAttention) return
     let active = true
@@ -304,10 +320,10 @@ let useRemoteState = () => {
     return () => clearInterval(timer)
   }, [state?.controls, selection, viewer])
   return {
-    account, loading, hosts, viewer, state, stream, selection, connecting, attention, target: activeTarget, billing, views, error, streamQuality, includedBrowser,
+    account, loading, hosts, viewer, state, stream, selection, connecting, attention, target: activeTarget, billing, views, error, streamQuality, includedBrowser, notificationsEnabled,
     api, refresh, login, logout, watch, openTarget, close, request, rpc, manage, profiles, setError, rememberAttention, resume, markAttention, loadMoreAttention, attentionCursor, loadingAttention,
     retry: () => { setError(''); setEpoch(value => value + 1) },
-    enableNotifications: () => registerPush(api, true),
+    enableNotifications: () => registerNotifications(true),
     disconnectView: async (connection: string) => { await api('/api/streams/disconnect', { connection }); await refresh() },
   }
 }

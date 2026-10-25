@@ -76,7 +76,7 @@ let App = () => {
     let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
     void createViewer({
       hosts: setHosts,
-      stream: stream => { if (!closed && video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
+      stream: stream => { if (!closed && video.current) { if (video.current.srcObject !== stream) video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
       state: next => { setState(next); setError('') },
       error: setError,
       disconnected: () => { if (closed) return; setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },

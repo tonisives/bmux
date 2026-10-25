@@ -4,17 +4,17 @@ import type { WebContents } from 'electron'
 import type { RemotePage } from './runtime'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { requestRemoteSessionClose, requestRemoteSessionPreviews } from './remote-request'
+import { requestRemoteSessionClose, requestRemotePageClose, requestRemoteSessionPreviews } from './remote-request'
 import { remoteIdentity } from './remote-identity'
 import { createRemotePreviews } from './remote-previews'
 import type { Snapshot } from '../shared/types'
-import type { RemoteSession } from '../shared/remote-sessions'
+import type { RemoteSession, RemoteMachine } from '../shared/remote-sessions'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings, RemotePreviewRequest } from '../shared/remote-preview-settings'
 import { createRemoteDesktopConnection } from './remote-desktop-connection'
 
 export type LocalRemoteSession = RemoteSession
-export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; sessions: LocalRemoteSession[] }
+export type LocalRemoteHost = { id: string; generation: string; key: JsonWebKey; permission: 'watch' | 'control'; service: string; machine?: RemoteMachine; sessions: LocalRemoteSession[] }
 export type LocalRemoteListing = { authenticated: boolean; hosts: LocalRemoteHost[] }
 
 export let createLocalRemote = (directory: string, previewSettings: () => RemotePreviewSettings = () => DEFAULT_REMOTE_PREVIEWS) => {
@@ -114,6 +114,20 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     return result
   }
   let close = () => { for (let contents of viewers.keys()) if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false }); viewers.clear() }
+  let closePage = (hostId: string, sessionId: string, paneId: string) => {
+    let result = closing.then(async () => {
+      let listing = await list(), host = listing.hosts.find(host => host.id === hostId)
+      let session = host?.sessions.find(session => session.id === sessionId && session.panes.some(pane => pane.id === paneId))
+      if (!host || !session || !activeToken) throw new Error('Remote page unavailable')
+      if (host.permission !== 'control') throw new Error('Watch only access')
+      let token = activeToken
+      await requestRemotePageClose(origin, { ...host, canClosePages: session.canClosePages }, sessionId, paneId, identity, key => connect(key, token))
+      let remaining = (await list()).hosts.find(host => host.id === hostId)?.sessions.some(session => session.id === sessionId)
+      if (!remaining) for (let [contents, viewer] of viewers) if (viewer.host.id === hostId && viewer.session === sessionId && !contents.isDestroyed()) await viewer.close()
+    })
+    closing = result.catch(() => undefined)
+    return result
+  }
   let account = async (endpoint: string, body?: unknown): Promise<unknown> => {
     if (!/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|rates|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
     if (!activeToken) await list()
@@ -144,5 +158,5 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     return result
   }
 
-  return { origin, list, open, close, closeSession, sessionPreviews, account, flush: previews.flush, refreshPreviewSettings: previews.configure, useProfiles, preferProfile }
+  return { origin, list, open, close, closeSession, closePage, sessionPreviews, account, flush: previews.flush, refreshPreviewSettings: previews.configure, useProfiles, preferProfile }
 }

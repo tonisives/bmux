@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { notifyDisconnected } from './peer-disconnect'
 import { createStreamLeases } from './stream-leases'
+import type { RemoteMachine } from '../src/shared/remote-sessions'
 
 let required = (name: string) => { let value = process.env[name]; if (!value) throw new Error(`${name} is required`); return value }
 let publicOrigin = new URL(required('BMUX_PUBLIC_ORIGIN')).origin
@@ -35,8 +36,8 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   if (key.kty !== 'OKP' || key.crv !== 'Ed25519' || typeof key.x !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key.x)) throw new Error('Invalid public key')
   return digest(key.x)
 }
-type ListedSession = { canClose?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
-type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[] }
+type ListedSession = { canClose?: boolean; canClosePages?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
+type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; machine?: RemoteMachine }
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean }>()
 let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
@@ -52,7 +53,7 @@ let visibleHosts = async (owner: string) => {
   for (let host of peers.values()) {
     if (host.role !== 'host') continue
     let access = owner === host.owner ? 'control' : accessByService.get(host.service!)
-    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [] })
+    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, machine: host.machine, key: host.key, permission: access, sessions: host.sessions ?? [] })
   }
   return hosts
 }
@@ -267,9 +268,13 @@ server.on('upgrade', (request, socket, head) => {
             if (!Array.isArray(sessions) || sessions.length > 100 || !sessions.every((session: ListedSession) =>
               typeof session.id === 'string' && session.id.length <= 128 && typeof session.name === 'string' && session.name.length <= 256 &&
               (session.canClose === undefined || typeof session.canClose === 'boolean') &&
+              (session.canClosePages === undefined || typeof session.canClosePages === 'boolean') &&
               (session.lastActivityAt === undefined || Number.isFinite(session.lastActivityAt) && session.lastActivityAt >= 0) &&
               Array.isArray(session.panes) && session.panes.length <= 100 && session.panes.every(pane =>
                 typeof pane.id === 'string' && pane.id.length <= 128 && typeof pane.title === 'string' && pane.title.length <= 512))) throw new Error('Invalid sessions')
+            let machine = message.machine
+            if (machine !== undefined && (!machine || typeof machine !== 'object' || Array.isArray(machine) || Object.keys(machine).some(key => !['name', 'platform', 'arch', 'version', 'revision'].includes(key)) || ['name', 'platform', 'arch'].some(key => typeof machine[key] !== 'string' || !machine[key].trim() || machine[key].length > 128 || /[\x00-\x1f\x7f]/.test(machine[key])) || ['version', 'revision'].some(key => machine[key] !== undefined && (typeof machine[key] !== 'string' || machine[key].length > 64 || /[\x00-\x1f\x7f]/.test(machine[key]))))) throw new Error('Invalid machine')
+            current.machine = machine
             current.sessions = sessions
             await publish(); return
           }

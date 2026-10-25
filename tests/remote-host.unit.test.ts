@@ -43,7 +43,7 @@ let setup = (request?: string, open = true, streamPermits = false) => {
     signalOffer()
     return pending
   })
-  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
@@ -83,10 +83,27 @@ it('reports an occupied account without starting video capture', async () => {
 it('closes an advertised session for control access without opening a video stream', async () => {
   let { deliver, offers, runtime, socket } = setup()
   socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
-  expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ sessions: [{ id: 'session', name: 'main', lastActivityAt: 123456, canClose: true }] })
+  expect(socket.sent.find(message => message.type === 'sessions')).toMatchObject({ machine: { name: os.hostname(), platform: process.platform, arch: process.arch }, sessions: [{ id: 'session', name: 'main', lastActivityAt: 123456, canClose: true, canClosePages: true }] })
   deliver({ type: 'close-session', session: 'session', request: 'close-one' })
   await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'session-closed', request: 'close-one' }), { interval: 1 })
   expect(runtime.remote.closeSession).toHaveBeenCalledWith('session')
+})
+
+it('closes an individual page without a video stream and rejects watch-only or canceled closes', async () => {
+  let { deliver, offers, runtime, viewer, socket, capture } = setup(undefined, false)
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'watch' }))
+  deliver({ type: 'close-page', session: 'session', pane: 'pane', request: 'watch' })
+  expect(runtime.remote.closePage).not.toHaveBeenCalled()
+  expect(offers()).toContainEqual({ type: 'error', request: 'watch', error: 'Watch only access' })
+  socket.emit('message', JSON.stringify({ type: 'authorized', id: viewer.id, key: viewer.publicKey, permission: 'control' }))
+  runtime.remote.closePage.mockResolvedValueOnce({ cancelled: 'pane' })
+  deliver({ type: 'close-page', session: 'session', pane: 'pane', request: 'cancel' })
+  await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'error', request: 'cancel', error: 'Page closing canceled' }), { interval: 1 })
+  deliver({ type: 'close-page', session: 'session', pane: 'pane', request: 'close' })
+  await vi.waitFor(() => expect(offers()).toContainEqual({ type: 'page-closed', request: 'close' }), { interval: 1 })
+  expect(runtime.remote.closePage).toHaveBeenLastCalledWith('session', 'pane')
+  expect(runtime.remote.closeSession).not.toHaveBeenCalled()
+  expect(capture).not.toHaveBeenCalled()
 })
 
 it('shares encrypted host screenshots with watch access without opening a stream or updating activity', async () => {

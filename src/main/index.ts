@@ -170,6 +170,11 @@ void app.whenReady().then(async () => {
     if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
     return localRemote!.closeSession(host, session)
   })
+  ipcMain.handle('remote-close-page', (event, host: string, session: string, pane: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (typeof host !== 'string' || typeof session !== 'string' || typeof pane !== 'string') throw new Error('Invalid remote page')
+    return localRemote!.closePage(host, session, pane)
+  })
   ipcMain.handle('remote-open', async (event, host?: string, session?: string, pane?: string) => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')

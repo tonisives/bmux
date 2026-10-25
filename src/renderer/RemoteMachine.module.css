@@ -1,0 +1,18 @@
+.icon { width: 16px; height: 16px; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.heading { display: flex; flex: 1; align-items: center; min-width: 0; }
+.heading .toggle { display: grid; place-items: center; flex: 0 0 24px; padding: 5px; color: #8995a3; }
+.toggle > svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.heading .machine { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; padding: 6px 8px 6px 0; text-align: left; color: #b8c2cd; }
+.machine > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.machine small { margin-left: auto; color: #8995a3; }
+.details { min-width: 0; overflow: auto; }
+.navigation { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.navigation strong { overflow-wrap: anywhere; }
+.details dl { margin: 0; }
+.details dl > div { padding: 6px 0; flex-wrap: wrap; }
+.details dl dt { min-width: 100px; }
+.details dd { overflow-wrap: anywhere; min-width: 0; }
+.colors { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; }
+.colors > button { display: grid; place-items: center; padding: 7px; border: 1px solid #505a66; }
+.colors > button[aria-checked="true"] { border-color: #a7b69c; background: #a7b69c0d; }

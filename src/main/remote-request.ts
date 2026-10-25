@@ -7,7 +7,7 @@ import type { Snapshot } from '../shared/types'
 import { createRemotePreviewReceiver } from '../shared/remote-preview'
 import type { EncryptedPreview } from '../shared/remote-preview'
 
-type Host = { canClose?: boolean; id: string; generation: string; key: JsonWebKey }
+type Host = { canClose?: boolean; canClosePages?: boolean; id: string; generation: string; key: JsonWebKey }
 type Identity = ReturnType<typeof remoteIdentity>
 type Connect = (key: JsonWebKey) => Promise<{ ticket: string }>
 let requestRemote = async (origin: string, host: Host, identity: Identity, connect: Connect, payload: Record<string, unknown>, receive: (payload: Record<string, unknown>) => Promise<boolean>, timeout: string) => {
@@ -44,6 +44,10 @@ let requestRemote = async (origin: string, host: Host, identity: Identity, conne
 export let requestRemoteSessionClose = async (origin: string, host: Host, session: string, identity: Identity, connect: Connect) => {
   if (!host.canClose) throw new Error('Update this remote host to close sessions')
   await requestRemote(origin, host, identity, connect, { type: 'close-session', session }, async payload => payload.type === 'session-closed', 'Remote session close timed out')
+}
+export let requestRemotePageClose = async (origin: string, host: Host, session: string, pane: string, identity: Identity, connect: Connect) => {
+  if (!host.canClosePages) throw new Error('Update this remote host to close pages')
+  await requestRemote(origin, host, identity, connect, { type: 'close-page', session, pane }, async payload => payload.type === 'page-closed', 'Remote page close timed out')
 }
 export let requestRemoteSessionPreviews = async (origin: string, host: Host, session: string, panes: string[], identity: Identity, connect: Connect): Promise<Record<string, Snapshot>> => {
   let receiver = await createRemotePreviewReceiver(), snapshots: Record<string, Snapshot> = {}

@@ -192,10 +192,6 @@
 .panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
 .remoteService { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .remoteSession[data-active="true"] { background: #252d34; }
-.remoteGroup { display: flex; flex: 1; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; color: #8995a3; }
-.remoteGroup svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.remoteGroup[aria-expanded="true"] svg { transform: rotate(90deg); }
-.remoteGroup .remoteService { margin-left: auto; }
 .remotePreviewHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .remotePreviewHeading button { flex-shrink: 0; color: #aebca7; }
 .remotePreviewHeading .sessionPreviewTitle { flex: 1; min-width: 0; }
@@ -467,7 +463,7 @@
 
 .sessionsPanel { width: min(1440px, 96vw); display: flex; flex-direction: column; height: 96%; max-height: 96%; overflow: hidden; }
 .sessionsPanel > header { flex-shrink: 0; }
-.sessionsPanel .panelBody { display: flex; flex: 1; min-height: 0; }
+.sessionsPanel .panelBody { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .sessionWorkspace { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; flex: 1; min-width: 0; min-height: 0; }
 .sessionPreview { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .sessionPreviewTitle { height: 32px; flex-shrink: 0; padding: 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -628,7 +624,8 @@
 .pluginPopup > button:disabled { opacity: .4; }
 .pluginPopup [role="switch"][aria-checked="true"] { color: #b4d49a; }
 
-.remoteAccountPage { flex: 1; min-width: 0; overflow: auto; padding: 0 4px 16px; }
+.sessionNavigation { flex: 0 0 auto; display: flex; align-items: center; min-height: 28px; margin-bottom: 12px; }
+.remoteAccountPage { flex: 1; min-width: 0; max-width: 560px; width: 100%; box-sizing: border-box; overflow: auto; padding: 0 4px 16px; }
 .remoteAccountPage > h3 { margin: 0 0 16px; font-size: inherit; }
 .remoteToolbar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-bottom: 8px; }
 .remoteToolbar > button { display: flex; align-items: center; gap: 6px; padding: 4px 8px; }

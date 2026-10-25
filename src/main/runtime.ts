@@ -2339,9 +2339,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'agent.focus') {
       if (!sourceClientId) throw new Error('Focus agents from the bmux UI')
       let { pane } = paneById(model, required(args, 'pane'))
-      if (args.agentId !== pane.agentId) throw new Error('The agent in this browser pane has changed; reopen Agent information')
-      if (JSON.stringify(args.agentOrigin ?? null) !== JSON.stringify(pane.agentOrigin ?? null)) throw new Error('The agent terminal in this browser pane has changed; reopen Agent information')
-      return focusAgent(pane, configuration?.automation.agents ?? DEFAULT_AGENTS)
+      let agentId = required(args, 'agentId')
+      let saved = automationSafety?.status().profiles.filter(usage => usage.profileId === pane.profileId).flatMap(usage => usage.actors ?? []).find(actor => actor.paneId === pane.id && actor.agentId === agentId)
+      let actor = agentRegistry.get(agentId) ?? (pane.agentId === agentId ? pane : saved)
+      if (!actor) throw new Error('The agent in this browser pane has changed; reopen Agent information')
+      if (JSON.stringify(args.agentOrigin ?? null) !== JSON.stringify(actor.agentOrigin ?? null)) throw new Error('The agent terminal in this browser pane has changed; reopen Agent information')
+      return focusAgent(actor, configuration?.automation.agents ?? DEFAULT_AGENTS)
     }
     if (method === 'automation.agents.set') {
       if (!sourceClientId) throw new Error('Change agent identification in the bmux UI')
@@ -3885,6 +3888,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (!session) throw new Error('Remote session unavailable')
       controls.release(session.id)
       return await execute({ method: 'kill-session', args: { session: session.id, confirm: true } }) as { closed?: string; cancelled?: string }
+    },
+    closePage: async (sessionId: string, paneId: string) => {
+      let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
+      if (!session?.windows.some(window => window.panes.some(pane => pane.id === paneId))) throw new Error('Remote page unavailable')
+      controls.release(session.id)
+      return await execute({ method: 'kill-pane', args: { pane: paneId, confirm: true } }) as { closed?: string; cancelled?: string }
     },
     state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral); return { sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     workspace: (sessionId: string) => {

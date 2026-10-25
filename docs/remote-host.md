@@ -35,8 +35,15 @@ show installation progress. A ready box offers **Open box** to watch its first
 available session. Live purchases follow the service's billing availability.
 
 Remote uses the same session/page rows, branch lines and chevrons as Local.
-Relay, Add box and preview settings sit above the left list. Agent information
-opens beside the list; its chevron or Escape returns to the preview.
+Each colored machine row identifies one running bmux host, followed by its
+sessions and pages. A relay service can contain several machines. Click a
+machine to see its service, host identity, platform, version and access, or
+choose an icon color saved on this device. Older hosts use their service name
+until they advertise machine details.
+Relay, Add box and preview settings sit above the left list. Their back chevron
+sits below Local/Remote, and account forms use the normal settings width.
+Machine and agent information open beside the list; their chevron or Escape
+returns to the preview. j/k visits session rows as well as page rows.
 
 Each box has its own subscription, separate from relay. Canceling relay keeps
 boxes running and billed. Cancel a box at period end to keep access until then;
@@ -201,7 +208,9 @@ of that activity and local window visits. Watching, listing sessions, and lease
 renewal leave the timestamp unchanged. Returning to the list highlights and focuses the last opened session,
 including after restarting the app. Use the local Sessions navigation: j/k,
 counts, G, / to search, and x to close. Press g to open Relay. The close button and x ask for yes/no
-confirmation. Control access can close a hosted session from the list without
+confirmation. Page rows also have a close button and support x with their own
+confirmation. Closing the final page ends its session. Page closing requires
+an updated host; older hosts report this immediately. Control access can close a hosted session from the list without
 opening its video, or from the viewer's status bar. Closing ends that hosted
 session and its control lease; Disconnect keeps it running. Hosts must run a
 version supporting remote session closing and activity metadata. An older host

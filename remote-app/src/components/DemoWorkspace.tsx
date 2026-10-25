@@ -4,9 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, radius, styles } from '../theme'
 import { useCompactHeight, useSplitView } from '../useSplitView'
-import type { Host, Selection } from '../types'
+import type { Attention, Host, Selection } from '../types'
 import { Button } from './Button'
 import { SessionList } from './SessionList'
+import { AttentionInbox, AttentionSummary } from './AttentionInbox'
 
 let demoHost: Host = {
   id: 'demo', service: 'Demo browser', generation: 'demo', permission: 'control',
@@ -22,20 +23,25 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   let [controlling, setControlling] = useState(false)
   let [confirmed, setConfirmed] = useState(false)
   let [resumed, setResumed] = useState(false)
+  let [inbox, setInbox] = useState(false)
+  let [createdAt] = useState(() => new Date().toISOString())
   let prices = selection?.pane === 'demo-prices'
+  let attention: Attention = { ...firstPage, id: 'demo-help', episode: 'demo-stock', reason: 'help', status: resumed ? 'resolved' : 'pending', resolved: resumed, revision: resumed ? 2 : 1, online: true, createdAt }
+  let openInbox = () => { setControlling(false); setInbox(true) }
+  let openAttention = () => { setControlling(false); setSelection(firstPage); setInbox(false) }
   let resume = () => { setResumed(true); setControlling(false) }
   return <SafeAreaView style={styles.screen}>
     <View style={[local.header, compact && local.compactHeader]}>
-      <Text style={local.brand}>bmux remote</Text>
-      <View style={styles.row}><View style={local.demoBadge}><Text style={local.demoText}>Demo</Text></View><Button title="Exit demo" onPress={close} /></View>
+      <View style={local.identity}><Text style={local.brand} numberOfLines={1}>bmux remote</Text><View style={local.demoBadge}><Text style={local.demoText}>Demo</Text></View></View>
+      <View style={styles.row}><Pressable accessibilityRole="button" accessibilityLabel={'Attention, ' + (resumed ? 0 : 1) + ' pending'} style={local.bell} onPress={openInbox}><Ionicons name="notifications-outline" size={21} color={colors.secondary} />{!resumed && <View style={local.badge}><Text style={local.badgeText}>1</Text></View>}</Pressable><Button title="Exit demo" onPress={close} /></View>
     </View>
     <View style={local.workspace}>
       {(split || !selection) && <View style={split ? local.sidebar : local.list}>
-        <SessionList hosts={[demoHost]} selection={selection} select={setSelection} footer={<View style={local.guide}>
+        <SessionList hosts={[demoHost]} attention={[attention]} selection={selection} select={value => { setSelection(value); setInbox(false) }} header={<AttentionSummary items={[attention]} hosts={[demoHost]} open={openAttention} showAll={openInbox} />} footer={<View style={local.guide}>
           <Text style={local.guideTitle}>Your browser, in one step</Text><Text style={local.description}>Sign in to open your included browser or connect your computer.</Text><Button title="Use my browser" onPress={connect} />
         </View>} />
       </View>}
-      {selection ? <View style={local.detail}>
+      {inbox ? <View style={local.detail}><AttentionInbox items={[attention]} hosts={[demoHost]} open={openAttention} /></View> : selection ? <View style={local.detail}>
         <View style={[local.toolbar, compact && local.compactToolbar]}>{!(compact && split) && <Button title="Sessions" onPress={() => setSelection(undefined)} />}<View style={local.heading}><Text style={styles.text} numberOfLines={1}>{prices ? 'Price tracker' : 'Field Notes'}</Text><Text style={styles.secondary}>{compact ? controlling ? 'Control' : 'Watch' : 'Sample page'}</Text></View><Button title={controlling ? 'Release' : 'Take control'} primary={!controlling} onPress={() => setControlling(!controlling)} /></View>
         <View style={[local.attention, compact && local.compactAttention]}>
           <View style={[local.attentionHeading, compact && local.compactAttentionHeading]}><Ionicons name={resumed ? 'checkmark-circle-outline' : 'hand-left-outline'} size={20} color={resumed ? colors.success : colors.warning} />
@@ -71,7 +77,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
 
 let local = StyleSheet.create({
   compactHeader: { minHeight: 48 }, compactToolbar: { paddingVertical: 4 }, compactAttention: { paddingVertical: 6, flexWrap: 'nowrap' }, compactAttentionHeading: { flexBasis: 0, flexShrink: 1 },
-  header: { minHeight: 68, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border }, brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, demoBadge: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.grouped }, demoText: { color: colors.warning, fontSize: 12, fontWeight: '600' },
+  header: { minHeight: 68, paddingHorizontal: 16, flexDirection: 'row', gap: 12, alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 }, brand: { flexShrink: 1, color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, demoBadge: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.grouped }, demoText: { color: colors.warning, fontSize: 12, fontWeight: '600' }, bell: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }, badge: { position: 'absolute', right: 0, top: 1, backgroundColor: colors.warning, minWidth: 16, borderRadius: 8, alignItems: 'center', padding: 2 }, badgeText: { fontSize: 10, fontWeight: '700', color: colors.bg },
   workspace: { flex: 1, minHeight: 0, flexDirection: 'row' }, sidebar: { width: 380, maxWidth: '45%', minHeight: 0, borderRightWidth: 1, borderRightColor: colors.border }, list: { flex: 1 }, detail: { flex: 1, minWidth: 0, minHeight: 0 }, empty: { alignItems: 'center', justifyContent: 'center' },
   guide: { gap: 12, padding: 8 }, guideTitle: { color: colors.text, fontSize: 18, fontWeight: '600' }, description: { color: colors.secondary, fontSize: 14, lineHeight: 21 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 }, heading: { flex: 1, minWidth: 0, gap: 4 }, attention: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.surface }, attentionHeading: { flexDirection: 'row', flexGrow: 1, flexBasis: 260, alignItems: 'center', gap: 10 }, attentionTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
