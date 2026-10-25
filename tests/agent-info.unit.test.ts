@@ -98,3 +98,16 @@ test('registered agent context follows its ID across panes and survives sparse r
   moved.agentData!.windowId = 'unrelated'
   expect(registry.resolve({ agentId: '%76' }, settings, true).agentData?.windowId).toBe('@60')
 })
+
+test('agent focus context remains available after another agent uses its browser pane', () => {
+  let original = { agentId: 'original', agentType: 'tmux', agentData: { paneId: '%26' }, agentOrigin: { type: 'tmux' as const, paneId: '%26', panePid: '1234' } }
+  let pane: AgentInfo = structuredClone(original)
+  let registry = createAgentRegistry([pane])
+  let replacement = registry.resolve({ agentId: 'replacement', agentType: 'tmux', agentData: { paneId: '%27' } }, parseAgentSettings(undefined), true)
+  updateAgentInfo(pane, replacement)
+  expect(pane.agentId).toBe('replacement')
+  expect(registry.get('original')).toEqual(original)
+  expect(registry.get('unknown')).toBeUndefined()
+  registry.get('original')!.agentData!.paneId = '%99'
+  expect(registry.get('original')).toEqual(original)
+})

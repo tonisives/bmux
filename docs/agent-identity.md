@@ -138,6 +138,8 @@ known context when BMUX restarts.
 
 **Focus agent** runs the selected type's `focusCommand`. It receives
 `BMUX_AGENT_ID`, `BMUX_AGENT_TYPE`, `BMUX_AGENT_DATA`, and `BMUX_AGENT_ORIGIN`.
+An automation alert keeps its recorded agent as the focus target when another
+agent later uses the same browser pane, including after a browser restart.
 Fields typed `session`, `window`, or `pane` also become
 `BMUX_AGENT_SESSION_ID`, `BMUX_AGENT_WINDOW_ID`, or `BMUX_AGENT_PANE_ID`.
 Text fields become `BMUX_AGENT_FIELD_<UPPER_SNAKE_CASE_NAME>`.
@@ -160,8 +162,8 @@ See [Browser automation](agent.md) for browser commands and protection settings.
 Open **Profile > Bot** and choose **Appearance** or **Timing**, or use a pane's
 **Active agent** indicator, choose **Bot settings**, then
 **Cursor and timing**. Appearance controls include color, size, idle rotation,
-click halo, and movement trail. The Timing tab sets animation durations, cursor
-hide time, command-label duration, page unlock time, and the minimum/maximum
+click halo, movement trail, animation durations, cursor hide time, and command-label
+duration. The Timing tab sets page unlock time and the minimum/maximum
 pause between actions with a two-handle slider. Fast (0–200 ms), Medium
 (800–1,200 ms), and Safe (1,500–2,500 ms) presets change only the action pause.
 Sliders have exact numeric inputs as well. **Apply** saves the settings and updates
