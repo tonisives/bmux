@@ -1,3 +1,4 @@
+import { installDesktopWorkspaceFixture } from './desktop-workspace-fixture'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { closeTestApplication } from './electron-fixture'
 import fs from 'node:fs/promises'
@@ -26,7 +27,7 @@ test('paid remote account connects a running computer and opens regional box che
       let body = JSON.parse(Buffer.concat(chunks).toString() || '{}')
       if (request.method === 'POST') requests.push({route,body})
       if (expired && route === '/api/billing/portal') { json({error:'Sign in expired'},401); return }
-      if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
+      if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',workspace:1,name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
       if (route === '/api/me') { json({owner:'123456789',email:billingEmail}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:true,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:'active'}}); return }
       if (route === '/api/billing/rates') { json({base:'USD',source:'ECB',date:'2026-10-23',rates:{USD:1,EUR:.9,GBP:.75,JPY:150,THB:35}}); return }
@@ -55,6 +56,7 @@ test('paid remote account connects a running computer and opens regional box che
   try {
     await fs.writeFile(config,'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
     application = await electron.launch({args:[process.cwd()],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:config,BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'0'}})
+    await installDesktopWorkspaceFixture(application)
     let pid = application.process().pid
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!

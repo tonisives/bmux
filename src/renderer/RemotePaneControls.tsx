@@ -23,12 +23,17 @@ export let RemotePaneControls = ({ remote, paneId, focused, run, onError }: { re
   let action = (action: string) => { void run('remote.action', { pane: paneId, action }) }
   let connection = remote.preview ? 'Preview' : remote.error || (!remote.connected ? 'Connecting' : remote.controlling ? 'Controlling' : 'Watching')
   let controlLabel = remote.controlling ? 'Release control' : remote.occupied ? 'Take over' : 'Take control'
+  let watch = () => action('watch')
+  let control = () => action(remote.controlling ? 'release' : 'acquire')
+  let ask = () => setConfirming(true)
+  let disconnect = () => action('disconnect')
+  let confirmKeys = (event: React.KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'y') { event.preventDefault(); void close() } else if (event.key === 'n' || event.key === 'Escape') { event.preventDefault(); cancel() } }
   return <div className={css.controls} role="group" aria-label="Remote session controls">
     <span className={css.connection} role="status" title={remote.error || `${connection} · ${remote.service}`} aria-label={connection} data-connected={remote.connected} data-error={!!remote.error}><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4" /></svg></span>
-    {remote.preview && <button type="button" onClick={() => action('watch')} aria-label="View live" title="View live"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z" /></svg></button>}
-    {remote.canControl && <button type="button" onClick={() => action(remote.controlling ? 'release' : 'acquire')} disabled={!remote.connected} aria-label={controlLabel} title={controlLabel} aria-pressed={remote.controlling}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 2 12 9-6 1-3 6Z" />{remote.controlling && <path d="m11 15 2 2 4-5" />}</svg></button>}
-    {remote.canControl && (confirming ? <div className={css.confirmation} role="alertdialog" aria-label={`Close remote session ${remote.name}?`} onKeyDown={event => { event.stopPropagation(); if (event.key === 'y') { event.preventDefault(); void close() } else if (event.key === 'n' || event.key === 'Escape') { event.preventDefault(); cancel() } }}><span>Close "{remote.name}"?</span><button type="button" ref={yes} disabled={busy} onClick={close}>yes</button><button type="button" disabled={busy} onClick={cancel}>no</button></div> : <button type="button" ref={closeButton} onClick={() => setConfirming(true)} aria-label="Close session" title="Close remote session"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" /><path d="m7 7 6 6m0-6-6 6" /></svg></button>)}
-    <button type="button" onClick={() => action('disconnect')} aria-label="Disconnect" title="Disconnect"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M9 3H3v14h6m-1-7h10m-4-4 4 4-4 4" /></svg></button>
+    {remote.preview && <button type="button" onClick={watch} aria-label="View live" title="View live"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6Z" /></svg></button>}
+    {remote.canControl && <button type="button" onClick={control} disabled={!remote.connected} aria-label={controlLabel} title={controlLabel} aria-pressed={remote.controlling}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 2 12 9-6 1-3 6Z" />{remote.controlling && <path d="m11 15 2 2 4-5" />}</svg></button>}
+    {remote.canControl && (confirming ? <div className={css.confirmation} role="alertdialog" aria-label={`Close remote session ${remote.name}?`} onKeyDown={confirmKeys}><span>Close "{remote.name}"?</span><button type="button" ref={yes} disabled={busy} onClick={close}>yes</button><button type="button" disabled={busy} onClick={cancel}>no</button></div> : <button type="button" ref={closeButton} onClick={ask} aria-label="Close session" title="Close remote session"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" /><path d="m7 7 6 6m0-6-6 6" /></svg></button>)}
+    <button type="button" onClick={disconnect} aria-label="Disconnect" title="Disconnect"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M9 3H3v14h6m-1-7h10m-4-4 4 4-4 4" /></svg></button>
   </div>
 }
 let bridge = (window as unknown as { bmux: Bridge }).bmux

@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('remoteClient', {
     return () => ipcRenderer.removeListener('remote-client-action', handler)
   },
   close: (): Promise<void> => ipcRenderer.invoke('remote-client-close'),
-  selection: (): Promise<{ origin: string; host: Host; session: string; pane?: string }> => ipcRenderer.invoke('remote-client-selection'),
+  selection: (): Promise<{ origin: string; host: Host; session: string; pane?: string; metadata: boolean; view: string; publicKey: JsonWebKey }> => ipcRenderer.invoke('remote-client-selection'),
   connect: (publicKey: JsonWebKey): Promise<{ ticket: string; iceServers: RTCIceServer[] }> => ipcRenderer.invoke('remote-client-connect', publicKey),
   seal: (_host: unknown, payload: Record<string, unknown>) => ipcRenderer.invoke('remote-client-seal', payload),
   socketOpen: (): Promise<string[]> => ipcRenderer.invoke('remote-client-socket-open'),

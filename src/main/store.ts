@@ -6,6 +6,7 @@ import { initialModel, newSession, validateModel } from './model'
 import { updateBookmark } from './bookmarks'
 import type { Bookmark, Model } from '../shared/types'
 import { compactHistory } from '../shared/history'
+import { latestLocalSession } from '../shared/remote-workspace'
 
 export let bookmarksPath = (configFile: string) => path.join(path.dirname(configFile), 'bookmarks.yaml')
 export let pendingBookmarkEditsPath = (bookmarkFile: string) => path.join(path.dirname(bookmarkFile), 'bookmark-edits.pending.json')
@@ -85,7 +86,13 @@ export let writeModel = (directory: string, model: Model, bookmarkFile = path.jo
   let sessions = model.sessions.filter(session => !session.private && !session.ephemeral)
   if (!sessions.length) sessions = [newSession('main', model.profiles[0].id, false, model)]
   let sessionIds = new Set(sessions.map(session => session.id))
-  let clients = model.clients.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)) }))
+  let restored = model.clients.map(client => {
+    if (!model.sessions.some(session => session.id === client.sessionId && session.remote)) return client
+    let session = latestLocalSession({ ...model, sessions }, client) ?? sessions[0]
+    let window = session.windows.find(window => client.windowHistory?.includes(window.id)) ?? session.windows[0]
+    return { ...client, sessionId: session.id, windowId: window.id, paneId: window.panes[0]?.id ?? null, zoomedPaneId: null }
+  })
+  let clients = restored.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)), windowHistory: client.windowHistory?.filter(id => sessions.some(session => session.windows.some(window => window.id === id))) }))
   let lastFocusedClientId = clients.some(client => client.id === model.lastFocusedClientId) ? model.lastFocusedClientId : undefined
   let state: Model = { ...model, sessions, clients, lastFocusedClientId, profiles: model.profiles.map(({ bookmarks: _bookmarks, ...profile }) => profile) }
   writeAtomic(path.join(directory, 'state.json'), JSON.stringify(state, null, 2))

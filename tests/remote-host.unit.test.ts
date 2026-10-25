@@ -37,13 +37,13 @@ let setup = (request?: string, open = true, streamPermits = false) => {
   let offer = { type: 'offer' as const, sdp: 'fixture' }
   let signalOffer!: () => void
   let signalCandidate!: (value: RTCIceCandidateInit) => void
-  let capture = vi.fn((_pane: string, options: { signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void }) => {
+  let capture = vi.fn((_pane: string, options: { signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void; data: (raw: string) => void; closed: () => void }) => {
     signalOffer = () => options.signal(offer)
     signalCandidate = value => options.candidate?.(value)
     signalOffer()
     return pending
   })
-  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
+  let runtime = { state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { attentions: () => [], capture, manage: vi.fn(async (_options: unknown) => peer), workspace: vi.fn(() => ({ selection: { paneId: 'pane' }, session: { id: 'session', windows: [] }, profiles: [] })), state: vi.fn(() => ({ sessions: [], controls: {}, viewports: {} })), acquire: vi.fn(), renew: vi.fn(), release: vi.fn(), enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
@@ -204,4 +204,30 @@ it('advertises typed pane descriptions and field labels without terminal origins
   let advertised = socket.sent.find(message => message.type === 'sessions') as unknown as { sessions: { private: boolean; panes: Record<string, unknown>[] }[] }
   expect(advertised.sessions[0].private).toBe(false)
   expect(advertised.sessions[0].panes[0]).toEqual({ id: 'pane', title: 'fixture', agentId: 'researcher', agentName: 'Research', agentPurpose: 'Checking source links', agentType: 'scraper', agentData: { task: 'Article discovery' }, agentFields: { task: 'Current task' } })
+})
+
+it('opens desktop metadata without a media permit and routes independent panes under one viewer lease', async () => {
+  let { deliver, offers, runtime, capture, resolveCapture, peer, socket } = setup(undefined, false, true)
+  let metadata = { ...peer, close: vi.fn(), send: vi.fn() }
+  runtime.remote.manage.mockResolvedValueOnce(metadata)
+  deliver({ type: 'manage', session: 'session', view: 'workspace', request: 'metadata' })
+  await vi.waitFor(() => expect(runtime.remote.manage).toHaveBeenCalledOnce(), { interval: 1 })
+  expect(socket.sent.some(message => message.type === 'stream-acquire')).toBe(false)
+  deliver({ type: 'open', session: 'session', pane: 'pane', view: 'pane:2', request: 'media' })
+  let acquire = socket.sent.find(message => message.type === 'stream-acquire')!
+  socket.emit('message', JSON.stringify({ type: 'stream-permit', request: acquire.request, expires: Date.now() + 20000 }))
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce(), { interval: 1 })
+  resolveCapture(peer)
+  await vi.waitFor(() => expect(socket.sent.some(message => message.type === 'stream-renew')).toBe(true), { interval: 1 })
+  let renew = socket.sent.find(message => message.type === 'stream-renew')!
+  socket.emit('message', JSON.stringify({ type: 'stream-permit', request: renew.request, expires: Date.now() + 20000 }))
+  await vi.waitFor(() => expect(offers()).toContainEqual(expect.objectContaining({ type: 'offer', view: 'pane:2' })), { interval: 1 })
+  runtime.remote.disconnect.mockClear()
+  deliver({ type: 'close', view: 'pane:2' })
+  expect(peer.close).toHaveBeenCalledOnce()
+  expect(runtime.remote.disconnect).not.toHaveBeenCalled()
+  expect(metadata.close).not.toHaveBeenCalled()
+  deliver({ type: 'close', view: 'workspace' })
+  expect(metadata.close).toHaveBeenCalledOnce()
+  expect(runtime.remote.disconnect).toHaveBeenCalledOnce()
 })

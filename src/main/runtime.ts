@@ -95,7 +95,7 @@ import { createPreviewRefresh } from './preview-refresh'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
-import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation } from '../shared/remote-workspace'
+import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
 type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
@@ -477,7 +477,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   publishClickMode = publish
   let save = () => {
-    for (let session of model.sessions) for (let window of session.windows) {
+    for (let session of model.sessions.filter(session => !session.remote)) for (let window of session.windows) {
       let viewers = model.clients.filter(client => client.windowId === window.id)
       let viewer = viewers.find(client => client.id === focusedClientId) ?? viewers[0]
       updateAutomaticWindowName(window, viewer?.paneId ?? undefined)
@@ -875,6 +875,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let dispatchShortcut = (action: string) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
+    if (model.sessions.find(session => session.id === client.sessionId)?.remote && remoteWorkspaceShortcut(action)) return
     let focused = clients.get(client.id)!
     let invoke = (command: Command) => { void execute(command, client.id).catch(reportError) }
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
@@ -905,7 +906,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     let windowNumber = action.match(/^select-window-([1-9])$/)?.[1]
     let remoteView = tab ? remotePages.get(tab)?.view : undefined
-    if (remoteView && windowNumber) {
+    if (remoteView && !session.remote && windowNumber) {
       let target = remoteView.panes[Number(windowNumber) - 1]
       if (target) invoke({ method: 'remote.action', args: { pane: tab, action: 'switch', target: target.id } })
       return
@@ -921,7 +922,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
-    let items = Object.entries(keyboard.shortcuts).filter(([key, binding]) => key !== 'Escape' && !isModifierKeyBinding(key) && shortcutAction(binding) !== 'vim-editor').map(([key, binding]) => ({ label: shortcutAction(binding), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
+    let remote = model.sessions.some(session => session.id === model.clients.find(client => client.id === focusedClientId)?.sessionId && session.remote)
+    let items = Object.entries(keyboard.shortcuts).filter(([key, binding]) => key !== 'Escape' && !isModifierKeyBinding(key) && shortcutAction(binding) !== 'vim-editor').map(([key, binding]) => ({ label: shortcutAction(binding), enabled: !remote || !remoteWorkspaceShortcut(shortcutAction(binding)), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
@@ -1973,7 +1975,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     return visualQueue
   }
   let repairClients = () => repairClientSelections(model)
+  let menuRemote = false
+  let updateRemoteMenu = () => {
+    let remote = model.sessions.some(session => session.id === model.clients.find(client => client.id === focusedClientId)?.sessionId && session.remote)
+    if (remote !== menuRemote) { menuRemote = remote; refreshMenu() }
+  }
   let changed = () => {
+    updateRemoteMenu()
     clickMode.cancel(); doubleTap.reset(); repairClients()
     for (let session of [...model.sessions]) if (session.ephemeral && !model.clients.some(client => client.sessionId === session.id)) removeSession(model, session)
     for (let [clientId, workspace] of remoteWorkspaces) if (workspace.sessionId && !model.sessions.some(session => session.id === workspace.sessionId)) { remoteWorkspaces.delete(clientId); workspace.metadata.webContents.close({ waitForBeforeUnload: false }) }
@@ -2002,14 +2010,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let metadata = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
     let workspace = { page, metadata, profileId: local.defaultProfileId, sessionId: undefined as string | undefined, visited: [] as string[], blocked: new Set<string>(), previewAt: 0, fetching: false }
     remoteWorkspaces.set(clientId, workspace)
-    let initialized = false
+    let initialized = false, timer: ReturnType<typeof setTimeout>
     let ready = new Promise<void>((resolveReady, reject) => {
-      let timer = setTimeout(() => { if (remoteWorkspaces.get(clientId) === workspace) disconnectRemoteWorkspace(clientId); reject(new Error('Remote session connection timed out')) }, 25000)
+      timer = setTimeout(() => { if (remoteWorkspaces.get(clientId) === workspace) disconnectRemoteWorkspace(clientId); reject(new Error('Remote session connection timed out')) }, 25000)
       page.attach!(metadata.webContents, async () => { clearTimeout(timer); disconnectRemoteWorkspace(clientId); if (!initialized) reject(new Error('Remote session closed')) }, update => {
         if (remoteWorkspaces.get(clientId) !== workspace) return
         page.view = { ...page.view!, ...update }
         if (!update.workspace) {
-          for (let remote of remotePages.values()) if (remote.view?.hostId === page.view.hostId && remote.view.sessionId === page.view.sessionId) remote.view = { ...remote.view, controlling: update.controlling, occupied: update.occupied, connected: update.connected }
+          for (let [id, remote] of remotePages) if (id.startsWith(`remote:${clientId}:pane:`) && remote.view) remote.view = { ...remote.view, controlling: update.controlling, occupied: update.occupied, connected: update.connected }
           if (!initialized && update.error) { clearTimeout(timer); disconnectRemoteWorkspace(clientId); reject(new Error(update.error)) }
           publish(); return
         }
@@ -2021,7 +2029,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (index < 0) model.sessions.push(projection); else model.sessions[index] = projection
         workspace.sessionId = projection.id
         let panes = new Set(projection.windows.flatMap(window => window.panes.map(pane => pane.id)))
-        for (let [id, remote] of remotePages) if (remote.key.startsWith(`${page.key}:`) && !panes.has(id)) remotePages.delete(id)
+        for (let id of remotePages.keys()) if (id.startsWith(`remote:${clientId}:pane:`) && !panes.has(id)) remotePages.delete(id)
         for (let window of snapshot.session.windows) for (let pane of window.panes) {
           let id = remoteWorkspaceId(clientId, 'pane', pane.id)
           let existing = remotePages.get(id)
@@ -2034,7 +2042,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           let pane = initialPane && remoteWorkspaceId(clientId, 'pane', initialPane)
           let window = projection.windows.find(window => window.panes.some(item => item.id === pane)) ?? projection.windows[0]
           client.sessionId = projection.id; client.windowId = window.id; client.paneId = pane && window.panes.some(item => item.id === pane) ? pane : window.panes[0].id
-          client.zoomedPaneId = snapshot.selection?.zoomedPaneId ? remoteWorkspaceId(clientId, 'pane', snapshot.selection.zoomedPaneId) : null
+          client.zoomedPaneId = snapshot.selection?.zoomedPaneId === initialPane ? pane || null : null
           initialized = true; clearTimeout(timer); resolveReady()
         }
         if (page.previews && !workspace.fetching && Date.now() - workspace.previewAt >= 15000) {
@@ -2051,7 +2059,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     metadata.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     metadata.webContents.on('will-navigate', event => event.preventDefault())
     let load = process.env.ELECTRON_RENDERER_URL ? metadata.webContents.loadURL(new URL('remote-client.html', process.env.ELECTRON_RENDERER_URL).href) : metadata.webContents.loadFile(path.join(import.meta.dirname, '../renderer/remote-client.html'))
-    try { await Promise.all([load, ready]) } catch (error) { disconnectRemoteWorkspace(clientId); throw error }
+    try { await Promise.all([load, ready]) } catch (error) { clearTimeout(timer!); disconnectRemoteWorkspace(clientId); throw error }
   }
   let openRemotePage = async (clientId: string, page: RemotePage) => {
     if (page.workspace && page.view && page.attach) return openRemoteWorkspace(clientId, page)
@@ -2126,6 +2134,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (shuttingDown) return
       for (let profileId of Object.keys(profileProxyFailures)) void proxyRecovery.retry(profileId)
       focusedClientId = client.id
+      updateRemoteMenu()
       model.lastFocusedClientId = client.id
       resizeChrome()
       reclaimDesktopControl(client.sessionId)
@@ -2273,7 +2282,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       : typeof args.window === 'string' ? model.sessions.find(session => session.windows.some(window => window.id === args.window))
       : typeof args.session === 'string' ? model.sessions.find(session => session.id === args.session)
       : sourceClient ? model.sessions.find(session => session.id === sourceClient.sessionId) : undefined
-    if (target?.remote && (remoteWorkspaceMutation(method) || !sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method))) throw new Error('This command is unavailable in remote view')
+    if (remoteWorkspaceMutation(method) && !(method === 'new-session' && args.workspace === 'local') && (target?.remote || remoteWorkspaceTargets(model, args).length || sourceClient && model.sessions.some(session => session.id === sourceClient.sessionId && session.remote))) throw new Error('This command is unavailable in remote view')
+    if (target?.remote && (!sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method))) throw new Error('This command is unavailable in remote view')
     if (target?.remote && sourceClientId && target.remote.clientId !== sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method)) throw new Error('Select the remote session in this client first')
     if (sourceClient && model.sessions.find(session => session.id === sourceClient.sessionId)?.ephemeral && ['new-session', 'new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.workspace !== 'local') throw new Error('Switch to Local to create sessions, windows, or panes')
     if (sourceClientId && typeof args.tab === 'string' && ['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to'].includes(method)) {
@@ -2985,9 +2995,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (args.private !== undefined && typeof args.private !== 'boolean') throw new Error('private must be a boolean')
       let prefix = args.private === true ? 'private' : 'session'
       let number = 1
-      while (model.sessions.some(session => session.name === `${prefix}-${number}`)) number++
+      while (model.sessions.some(session => !session.ephemeral && session.name === `${prefix}-${number}`)) number++
       let name = args.name === undefined ? `${prefix}-${number}` : required(args, 'name')
-      if (model.sessions.some(session => session.name === name)) throw new Error('Session name already exists')
+      if (model.sessions.some(session => !session.ephemeral && session.name === name)) throw new Error('Session name already exists')
       let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
       let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true, model)
@@ -3235,7 +3245,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         client.paneId = paneInDirection(window.layout, client.paneId ?? '', direction as 'left' | 'right' | 'up' | 'down', rectangles) ?? client.paneId
       }
       // A repeated shortcut at a layout edge must not cancel a pending move.
-      if (client.paneId) raisePane(window, client.paneId)
+      if (client.paneId && !model.sessions.some(session => session.remote && session.windows.includes(window))) raisePane(window, client.paneId)
       if (client.paneId !== previousPaneId && pointerTarget?.clientId === client.id) pointerTarget = undefined
       if (client.zoomedPaneId) client.zoomedPaneId = client.paneId
       if (client.id === focusedClientId && client.paneId && args.focus !== false) {

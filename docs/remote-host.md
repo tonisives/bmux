@@ -34,16 +34,38 @@ size or keys starts a new order. Pending boxes offer **Resume checkout** and
 show installation progress. A ready box offers **Open box** to watch its first
 available session. Live purchases follow the service's billing availability.
 
-Remote uses the same session/page rows, branch lines and chevrons as Local.
+Remote uses the same session/window rows, branch lines and chevrons as Local.
 Each colored machine row identifies one running bmux host, followed by its
-sessions and pages. A relay service can contain several machines. Click a
+sessions and numbered windows. A relay service can contain several machines. Click a
 machine to see its service, host identity, platform, version and access, or
 choose an icon color saved on this device. Older hosts use their service name
 until they advertise machine details.
 Relay, Add box and preview settings sit above the left list. Their back chevron
 sits below Local/Remote, and account forms use the normal settings width.
 Machine and agent information open beside the list; their chevron or Escape
-returns to the preview. j/k visits session rows as well as page rows.
+returns to the preview. j/k visits session rows as well as window rows.
+
+Opening a remote session shows its host window numbers, tiled splits and floating
+panes in the normal bmux layout and status bar. Each desktop client starts at the
+host selection and then navigates independently. Connection, control, close-session
+and disconnect actions sit in each pane header. Pane profile names come from the
+host. Desktop remote views require a host advertising workspace support; older
+mobile and web viewers retain their single-pane protocol.
+
+Up to two visible panes per desktop workspace are live, within the account's
+existing allowance. Other panes show previews. Selecting a preview promotes it
+and releases the least recently selected live pane in that workspace. Views in
+other clients keep their slots. Window and pane creation, duplication, reopening,
+closing and layout editing are unavailable in the desktop remote workspace.
+Host-side changes appear automatically. Session closing remains an explicit pane
+header action.
+
+OS-opened HTTP, HTTPS and HTML-file links switch the receiving native client to
+its latest local session and create a normal local window there. If no local
+session survives, bmux creates one. Leaving the remote workspace releases its
+streams and control lease while the host session continues running. Remote views
+stay out of the Local picker and saved local sessions; restarting restores the
+client's previous local session.
 
 Each box has its own subscription, separate from relay. Canceling relay keeps
 boxes running and billed. Cancel a box at period end to keep access until then;

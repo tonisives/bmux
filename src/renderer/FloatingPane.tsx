@@ -46,7 +46,7 @@ export let FloatingPane = () => {
   }), [vim.enabled])
   useEffect(() => { if (!editing.current) setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? '') }, [tab?.url, tab?.id])
   useEffect(() => {
-    if (tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()
+    if (!remote && tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()
   }, [tab?.id])
   let focus = () => {
     editing.current = true
@@ -81,7 +81,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload" disabled={remote && !remote.controlling}>↻</button>
       <div className={css.urlBar}>
         {tab && !remote && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-        {vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} onMouseUp={vim.select} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
+        {vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} readOnly={!!remote && !remote.controlling} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} onMouseUp={vim.select} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
         <span className={css.paneId} title={`Pane ID: ${remote?.pane ?? paneId}`}>{remote?.pane ?? paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />

@@ -2,14 +2,14 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createViewer } from '../remote/web/client'
 import type { Host, ViewerEvents, ViewerIdentity } from '../remote/web/client'
 
-let fixture = async () => {
+let fixture = async (view?: string) => {
   let socket = { readyState: 1, bufferedAmount: 0, send: vi.fn(), close: vi.fn(), onopen: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
   let channel = { readyState: 'open', bufferedAmount: 0, send: vi.fn(), onopen: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
   let peer = { close: vi.fn(), connectionState: 'connected', onconnectionstatechange: undefined as (() => void) | undefined, remoteDescription: undefined as unknown, localDescription: { toJSON: () => ({ type: 'answer', sdp: 'answer' }) }, iceGatheringState: 'complete', ondatachannel: undefined as ((event: { channel: unknown }) => void) | undefined, setRemoteDescription: vi.fn(async (value: unknown) => { peer.remoteDescription = value }), setLocalDescription: vi.fn(async () => {}), createAnswer: vi.fn(async () => ({ type: 'answer', sdp: 'answer' })), addIceCandidate: vi.fn() }
   let events: ViewerEvents = { hosts: vi.fn(), state: vi.fn(), stream: vi.fn(), error: vi.fn(), disconnected: vi.fn(), message: vi.fn() }
   let identity: ViewerIdentity = { publicKey: { x: 'viewer' }, fingerprint: async key => key.x!, sign: vi.fn(async () => 'signature'), verify: vi.fn(async () => true) }
   let observe = vi.fn(() => vi.fn())
-  let promise = createViewer(events, { origin: 'https://fixture.test', identity, connect: async () => ({ ticket: 'one-use-ticket', iceServers: [] }), socket: () => socket as unknown as WebSocket, peer: () => peer as unknown as RTCPeerConnection, uuid: () => 'fixture-request-12345', observe })
+  let promise = createViewer(events, { view, origin: 'https://fixture.test', identity, connect: async () => ({ ticket: 'one-use-ticket', iceServers: [] }), socket: () => socket as unknown as WebSocket, peer: () => peer as unknown as RTCPeerConnection, uuid: () => 'fixture-request-12345', observe })
   await vi.waitFor(() => expect(socket.onopen).toBeTypeOf('function'))
   socket.onopen!()
   let viewer = await promise
@@ -155,4 +155,25 @@ it('does not reopen a superseded pane when a signed close finishes late', async 
   expect(messages.some(item => item.pane === 'old-pane')).toBe(false)
   value.viewer.close()
   await Promise.all([first, current])
+})
+
+it('isolates signed peer offers and forwards workspace metadata without opening a media subscription', async () => {
+  let value = await fixture('workspace')
+  let managing = value.viewer.manage(value.host, 'session')
+  await vi.waitFor(() => expect(value.socket.send).toHaveBeenCalledOnce())
+  let request = JSON.parse(JSON.parse(value.socket.send.mock.calls[0][0]).envelope.payload)
+  expect(request).toMatchObject({ type: 'manage', session: 'session', view: 'workspace' })
+  value.receive({ type: 'offer', view: 'pane:2', sdp: { type: 'offer', sdp: 'wrong-peer' } })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(value.peer.setRemoteDescription).not.toHaveBeenCalled()
+  value.receive({ type: 'offer', view: 'workspace', sdp: { type: 'offer', sdp: 'metadata' } })
+  await vi.waitFor(() => expect(value.peer.ondatachannel).toBeTypeOf('function'))
+  value.peer.ondatachannel!({ channel: value.channel })
+  value.channel.onopen!()
+  await managing
+  expect(value.channel.send).toHaveBeenCalledWith('{"type":"state"}')
+  let state = { type: 'state', pane: 'pane', sessions: [], controls: {}, viewports: {}, workspace: { session: { id: 'session', windows: [] }, profiles: [] } }
+  value.channel.onmessage!({ data: JSON.stringify(state) })
+  expect(value.events.state).toHaveBeenCalledWith(state)
+  value.viewer.close()
 })

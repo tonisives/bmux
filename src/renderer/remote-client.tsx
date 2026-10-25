@@ -7,6 +7,8 @@ import type { Host, State } from '../../remote/web/client'
 import './global.css'
 import css from './remote-client.module.css'
 
+let remoteError = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+
 type Viewer = Awaited<ReturnType<typeof createViewer>>
 type Selection = { origin: string; host: Host; session: string; pane?: string; metadata: boolean; view: string; publicKey: JsonWebKey }
 type SocketEvent = { type: 'message'; data: string } | { type: 'close' }
@@ -68,7 +70,7 @@ let App = () => {
   let video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
   useEffect(() => {
     let closed = false
-    void bridge.selection().then(next => { if (!closed) setSelection(next) }).catch(error => setError(String(error)))
+    void bridge.selection().then(next => { if (!closed) setSelection(next) }).catch(error => setError(remoteError(error)))
     return () => { closed = true; active.current?.close() }
   }, [])
   useEffect(() => {
@@ -90,7 +92,7 @@ let App = () => {
     } }).then(next => {
       if (closed) { next.close(); return }
       active.current = next; setViewer(next)
-    }).catch(error => setError(error instanceof Error ? error.message : String(error)))
+    }).catch(error => setError(remoteError(error)))
     return () => { closed = true; clearTimeout(reconnect); active.current?.close(); active.current = undefined }
   }, [selection, retry])
   useEffect(() => {
@@ -99,7 +101,7 @@ let App = () => {
     let session = host?.sessions.find(item => item.id === selection.session)
     if (!host || !session?.panes[0]) return
     watching.current = true
-    void (selection.metadata ? viewer.manage(host, session.id) : viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id)).catch(error => setError(error instanceof Error ? error.message : String(error)))
+    void (selection.metadata ? viewer.manage(host, session.id) : viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id)).catch(error => setError(remoteError(error)))
   }, [viewer, hosts, selection])
   let currentSession = state?.sessions.find(item => item.id === selection?.session)
   if (currentSession) lastSession.current = currentSession

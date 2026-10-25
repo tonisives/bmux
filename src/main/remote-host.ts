@@ -232,11 +232,14 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
           try {
             if (allowed(message.from) !== 'control') throw new Error('Watch only access')
             if (typeof payload.session !== 'string' || typeof payload.pane !== 'string') throw new Error('Invalid page')
-            let watching = [...streams].filter(([, stream]) => stream.pane === payload.pane).map(([id, stream]) => ({ id, request: stream.request }))
+            let watching = [...streams].filter(([, stream]) => stream.pane === payload.pane).map(([key, stream]) => ({ key, ...stream }))
             let result = await runtime.remote.closePage(payload.session, payload.pane)
             if (result.cancelled) throw new Error('Page closing canceled')
             let next = runtime.model.sessions.find(session => session.id === payload.session)?.windows.flatMap(window => window.panes)[0]
-            if (next) for (let viewer of watching) { try { await open(viewer.id, next.id, viewer.request, true) } catch { disconnect(viewer.id) } }
+            for (let viewer of watching) {
+              if (viewer.view) { if (viewer.metadata && next) { viewer.pane = next.id; streams.get(viewer.key)!.pane = next.id; state(viewer.key) } else disconnect(viewer.key); continue }
+              if (next) { try { await open(viewer.owner, next.id, viewer.request, true) } catch { disconnect(viewer.key) } }
+            }
             advertise()
             signal(message.from, { type: 'page-closed', request: payload.request })
           } catch (error) { signal(message.from, { type: 'error', request: payload.request, error: error instanceof Error ? error.message : 'Unable to close page' }) }
