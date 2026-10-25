@@ -283,6 +283,10 @@ export let validateModel = (value: unknown): Model => {
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')
         validateAgentInfo(pane)
+        if (pane.lastAgentInteraction !== undefined) {
+          if (!pane.lastAgentInteraction || !Number.isFinite(pane.lastAgentInteraction.lastUsed) || pane.lastAgentInteraction.lastUsed < 0) throw new Error('Invalid last agent interaction')
+          validateAgentInfo(pane.lastAgentInteraction)
+        }
         if (pane.bookmarkSource !== undefined && (!pane.bookmarkSource || typeof pane.bookmarkSource.profileId !== 'string' || typeof pane.bookmarkSource.bookmarkId !== 'string' || pane.bookmarkSource.profileId !== pane.profileId)) throw new Error('Invalid bookmark source')
         if (typeof pane.url !== 'string' || typeof pane.title !== 'string' || !Number.isFinite(pane.zoom) || (pane.openerPaneId !== undefined && typeof pane.openerPaneId !== 'string') || (pane.backToOpener !== undefined && typeof pane.backToOpener !== 'boolean') || (pane.keepAlive !== undefined && typeof pane.keepAlive !== 'boolean') || (pane.adblock !== undefined && typeof pane.adblock !== 'boolean')) throw new Error('Invalid pane page')
       }

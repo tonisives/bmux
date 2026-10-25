@@ -20,7 +20,7 @@ import { BackButton, PanelBackContext, PanelHeader, usePanelBack } from './Panel
 import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
-import { paneAgents } from '../shared/pane-agents'
+import { lastPaneAgent, paneAgents } from '../shared/pane-agents'
 import { agentIdentifier } from '../shared/agent-info'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
@@ -429,20 +429,32 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
 
 let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
 
-let AgentButton = ({ agents, paneId }: { agents: AutomationActor[]; paneId?: string }) => {
+let AgentInteractionTime = ({ when, compact = false, now }: { when: number; compact?: boolean; now?: number }) => <time className={compact ? css.windowActivity : undefined} data-age={compact ? activityAge(when, now) : undefined} dateTime={new Date(when).toISOString()} title={`Last agent interaction ${new Date(when).toLocaleString()}`}>{compact ? compactActivityLabel(when, now) : new Date(when).toLocaleString()}</time>
+let AgentInteractionField = ({ actor }: { actor: AutomationActor }) => 'lastUsed' in actor && typeof actor.lastUsed === 'number' ? <><dt>Last interaction</dt><dd><AgentInteractionTime when={actor.lastUsed} /></dd></> : null
+
+let AgentButton = ({ agents, paneId, active = true, lastUsed }: { agents: AutomationActor[]; paneId?: string; active?: boolean; lastUsed?: number }) => {
   let { state, show, setAgentDetails } = useUI()
+  let [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (!paneId || lastUsed === undefined) return
+    let timer = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(timer)
+  }, [paneId, lastUsed])
   let open = () => { setAgentDetails(paneId ? { paneId } : { actors: agents }); show('agent-info') }
   let actor = agents[0]
-  let label = paneId ? 'Active agent' : 'Agent information'
+  let label = paneId ? active ? 'Active agent' : 'Last agent' : 'Agent information'
   let locked = !!paneId && state.lockedAgentPanes?.includes(paneId)
-  let title = paneId ? `${locked ? 'Agent controlling · page input locked · ' : ''}${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
-  return <button type="button" className={paneId ? `${css.navigationButton} ${css.adblockButton}` : undefined} aria-label={label} title={title} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg></button>
+  let title = paneId ? `${locked ? 'Agent controlling · page input locked · ' : active ? '' : 'Last agent · '}${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
+  let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
+  let identifier = agentIdentifier(actor, definition)
+  return <button type="button" className={paneId ? `${css.navigationButton} ${css.paneAgentButton}` : undefined} aria-label={label} title={title} onClick={open}><svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg>{paneId && <><span className={css.paneAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>{lastUsed !== undefined && <AgentInteractionTime when={lastUsed} compact now={now} />}</>}</button>
 }
 
 let PaneAgentButton = ({ paneId }: { paneId: string }) => {
   let { state } = useUI()
-  let actor = state.activeAgents?.find(actor => actor.paneId === paneId)
-  return actor ? <AgentButton agents={[actor]} paneId={paneId} /> : null
+  let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)
+  let actor = pane && lastPaneAgent(pane, state.activeAgents)
+  return actor ? <AgentButton agents={[actor]} paneId={paneId} active={actor.active} lastUsed={actor.lastUsed} /> : null
 }
 
 let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
@@ -1475,7 +1487,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
-  let actors = 'paneId' in agentDetails ? (state.activeAgents ?? []).filter(actor => actor.paneId === agentDetails.paneId) : 'actors' in agentDetails ? agentDetails.actors : paneAgents(panes, state.activeAgents)
+  let actors = 'paneId' in agentDetails ? panes.filter(pane => pane.id === agentDetails.paneId).flatMap(pane => lastPaneAgent(pane, state.activeAgents) ?? []) : 'actors' in agentDetails ? agentDetails.actors : paneAgents(panes, state.activeAgents)
   let [busy, setBusy] = useState<string | null>(null)
   let focus = async (actor: AutomationActor) => {
     setBusy(actor.paneId)
@@ -1486,7 +1498,7 @@ let AgentInformation = () => {
     try { await run('agent.cursor.set', { pane: actor.paneId, agentId: actor.agentId, hidden: !state.hiddenAgentCursors?.includes(actor.paneId) }) } finally { setBusy(null) }
   }
   let settings = () => show('anti-bot-settings')
-  return <div className={css.agentInformation}>{!actors.length && <p>No active agent in this pane.</p>}{actors.map(actor => {
+  return <div className={css.agentInformation}>{!actors.length && <p>No agent interaction in this pane.</p>}{actors.map(actor => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
     let sessionField = Object.keys(actor.agentData ?? {}).find(key => definition?.fields[key]?.type === 'session' || key === 'sessionId')
     let fields = Object.entries(actor.agentData ?? {}).filter(([key]) => key !== 'sessionName' || !sessionField)
@@ -1494,6 +1506,7 @@ let AgentInformation = () => {
     let toggleVisibility = () => { void toggleCursor(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
+        <AgentInteractionField actor={actor} />
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
         {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
       </dl>

@@ -8,6 +8,21 @@ import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/sto
 import { backOpener } from '../src/shared/opener-navigation'
 
 describe('session layouts and persistence', () => {
+  it('persists the last agent interaction separately from human activity and current agent metadata', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-last-agent-'))
+    try {
+      let model = initialModel(), pane = model.sessions[0].windows[0].panes[0]
+      pane.agentId = 'next-agent'; pane.lastUsedBy = 'human'; pane.lastActivityAt = 456
+      pane.lastAgentInteraction = { agentId: 'research', agentName: 'Research agent', agentData: { paneId: '%42' }, lastUsed: 123 }
+      writeModel(directory, model)
+      expect(readModel(directory).sessions[0].windows[0].panes[0]).toMatchObject(pane)
+      pane.lastAgentInteraction.lastUsed = -1
+      expect(() => validateModel(model)).toThrow('Invalid last agent interaction')
+      pane.lastAgentInteraction.lastUsed = 123
+      pane.lastAgentInteraction.agentId = ''
+      expect(() => validateModel(model)).toThrow('agentId must be nonempty text')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('persists the last focused client and omits references to unsaved clients', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-client-focus-'))
     try {
