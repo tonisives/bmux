@@ -12,6 +12,7 @@ import { attentionIdFromUrl } from './links'
 import { attentionSelection } from './types'
 import { attentionMatches, createResumeRequests, mergeAttention, recordedResume, resumeAcknowledgement, selectedAttention } from './attention'
 import { operationMessage } from './operation-error'
+import { canManageHost } from './host-access'
 import { useStreamQuality } from './useStreamQuality'
 import { useIncludedBrowser } from './useIncludedBrowser'
 import type { Attention, AttentionTarget, Host, LiveView, RelayAccount, RelayBilling, Selection, State, Viewer } from './types'
@@ -188,6 +189,8 @@ let useRemoteState = () => {
   }, [api, request, resumeRequest, refresh, updateAttention])
   let manage = useCallback(async (host: Host) => {
     let viewer = activeViewer.current
+    let currentHost = hostList.current.find(item => item.id === host.id && item.generation === host.generation)
+    if (!canManageHost(currentHost)) throw new Error('Only the computer owner can manage profiles and sessions.')
     if (!viewer || host.capabilities?.management !== 1) throw new Error('Update this browser host to manage its profiles and sessions.')
     let key = host.id + ':' + host.generation
     if (management.current?.viewer === viewer && management.current.key === key) return management.current.ready

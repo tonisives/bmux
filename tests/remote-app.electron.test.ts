@@ -13,7 +13,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-companion-test-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let page: Page | undefined
-  let host = { id: 'fixture-host', service: 'Research computer', generation: 'runtime-current', permission: 'control', key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', panes: [{ id: 'pane-primary', title: 'Example page' }, { id: 'pane-secondary', title: 'Second page' }] }] }
+  let host = { id: 'fixture-host', service: 'Research computer', generation: 'runtime-current', permission: 'control', owner: false as boolean | undefined, capabilities: { management: 1, sessionCreate: 1, profiles: 1, proxy: 1, pageCreate: 1 }, key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', panes: [{ id: 'pane-primary', title: 'Example page' }, { id: 'pane-secondary', title: 'Second page' }] }] }
   let views = [{ connection: 'other-view', host: host.id, generation: host.generation, pane: 'other-pane' }]
   let signedIn = false
   let attentionGeneration = host.generation
@@ -144,6 +144,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Research computer', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Included browser', exact: true })).toHaveCount(0)
     await expect(page.getByText('Included browser', { exact: true })).toHaveCount(0)
     let sessionRow = await page.getByRole('button', { name: 'Open Research', exact: true }).boundingBox()
@@ -160,6 +161,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByText('Browser operator', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Profiles', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
     await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
     await expect(page.getByText('1 / 2', { exact: true })).toBeVisible()
@@ -199,6 +201,13 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     expect(signals.filter(message => message.type === 'open')).toHaveLength(3)
     await page.screenshot({ path: info.outputPath('companion-stale-attention.png') })
+    for (let owner of [true, undefined]) {
+      host.owner = owner
+      await page.reload()
+      await expect(page.getByRole('button', { name: 'New session', exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Profiles', exact: true })).toBeVisible()
+    }
   } finally {
     if (page && info.status !== info.expectedStatus) {
       await page.screenshot({ path: info.outputPath('companion-failure.png') }).catch(() => {})

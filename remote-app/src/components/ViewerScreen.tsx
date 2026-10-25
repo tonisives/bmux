@@ -5,6 +5,7 @@ import { useRemote } from '../RemoteContext'
 import { colors, styles } from '../theme'
 import { fitViewport } from '../viewport'
 import { browserAddress } from '../address'
+import { canManageHost } from '../host-access'
 import { useCompactHeight } from '../useSplitView'
 import type { Frame } from '../viewport'
 import { BrowserSurface } from './BrowserSurface'
@@ -94,8 +95,8 @@ export let ViewerScreen = () => {
         <Button title="Forward" onPress={() => command('forward')} />
         <Button title="Reload" onPress={() => command('reload')} />
         <Button title="Address" onPress={() => { setText(pane?.url ?? ''); setInputMode('address') }} />
-        {host?.capabilities?.pageCreate === 1 && !!session?.revision && <Button title="New page" onPress={() => setNewPage(true)} />}
-        {host?.capabilities?.proxy === 1 && !!session?.revision && !!pane?.profileId && <Button title="Connection" onPress={() => setConnection(true)} />}
+        {canManageHost(host) && host.capabilities?.pageCreate === 1 && !!session?.revision && <Button title="New page" onPress={() => setNewPage(true)} />}
+        {canManageHost(host) && host.capabilities?.proxy === 1 && !!session?.revision && !!pane?.profileId && <Button title="Connection" onPress={() => setConnection(true)} />}
         <Button title="Keyboard" onPress={() => { setText(''); setInputMode('text') }} />
         <Button title="Paste" onPress={() => void action(async () => { let text = await Clipboard.getStringAsync(); if (text) remote.viewer?.send({ type: 'text', generation: lease?.generation, text }) })} />
         <Button title="Enter" onPress={() => key('Enter')} />
