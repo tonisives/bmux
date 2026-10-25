@@ -324,6 +324,10 @@ test('automation and permission notices identify agent panes while personal brow
     for (let index = 1; index < segments.length; index++) expect(segments[index]!.x).toBe(segments[index - 1]!.x + segments[index - 1]!.width)
     let paneLink = alert.getByRole('button', { name: `Go to pane agents:2 · ${first.id} (%45)`, exact: true })
     expect(await paneLink.getAttribute('class')).toBe(await research.getAttribute('class'))
+    let paneBounds = (await paneLink.boundingBox())!, agentBounds = (await research.boundingBox())!
+    expect(paneBounds.height).toBe(24)
+    expect(agentBounds.height).toBe(paneBounds.height)
+    expect(segments.every(segment => segment!.height === 22)).toBe(true)
     expect(await paneLink.locator('svg[data-bmux-icon]').evaluate(icon => [getComputedStyle(icon).fill, getComputedStyle(icon).stroke, icon.getBoundingClientRect().width])).toEqual(await infoButton.locator('svg').evaluate(icon => [getComputedStyle(icon).fill, getComputedStyle(icon).stroke, icon.getBoundingClientRect().width]))
     await focusButton.click()
     await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['%45', '$7', '%145'])
