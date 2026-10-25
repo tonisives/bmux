@@ -2020,7 +2020,7 @@ let SessionTreeView = ({ id, name, query, heading, handle, headingProps, remote,
   let toggleMouse = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof HTMLElement && event.target.closest('[role="alertdialog"]')) return; event.preventDefault(); toggle() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey || !(event.target instanceof HTMLElement) || event.target.closest('input, [role="alertdialog"], [data-picker-action]:not([data-session-toggle])') || !['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
-    event.preventDefault(); event.stopPropagation(); changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
+    event.preventDefault(); changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
   }
   return <div ref={ref} data-session-tree={id} data-remote-tree={remote ? id : undefined} onKeyDown={keys} onContextMenu={toggleMouse}>
     <div className={css.sessionTreeHeading} data-session-heading={id} {...headingProps}>{handle}<div className={css.sessionTreeHeader}>
@@ -2170,7 +2170,7 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
   let remoteKeys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!event.nativeEvent.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'g' && event.target instanceof HTMLElement && !event.target.closest('input, select, [role="alertdialog"]')) { event.preventDefault(); open('relay'); return }
     if (event.key === 'Escape' && event.target === input.current && !query && !sessions.length) { event.preventDefault(); event.stopPropagation(); dismiss(); return }
-    if (!event.altKey && !event.ctrlKey && !event.metaKey && event.target instanceof HTMLElement && !event.target.closest('input, [role="alertdialog"]') && ['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    if (!event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && event.target instanceof HTMLElement && !event.target.closest('input, [role="alertdialog"]') && ['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
       let group = event.target.closest<HTMLElement>('[data-remote-machine]'), host = group?.dataset.remoteMachine
       if (host) { event.preventDefault(); let close = event.key === 'h' || event.key === 'ArrowLeft'; if (close) group?.querySelector<HTMLButtonElement>('[data-machine-toggle]')?.focus(); setCollapsed(values => close ? [...new Set([...values, host])] : values.filter(value => value !== host)); return }
     }

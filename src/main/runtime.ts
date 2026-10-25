@@ -1984,7 +1984,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     updateRemoteMenu()
     clickMode.cancel(); doubleTap.reset(); repairClients()
     for (let session of [...model.sessions]) if (session.ephemeral && !model.clients.some(client => client.sessionId === session.id)) removeSession(model, session)
-    for (let [clientId, workspace] of remoteWorkspaces) if (workspace.sessionId && !model.sessions.some(session => session.id === workspace.sessionId)) { remoteWorkspaces.delete(clientId); workspace.metadata.webContents.close({ waitForBeforeUnload: false }) }
+    for (let [clientId, workspace] of remoteWorkspaces) if (!model.clients.some(client => client.id === clientId) || workspace.sessionId && !model.sessions.some(session => session.id === workspace.sessionId)) { remoteWorkspaces.delete(clientId); workspace.metadata.webContents.close({ waitForBeforeUnload: false }) }
     save(); void scheduleVisuals()
   }
   let disconnectRemoteWorkspace = (clientId: string) => {
@@ -1999,7 +1999,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let openRemoteWorkspace = async (clientId: string, page: RemotePage) => {
     let client = resolve(model.clients, clientId, 'Client')
     let existing = remoteWorkspaces.get(clientId)
-    if (existing?.page.key === page.key && existing.sessionId) {
+    if (existing?.page.key === page.key && existing.page.view?.generation === page.view?.generation && existing.sessionId) {
       let pane = page.view?.pane && remoteWorkspaceId(clientId, 'pane', page.view.pane)
       if (pane) await execute({ method: 'select-pane', args: { client: clientId, pane } }, clientId)
       return
@@ -2013,7 +2013,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let initialized = false, timer: ReturnType<typeof setTimeout>
     let ready = new Promise<void>((resolveReady, reject) => {
       timer = setTimeout(() => { if (remoteWorkspaces.get(clientId) === workspace) disconnectRemoteWorkspace(clientId); reject(new Error('Remote session connection timed out')) }, 25000)
-      page.attach!(metadata.webContents, async () => { clearTimeout(timer); disconnectRemoteWorkspace(clientId); if (!initialized) reject(new Error('Remote session closed')) }, update => {
+      metadata.webContents.once('destroyed', () => { clearTimeout(timer); if (!initialized) reject(new Error('Remote session closed')) })
+      page.attach!(metadata.webContents, async () => { clearTimeout(timer); if (remoteWorkspaces.get(clientId) === workspace) disconnectRemoteWorkspace(clientId); if (!initialized) reject(new Error('Remote session closed')) }, update => {
         if (remoteWorkspaces.get(clientId) !== workspace) return
         page.view = { ...page.view!, ...update }
         if (!update.workspace) {
@@ -2059,7 +2060,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     metadata.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     metadata.webContents.on('will-navigate', event => event.preventDefault())
     let load = process.env.ELECTRON_RENDERER_URL ? metadata.webContents.loadURL(new URL('remote-client.html', process.env.ELECTRON_RENDERER_URL).href) : metadata.webContents.loadFile(path.join(import.meta.dirname, '../renderer/remote-client.html'))
-    try { await Promise.all([load, ready]) } catch (error) { clearTimeout(timer!); disconnectRemoteWorkspace(clientId); throw error }
+    try { await Promise.all([load, ready]) } catch (error) { clearTimeout(timer!); if (remoteWorkspaces.get(clientId) === workspace) disconnectRemoteWorkspace(clientId); throw error }
   }
   let openRemotePage = async (clientId: string, page: RemotePage) => {
     if (page.workspace && page.view && page.attach) return openRemoteWorkspace(clientId, page)
@@ -2088,6 +2089,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (reused && page.view?.pane) tabs.get(client.paneId)?.contents.send('remote-client-action', { type: 'switch', pane: page.view.pane } satisfies RemoteViewAction)
   }
   let openExternalLink = async (clientId: string, url: string) => {
+    disconnectRemoteWorkspace(clientId)
     let client = resolve(model.clients, clientId, 'Client')
     let target = latestLocalSession(model, client)
     if (!target) { target = newSession('main', model.profiles[0].id, false, model); model.sessions.push(target) }
@@ -2282,6 +2284,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       : typeof args.window === 'string' ? model.sessions.find(session => session.windows.some(window => window.id === args.window))
       : typeof args.session === 'string' ? model.sessions.find(session => session.id === args.session)
       : sourceClient ? model.sessions.find(session => session.id === sourceClient.sessionId) : undefined
+    if (sourceClient && (method === 'switch-client' && target && !target.remote || method === 'new-session' && args.workspace === 'local')) disconnectRemoteWorkspace(sourceClient.id)
     if (remoteWorkspaceMutation(method) && !(method === 'new-session' && args.workspace === 'local') && (target?.remote || remoteWorkspaceTargets(model, args).length || sourceClient && model.sessions.some(session => session.id === sourceClient.sessionId && session.remote))) throw new Error('This command is unavailable in remote view')
     if (target?.remote && (!sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method))) throw new Error('This command is unavailable in remote view')
     if (target?.remote && sourceClientId && target.remote.clientId !== sourceClientId && !['status', 'list-windows', 'list-panes'].includes(method)) throw new Error('Select the remote session in this client first')

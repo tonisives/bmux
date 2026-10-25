@@ -464,6 +464,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await focusControls()
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await local.getByRole('button', { name: 'Release control', exact: true }).click()
+      await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeVisible()
       await local.getByRole('button', { name: 'Sessions', exact: true }).click()
       let remoteWindow = picker.locator(`[data-remote-pane="${disposablePane}"]`)
       await expect(remoteWindow.getByRole('button', { name: /^Close remote page / })).toHaveCount(0)

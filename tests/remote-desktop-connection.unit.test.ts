@@ -11,7 +11,7 @@ vi.mock('ws', async () => {
     static OPEN = 1
     readyState = 1
     sent: any[] = []
-    constructor() { super(); sockets.push(this); queueMicrotask(() => this.emit('open')) }
+    constructor(public url: URL, public options: { origin: string }) { super(); sockets.push(this); queueMicrotask(() => this.emit('open')) }
     send(data: string) { this.sent.push(JSON.parse(data)) }
     close() { this.readyState = 3; this.emit('close') }
   }
@@ -29,6 +29,7 @@ it('shares one signaling socket and identity, scopes peer signals and releases e
   let result = await Promise.all([group.open(), group.open(), group.open()])
   expect(connect).toHaveBeenCalledOnce()
   expect(sockets).toHaveLength(1)
+  expect(sockets[0].options.origin).toBe('file://')
   expect(result.every(value => value.ticket === 'desktop')).toBe(true)
   let envelope = group.seal(first, { type: 'open', view: 'spoofed', pane: 'pane' })
   expect(JSON.parse(envelope.payload)).toMatchObject({ view: 'pane:2', type: 'open' })

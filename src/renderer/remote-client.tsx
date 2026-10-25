@@ -98,6 +98,7 @@ let App = () => {
   useEffect(() => {
     if (!viewer || !selection || watching.current) return
     let host = hosts.find(item => item.id === selection.host.id)
+    if (host && host.generation !== selection.host.generation) { void bridge.close().catch(() => undefined); return }
     let session = host?.sessions.find(item => item.id === selection.session)
     if (!host || !session?.panes[0]) return
     watching.current = true

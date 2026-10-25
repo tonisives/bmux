@@ -16,7 +16,7 @@ export let createRemoteDesktopConnection = (origin: string, host: Host, connect:
     pending = connect(identity.publicKey).then(async result => {
       if (closed) throw new Error('Remote view closed')
       let url = new URL('/connect', origin); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('ticket', result.ticket)
-      let current = new WebSocket(url, { maxPayload: 262144, handshakeTimeout: 10000 }); socket = current
+      let current = new WebSocket(url, { origin: 'file://', maxPayload: 262144, handshakeTimeout: 10000 }); socket = current
       current.on('error', () => undefined)
       current.on('message', raw => {
         if (socket !== current || closed) return

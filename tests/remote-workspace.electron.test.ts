@@ -79,5 +79,13 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await expect.poll(() => page.url()).toBe(`${url}?typed=1`)
     await expect(page.getByRole('heading')).toBeVisible()
     await info.attach('local-after-remote', { body: await page.screenshot(), contentType: 'image/png' })
+    await application.evaluate((_electron, client) => { let fixture = (globalThis as any).workspaceFixture; fixture.hold = true; (globalThis as any).pendingWorkspaceOpen = fixture.open(client).catch((error: Error) => error.message) }, local.id)
+    await expect.poll(() => application.evaluate(() => (globalThis as any).workspaceFixture.held.length)).toBe(1)
+    await application.evaluate(({ app }, url) => app.emit('open-url', { preventDefault() {} }, url), `${url}?during-connect=1`)
+    await expect.poll(async () => current(await state()).sessionId).toBe(local.sessionId)
+    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}?during-connect=1`)).toBe(true)
+    expect(await application.evaluate(() => (globalThis as any).pendingWorkspaceOpen)).toContain('closed')
+    await application.evaluate(() => (globalThis as any).workspaceFixture.flush())
+    expect(current(await state()).sessionId).toBe(local.sessionId)
   } finally { await closeTestApplication(application); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) }
 })
