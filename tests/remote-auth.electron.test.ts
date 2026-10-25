@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { WebSocketServer } from 'ws'
 import { closeTestApplication } from './electron-fixture'
 import { installDesktopWorkspaceFixture } from './desktop-workspace-fixture'
+import { createMobileAuth } from '../remote/mobile-auth'
 
 test.beforeAll(async () => {
   await promisify(execFile)(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--config', 'remote/vite.config.ts'], { timeout: 30000 })
@@ -24,6 +25,14 @@ test('remote web Account preserves Apple linking and the responsive session work
   let server = http.createServer((request, response) => {
     void (async () => {
       let url = new URL(request.url!, 'http://localhost'), route = url.pathname
+      if (route === '/expired-apple-link') {
+        response.writeHead(200, { 'Content-Type': 'text/html' })
+        response.end(`<form method="post" action="/api/auth/apple/callback"><input name="state" value="${'a'.repeat(64)}"><input name="code" value="expired-code"></form><script>document.querySelector('form').submit()</script>`); return
+      }
+      if (route === '/api/auth/apple/callback') {
+        let auth = createMobileAuth({ origin, googleClientId: 'fixture', pool: {}, revoked: () => {}, env: { BMUX_APPLE_CLIENT_ID: 'fixture', BMUX_APPLE_TEAM_ID: 'fixture', BMUX_APPLE_KEY_ID: 'fixture', BMUX_APPLE_PRIVATE_KEY: 'fixture' } } as unknown as Parameters<typeof createMobileAuth>[0])
+        await auth.route(request, response, new URL(request.url!, origin), async () => ({})); return
+      }
       if (route.startsWith('/api/')) {
         let result = route === '/api/auth/providers' ? providers
           : route === '/api/me' ? { owner: 'fixture-owner' }
@@ -105,6 +114,14 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByLabel('Remote browser')).toHaveCount(0)
     await expect(row).not.toHaveAttribute('aria-current', 'true')
     await info.attach('remote-web-portrait', { body: await page.screenshot(), contentType: 'image/png' })
+    await resize(1280, 800)
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    await address.fill(`${origin}/expired-apple-link`); await address.press('Enter')
+    await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/api/auth/apple/callback`)).toBe(true)
+    let expired = application.context().pages().find(page => page.url() === `${origin}/api/auth/apple/callback`)!
+    await expect(expired.getByRole('heading', { name: 'Apple sign-in expired', exact: true })).toBeVisible()
+    await expect(expired.getByRole('link', { name: 'Link Apple', exact: true })).toHaveAttribute('href', '/api/auth/providers/apple/link')
+    await info.attach('expired-apple-link', { body: await expired.screenshot(), contentType: 'image/png' })
   } finally {
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate()
