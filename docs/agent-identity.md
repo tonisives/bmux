@@ -4,6 +4,11 @@ BMUX identifies automation callers separately from the browser pane they control
 It shows their context in **Agent information** and can run a configured command
 to focus their terminal or application.
 
+After an agent interacts with a page, its address-bar button remains available
+after inactivity, manual browsing, and app restarts. The button shows the last
+agent's identifier and a compact interaction age using the same colors as other
+activity timestamps. Open it for the agent's details and exact interaction time.
+
 ## Identity payload
 
 For a configured `tmux` type, an agent payload looks like this:

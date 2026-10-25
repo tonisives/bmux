@@ -404,10 +404,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>, pane: Pane) => {
     if (currentPane(actor.paneId) !== pane) return
-    pane.lastUsedBy = 'agent'; save()
-    recordSessionActivity(actor.paneId)
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
-    updateAgentInfo(current, actor); current.lastUsed = Date.now(); activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
+    updateAgentInfo(current, actor); current.lastUsed = Date.now()
+    pane.lastUsedBy = 'agent'; pane.lastAgentInteraction = { ...structuredClone(agentInfo(current)), lastUsed: current.lastUsed }; save()
+    recordSessionActivity(actor.paneId)
+    activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
     scheduleUnlock(actor.paneId, current.lastUsed)
     let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && !agentInputLocked(current.paneId) && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
     expire.unref()
@@ -2386,7 +2387,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let { pane } = paneById(model, required(args, 'pane'))
       let agentId = required(args, 'agentId')
       let saved = automationSafety?.status().profiles.filter(usage => usage.profileId === pane.profileId).flatMap(usage => usage.actors ?? []).find(actor => actor.paneId === pane.id && actor.agentId === agentId)
-      let actor = agentRegistry.get(agentId) ?? (pane.agentId === agentId ? pane : saved)
+      let actor = agentRegistry.get(agentId) ?? (pane.agentId === agentId ? pane : pane.lastAgentInteraction?.agentId === agentId ? pane.lastAgentInteraction : saved)
       if (!actor) throw new Error('The agent in this browser pane has changed; reopen Agent information')
       if (JSON.stringify(args.agentOrigin ?? null) !== JSON.stringify(actor.agentOrigin ?? null)) throw new Error('The agent terminal in this browser pane has changed; reopen Agent information')
       return focusAgent(actor, configuration?.automation.agents ?? DEFAULT_AGENTS)
