@@ -38,7 +38,6 @@ import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatfor
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
-import bmuxIcon from './cdn/bmux-icon.png'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
 import galaxyFrame from './device-frames/galaxy-s24.png'
@@ -71,7 +70,7 @@ type AgentDetails = { paneId: string } | { actors: AutomationActor[] } | { windo
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -344,6 +343,13 @@ let automationProfilePauses = (state: PublicState, profileId: string) => (state.
   return !host || automationWarningEnabled(state.automationSafety!.limits, profileId, host) || state.model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.profileId === profileId && automationWarningEnabled(state.automationSafety!.limits, profileId, host, Date.now(), pane.id))))
 })
 
+let automationWarningLabels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
+
+let resumeAutomation = async (state: PublicState, run: UIContext['run'], paneId: string) => {
+  if (selection(state).pane?.id !== paneId && !await run('select-pane', { client: state.clientId, pane: paneId })) return
+  await run('automation.resume', { pane: paneId })
+}
+
 let automationWarningNotices = (state: PublicState, run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
@@ -358,7 +364,10 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && eligiblePanes.some(pane => automationWarningEnabled(limits, usage.profileId, host, Date.now(), pane.id))
-  if (usage.warning && host && warningEnabled) return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${usage.warning} on ${host}.`, paneLinks: paneLinks(host) }]
+  if (usage.warning && host && warningEnabled) {
+    let affectedPane = eligiblePanes.find(pane => automationWebsiteHost(pane.url)?.replace(/^www\./, '') === host.replace(/^www\./, ''))
+    return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${automationWarningLabels[usage.warning].toLowerCase()} on ${host}.`, detectedAt: usage.warningAt, actions: affectedPane ? [{ label: 'Resume automation', title: 'Check the website again and resume if the warning has cleared', run: () => { void resumeAutomation(state, run, affectedPane.id) } }] : [], paneLinks: paneLinks(host) }]
+  }
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
@@ -429,7 +438,11 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
   </div>
 }
 
-let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={`${css.notificationAction} ${css.notificationPaneLink}`} title={title} aria-label={title} onClick={run}><img className={css.bmuxIcon} src={bmuxIcon} alt="" data-bmux-icon /><span>{session}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></button>
+let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={css.notificationSegments} title={title} aria-label={title} onClick={run}>
+  <span className={css.notificationSegmentIcon}><svg viewBox="0 0 20 20" aria-hidden="true" data-bmux-icon><rect x="2" y="3" width="16" height="14" rx="1" /><path d="m5 7 3 3-3 3m5 0h5" /></svg></span>
+  <span className={css.notificationSegmentLabel}>{session}</span>
+  <span className={css.notificationSegmentIcon}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></span>
+</button>
 
 let AlertChevron = ({ collapsed = false }: { collapsed?: boolean }) => <svg className={css.alertChevron} viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'm4 6 4 4 4-4' : 'm4 10 4-4 4 4'} /></svg>
 let AgentStatusIcon = ({ locked = false }: { locked?: boolean }) => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg>
@@ -471,9 +484,9 @@ let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
     setFocusing(true)
     try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId, agentOrigin: actor.agentOrigin }) } finally { setFocusing(false) }
   }
-  return <span className={css.notificationAgent} role="group" aria-label={`Agent ${identifier.value}`}>
+  return <span className={css.notificationSegments} role="group" aria-label={`Agent ${identifier.value}`}>
     <AgentButton agents={[actor]} />
-    <span className={css.notificationAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>
+    <span className={css.notificationSegmentLabel} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>
     {definition?.focusCommand && <button type="button" aria-label="Focus agent" title={`Focus agent ${identifier.value}`} disabled={focusing} onClick={() => { void focus() }}><FocusAgentIcon /></button>}
   </span>
 }
@@ -491,7 +504,7 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
     {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
       {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
       {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
-      <span className={css.notificationText}>{notice.text}</span>
+      <span className={css.notificationText}>{notice.text}{notice.detectedAt !== undefined && <> <time dateTime={new Date(notice.detectedAt).toISOString()} title={`Detected ${new Date(notice.detectedAt).toLocaleString()}`}>Detected {new Date(notice.detectedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}.</time></>}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
       {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
@@ -2848,7 +2861,6 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
   if (!profile) return null
   let pauses = automationProfilePauses(state, profile.id)
   let profilePanes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).filter(pane => pane.profileId === profile.id)
-  let labels = { 'account-warning': 'Account warning', challenge: 'Verification required', 'rate-limit': 'Site rate limit' }
   let toggle = async (event: ChangeEvent<HTMLInputElement>) => {
     let next = event.target.checked
     setEnabled(next); setBusy(true)
@@ -2857,8 +2869,7 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
   let resume = async (paneId: string) => {
     setBusy(true)
     try {
-      if (selection(state).pane?.id !== paneId) await run('select-pane', { client: state.clientId, pane: paneId })
-      await run('automation.resume', { pane: paneId })
+      await resumeAutomation(state, run, paneId)
     } finally { setBusy(false) }
   }
   let resetSession = async (host?: string) => {
@@ -2882,7 +2893,7 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
         let resetWebsite = () => { void resetSession(usage.siteHost) }
         let resumeWarning = () => { if (affectedPane) void resume(affectedPane.id) }
         return <div key={host} role="group" aria-label={host}>
-          <div className={css.antiBotStatus} role="status"><span>{usage.warning ? `${labels[usage.warning]} on ${host}` : `${host} · Break ends at ${new Date(usage.retryAfter!).toLocaleTimeString()}`}</span>{cooldown && <button type="button" onClick={resetWebsite} disabled={busy}>Reset session</button>}{affectedPane && <button type="button" onClick={resumeWarning} disabled={busy}>Resume automation</button>}</div>
+          <div className={css.antiBotStatus} role="status"><span>{usage.warning ? `${automationWarningLabels[usage.warning]} on ${host}` : `${host} · Break ends at ${new Date(usage.retryAfter!).toLocaleTimeString()}`}</span>{cooldown && <button type="button" onClick={resetWebsite} disabled={busy}>Reset session</button>}{affectedPane && <button type="button" onClick={resumeWarning} disabled={busy}>Resume automation</button>}</div>
           {usage.warning && <p>Resolve the warning on the website, then resume automation.</p>}
         </div>
       })}

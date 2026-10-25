@@ -249,8 +249,9 @@ needed for these defaults:
 
 Human browser controls remain available. Session usage and warning pauses survive
 restarts. Account warning pauses apply to the profile across websites. Session limits apply only to their recorded website. Resolve the warning on
-the affected website manually, then use **Resume automation** in the Bot
-tab. The notice names the blocking website and provides links to affected
+the affected website manually, then use **Resume automation** in the alert or Bot
+tab. This checks the website again before clearing the pause. The notice names
+the blocking website, shows when the warning was detected, and provides links to affected
 automation panes, including their agent identifiers. The **Bot settings** row below the alerts holds the shared controls. Its gear
 opens shared agent requirements and a **Profile limits** list. Every profile is
 editable, including profiles with no open panes. Limits apply across agents using
@@ -284,8 +285,8 @@ Session minutes, break minutes, and social site delay are editable for the
 selected profile. Press Enter or leave the field to save. Changes apply
 immediately and preserve existing usage. Existing config values remain the
 defaults for profiles without overrides; editing one profile leaves others alone.
-The alert's X dismisses
-the current notice without changing checks or resuming automation. The CLI cannot resume a
+The alert's collapse button moves agent alerts into the status bar. **Show agent alerts**
+restores them without changing checks or resuming automation. The CLI cannot resume a
 warning pause or change these settings. Resuming does not clear session usage or
 bypass a cooldown.
 
@@ -293,10 +294,9 @@ Reaching the session limit shows a UI alert with the retry time. Wait for that
 time, or choose **Reset session** on the alert to end that website's break.
 **Reset all bot sessions** in the general row ends cooldowns across every profile.
 The profile's **Bot** tab lists each paused website with its own **Reset session**
-control. **Reset profile sessions** stays available there after alerts are dismissed
+control. **Reset profile sessions** stays available there after alerts are collapsed
 or expire. Reset sessions begin timing with their next admitted automation command
 or committed navigation. All resets keep account warnings and site exclusions. The CLI cannot reset a session.
-Dismissal hides the current alert without resetting the session.
 
 ```sh
 bmux automation safety
