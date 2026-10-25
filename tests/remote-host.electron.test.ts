@@ -203,6 +203,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await routedCheck
     await viewer.unroute('**/api/me')
     await expect(viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})).toBeVisible()
+    let library = viewer.getByRole('complementary', { name: 'Sessions', exact: true })
+    let preview = viewer.getByRole('region', { name: 'Session preview', exact: true })
+    let libraryBounds = await library.boundingBox(), previewBounds = await preview.boundingBox()
+    expect(libraryBounds).not.toBeNull(); expect(previewBounds).not.toBeNull()
+    expect(libraryBounds!.width).toBeLessThanOrEqual(340)
+    expect(libraryBounds!.x + libraryBounds!.width).toBeLessThanOrEqual(previewBounds!.x)
     // The host listing confirms enrollment. Identify this viewer before another
     // origin enrolls its own device, rather than selecting an arbitrary DB row.
     let viewerDevice = await viewer.evaluate(async()=>{
@@ -241,6 +247,14 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     let rowBounds = await sessionRow.boundingBox(), videoBounds = await viewer.getByLabel('Remote browser').boundingBox()
     expect(rowBounds).not.toBeNull(); expect(videoBounds).not.toBeNull()
     expect(rowBounds!.x + rowBounds!.width).toBeLessThan(videoBounds!.x)
+    await resizeViewer(844, 390)
+    await expect(sessionRow).toBeVisible()
+    await expect(viewer.getByLabel('Pane', { exact: true })).toBeVisible()
+    let landscapeRow = await sessionRow.boundingBox(), landscapeVideo = await viewer.getByLabel('Remote browser').boundingBox()
+    expect(landscapeRow!.x + landscapeRow!.width).toBeLessThan(landscapeVideo!.x)
+    expect(landscapeVideo!.height).toBeGreaterThan(200)
+    expect(landscapeVideo!.y + landscapeVideo!.height).toBeLessThanOrEqual(390)
+    expect(await viewer.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await resizeViewer(390)
     await expect(sessionRow).toBeHidden()
     await expect(viewer.getByRole('button',{name:'Sessions',exact:true})).toBeVisible()
@@ -251,7 +265,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByText('Controlling')).toBeVisible()
     await viewer.getByRole('button',{name:'Open address'}).click()
     await expect(viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'})).toBeFocused()
-    await viewer.getByRole('dialog',{name:'Open address'}).getByRole('button',{name:'Close'}).click()
+    await viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'}).fill(fixtureUrl)
+    await viewer.getByRole('dialog',{name:'Open address'}).getByRole('textbox',{name:'Address'}).press('Enter')
+    await expect(viewer.getByRole('dialog',{name:'Open address'})).not.toBeVisible()
+    await expect.poll(() => application!.context().pages().some(page => page.url() === fixtureUrl + '/')).toBe(true)
     let video = viewer.getByLabel('Remote browser')
     await video.scrollIntoViewIfNeeded()
     let videoPosition = (x: number, y: number) => video.evaluate((element, { x, y }) => {
@@ -540,7 +557,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(viewer.getByText('Sign in to see your sessions.')).toBeVisible()
       await expect(viewer.getByRole('button',{name:'Sign in with Google'})).toBeVisible()
       await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
-      await expect(viewer.getByText('AVAILABLE SESSIONS')).toHaveCount(0)
+      await expect(viewer.getByRole('complementary', { name: 'Sessions', exact: true })).toHaveCount(0)
     },{timeout:30000})
     failed = false
   } finally {
