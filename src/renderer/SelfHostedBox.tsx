@@ -38,7 +38,7 @@ export let SelfHostedBox = ({ enrollment, active, busy, create, revoke, close }:
     </form> : <>
       <strong>{enrollment.name}</strong>
       <p>Save this file. It contains your host's access key.</p>
-      <a className={styles.download} href={download || undefined} download="bmux-remote.json" aria-disabled={!download}>Download config</a>
+      <a className={styles.download} href={download || undefined} download={configFile(enrollment.service)} aria-disabled={!download}>Download config</a>
       <details className={styles.setup}><summary>Run with Docker</summary><p>Copy the config to your host, then run these commands in the same folder.</p><pre tabIndex={0}><code>{dockerSetup(enrollment.service)}</code></pre></details>
       <button onClick={revoke} disabled={busy}>Revoke key</button>
     </>}
@@ -46,10 +46,13 @@ export let SelfHostedBox = ({ enrollment, active, busy, create, revoke, close }:
   </section>
 }
 
+let configFile = (service: string) => `bmux-${service}.json`
 let dockerSetup = (service: string) => {
   let container = `bmux-${service}`, volume = `${container}-data`
-  return `chmod 600 bmux-remote.json
-git clone https://github.com/tonisives/bmux.git bmux-source
+  return `chmod 600 ${configFile(service)}
+if [ ! -d bmux-source/.git ]; then
+  git clone https://github.com/tonisives/bmux.git bmux-source
+fi
 docker build --target host -t bmux-host bmux-source
 docker volume create ${volume}
 docker run --rm -i --user 0 --entrypoint sh \\
@@ -58,7 +61,7 @@ docker run --rm -i --user 0 --entrypoint sh \\
   umask 077
   cat > /data/remote.json
   chown 1000:1000 /data/remote.json
-' < bmux-remote.json
+' < ${configFile(service)}
 docker run -d --name ${container} --hostname ${service} \\
   --restart unless-stopped --shm-size=256m \\
   --security-opt seccomp=bmux-source/containers/chromium-seccomp.json \\

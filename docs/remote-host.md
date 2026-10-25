@@ -34,6 +34,16 @@ size or keys starts a new order. Pending boxes offer **Resume checkout** and
 show installation progress. A ready box offers **Open box** to watch its first
 available session. Live purchases follow the service's billing availability.
 
+Choose **Self-hosted** in Add box to run the open-source host on your own machine.
+Name the box, create its host config, and download the JSON file. **Run with
+Docker** gives the setup commands, including a separate container and persistent
+data volume for that box. Copy the config to the host before running them. The
+machine appears in Remote after it connects. **Revoke key** disconnects hosts
+using that config.
+
+On desktop, **Connect this computer** also connects the running bmux app without
+restarting it. Self-hosted machines use your current relay.
+
 Remote uses the same session/window rows, branch lines and chevrons as Local.
 Each colored machine row identifies one running bmux host, followed by its
 sessions and numbered windows. A relay service can contain several machines. Click a

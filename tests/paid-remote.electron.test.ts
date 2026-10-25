@@ -190,8 +190,11 @@ test('paid remote account connects a running computer and opens regional box che
     await selfHosted.getByRole('textbox',{name:'Box name',exact:true}).fill('My Linux box')
     await expect(selfHosted.getByRole('button',{name:'Create host config'})).toBeEnabled()
     await selfHosted.getByRole('button',{name:'Create host config'}).click()
+    let selfHostedService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
+    expect(selfHostedService).toMatch(/^my-linux-box-[a-f0-9]{8}$/)
     let download = selfHosted.getByRole('link',{name:'Download config',exact:true})
     await expect(download).toHaveAttribute('href',/^blob:/)
+    await expect(download).toHaveAttribute('download',`bmux-${selfHostedService}.json`)
     await expect(selfHosted).not.toContainText('a'.repeat(64))
     let hostConfig = path.join(directory,'self-hosted.json')
     await application.evaluate(({session},destination) => {
@@ -209,8 +212,6 @@ test('paid remote account connects a running computer and opens regional box che
     await expect(selfHosted.locator('pre')).toContainText('chown 1000:1000 /data/remote.json')
     await expect(selfHosted.locator('pre')).toContainText('--security-opt seccomp=')
     await expect(selfHosted.locator('pre')).not.toContainText('a'.repeat(64))
-    let selfHostedService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
-    expect(selfHostedService).toMatch(/^my-linux-box-[a-f0-9]{8}$/)
     await expect(selfHosted.locator('pre')).toContainText(`docker volume create bmux-${selfHostedService}-data`)
     await expect(selfHosted.locator('pre')).toContainText(`--name bmux-${selfHostedService} --hostname ${selfHostedService}`)
     await selfHosted.getByRole('button',{name:'Revoke key',exact:true}).click()
